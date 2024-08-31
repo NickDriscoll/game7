@@ -1,0 +1,6 @@
+[submodule "odin-vma"]
+	path = odin-vma
+	url = git@github.com:Capati/odin-vma.git
+[submodule "desktop_vulkan_wrapper"]
+	path = desktop_vulkan_wrapper
+	url = git@github.com:NickDriscoll/desktop_vulkan_wrapper.git
