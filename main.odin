@@ -2,13 +2,13 @@ package main
 
 import "core:fmt"
 import "vendor:sdl2"
-//import vk "desktop_vulkan_wrapper"
-import vk "../desktop_vulkan_wrapper"
+import vk "desktop_vulkan_wrapper"
 
 main :: proc() {
 
     // Initialize SDL2
-    //sdl2.Init({sdl2.InitFlag.EVENTS, sdl2.InitFlag.VIDEO})
+    sdl2.Init({sdl2.InitFlag.EVENTS, sdl2.InitFlag.VIDEO})
+    defer sdl2.Quit()
     fmt.println("Initialized SDL2")
 
     // Make window
