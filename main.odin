@@ -1,10 +1,17 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "vendor:sdl2"
-import vk "desktop_vulkan_wrapper"
+import vkw "desktop_vulkan_wrapper"
 
 main :: proc() {
+    // Parse command-line arguments
+
+    
+    // Set up Odin context
+    context.logger = log.create_console_logger(.Debug)
+    //context.logger = log.create_console_logger(.Info)
 
     // Initialize SDL2
     sdl2.Init({sdl2.InitFlag.EVENTS, sdl2.InitFlag.VIDEO})
@@ -17,8 +24,12 @@ main :: proc() {
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize graphics device
-    init_params := vk.Init_Parameters {}
-    vgd := vk.vulkan_init(&init_params)
+    init_params := vkw.Init_Parameters {
+        frames_in_flight = 2,
+        window_support = true
+    }
+    vgd := vkw.vulkan_init(&init_params)
+    log.debugf("%#v", vgd)
 
     do_main_loop := true
     for do_main_loop {
