@@ -28,9 +28,10 @@ main :: proc() {
         frames_in_flight = 2,
         window_support = true
     }
-    vgd := vkw.vulkan_init(&init_params)
+    vgd := vkw.create_graphics_device(&init_params)
     log.debugf("%#v", vgd)
 
+    log.info("App initialization complete")
     do_main_loop := true
     for do_main_loop {
         // Process system events
@@ -41,6 +42,10 @@ main :: proc() {
                 if event.key.keysym.sym == .ESCAPE do do_main_loop = false
             }
         }
+
+        // Update
+
+        // Render
     }
 
     fmt.println("Returning from main()")
