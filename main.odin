@@ -18,11 +18,11 @@ main :: proc() {
     defer sdl2.Quit()
     fmt.println("Initialized SDL2")
 
-    // Make window
-    sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
-    sdl_window := sdl2.CreateWindow("every morning when I wake up it hits me that i work at LunarG", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, 800, 600, sdl_windowflags)
-    defer sdl2.DestroyWindow(sdl_window)
-
+    // Use SDL2 to load Vulkan
+    if sdl2.Vulkan_LoadLibrary(nil) != 0 {
+        log.fatal("Couldn't load Vulkan library.")
+    }
+    
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
         frames_in_flight = 2,
@@ -30,6 +30,16 @@ main :: proc() {
     }
     vgd := vkw.create_graphics_device(&init_params)
     log.debugf("%#v", vgd)
+    
+    // Make window
+    sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
+    sdl_window := sdl2.CreateWindow("every morning when I wake up it hits me that i work at LunarG", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, 800, 600, sdl_windowflags)
+    defer sdl2.DestroyWindow(sdl_window)
+
+    // Initialize the state required for rendering to the window
+    {
+        vkw.init_sdl2_surface(&vgd, sdl_window)
+    }
 
     log.info("App initialization complete")
     do_main_loop := true
@@ -45,7 +55,14 @@ main :: proc() {
 
         // Update
 
+        //vkw.draw_meshes()
+        //vkw.draw_meshes()
+
         // Render
+
+        //frame_data := vkw.start_frame()
+
+
     }
 
     fmt.println("Returning from main()")
