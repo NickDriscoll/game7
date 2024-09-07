@@ -40,15 +40,16 @@ main :: proc() {
     
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
+        api_version = .Vulkan12,
         frames_in_flight = 2,
         window_support = true
     }
-    vgd := vkw.create_graphics_device(&init_params)
+    vgd := vkw.init_graphics_device(&init_params)
     log.debugf("%#v", vgd)
     
     // Make window
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
-    sdl_window := sdl2.CreateWindow("tghdfc", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, 800, 600, sdl_windowflags)
+    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, 800, 600, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize the state required for rendering to the window
@@ -56,11 +57,6 @@ main :: proc() {
         if !vkw.init_sdl2_surface(&vgd, sdl_window) {
             log.fatal("Couldn't init SDL2 surface.")
         }
-    }
-
-    // Renderpass creation
-    {
-        
     }
     
     // Pipeline creation
@@ -85,6 +81,8 @@ main :: proc() {
         // Update
 
         // Render
+
+        vkw.tick_deletion_queues(&vgd)
 
         /*
         gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
