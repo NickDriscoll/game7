@@ -58,12 +58,23 @@ main :: proc() {
             log.fatal("Couldn't init SDL2 surface.")
         }
     }
-    
+
     // Pipeline creation
     {
         // pipeline_info := vkw.PipelineInfo {
 
         // }
+    }
+
+    // Create buffer
+    {
+        info := vkw.Buffer_Info {
+            size = 64,
+            usage = {.INDEX_BUFFER},
+            queue_family = .Graphics,
+            required_flags = {.DEVICE_LOCAL}
+        }
+        vkw.create_buffer(&vgd, &info)
     }
 
     log.info("App initialization complete")
