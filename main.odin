@@ -114,7 +114,7 @@ main :: proc() {
 
         vkw.tick_deletion_queues(&vgd)
 
-        // Represents what this frame's queue submit will wait on and signal
+        // Represents what this frame's gfx command buffer will wait on and signal
         gfx_sync_info: vkw.Sync_Info
         defer vkw.delete_sync_info(&gfx_sync_info)
         
@@ -122,6 +122,15 @@ main :: proc() {
         append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
             semaphore = gfx_timeline,
             value = vgd.frame_count + 1
+        })
+
+        // Wait on swapchain image acquire semaphore
+        // and signal when we're done drawing on a different semaphore
+        append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
+        })
+        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+            semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
         })
 
         cpu_sync: vkw.Semaphore_Op
@@ -139,11 +148,13 @@ main :: proc() {
             cpu_sync.value = frame_to_wait_on
         }
 
-        
+        swapchain_image_idx: u32
+        vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
+
         gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
 
         framebuffer: vkw.Framebuffer
-        framebuffer.color_image_views[0] = vgd.swapchain_images[gfx_cb_idx]
+        framebuffer.color_image_views[0] = vgd.swapchain_images[swapchain_image_idx]
         framebuffer.resolution.x = u32(resolution.x)
         framebuffer.resolution.y = u32(resolution.y)
         vkw.begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
@@ -155,8 +166,9 @@ main :: proc() {
         */
         vkw.end_render_pass(&vgd, gfx_cb_idx)
         vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
+        vkw.present_swapchain_image(&vgd, swapchain_image_idx)
 
-
+        vgd.frame_count += 1
     }
 
     log.info("Returning from main()")
