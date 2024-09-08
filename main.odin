@@ -66,6 +66,16 @@ main :: proc() {
         // }
     }
 
+    // Create main timeline semaphore
+    gfx_timeline: vkw.Semaphore_Handle
+    {
+        info := vkw.Semaphore_Info {
+            type = .TIMELINE,
+            init_value = 0
+        }
+        gfx_timeline = vkw.create_semaphore(&vgd, &info)
+    }
+
     // Create buffer
     {
         info := vkw.Buffer_Info {
@@ -84,8 +94,14 @@ main :: proc() {
         {
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
-                if event.type == .QUIT do do_main_loop = false
-                if event.key.keysym.sym == .ESCAPE do do_main_loop = false
+                #partial switch event.type {
+                    case .QUIT: do_main_loop = false
+                    case .KEYDOWN: {
+                        #partial switch event.key.keysym.sym {
+                            case .ESCAPE: do_main_loop = false
+                        }
+                    }
+                }
             }
         }
 
@@ -95,16 +111,41 @@ main :: proc() {
 
         vkw.tick_deletion_queues(&vgd)
 
+        sync_info: vkw.Sync_Info
+        defer vkw.delete_sync_info(&sync_info)
+        
+        // Increment timeline semaphore upon command buffer completion
+        append(&sync_info.signal_ops, vkw.Semaphore_Op {
+            semaphore = gfx_timeline,
+            value = vgd.frame_count + 1
+        })
+
+        cpu_sync: vkw.Semaphore_Op
+        if vgd.frame_count >= u64(vgd.frames_in_flight) {
+            // Wait on timeline semaphore before starting command buffer execution
+            frame_to_wait_on := vgd.frame_count - u64(vgd.frames_in_flight) + 1
+            append(&sync_info.wait_ops, vkw.Semaphore_Op {
+                semaphore = gfx_timeline,
+                value = frame_to_wait_on
+            })
+
+            // Sync on the CPU-side so that it doesn't get too far ahead
+            // of the GPU
+            cpu_sync.semaphore = gfx_timeline
+            cpu_sync.value = frame_to_wait_on
+        }
+
+        
+        gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
         /*
-        gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
         vkw.begin_render_pass(renderpass_handle)
         vkw.write_buffer_elems()
         vkw.draw_indirect()
         vkw.end_render_pass()
 
-        vkw.submit_gfx_command_buffer(vgd, gfx_cb_idx)
         */
+        vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &sync_info)
 
 
     }
