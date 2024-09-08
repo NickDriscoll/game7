@@ -48,13 +48,16 @@ main :: proc() {
     log.debugf("%#v", vgd)
     
     // Make window
+    resolution: vkw.int2
+    resolution.x = 800
+    resolution.y = 600
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
-    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, 800, 600, sdl_windowflags)
+    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize the state required for rendering to the window
     {
-        if !vkw.init_sdl2_surface(&vgd, sdl_window) {
+        if !vkw.init_sdl2_window(&vgd, sdl_window) {
             log.fatal("Couldn't init SDL2 surface.")
         }
     }
@@ -111,11 +114,12 @@ main :: proc() {
 
         vkw.tick_deletion_queues(&vgd)
 
-        sync_info: vkw.Sync_Info
-        defer vkw.delete_sync_info(&sync_info)
+        // Represents what this frame's queue submit will wait on and signal
+        gfx_sync_info: vkw.Sync_Info
+        defer vkw.delete_sync_info(&gfx_sync_info)
         
         // Increment timeline semaphore upon command buffer completion
-        append(&sync_info.signal_ops, vkw.Semaphore_Op {
+        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
             semaphore = gfx_timeline,
             value = vgd.frame_count + 1
         })
@@ -124,7 +128,7 @@ main :: proc() {
         if vgd.frame_count >= u64(vgd.frames_in_flight) {
             // Wait on timeline semaphore before starting command buffer execution
             frame_to_wait_on := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-            append(&sync_info.wait_ops, vkw.Semaphore_Op {
+            append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
                 semaphore = gfx_timeline,
                 value = frame_to_wait_on
             })
@@ -137,15 +141,20 @@ main :: proc() {
 
         
         gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
+
+        framebuffer: vkw.Framebuffer
+        framebuffer.color_image_views[0] = vgd.swapchain_images[gfx_cb_idx]
+        framebuffer.resolution.x = u32(resolution.x)
+        framebuffer.resolution.y = u32(resolution.y)
+        vkw.begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
         /*
 
-        vkw.begin_render_pass(renderpass_handle)
         vkw.write_buffer_elems()
         vkw.draw_indirect()
-        vkw.end_render_pass()
-
+        
         */
-        vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &sync_info)
+        vkw.end_render_pass(&vgd, gfx_cb_idx)
+        vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
 
 
     }
