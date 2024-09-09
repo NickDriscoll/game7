@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "vendor:sdl2"
+import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
 main :: proc() {
@@ -124,15 +125,6 @@ main :: proc() {
             value = vgd.frame_count + 1
         })
 
-        // Wait on swapchain image acquire semaphore
-        // and signal when we're done drawing on a different semaphore
-        append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-            semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
-        })
-        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-            semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
-        })
-
         cpu_sync: vkw.Semaphore_Op
         if vgd.frame_count >= u64(vgd.frames_in_flight) {
             // Wait on timeline semaphore before starting command buffer execution
@@ -148,23 +140,79 @@ main :: proc() {
             cpu_sync.value = frame_to_wait_on
         }
 
-        swapchain_image_idx: u32
-        vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
-
         gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
 
+        swapchain_image_idx: u32
+        vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
+        swapchain_image_handle := vgd.swapchain_images[swapchain_image_idx]
+
+        // Wait on swapchain image acquire semaphore
+        // and signal when we're done drawing on a different semaphore
+        append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
+        })
+        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+            semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
+        })
+
+        // Memory barrier between image acquire and rendering
+        vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+            vkw.Image_Barrier {
+                src_stage_mask = {.ALL_COMMANDS},
+                src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                dst_stage_mask = {.ALL_COMMANDS},
+                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                old_layout = .UNDEFINED,
+                new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                src_queue_family = vgd.gfx_queue_family,
+                dst_queue_family = vgd.gfx_queue_family,
+                image_handle = swapchain_image_handle,
+                subresource_range = vk.ImageSubresourceRange {
+                    aspectMask = {.COLOR},
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
+            }
+        })
+
+
         framebuffer: vkw.Framebuffer
-        framebuffer.color_image_views[0] = vgd.swapchain_images[swapchain_image_idx]
+        framebuffer.color_image_views[0] = swapchain_image_handle
         framebuffer.resolution.x = u32(resolution.x)
         framebuffer.resolution.y = u32(resolution.y)
-        vkw.begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
+        vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
         /*
 
         vkw.write_buffer_elems()
         vkw.draw_indirect()
         
         */
-        vkw.end_render_pass(&vgd, gfx_cb_idx)
+        vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
+
+        // Memory barrier between rendering and image present
+        vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+            vkw.Image_Barrier {
+                src_stage_mask = {.ALL_COMMANDS},
+                src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                dst_stage_mask = {.ALL_COMMANDS},
+                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                old_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                new_layout = .PRESENT_SRC_KHR,
+                src_queue_family = vgd.gfx_queue_family,
+                dst_queue_family = vgd.gfx_queue_family,
+                image_handle = swapchain_image_handle,
+                subresource_range = vk.ImageSubresourceRange {
+                    aspectMask = {.COLOR},
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
+            }
+        })
+
         vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
         vkw.present_swapchain_image(&vgd, swapchain_image_idx)
 
