@@ -163,9 +163,9 @@ main :: proc() {
         vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
             vkw.Image_Barrier {
                 src_stage_mask = {.ALL_COMMANDS},
-                src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
-                dst_stage_mask = {.ALL_COMMANDS},
-                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                src_access_mask = {.MEMORY_READ},
+                dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                dst_access_mask = {.MEMORY_WRITE},
                 old_layout = .UNDEFINED,
                 new_layout = .COLOR_ATTACHMENT_OPTIMAL,
                 src_queue_family = vgd.gfx_queue_family,
@@ -198,10 +198,10 @@ main :: proc() {
         // Memory barrier between rendering and image present
         vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
             vkw.Image_Barrier {
-                src_stage_mask = {.ALL_COMMANDS},
-                src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                src_access_mask = {.MEMORY_WRITE},
                 dst_stage_mask = {.ALL_COMMANDS},
-                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                dst_access_mask = {.MEMORY_READ},
                 old_layout = .COLOR_ATTACHMENT_OPTIMAL,
                 new_layout = .PRESENT_SRC_KHR,
                 src_queue_family = vgd.gfx_queue_family,
