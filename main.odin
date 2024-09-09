@@ -81,6 +81,7 @@ main :: proc() {
     }
 
     // Create buffer
+    test_buffer: vkw.Buffer_Handle
     {
         info := vkw.Buffer_Info {
             size = 64,
@@ -88,7 +89,7 @@ main :: proc() {
             queue_family = .Graphics,
             required_flags = {.DEVICE_LOCAL}
         }
-        vkw.create_buffer(&vgd, &info)
+        test_buffer = vkw.create_buffer(&vgd, &info)
     }
 
     log.info("App initialization complete")
@@ -139,6 +140,9 @@ main :: proc() {
             cpu_sync.semaphore = gfx_timeline
             cpu_sync.value = frame_to_wait_on
         }
+
+        // Buffer delete
+        vkw.delete_buffer(&vgd, test_buffer)
 
         gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
 
