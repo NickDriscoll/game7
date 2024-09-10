@@ -1,4 +1,3 @@
 @echo off
 
-del game7.exe
-odin build .
+odin run .\win_build.odin -file

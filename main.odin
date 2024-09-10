@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:os"
 import "vendor:sdl2"
 import vk "vendor:vulkan"
@@ -30,9 +31,14 @@ main :: proc() {
     context.logger = log.create_console_logger(log_level)
 
     // Initialize SDL2
-    sdl2.Init({sdl2.InitFlag.EVENTS, sdl2.InitFlag.VIDEO})
+    sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
     defer sdl2.Quit()
     log.info("Initialized SDL2")
+
+    // Open game controller input
+    player_one: ^sdl2.GameController
+    player_one = sdl2.GameControllerOpen(0)
+    defer sdl2.GameControllerClose(player_one)
 
     // Use SDL2 to load Vulkan
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
@@ -106,6 +112,9 @@ main :: proc() {
                             case .ESCAPE: do_main_loop = false
                         }
                     }
+                    case .CONTROLLERBUTTONDOWN: {
+                        fmt.println(event.cbutton.button)
+                    }
                 }
             }
         }
@@ -114,6 +123,7 @@ main :: proc() {
 
         // Render
 
+        // This has to be called once per frame
         vkw.tick_deletion_queues(&vgd)
 
         // Represents what this frame's gfx command buffer will wait on and signal
@@ -186,6 +196,8 @@ main :: proc() {
         framebuffer.color_image_views[0] = swapchain_image_handle
         framebuffer.resolution.x = u32(resolution.x)
         framebuffer.resolution.y = u32(resolution.y)
+        t := f32(vgd.frame_count) / 144.0
+        framebuffer.clear_color = {0.5*math.cos(t)+0.5, 0.0, 0.5*math.sin(t)+0.5, 1.0}
         vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
         /*
 
