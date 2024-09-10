@@ -1,4 +1,4 @@
-package main
+package build
 
 import "core:fmt"
 import "core:os"
@@ -34,5 +34,5 @@ main :: proc() {
 
     fmt.println("Waiting for slangc...")
     state, error2 := os2.process_wait(process)
-    
+
 }
