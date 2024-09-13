@@ -130,13 +130,7 @@ main :: proc() {
         }
         append(&processes, process)
     }
-
-    // Wait on all the spawned slangc processes
-    fmt.println("waiting...")
-    for p in processes {
-        _, _ = os2.process_wait(p)
-    }
-
+    
     // Invoke the odin compiler
     {
         odin_proc := os2.Process_Desc {
@@ -147,7 +141,13 @@ main :: proc() {
             fmt.printfln("%#v", error)
             return
         }
-        _, _ = os2.process_wait(process)
+        append(&processes, process)
+    }
+
+    // Wait on all the spawned processes
+    fmt.println("waiting...")
+    for p in processes {
+        _, _ = os2.process_wait(p)
     }
     
     fmt.println("Done!")
