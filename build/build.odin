@@ -26,6 +26,12 @@ COMPUTE_SHADERS : []string : {
 
 }
 
+when ODIN_DEBUG {
+    ODIN_COMMAND : []string : {"odin", "build", ".", "-debug"}
+} else {
+    ODIN_COMMAND : []string : {"odin", "build", "."}
+}
+
 main :: proc() {
     fmt.println("building program...")
 
@@ -129,6 +135,19 @@ main :: proc() {
     fmt.println("waiting...")
     for p in processes {
         _, _ = os2.process_wait(p)
+    }
+
+    // Invoke the odin compiler
+    {
+        odin_proc := os2.Process_Desc {
+            command = ODIN_COMMAND
+        }
+        process, error := os2.process_start(odin_proc)
+        if error != nil {
+            fmt.printfln("%#v", error)
+            return
+        }
+        _, _ = os2.process_wait(process)
     }
     
     fmt.println("Done!")
