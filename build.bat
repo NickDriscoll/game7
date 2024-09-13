@@ -1,3 +1,3 @@
 @echo off
 
-odin run .\build\win_build.odin -file
+odin run .\build\build.odin -file
