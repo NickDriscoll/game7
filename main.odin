@@ -70,10 +70,48 @@ main :: proc() {
     }
 
     // Pipeline creation
+    gfx_pipeline_handle: vkw.Pipeline_Handle
     {
-        // pipeline_info := vkw.PipelineInfo {
+        // Load shader bytecode
+        // This will be embedded into the executable at compile-time
+        vertex_spv := #load("data/shaders/test.vert.spv", []u32)
+        fragment_spv := #load("data/shaders/test.frag.spv", []u32)
 
-        // }
+        pipeline_info := vkw.Graphics_Pipeline_Info {
+            vertex_shader_bytecode = vertex_spv,
+            fragment_shader_bytecode = fragment_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false
+            },
+            rasterization_state = vkw.default_rasterization_state(),
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = 0,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = false,
+                do_depth_write = false,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 1.0,
+                max_depth_bounds = 0.0
+            },
+            colorblend_state = vkw.default_colorblend_state()
+        }
+
+        // handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
+        // defer delete(handles)
+
+        // gfx_pipeline_handle = handles[0]
     }
 
     // Create main timeline semaphore
