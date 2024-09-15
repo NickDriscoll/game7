@@ -14,13 +14,14 @@ main :: proc() {
     {
         argc := len(os.args)
         for arg, i in os.args {
-            if arg == "--log-level" {
+            if arg == "--log-level" || arg == "-l" {
                 if i + 1 < argc {
                     switch os.args[i + 1] {
                         case "DEBUG": log_level = .Debug
                         case "INFO": log_level = .Info
                         case "WARNING": log_level = .Warning
                         case "ERROR": log_level = .Error
+                        case "FATAL": log_level = .Fatal
                     }
                 }
             }
@@ -38,20 +39,22 @@ main :: proc() {
     // Open game controller input
     controller_one: ^sdl2.GameController
     defer if controller_one != nil do sdl2.GameControllerClose(controller_one)
-
-    // Use SDL2 to load Vulkan
-    // @TODO: Don't know if this call is actually required
+    
+    // Use SDL2 to dynamically link against the Vulkan loader
+    // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
         log.fatal("Couldn't load Vulkan library.")
     }
     
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
+        app_name = "Game7",
         api_version = .Vulkan12,
         frames_in_flight = 2,
-        window_support = true
+        window_support = true,
+        vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr()
     }
-    vgd := vkw.init_graphics_device(&init_params)
+    vgd := vkw.init_vulkan(&init_params)
     log.debugf("%#v", vgd)
     
     // Make window
@@ -102,16 +105,20 @@ main :: proc() {
                 do_stencil_test = false,
                 // front = nil,
                 // back = nil,
-                min_depth_bounds = 1.0,
-                max_depth_bounds = 0.0
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0
             },
-            colorblend_state = vkw.default_colorblend_state()
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
+                depth_attachment_format = nil
+            }
         }
 
-        // handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
-        // defer delete(handles)
+        handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
+        defer delete(handles)
 
-        // gfx_pipeline_handle = handles[0]
+        gfx_pipeline_handle = handles[0]
     }
 
     // Create main timeline semaphore
@@ -247,7 +254,7 @@ main :: proc() {
 
 
         framebuffer: vkw.Framebuffer
-        framebuffer.color_image_views[0] = swapchain_image_handle
+        framebuffer.color_images[0] = swapchain_image_handle
         framebuffer.resolution.x = u32(resolution.x)
         framebuffer.resolution.y = u32(resolution.y)
         t := f32(vgd.frame_count) / 144.0

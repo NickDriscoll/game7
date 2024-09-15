@@ -133,8 +133,15 @@ main :: proc() {
         }
         append(&processes, process)
     }
+
+    // Wait on the shader compilers
+    log.info("waiting on slangc...")
+    for p in processes {
+        _, _ = os2.process_wait(p)
+    }
     
     // Invoke the odin compiler
+    log.info("building main program...")
     {
         odin_proc := os2.Process_Desc {
             command = ODIN_COMMAND
@@ -144,14 +151,9 @@ main :: proc() {
             fmt.printfln("%#v", error)
             return
         }
-        append(&processes, process)
+        _, _ = os2.process_wait(process)
     }
 
-    // Wait on all the spawned processes
-    log.info("waiting...")
-    for p in processes {
-        _, _ = os2.process_wait(p)
-    }
     
     log.info("Done!")
 }

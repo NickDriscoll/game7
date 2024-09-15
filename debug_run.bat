@@ -1,5 +1,5 @@
 @echo off
 
 del game7.exe
-odin build . -debug
+odin run .\build\build.odin -file -debug
 .\game7.exe
