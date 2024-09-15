@@ -72,7 +72,7 @@ main :: proc() {
 
         process, error := os2.process_start(slangc_command)
         if error != nil {
-            fmt.printfln("%#v", error)
+            log.errorf("%#v", error)
             return
         }
         append(&processes, process)
@@ -100,7 +100,7 @@ main :: proc() {
 
         process, error := os2.process_start(slangc_command)
         if error != nil {
-            fmt.printfln("%#v", error)
+            log.errorf("%#v", error)
             return
         }
         append(&processes, process)
@@ -137,7 +137,12 @@ main :: proc() {
     // Wait on the shader compilers
     log.info("waiting on slangc...")
     for p in processes {
-        _, _ = os2.process_wait(p)
+        proc_state, _ := os2.process_wait(p)
+
+        if proc_state.exit_code != 0 {
+            log.errorf("slangc process with id %v exited with return code %v", proc_state.pid, proc_state.exit_code)
+            return
+        }
     }
     
     // Invoke the odin compiler
