@@ -1,5 +1,7 @@
 *.exe
 *.pdb
 *.rdbg
+.vscode/
 ols.json
 data/shaders
+game7

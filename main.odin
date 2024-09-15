@@ -49,7 +49,7 @@ main :: proc() {
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
         app_name = "Game7",
-        api_version = .Vulkan12,
+        api_version = .Vulkan13,
         frames_in_flight = 2,
         window_support = true,
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr()
@@ -260,12 +260,10 @@ main :: proc() {
         t := f32(vgd.frame_count) / 144.0
         framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
         vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
-        /*
-
-        vkw.write_buffer_elems()
-        vkw.draw_indirect()
         
-        */
+        vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
+        vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
+
         vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
 
         // Memory barrier between rendering and image present
