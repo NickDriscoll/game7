@@ -36,11 +36,11 @@ main :: proc() {
     log.info("Initialized SDL2")
 
     // Open game controller input
-    player_one: ^sdl2.GameController
-    player_one = sdl2.GameControllerOpen(0)
-    defer sdl2.GameControllerClose(player_one)
+    controller_one: ^sdl2.GameController
+    defer if controller_one != nil do sdl2.GameControllerClose(controller_one)
 
     // Use SDL2 to load Vulkan
+    // @TODO: Don't know if this call is actually required
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
         log.fatal("Couldn't load Vulkan library.")
     }
@@ -150,8 +150,24 @@ main :: proc() {
                             case .ESCAPE: do_main_loop = false
                         }
                     }
+                    case .CONTROLLERDEVICEADDED: {
+                        controller_idx := event.cdevice.which
+                        controller_one = sdl2.GameControllerOpen(controller_idx)
+                        log.debugf("Controller %v connected.", controller_idx)
+                    }
+                    case .CONTROLLERDEVICEREMOVED: {
+                        controller_idx := event.cdevice.which
+                        if controller_idx == 0 {
+                            sdl2.GameControllerClose(controller_one)
+                            controller_one = nil
+                        }
+                        log.debugf("Controller %v removed.", controller_idx)
+                    }
                     case .CONTROLLERBUTTONDOWN: {
-                        fmt.println(event.cbutton.button)
+                        fmt.println(sdl2.GameControllerGetStringForButton(sdl2.GameControllerButton(event.cbutton.button)))
+                        if sdl2.GameControllerRumble(controller_one, 0xFFFF, 0xFFFF, 500) != 0 {
+                            log.error("Rumble not supported!")
+                        }
                     }
                 }
             }
@@ -235,7 +251,7 @@ main :: proc() {
         framebuffer.resolution.x = u32(resolution.x)
         framebuffer.resolution.y = u32(resolution.y)
         t := f32(vgd.frame_count) / 144.0
-        framebuffer.clear_color = {0.5*math.cos(t)+0.5, 0.0, 0.5*math.sin(t)+0.5, 1.0}
+        framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
         vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
         /*
 

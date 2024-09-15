@@ -1,6 +1,7 @@
 package build
 
 import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:os/os2"
 import "core:strings"
@@ -33,7 +34,9 @@ when ODIN_DEBUG {
 }
 
 main :: proc() {
-    fmt.println("building program...")
+    context.logger = log.create_console_logger(.Info)
+
+    log.info("building program...")
 
     // String builders for formatting input and output path strings
     in_sb: strings.Builder
@@ -47,7 +50,7 @@ main :: proc() {
     processes: [dynamic]os2.Process
     defer delete(processes)
 
-    fmt.println("building vertex shaders...")
+    log.info("building vertex shaders...")
     for path in VERTEX_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.vert.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
@@ -75,7 +78,7 @@ main :: proc() {
         append(&processes, process)
     }
 
-    fmt.println("building fragment shaders...")
+    log.info("building fragment shaders...")
     for path in FRAGMENT_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.frag.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
@@ -103,7 +106,7 @@ main :: proc() {
         append(&processes, process)
     }
 
-    fmt.println("building compute shaders...")
+    log.info("building compute shaders...")
     for path in COMPUTE_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.comp.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
@@ -145,10 +148,10 @@ main :: proc() {
     }
 
     // Wait on all the spawned processes
-    fmt.println("waiting...")
+    log.info("waiting...")
     for p in processes {
         _, _ = os2.process_wait(p)
     }
     
-    fmt.println("Done!")
+    log.info("Done!")
 }
