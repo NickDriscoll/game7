@@ -1,7 +1,7 @@
 static const float2 POSITIONS[] = {
     -0.5, -0.5,
+    0.0, 0.5,
     0.5, -0.5,
-    0.0, 0.5
 };
 
 struct VertexOutput {
@@ -22,6 +22,6 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 }
 
 [shader("fragment")]
-float4 fragment_main() : SV_Target0 {
+float4 fragment_main() {
     return float4(1.0, 0.0, 0.0, 1.0);
 }

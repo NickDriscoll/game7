@@ -5,7 +5,6 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "vendor:sdl2"
-import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
 main :: proc() {
@@ -110,7 +109,7 @@ main :: proc() {
             },
             colorblend_state = vkw.default_colorblend_state(),
             renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
+                color_attachment_formats = {vkw.Format.B8G8R8A8_SRGB},
                 depth_attachment_format = nil
             }
         }
@@ -184,114 +183,140 @@ main :: proc() {
 
         // Render
 
-        // This has to be called once per frame
-        vkw.tick_deletion_queues(&vgd)
+        {
 
-        // Represents what this frame's gfx command buffer will wait on and signal
-        gfx_sync_info: vkw.Sync_Info
-        defer vkw.delete_sync_info(&gfx_sync_info)
-        
-        // Increment timeline semaphore upon command buffer completion
-        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-            semaphore = gfx_timeline,
-            value = vgd.frame_count + 1
-        })
-
-        cpu_sync: vkw.Semaphore_Op
-        if vgd.frame_count >= u64(vgd.frames_in_flight) {
-            // Wait on timeline semaphore before starting command buffer execution
-            frame_to_wait_on := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-            append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            // This has to be called once per frame
+            vkw.tick_deletion_queues(&vgd)
+    
+            // Represents what this frame's gfx command buffer will wait on and signal
+            gfx_sync_info: vkw.Sync_Info
+            defer vkw.delete_sync_info(&gfx_sync_info)
+            
+            // Increment timeline semaphore upon command buffer completion
+            append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
                 semaphore = gfx_timeline,
-                value = frame_to_wait_on
+                value = vgd.frame_count + 1
             })
+    
+            cpu_sync: vkw.Semaphore_Op
+            if vgd.frame_count >= u64(vgd.frames_in_flight) {
+                // Wait on timeline semaphore before starting command buffer execution
+                frame_to_wait_on := vgd.frame_count - u64(vgd.frames_in_flight) + 1
+                append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+                    semaphore = gfx_timeline,
+                    value = frame_to_wait_on
+                })
+    
+                // Sync on the CPU-side so that it doesn't get too far ahead
+                // of the GPU
+                cpu_sync.semaphore = gfx_timeline
+                cpu_sync.value = frame_to_wait_on
+            }
+    
+            // Buffer delete
+            vkw.delete_buffer(&vgd, test_buffer)
+    
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
+    
+            swapchain_image_idx: u32
+            vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
+            swapchain_image_handle := vgd.swapchain_images[swapchain_image_idx]
+    
+            // Wait on swapchain image acquire semaphore
+            // and signal when we're done drawing on a different semaphore
+            append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+                semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
+            })
+            append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+                semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
+            })
+    
+            // Memory barrier between image acquire and rendering
+            vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+                vkw.Image_Barrier {
+                    src_stage_mask = {.ALL_COMMANDS},
+                    src_access_mask = {.MEMORY_READ},
+                    dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    dst_access_mask = {.MEMORY_WRITE},
+                    old_layout = .UNDEFINED,
+                    new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                    src_queue_family = vgd.gfx_queue_family,
+                    dst_queue_family = vgd.gfx_queue_family,
+                    image_handle = swapchain_image_handle,
+                    subresource_range = vkw.ImageSubresourceRange {
+                        aspectMask = {.COLOR},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                }
+            })
+    
+    
+            framebuffer: vkw.Framebuffer
+            framebuffer.color_images[0] = swapchain_image_handle
+            framebuffer.resolution.x = u32(resolution.x)
+            framebuffer.resolution.y = u32(resolution.y)
+            t := f32(vgd.frame_count) / 144.0
+            framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
+            vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
+            
+            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
 
-            // Sync on the CPU-side so that it doesn't get too far ahead
-            // of the GPU
-            cpu_sync.semaphore = gfx_timeline
-            cpu_sync.value = frame_to_wait_on
+            res := resolution / 2
+            vkw.cmd_set_viewport(&vgd, gfx_cb_idx, 0, {vkw.Viewport {
+                x = 0.0,
+                y = 0.0,
+                width = f32(res.x),
+                height = f32(res.y),
+                minDepth = 0.0,
+                maxDepth = 1.0
+            }})
+            vkw.cmd_set_scissor(&vgd, gfx_cb_idx, 0, {
+                vkw.Scissor {
+                    offset = vkw.Offset2D {
+                        x = 0,
+                        y = 0
+                    },
+                    extent = vkw.Extent2D {
+                        width = u32(res.x),
+                        height = u32(res.y),
+                    }
+                }
+            })
+    
+            vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
+    
+            vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
+    
+            // Memory barrier between rendering and image present
+            vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+                vkw.Image_Barrier {
+                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    src_access_mask = {.MEMORY_WRITE},
+                    dst_stage_mask = {.ALL_COMMANDS},
+                    dst_access_mask = {.MEMORY_READ},
+                    old_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                    new_layout = .PRESENT_SRC_KHR,
+                    src_queue_family = vgd.gfx_queue_family,
+                    dst_queue_family = vgd.gfx_queue_family,
+                    image_handle = swapchain_image_handle,
+                    subresource_range = vkw.ImageSubresourceRange {
+                        aspectMask = {.COLOR},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                }
+            })
+    
+            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
+            vkw.present_swapchain_image(&vgd, swapchain_image_idx)
+    
+            vgd.frame_count += 1
         }
-
-        // Buffer delete
-        vkw.delete_buffer(&vgd, test_buffer)
-
-        gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
-
-        swapchain_image_idx: u32
-        vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
-        swapchain_image_handle := vgd.swapchain_images[swapchain_image_idx]
-
-        // Wait on swapchain image acquire semaphore
-        // and signal when we're done drawing on a different semaphore
-        append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-            semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
-        })
-        append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-            semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
-        })
-
-        // Memory barrier between image acquire and rendering
-        vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
-            vkw.Image_Barrier {
-                src_stage_mask = {.ALL_COMMANDS},
-                src_access_mask = {.MEMORY_READ},
-                dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                dst_access_mask = {.MEMORY_WRITE},
-                old_layout = .UNDEFINED,
-                new_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                src_queue_family = vgd.gfx_queue_family,
-                dst_queue_family = vgd.gfx_queue_family,
-                image_handle = swapchain_image_handle,
-                subresource_range = vk.ImageSubresourceRange {
-                    aspectMask = {.COLOR},
-                    baseMipLevel = 0,
-                    levelCount = 1,
-                    baseArrayLayer = 0,
-                    layerCount = 1
-                }
-            }
-        })
-
-
-        framebuffer: vkw.Framebuffer
-        framebuffer.color_images[0] = swapchain_image_handle
-        framebuffer.resolution.x = u32(resolution.x)
-        framebuffer.resolution.y = u32(resolution.y)
-        t := f32(vgd.frame_count) / 144.0
-        framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
-        vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
-        
-        vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
-        vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
-
-        vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
-
-        // Memory barrier between rendering and image present
-        vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
-            vkw.Image_Barrier {
-                src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                src_access_mask = {.MEMORY_WRITE},
-                dst_stage_mask = {.ALL_COMMANDS},
-                dst_access_mask = {.MEMORY_READ},
-                old_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                new_layout = .PRESENT_SRC_KHR,
-                src_queue_family = vgd.gfx_queue_family,
-                dst_queue_family = vgd.gfx_queue_family,
-                image_handle = swapchain_image_handle,
-                subresource_range = vk.ImageSubresourceRange {
-                    aspectMask = {.COLOR},
-                    baseMipLevel = 0,
-                    levelCount = 1,
-                    baseArrayLayer = 0,
-                    layerCount = 1
-                }
-            }
-        })
-
-        vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
-        vkw.present_swapchain_image(&vgd, swapchain_image_idx)
-
-        vgd.frame_count += 1
     }
 
     log.info("Returning from main()")
