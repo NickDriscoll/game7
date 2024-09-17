@@ -91,7 +91,7 @@ main :: proc() {
                 sample_count = {._1},
                 do_sample_shading = false,
                 min_sample_shading = 0.0,
-                sample_mask = 0,
+                sample_mask = nil,
                 do_alpha_to_coverage = false,
                 do_alpha_to_one = false
             },
@@ -264,7 +264,8 @@ main :: proc() {
             
             vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
 
-            res := resolution / 2
+            //res := resolution / 2
+            res := resolution
             vkw.cmd_set_viewport(&vgd, gfx_cb_idx, 0, {vkw.Viewport {
                 x = 0.0,
                 y = 0.0,
