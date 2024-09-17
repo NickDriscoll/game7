@@ -3,5 +3,5 @@
 *.rdbg
 .vscode/
 ols.json
-data/shaders
+data/shaders/*
 game7
