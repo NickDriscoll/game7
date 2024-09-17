@@ -36,7 +36,7 @@ when ODIN_DEBUG {
 main :: proc() {
     context.logger = log.create_console_logger(.Info)
 
-    log.info("building program...")
+    log.info("starting program build...")
 
     // String builders for formatting input and output path strings
     in_sb: strings.Builder
@@ -156,7 +156,11 @@ main :: proc() {
             fmt.printfln("%#v", error)
             return
         }
-        _, _ = os2.process_wait(process)
+        proc_state, _ := os2.process_wait(process)
+	
+	if proc_state.exit_code != 0 {
+            log.errorf("main program failed to build.")
+        }
     }
 
     
