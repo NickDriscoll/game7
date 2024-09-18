@@ -92,6 +92,7 @@ main :: proc() {
                 topology = .TRIANGLE_LIST,
                 primitive_restart_enabled = false
             },
+            tessellation_state = {},
             rasterization_state = vkw.default_rasterization_state(),
             multisample_state = vkw.Multisample_State {
                 sample_count = {._1},
@@ -142,7 +143,7 @@ main :: proc() {
         info := vkw.Buffer_Info {
             size = 64,
             usage = {.INDEX_BUFFER},
-            queue_family = .Graphics,
+            alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
         test_buffer = vkw.create_buffer(&vgd, &info)

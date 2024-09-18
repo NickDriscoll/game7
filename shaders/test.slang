@@ -6,10 +6,10 @@ static const float2 POSITIONS[] = {
 
 static const float3 COLORS[] = {
     1.0, 0.0, 0.0,
-    // 0.0, 1.0, 0.0,
-    // 0.0, 0.0, 1.0
-    1.0, 0.0, 0.0,
-    1.0, 0.0, 0.0
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0
+    // 1.0, 0.0, 0.0,
+    // 1.0, 0.0, 0.0
 };
 
 struct VertexOutput {
