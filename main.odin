@@ -142,11 +142,20 @@ main :: proc() {
     {
         info := vkw.Buffer_Info {
             size = 64,
-            usage = {.INDEX_BUFFER},
+            usage = {.INDEX_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
         test_buffer = vkw.create_buffer(&vgd, &info)
+    }
+
+            
+    // Test one buffer write
+    {
+        random_crap : []u8 = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
+        if !vkw.sync_write_buffer(&vgd, random_crap, test_buffer) {
+            log.error("vkw.sync_write_buffer() failed.")
+        }
     }
 
     log.info("App initialization complete")
