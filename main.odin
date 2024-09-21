@@ -152,14 +152,6 @@ main :: proc() {
         index_buffer = vkw.create_buffer(&vgd, &info)
     }
 
-    
-    {
-        indices : []u16 = {0, 1, 2}
-        if !vkw.sync_write_buffer(u16, &vgd, index_buffer, indices) {
-            log.error("vkw.sync_write_buffer() failed.")
-        }
-    }
-
     // Create indirect draw buffer
     draw_buffer: vkw.Buffer_Handle
     {
@@ -172,11 +164,15 @@ main :: proc() {
         draw_buffer = vkw.create_buffer(&vgd, &info)
     }
             
-    // Test one buffer write
+    // Write to buffers
     {
+        indices : []u16 = {0, 1, 2, 1, 3, 2}
+        if !vkw.sync_write_buffer(u16, &vgd, index_buffer, indices) {
+            log.error("vkw.sync_write_buffer() failed.")
+        }
         draws : []vkw.DrawIndexedIndirectCommand = {
             {
-                indexCount = 3,
+                indexCount = u32(len(indices)),
                 instanceCount = 1,
                 firstIndex = 0,
                 vertexOffset = 0,
@@ -191,9 +187,12 @@ main :: proc() {
     // Create image
     {
         // Load image from disk
+        filename : cstring = "data/images/sarah_bonito.jpg"
         width, height, channels: i32
-        image_bytes := stbi.load("data/images/sarah_bonito.jpg", &width, &height, &channels, 4)
+        image_bytes := stbi.load(filename, &width, &height, &channels, 4)
         defer stbi.image_free(image_bytes)
+
+        log.debugf("%v uncompressed size: %v bytes", filename, width * height * 4)
 
         info := vkw.Image_Create {
             flags = nil,
@@ -208,6 +207,7 @@ main :: proc() {
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
+            usage = {.SAMPLED,.TRANSFER_DST},
 
             
             // flags: vk.ImageCreateFlags,
@@ -219,7 +219,6 @@ main :: proc() {
             // samples: vk.SampleCountFlags,
             // tiling: vk.ImageTiling,
             // usage: vk.ImageUsageFlags,
-            // queue_family: Queue_Family,
             // initial_layout: vk.ImageLayout,
             // alloc_flags: vma.Allocation_Create_Flags,
         }
