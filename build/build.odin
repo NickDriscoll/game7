@@ -33,6 +33,8 @@ when ODIN_DEBUG {
     ODIN_COMMAND : []string : {"odin", "build", "."}
 }
 
+// @TODO: Automatically compile stb on Linux platforms
+
 main :: proc() {
     context.logger = log.create_console_logger(.Info)
 

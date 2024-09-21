@@ -155,7 +155,7 @@ main :: proc() {
     
     {
         indices : []u16 = {0, 1, 2}
-        if !vkw.sync_write_buffer(&vgd, index_buffer, transmute([]u8)indices) {
+        if !vkw.sync_write_buffer(u16, &vgd, index_buffer, indices) {
             log.error("vkw.sync_write_buffer() failed.")
         }
     }
@@ -174,7 +174,6 @@ main :: proc() {
             
     // Test one buffer write
     {
-        //random_crap : []u8 = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
         draws : []vkw.DrawIndexedIndirectCommand = {
             {
                 indexCount = 3,
@@ -184,7 +183,7 @@ main :: proc() {
                 firstInstance = 0
             }
         }
-        if !vkw.sync_write_buffer(&vgd, draw_buffer, transmute([]u8)draws) {
+        if !vkw.sync_write_buffer(vkw.DrawIndexedIndirectCommand, &vgd, draw_buffer, draws) {
             log.error("vkw.sync_write_buffer() failed.")
         }
     }
@@ -368,8 +367,7 @@ main :: proc() {
                     }
                 }
             })
-    
-            //vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
+
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, draw_buffer, 0, 1)
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
