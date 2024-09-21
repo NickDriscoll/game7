@@ -14,11 +14,10 @@ static const float3 COLORS[] = {
     // 1.0, 0.0, 0.0
 };
 
-float3x3 rotation(float theta) {
-    return float3x3(
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-        0.0, 0.0, 1.0
+float2x2 rotation(float theta) {
+    return float2x2(
+        cos(theta), -sin(theta),
+        sin(theta), cos(theta),
     );
 }
 
@@ -28,10 +27,16 @@ struct VertexOutput {
     float4 color;
 }
 
+[[vk::push_constant]]
+cbuffer push_constants {
+    float t;
+}
+
 [shader("vertex")]
 VertexOutput vertex_main(uint idx : SV_VertexID) {
     VertexOutput out;
     float2 p = POSITIONS[idx];
+    p = mul(p, rotation(t));
     out.clip_out = float4(p.x, p.y, 1.0, 1.0);
     out.uv = float2(1.0, 1.0);
     out.color = float4(COLORS[idx], 1.0);

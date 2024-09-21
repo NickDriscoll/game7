@@ -225,6 +225,7 @@ main :: proc() {
     }
 
     log.info("App initialization complete")
+
     do_main_loop := true
     for do_main_loop {
         // Process system events
@@ -333,12 +334,13 @@ main :: proc() {
             })
     
             vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, index_buffer)
+            
+            t := f32(vgd.frame_count) / 144.0
     
             framebuffer: vkw.Framebuffer
             framebuffer.color_images[0] = swapchain_image_handle
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
-            t := f32(vgd.frame_count) / 144.0
             framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
             
@@ -365,6 +367,10 @@ main :: proc() {
                         height = u32(res.y),
                     }
                 }
+            })
+
+            vkw.cmd_push_constants_gfx(f32, &vgd, gfx_cb_idx, []f32 {
+                t
             })
 
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, draw_buffer, 0, 1)
