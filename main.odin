@@ -5,7 +5,10 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "vendor:sdl2"
+import stbi "vendor:stb/image"
 import vkw "desktop_vulkan_wrapper"
+
+MAX_PER_FRAME_DRAW_CALLS :: 1024
 
 main :: proc() {
     // Parse command-line arguments
@@ -137,24 +140,89 @@ main :: proc() {
         gfx_timeline = vkw.create_semaphore(&vgd, &info)
     }
 
-    // Create buffer
-    test_buffer: vkw.Buffer_Handle
+    // Create index buffer
+    index_buffer: vkw.Buffer_Handle
     {
         info := vkw.Buffer_Info {
-            size = 64,
-            usage = {.INDEX_BUFFER,.TRANSFER_DST},
+            size = size_of(u16) * 6,
+            usage = {.INDEX_BUFFER, .TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
-        test_buffer = vkw.create_buffer(&vgd, &info)
+        index_buffer = vkw.create_buffer(&vgd, &info)
     }
 
+    
+    {
+        indices : []u16 = {0, 1, 2}
+        if !vkw.sync_write_buffer(&vgd, index_buffer, transmute([]u8)indices) {
+            log.error("vkw.sync_write_buffer() failed.")
+        }
+    }
+
+    // Create indirect draw buffer
+    draw_buffer: vkw.Buffer_Handle
+    {
+        info := vkw.Buffer_Info {
+            size = 64,
+            usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL}
+        }
+        draw_buffer = vkw.create_buffer(&vgd, &info)
+    }
             
     // Test one buffer write
     {
-        random_crap : []u8 = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
-        if !vkw.sync_write_buffer(&vgd, random_crap, test_buffer) {
+        //random_crap : []u8 = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
+        draws : []vkw.DrawIndexedIndirectCommand = {
+            {
+                indexCount = 3,
+                instanceCount = 1,
+                firstIndex = 0,
+                vertexOffset = 0,
+                firstInstance = 0
+            }
+        }
+        if !vkw.sync_write_buffer(&vgd, draw_buffer, transmute([]u8)draws) {
             log.error("vkw.sync_write_buffer() failed.")
+        }
+    }
+
+    // Create image
+    {
+        // Load image from disk
+        width, height, channels: i32
+        image_bytes := stbi.load("data/images/sarah_bonito.jpg", &width, &height, &channels, 4)
+        defer stbi.image_free(image_bytes)
+
+        info := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .R8G8B8A8_SRGB,
+            extent = {
+                width = u32(width),
+                height = u32(height),
+                depth = 1
+            },
+            has_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+
+            
+            // flags: vk.ImageCreateFlags,
+            // image_type: vk.ImageType,
+            // format: vk.Format,
+            // extent: vk.Extent3D,
+            // has_mipmaps: bool,
+            // array_layers: u32,
+            // samples: vk.SampleCountFlags,
+            // tiling: vk.ImageTiling,
+            // usage: vk.ImageUsageFlags,
+            // queue_family: Queue_Family,
+            // initial_layout: vk.ImageLayout,
+            // alloc_flags: vma.Allocation_Create_Flags,
         }
     }
 
@@ -229,9 +297,6 @@ main :: proc() {
                 cpu_sync.value = frame_to_wait_on
             }
     
-            // Buffer delete
-            vkw.delete_buffer(&vgd, test_buffer)
-    
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
     
             swapchain_image_idx: u32
@@ -269,6 +334,7 @@ main :: proc() {
                 }
             })
     
+            vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, index_buffer)
     
             framebuffer: vkw.Framebuffer
             framebuffer.color_images[0] = swapchain_image_handle
@@ -303,7 +369,8 @@ main :: proc() {
                 }
             })
     
-            vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
+            //vkw.cmd_draw(&vgd, gfx_cb_idx, 3, 1, 0, 0)
+            vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, draw_buffer, 0, 1)
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
