@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:os"
+import "core:slice"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
 import vkw "desktop_vulkan_wrapper"
@@ -185,14 +186,17 @@ main :: proc() {
     }
 
     // Create image
+    test_image: vkw.Image_Handle
     {
         // Load image from disk
         filename : cstring = "data/images/sarah_bonito.jpg"
         width, height, channels: i32
         image_bytes := stbi.load(filename, &width, &height, &channels, 4)
+        byte_count := int(width * height * 4)
         defer stbi.image_free(image_bytes)
+        image_slice := slice.from_ptr(image_bytes, byte_count)
 
-        log.debugf("%v uncompressed size: %v bytes", filename, width * height * 4)
+        log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
 
         info := vkw.Image_Create {
             flags = nil,
@@ -208,19 +212,12 @@ main :: proc() {
             samples = {._1},
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.TRANSFER_DST},
-
-            
-            // flags: vk.ImageCreateFlags,
-            // image_type: vk.ImageType,
-            // format: vk.Format,
-            // extent: vk.Extent3D,
-            // has_mipmaps: bool,
-            // array_layers: u32,
-            // samples: vk.SampleCountFlags,
-            // tiling: vk.ImageTiling,
-            // usage: vk.ImageUsageFlags,
-            // initial_layout: vk.ImageLayout,
-            // alloc_flags: vma.Allocation_Create_Flags,
+            alloc_flags = nil
+        }
+        ok: bool
+        test_image, ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
+        if !ok {
+            log.error("vkw.sync_create_image_with_data failed.")
         }
     }
 
@@ -312,7 +309,8 @@ main :: proc() {
             })
     
             // Memory barrier between image acquire and rendering
-            vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+            swapchain_vkimage, _ := vkw.get_image_vkhandle(&vgd, swapchain_image_handle)
+            vkw.cmd_gfx_pipeline_barrier(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
                     src_stage_mask = {.ALL_COMMANDS},
                     src_access_mask = {.MEMORY_READ},
@@ -322,7 +320,7 @@ main :: proc() {
                     new_layout = .COLOR_ATTACHMENT_OPTIMAL,
                     src_queue_family = vgd.gfx_queue_family,
                     dst_queue_family = vgd.gfx_queue_family,
-                    image_handle = swapchain_image_handle,
+                    image = swapchain_vkimage,
                     subresource_range = vkw.ImageSubresourceRange {
                         aspectMask = {.COLOR},
                         baseMipLevel = 0,
@@ -344,6 +342,7 @@ main :: proc() {
             framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
             
+            vkw.cmd_bind_descriptor_set(&vgd, gfx_cb_idx)
             vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
 
             //res := resolution / 2
@@ -378,7 +377,7 @@ main :: proc() {
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
             // Memory barrier between rendering and image present
-            vkw.cmd_pipeline_barrier(&vgd, gfx_cb_idx, {
+            vkw.cmd_gfx_pipeline_barrier(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
                     src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
                     src_access_mask = {.MEMORY_WRITE},
@@ -388,7 +387,7 @@ main :: proc() {
                     new_layout = .PRESENT_SRC_KHR,
                     src_queue_family = vgd.gfx_queue_family,
                     dst_queue_family = vgd.gfx_queue_family,
-                    image_handle = swapchain_image_handle,
+                    image = swapchain_vkimage,
                     subresource_range = vkw.ImageSubresourceRange {
                         aspectMask = {.COLOR},
                         baseMipLevel = 0,
