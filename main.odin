@@ -68,7 +68,7 @@ main :: proc() {
     // Make window
     resolution: vkw.int2
     resolution.x = 800
-    resolution.y = 600
+    resolution.y = 800
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
     sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -203,7 +203,7 @@ main :: proc() {
                 height = u32(height),
                 depth = 1
             },
-            has_mipmaps = false,
+            supports_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
@@ -267,9 +267,6 @@ main :: proc() {
         // Render
 
         {
-
-            // This has to be called once per frame
-            vkw.tick_deletion_queues(&vgd)
     
             // Represents what this frame's gfx command buffer will wait on and signal
             gfx_sync_info: vkw.Sync_Info
@@ -297,6 +294,9 @@ main :: proc() {
             }
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
+
+            // This has to be called once per frame
+            vkw.tick_subsystems(&vgd, gfx_cb_idx)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)

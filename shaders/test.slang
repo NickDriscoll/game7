@@ -14,6 +14,19 @@ static const float3 COLORS[] = {
     // 1.0, 0.0, 0.0
 };
 
+static const float2 UVS[] = {
+    0.0, 0.0,
+    0.0, 1.0,
+    1.0, 0.0,
+    1.0, 1.0
+};
+
+[[vk_binding(0, 0)]]
+Texture2D textures[];
+
+[[vk_binding(1, 0)]]
+SamplerState samplers[];
+
 float2x2 rotation(float theta) {
     return float2x2(
         cos(theta), -sin(theta),
@@ -37,8 +50,9 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
     VertexOutput out;
     float2 p = POSITIONS[idx];
     p = mul(p, rotation(t));
+    // p = mul(p, rotation(t * (1.0 + 2*idx)));
     out.clip_out = float4(p.x, p.y, 1.0, 1.0);
-    out.uv = float2(1.0, 1.0);
+    out.uv = UVS[idx];
     out.color = float4(COLORS[idx], 1.0);
 
     return out;
@@ -46,5 +60,5 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
-    return input.color;
+    return float4(input.uv, 0.0, 1.0);
 }
