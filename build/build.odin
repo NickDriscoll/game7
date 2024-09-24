@@ -36,7 +36,31 @@ when ODIN_DEBUG {
 // @TODO: Automatically compile stb on Linux platforms
 
 main :: proc() {
-    context.logger = log.create_console_logger(.Info)
+    // Parse command-line arguments
+    log_level := log.Level.Info
+    context.logger = log.create_console_logger(log_level)
+    {
+        argc := len(os.args)
+        for arg, i in os.args {
+            if arg == "--log-level" || arg == "-l" {
+                if i + 1 < argc {
+                    switch os.args[i + 1] {
+                        case "DEBUG": log_level = .Debug
+                        case "INFO": log_level = .Info
+                        case "WARNING": log_level = .Warning
+                        case "ERROR": log_level = .Error
+                        case "FATAL": log_level = .Fatal
+                        case: log.warnf(
+                            "Unrecognized --log-level: %v. Using default (%v)",
+                            os.args[i + 1],
+                            log_level
+                        )
+                    }
+                }
+            }
+        }
+    }
+    context.logger = log.create_console_logger(log_level)
 
     log.info("starting program build...")
 

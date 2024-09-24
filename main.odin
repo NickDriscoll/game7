@@ -164,6 +164,11 @@ main :: proc() {
         }
         draw_buffer = vkw.create_buffer(&vgd, &info)
     }
+
+    // Create stack-allocating synchronization info struct
+    // Represents the semaphores a given frame's gfx command buffer will wait on and signal
+    gfx_sync_info: vkw.Sync_Info
+    defer vkw.delete_sync_info(&gfx_sync_info)
             
     // Write to buffers
     {
@@ -189,7 +194,8 @@ main :: proc() {
     test_image: vkw.Image_Handle
     {
         // Load image from disk
-        filename : cstring = "data/images/sarah_bonito.jpg"
+        //filename : cstring = "data/images/sarah_bonito.jpg"
+        filename : cstring = "data/images/me_may2023.jpg"
         width, height, channels: i32
         image_bytes := stbi.load(filename, &width, &height, &channels, 4)
         byte_count := int(width * height * 4)
@@ -215,7 +221,7 @@ main :: proc() {
             alloc_flags = nil
         }
         ok: bool
-        test_image, ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
+        test_image, ok = vkw.sync_create_image_with_data(&vgd, &gfx_sync_info, &info, image_slice)
         if !ok {
             log.error("vkw.sync_create_image_with_data failed.")
         }
@@ -264,11 +270,9 @@ main :: proc() {
         // Render
 
         {
-    
-            // Represents what this frame's gfx command buffer will wait on and signal
-            gfx_sync_info: vkw.Sync_Info
-            defer vkw.delete_sync_info(&gfx_sync_info)
-            
+            // Clear out previous frame's sync info
+            vkw.clear_sync_info(&gfx_sync_info)
+
             // Increment timeline semaphore upon command buffer completion
             append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
                 semaphore = gfx_timeline,
@@ -368,8 +372,15 @@ main :: proc() {
                 }
             })
 
-            vkw.cmd_push_constants_gfx(f32, &vgd, gfx_cb_idx, []f32 {
-                t
+            pcs :: struct {
+                t: f32,
+                image: u32,
+                sampler: vkw.Immutable_Samplers
+            }
+            vkw.cmd_push_constants_gfx(pcs, &vgd, gfx_cb_idx, &pcs {
+                t = t,
+                image = test_image.index,
+                sampler = .Aniso16
             })
 
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, draw_buffer, 0, 1)
@@ -399,7 +410,7 @@ main :: proc() {
             })
     
             vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
-            vkw.present_swapchain_image(&vgd, swapchain_image_idx)
+            vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
     
             vgd.frame_count += 1
         }
