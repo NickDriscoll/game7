@@ -7,6 +7,8 @@ import "core:os"
 import "core:slice"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
+
+import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
 MAX_PER_FRAME_DRAW_CALLS :: 1024
@@ -81,8 +83,12 @@ main :: proc() {
         }
     }
 
+    // Initialize the render state structure
+    // This is a megastruct for holding the return values from vkw basically
+    render_state: RenderingState
+    defer delete_rendering_state(&vgd, &render_state)
+
     // Pipeline creation
-    gfx_pipeline_handle: vkw.Pipeline_Handle
     {
         // Load shader bytecode
         // This will be embedded into the executable at compile-time
@@ -120,7 +126,7 @@ main :: proc() {
             },
             colorblend_state = vkw.default_colorblend_state(),
             renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {vkw.Format.B8G8R8A8_SRGB},
+                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
                 depth_attachment_format = nil
             }
         }
@@ -128,21 +134,19 @@ main :: proc() {
         handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
         defer delete(handles)
 
-        gfx_pipeline_handle = handles[0]
+        render_state.gfx_pipeline = handles[0]
     }
 
     // Create main timeline semaphore
-    gfx_timeline: vkw.Semaphore_Handle
     {
         info := vkw.Semaphore_Info {
             type = .TIMELINE,
             init_value = 0
         }
-        gfx_timeline = vkw.create_semaphore(&vgd, &info)
+        render_state.gfx_timeline = vkw.create_semaphore(&vgd, &info)
     }
 
     // Create index buffer
-    index_buffer: vkw.Buffer_Handle
     {
         info := vkw.Buffer_Info {
             size = size_of(u16) * 6,
@@ -150,11 +154,10 @@ main :: proc() {
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
-        index_buffer = vkw.create_buffer(&vgd, &info)
+        render_state.index_buffer = vkw.create_buffer(&vgd, &info)
     }
 
     // Create indirect draw buffer
-    draw_buffer: vkw.Buffer_Handle
     {
         info := vkw.Buffer_Info {
             size = 64,
@@ -162,21 +165,30 @@ main :: proc() {
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
-        draw_buffer = vkw.create_buffer(&vgd, &info)
+        render_state.draw_buffer = vkw.create_buffer(&vgd, &info)
     }
 
-    // Create stack-allocating synchronization info struct
-    // Represents the semaphores a given frame's gfx command buffer will wait on and signal
-    gfx_sync_info: vkw.Sync_Info
-    defer vkw.delete_sync_info(&gfx_sync_info)
-            
-    // Write to buffers
+    // Create uniform buffer
     {
+        info := vkw.Buffer_Info {
+            size = size_of(UniformBufferData),
+            usage = {.UNIFORM_BUFFER},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+        }
+        render_state.uniform_buffer = vkw.create_buffer(&vgd, &info)
+    }
+            
+    // Write to static buffers
+    {
+        // Write indices for drawing quad
         indices : []u16 = {0, 1, 2, 1, 3, 2}
-        if !vkw.sync_write_buffer(u16, &vgd, index_buffer, indices) {
+        if !vkw.sync_write_buffer(u16, &vgd, render_state.index_buffer, indices) {
             log.error("vkw.sync_write_buffer() failed.")
         }
-        draws : []vkw.DrawIndexedIndirectCommand = {
+
+        // Write quad draw call to indirect draw buffer
+        draws : []vk.DrawIndexedIndirectCommand = {
             {
                 indexCount = u32(len(indices)),
                 instanceCount = 1,
@@ -185,7 +197,7 @@ main :: proc() {
                 firstInstance = 0
             }
         }
-        if !vkw.sync_write_buffer(vkw.DrawIndexedIndirectCommand, &vgd, draw_buffer, draws) {
+        if !vkw.sync_write_buffer(vk.DrawIndexedIndirectCommand, &vgd, render_state.draw_buffer, draws) {
             log.error("vkw.sync_write_buffer() failed.")
         }
     }
@@ -198,8 +210,8 @@ main :: proc() {
         filename : cstring = "data/images/me_may2023.jpg"
         width, height, channels: i32
         image_bytes := stbi.load(filename, &width, &height, &channels, 4)
-        byte_count := int(width * height * 4)
         defer stbi.image_free(image_bytes)
+        byte_count := int(width * height * 4)
         image_slice := slice.from_ptr(image_bytes, byte_count)
 
         log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
@@ -221,7 +233,7 @@ main :: proc() {
             alloc_flags = nil
         }
         ok: bool
-        test_image, ok = vkw.sync_create_image_with_data(&vgd, &gfx_sync_info, &info, image_slice)
+        test_image, ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
         if !ok {
             log.error("vkw.sync_create_image_with_data failed.")
         }
@@ -267,34 +279,54 @@ main :: proc() {
 
         // Update
 
+        // Update camera based on user input
+
+
+        // Delete image test
+        if vgd.frame_count == 300 {
+            if !vkw.delete_image(&vgd, test_image) do log.error("Failed to delete image")
+        }
+
         // Render
-
         {
-            // Clear out previous frame's sync info
-            vkw.clear_sync_info(&gfx_sync_info)
-
             // Increment timeline semaphore upon command buffer completion
-            append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-                semaphore = gfx_timeline,
+            append(&render_state.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+                semaphore = render_state.gfx_timeline,
                 value = vgd.frame_count + 1
             })
     
-            cpu_sync: vkw.Semaphore_Op
             if vgd.frame_count >= u64(vgd.frames_in_flight) {
                 // Wait on timeline semaphore before starting command buffer execution
-                frame_to_wait_on := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-                append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-                    semaphore = gfx_timeline,
-                    value = frame_to_wait_on
+                wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
+                append(&render_state.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+                    semaphore = render_state.gfx_timeline,
+                    value = wait_value
                 })
-    
-                // Sync on the CPU-side so that it doesn't get too far ahead
-                // of the GPU
-                cpu_sync.semaphore = gfx_timeline
-                cpu_sync.value = frame_to_wait_on
+                
+                // CPU-sync to prevent CPU from getting further ahead than
+                // the number of frames in flight
+                sem, ok := vkw.get_semaphore(&vgd, render_state.gfx_timeline)
+                if !ok do log.error("Couldn't find semaphore for CPU-sync")
+                info := vk.SemaphoreWaitInfo {
+                    sType = .SEMAPHORE_WAIT_INFO,
+                    pNext = nil,
+                    flags = nil,
+                    semaphoreCount = 1,
+                    pSemaphores = sem,
+                    pValues = &wait_value
+                }
+                if vk.WaitSemaphores(vgd.device, &info, max(u64)) != .SUCCESS {
+                    log.error("Failed to wait for timeline semaphore CPU-side man what")
+                }
+            }
+
+            // It is now safe to write to the uniform buffer now that
+            // we know frame N-2 has finished
+            {
+
             }
     
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &cpu_sync)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
             // This has to be called once per frame
             vkw.tick_subsystems(&vgd, gfx_cb_idx)
@@ -305,16 +337,16 @@ main :: proc() {
     
             // Wait on swapchain image acquire semaphore
             // and signal when we're done drawing on a different semaphore
-            append(&gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            append(&render_state.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
                 semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
             })
-            append(&gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+            append(&render_state.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
                 semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
             })
     
             // Memory barrier between image acquire and rendering
             swapchain_vkimage, _ := vkw.get_image_vkhandle(&vgd, swapchain_image_handle)
-            vkw.cmd_gfx_pipeline_barrier(&vgd, gfx_cb_idx, {
+            vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
                     src_stage_mask = {.ALL_COMMANDS},
                     src_access_mask = {.MEMORY_READ},
@@ -325,7 +357,7 @@ main :: proc() {
                     src_queue_family = vgd.gfx_queue_family,
                     dst_queue_family = vgd.gfx_queue_family,
                     image = swapchain_vkimage,
-                    subresource_range = vkw.ImageSubresourceRange {
+                    subresource_range = vk.ImageSubresourceRange {
                         aspectMask = {.COLOR},
                         baseMipLevel = 0,
                         levelCount = 1,
@@ -335,7 +367,7 @@ main :: proc() {
                 }
             })
     
-            vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, index_buffer)
+            vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, render_state.index_buffer)
             
             t := f32(vgd.frame_count) / 144.0
     
@@ -347,9 +379,8 @@ main :: proc() {
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
             
             vkw.cmd_bind_descriptor_set(&vgd, gfx_cb_idx)
-            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, gfx_pipeline_handle)
+            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, render_state.gfx_pipeline)
 
-            //res := resolution / 2
             res := resolution
             vkw.cmd_set_viewport(&vgd, gfx_cb_idx, 0, {vkw.Viewport {
                 x = 0.0,
@@ -361,34 +392,28 @@ main :: proc() {
             }})
             vkw.cmd_set_scissor(&vgd, gfx_cb_idx, 0, {
                 vkw.Scissor {
-                    offset = vkw.Offset2D {
+                    offset = vk.Offset2D {
                         x = 0,
                         y = 0
                     },
-                    extent = vkw.Extent2D {
+                    extent = vk.Extent2D {
                         width = u32(res.x),
                         height = u32(res.y),
                     }
                 }
             })
-
-            pcs :: struct {
-                t: f32,
-                image: u32,
-                sampler: vkw.Immutable_Samplers
-            }
-            vkw.cmd_push_constants_gfx(pcs, &vgd, gfx_cb_idx, &pcs {
-                t = t,
+            vkw.cmd_push_constants_gfx(PushConstants, &vgd, gfx_cb_idx, &PushConstants {
+                time = t,
                 image = test_image.index,
                 sampler = .Aniso16
             })
 
-            vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, draw_buffer, 0, 1)
+            vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
             // Memory barrier between rendering and image present
-            vkw.cmd_gfx_pipeline_barrier(&vgd, gfx_cb_idx, {
+            vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
                     src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
                     src_access_mask = {.MEMORY_WRITE},
@@ -399,7 +424,7 @@ main :: proc() {
                     src_queue_family = vgd.gfx_queue_family,
                     dst_queue_family = vgd.gfx_queue_family,
                     image = swapchain_vkimage,
-                    subresource_range = vkw.ImageSubresourceRange {
+                    subresource_range = vk.ImageSubresourceRange {
                         aspectMask = {.COLOR},
                         baseMipLevel = 0,
                         levelCount = 1,
@@ -409,9 +434,12 @@ main :: proc() {
                 }
             })
     
-            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &gfx_sync_info)
+            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_state.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
     
+            
+            // Clear sync info for next frame
+            vkw.clear_sync_info(&render_state.gfx_sync_info)
             vgd.frame_count += 1
         }
     }
