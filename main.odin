@@ -12,6 +12,8 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
 MAX_PER_FRAME_DRAW_CALLS :: 1024
+MAX_GLOBAL_INDICES :: 1024*1024
+
 
 main :: proc() {
     // Parse command-line arguments
@@ -149,7 +151,7 @@ main :: proc() {
     // Create index buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(u16) * 6,
+            size = size_of(u16) * MAX_GLOBAL_INDICES,
             usage = {.INDEX_BUFFER, .TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
@@ -203,40 +205,44 @@ main :: proc() {
     }
 
     // Create image
-    test_image: vkw.Image_Handle
+    TEST_IMAGES :: 2
+    test_images: [TEST_IMAGES]vkw.Image_Handle
+    selected_image := 1
     {
         // Load image from disk
-        //filename : cstring = "data/images/sarah_bonito.jpg"
-        filename : cstring = "data/images/me_may2023.jpg"
-        width, height, channels: i32
-        image_bytes := stbi.load(filename, &width, &height, &channels, 4)
-        defer stbi.image_free(image_bytes)
-        byte_count := int(width * height * 4)
-        image_slice := slice.from_ptr(image_bytes, byte_count)
 
-        log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
+        filenames : []cstring = {"data/images/sarah_bonito.jpg", "data/images/me_may2023.jpg"}
+        for filename, i in filenames {
+            width, height, channels: i32
+            image_bytes := stbi.load(filename, &width, &height, &channels, 4)
+            defer stbi.image_free(image_bytes)
+            byte_count := int(width * height * 4)
+            image_slice := slice.from_ptr(image_bytes, byte_count)
+            log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
+    
+            info := vkw.Image_Create {
+                flags = nil,
+                image_type = .D2,
+                format = .R8G8B8A8_SRGB,
+                extent = {
+                    width = u32(width),
+                    height = u32(height),
+                    depth = 1
+                },
+                supports_mipmaps = false,
+                array_layers = 1,
+                samples = {._1},
+                tiling = .OPTIMAL,
+                usage = {.SAMPLED,.TRANSFER_DST},
+                alloc_flags = nil
+            }
+            ok: bool
+            test_images[i], ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
+            if !ok {
+                log.error("vkw.sync_create_image_with_data failed.")
+            }
+        }
 
-        info := vkw.Image_Create {
-            flags = nil,
-            image_type = .D2,
-            format = .R8G8B8A8_SRGB,
-            extent = {
-                width = u32(width),
-                height = u32(height),
-                depth = 1
-            },
-            supports_mipmaps = false,
-            array_layers = 1,
-            samples = {._1},
-            tiling = .OPTIMAL,
-            usage = {.SAMPLED,.TRANSFER_DST},
-            alloc_flags = nil
-        }
-        ok: bool
-        test_image, ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
-        if !ok {
-            log.error("vkw.sync_create_image_with_data failed.")
-        }
     }
 
     log.info("App initialization complete")
@@ -252,6 +258,7 @@ main :: proc() {
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: do_main_loop = false
+                            case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
                         }
                     }
                     case .CONTROLLERDEVICEADDED: {
@@ -284,7 +291,7 @@ main :: proc() {
 
         // Delete image test
         if vgd.frame_count == 300 {
-            if !vkw.delete_image(&vgd, test_image) do log.error("Failed to delete image")
+            if !vkw.delete_image(&vgd, test_images[selected_image]) do log.error("Failed to delete image")
         }
 
         // Render
@@ -329,7 +336,7 @@ main :: proc() {
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
             // This has to be called once per frame
-            vkw.tick_subsystems(&vgd, gfx_cb_idx)
+            vkw.begin_frame(&vgd, gfx_cb_idx)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -404,7 +411,7 @@ main :: proc() {
             })
             vkw.cmd_push_constants_gfx(PushConstants, &vgd, gfx_cb_idx, &PushConstants {
                 time = t,
-                image = test_image.index,
+                image = test_images[selected_image].index,
                 sampler = .Aniso16
             })
 

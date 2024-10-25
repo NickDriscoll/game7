@@ -74,7 +74,8 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 
     float wiggle_dampening = 0.1;
     float2 wiggle_freq = float2(0.75, 0.5);
-    p += wiggle_dampening * my_noise(wiggle_freq * t + p);
+    p.x += wiggle_dampening * my_noise(wiggle_freq * t + p);
+    p.y += wiggle_dampening * my_noise(wiggle_freq * t + p + 0.5);
 
     // p = mul(p, rotation(t * (1.0 + 2*idx)));
     out.clip_out = float4(p.x, p.y, 1.0, 1.0);
