@@ -50,7 +50,6 @@ camera_view_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
         0.0, 0.0, 0.0, 1.0
     }
 
-    //return trans * yaw * pitch
     return pitch * yaw * trans
 }
 

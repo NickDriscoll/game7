@@ -261,12 +261,16 @@ main :: proc() {
         farplane = 1_000.0
     }
     camera_control := false
+    camera_forward := false
+    camera_back := false
+    camera_left := false
+    camera_right := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     do_main_loop := true
     for do_main_loop {
         // Process system events
-        mouse_motion: hlsl.float2 = {0.0, 0.0}
+        camera_rotation: hlsl.float2 = {0.0, 0.0}
         {
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
@@ -276,6 +280,18 @@ main :: proc() {
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: do_main_loop = false
                             case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
+                            case .W: camera_forward = true
+                            case .S: camera_back = true
+                            case .A: camera_left = true
+                            case .D: camera_right = true
+                        }
+                    }
+                    case .KEYUP: {
+                        #partial switch event.key.keysym.sym {
+                            case .W: camera_forward = false
+                            case .S: camera_back = false
+                            case .A: camera_left = false
+                            case .D: camera_right = false
                         }
                     }
                     case .MOUSEBUTTONDOWN: {
@@ -292,8 +308,8 @@ main :: proc() {
                         }
                     }
                     case .MOUSEMOTION: {
-                        mouse_motion.x += f32(event.motion.xrel)
-                        mouse_motion.y += f32(event.motion.yrel)
+                        camera_rotation.x += f32(event.motion.xrel)
+                        camera_rotation.y += f32(event.motion.yrel)
                     }
                     case .CONTROLLERDEVICEADDED: {
                         controller_idx := event.cdevice.which
@@ -322,15 +338,27 @@ main :: proc() {
 
         // Update camera based on user input
         if camera_control {
-            SENSITIVITY :: 0.001
-            viewport_camera.yaw += SENSITIVITY * mouse_motion.x
-            viewport_camera.pitch += SENSITIVITY * mouse_motion.y
+            ROTATION_SENSITIVITY :: 0.001
+            viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
+            viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
             
             for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
             for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
 
             if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
             if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
+
+            camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+            if camera_forward do camera_direction += {0.0, 1.0, 0.0}
+            if camera_back do camera_direction += {0.0, -1.0, 0.0}
+            if camera_left do camera_direction += {-1.0, 0.0, 0.0}
+            if camera_right do camera_direction += {1.0, 0.0, 0.0}
+            
+            //Compute temporary camera matrix for orienting player inputted direction vector
+            world_from_view := hlsl.inverse(camera_view_matrix(&viewport_camera))
+            viewport_camera.position += 0.1 *
+                (world_from_view *
+                hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
         }
 
         // Delete image test
