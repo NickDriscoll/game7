@@ -77,7 +77,8 @@ camera_projection_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
 }
 
 UniformBufferData :: struct {
-    clip_from_world: hlsl.float4x4
+    clip_from_world: hlsl.float4x4,
+    clip_from_screen: hlsl.float4x4
 }
 
 PushConstants :: struct {
@@ -102,9 +103,11 @@ delete_rendering_state :: proc(vgd: ^vkw.Graphics_Device, r: ^RenderingState) {
 
 ImguiState :: struct {
     ctxt: ^imgui.Context,
-    font_atlas: vkw.Image_Handle
+    font_atlas: vkw.Image_Handle,
+    vertex_buffer: vkw.Buffer_Handle,
+    index_buffer: vkw.Buffer_Handle
 }
 
 delete_imgui_state :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
-
+    imgui.DestroyContext(ctxt)
 }

@@ -256,16 +256,16 @@ main :: proc() {
     defer delete_imgui_state(&vgd, &imgui_state)
     {
         imgui_state.ctxt = imgui.CreateContext()
+        
         io := imgui.GetIO()
-
         io.DisplaySize.x = f32(resolution.x)
         io.DisplaySize.y = f32(resolution.y)
 
+        // Create font atlas and upload its texture data
         font_data: ^c.uchar
         width: c.int
         height: c.int
-        imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)
-        
+        imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)        
         info := vkw.Image_Create {
             flags = nil,
             image_type = .D2,
@@ -289,15 +289,37 @@ main :: proc() {
             log.error("Failed to upload imgui font atlas data.")
         }
 
+        // Free CPU-side texture data
         imgui.FontAtlas_ClearTexData(io.Fonts)
+
+        // Allocate imgui vertex buffer
+        IMGUI_VERTEX_MEMORY :: 256 * 1024 * 1024
+        buffer_info := vkw.Buffer_Info {
+            size = IMGUI_VERTEX_MEMORY,
+            usage = {.STORAGE_BUFFER,.TRANSFER_DST},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL}
+        }
+        imgui_state.vertex_buffer = vkw.create_buffer(&vgd, &buffer_info)
+
+        // Allocate imgui index buffer
+        IMGUI_INDEX_MEMORY :: 64 * 1024 * 1024
+        buffer_info = vkw.Buffer_Info {
+            size = IMGUI_VERTEX_MEMORY,
+            usage = {.INDEX_BUFFER,.TRANSFER_DST},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL}
+        }
+        imgui_state.index_buffer = vkw.create_buffer(&vgd, &buffer_info)
     }
 
     log.info("App initialization complete")
 
+    // Initialize main viewport camera
     viewport_camera := Camera {
-        position = {0.0, -5.0, 20.0},
+        position = {0.0, -5.0, 10.0},
         yaw = 0.0,
-        pitch = 0.0,
+        pitch = math.PI / 4.0,
         fov_radians = math.PI / 3.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
@@ -414,11 +436,6 @@ main :: proc() {
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
         }
 
-        // Delete image test
-        if vgd.frame_count == 300 {
-            if !vkw.delete_image(&vgd, test_images[selected_image]) do log.error("Failed to delete image")
-        }
-
         imgui.EndFrame()
 
         // Render
@@ -461,6 +478,14 @@ main :: proc() {
                 uniforms.clip_from_world =
                     camera_projection_matrix(&viewport_camera) *
                     camera_view_matrix(&viewport_camera)
+
+                io := imgui.GetIO()
+                uniforms.clip_from_screen = {
+                    2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+                    0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
 
                 in_slice := slice.from_ptr(&uniforms, 1)
                 if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_state.uniform_buffer, in_slice) {
@@ -557,7 +582,11 @@ main :: proc() {
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)
 
             // Draw Dear Imgui
+            {
+                imgui.Render()
 
+                
+            }
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
