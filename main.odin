@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
@@ -9,6 +10,7 @@ import "core:slice"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
 
+import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
@@ -249,6 +251,47 @@ main :: proc() {
 
     }
 
+    //Dear ImGUI init
+    imgui_state: ImguiState
+    defer delete_imgui_state(&vgd, &imgui_state)
+    {
+        imgui_state.ctxt = imgui.CreateContext()
+        io := imgui.GetIO()
+
+        io.DisplaySize.x = f32(resolution.x)
+        io.DisplaySize.y = f32(resolution.y)
+
+        font_data: ^c.uchar
+        width: c.int
+        height: c.int
+        imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)
+        
+        info := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .R8G8B8A8_SRGB,
+            extent = {
+                width = u32(width),
+                height = u32(height),
+                depth = 1,
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.TRANSFER_DST},
+            alloc_flags = nil
+        }
+        font_bytes_slice := slice.from_ptr(font_data, int(width * height * 4))
+        ok: bool
+        imgui_state.font_atlas, ok = vkw.sync_create_image_with_data(&vgd, &info, font_bytes_slice)
+        if !ok {
+            log.error("Failed to upload imgui font atlas data.")
+        }
+
+        imgui.FontAtlas_ClearTexData(io.Fonts)
+    }
+
     log.info("App initialization complete")
 
     viewport_camera := Camera {
@@ -265,6 +308,8 @@ main :: proc() {
     camera_back := false
     camera_left := false
     camera_right := false
+    camera_up := false
+    camera_down := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     do_main_loop := true
@@ -284,6 +329,8 @@ main :: proc() {
                             case .S: camera_back = true
                             case .A: camera_left = true
                             case .D: camera_right = true
+                            case .Q: camera_down = true
+                            case .E: camera_up = true
                         }
                     }
                     case .KEYUP: {
@@ -292,6 +339,8 @@ main :: proc() {
                             case .S: camera_back = false
                             case .A: camera_left = false
                             case .D: camera_right = false
+                            case .Q: camera_down = false
+                            case .E: camera_up = false
                         }
                     }
                     case .MOUSEBUTTONDOWN: {
@@ -333,8 +382,10 @@ main :: proc() {
                 }
             }
         }
+        imgui.NewFrame()
 
         // Update
+        imgui.ShowDemoWindow()
 
         // Update camera based on user input
         if camera_control {
@@ -353,6 +404,8 @@ main :: proc() {
             if camera_back do camera_direction += {0.0, -1.0, 0.0}
             if camera_left do camera_direction += {-1.0, 0.0, 0.0}
             if camera_right do camera_direction += {1.0, 0.0, 0.0}
+            if camera_up do camera_direction += {0.0, 0.0, 1.0}
+            if camera_down do camera_direction += {0.0, 0.0, -1.0}
             
             //Compute temporary camera matrix for orienting player inputted direction vector
             world_from_view := hlsl.inverse(camera_view_matrix(&viewport_camera))
@@ -365,6 +418,8 @@ main :: proc() {
         if vgd.frame_count == 300 {
             if !vkw.delete_image(&vgd, test_images[selected_image]) do log.error("Failed to delete image")
         }
+
+        imgui.EndFrame()
 
         // Render
         {
@@ -498,7 +553,11 @@ main :: proc() {
                 uniform_buffer_address = uniform_buf.address
             })
 
+            // There will be one of these commands per "bucket"
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)
+
+            // Draw Dear Imgui
+
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     

@@ -2,6 +2,7 @@ package main
 
 import "core:math/linalg/hlsl"
 import "core:math"
+import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
@@ -97,4 +98,13 @@ RenderingState :: struct {
 
 delete_rendering_state :: proc(vgd: ^vkw.Graphics_Device, r: ^RenderingState) {
     vkw.delete_sync_info(&r.gfx_sync_info)
+}
+
+ImguiState :: struct {
+    ctxt: ^imgui.Context,
+    font_atlas: vkw.Image_Handle
+}
+
+delete_imgui_state :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
+
 }

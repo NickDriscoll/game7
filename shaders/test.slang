@@ -1,3 +1,6 @@
+import structs;
+import tex_bindings;
+
 static const float2 POSITIONS[] = {
     -0.5, -0.5,         // Top left
     -0.5, 0.5,          // Bottom left
@@ -28,12 +31,6 @@ static const float2 UVS[] = {
     1.0, 1.0
 };
 
-[[vk_binding(0, 0)]]
-Texture2D textures[];
-
-[[vk_binding(1, 0)]]
-SamplerState samplers[];
-
 float2x2 rotation(float theta) {
     return float2x2(
         cos(theta), -sin(theta),
@@ -63,10 +60,6 @@ struct VertexOutput {
     float4 clip_out : SV_Position;
     float2 uv;
     float4 color;
-}
-
-struct UniformData {
-    float4x4 clip_from_world;
 }
 
 [[vk::push_constant]]
