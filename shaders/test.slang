@@ -5,6 +5,13 @@ static const float2 POSITIONS[] = {
     0.5, 0.5,           // Bottom right
 };
 
+static const float2 WORLD_POSITIONS[] = {
+    -0.5, 0.5,  // Top left
+    -0.5, -0.5, // Bottom left
+    0.5, 0.5,   // Top right
+    0.5, -0.5   // Bottom right
+};
+
 static const float3 COLORS[] = {
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
@@ -73,7 +80,8 @@ cbuffer push_constants {
 [shader("vertex")]
 VertexOutput vertex_main(uint idx : SV_VertexID) {
     VertexOutput out;
-    float2 p = POSITIONS[idx];
+    // float2 p = POSITIONS[idx];
+    float2 p = WORLD_POSITIONS[idx];
 
     //p = mul(p, rotation(t));
 
@@ -82,11 +90,12 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
     p.x += wiggle_dampening * my_noise(wiggle_freq * t + p);
     p.y += wiggle_dampening * my_noise(wiggle_freq * t + p + 0.5);
 
+    p *= 20.0;
+
     // p = mul(p, rotation(t * (1.0 + 2*idx)));
 
     // out.clip_out = float4(p.x, p.y, 1.0, 1.0);
-    // out.clip_out = mul(u_data.clip_from_world, float4(p.x, p.y, 0.0, 1.0));
-    out.clip_out = mul(float4(p.x, p.y, 0.0, 1.0), u_data.clip_from_world);
+    out.clip_out = mul(u_data.clip_from_world, float4(p.x, p.y, 0.0, 1.0));
     out.uv = UVS[idx];
     out.color = float4(COLORS[idx], 1.0);
 

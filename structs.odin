@@ -74,7 +74,6 @@ camera_projection_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
     }
 
     return proj_matrix * c_matrix
-    //return c_matrix * proj_matrix
 }
 
 UniformBufferData :: struct {

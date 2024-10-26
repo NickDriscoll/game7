@@ -98,6 +98,9 @@ main :: proc() {
         vertex_spv := #load("data/shaders/test.vert.spv", []u32)
         fragment_spv := #load("data/shaders/test.frag.spv", []u32)
 
+        raster_state := vkw.default_rasterization_state()
+        raster_state.cull_mode = nil
+
         pipeline_info := vkw.Graphics_Pipeline_Info {
             vertex_shader_bytecode = vertex_spv,
             fragment_shader_bytecode = fragment_spv,
@@ -106,7 +109,7 @@ main :: proc() {
                 primitive_restart_enabled = false
             },
             tessellation_state = {},
-            rasterization_state = vkw.default_rasterization_state(),
+            rasterization_state = raster_state,
             multisample_state = vkw.Multisample_State {
                 sample_count = {._1},
                 do_sample_shading = false,
@@ -249,13 +252,13 @@ main :: proc() {
     log.info("App initialization complete")
 
     viewport_camera := Camera {
-        position = {0.0, -2.0, -4.0},
+        position = {0.0, -5.0, 20.0},
         yaw = 0.0,
         pitch = 0.0,
-        fov_radians = math.PI / 2.0,
+        fov_radians = math.PI / 3.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
-        farplane = 1_000_000.0
+        farplane = 1_000.0
     }
     camera_control := false
     saved_mouse_coords := hlsl.int2 {0, 0}
@@ -320,11 +323,11 @@ main :: proc() {
         // Update camera based on user input
         if camera_control {
             SENSITIVITY :: 0.001
-            //viewport_camera.yaw += SENSITIVITY * mouse_motion.x
+            viewport_camera.yaw += SENSITIVITY * mouse_motion.x
             viewport_camera.pitch += SENSITIVITY * mouse_motion.y
             
-            // for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
-            // for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
+            for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
+            for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
 
             if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
             if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
