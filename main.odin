@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math/linalg/hlsl"
 import "core:math"
 import "core:os"
 import "core:slice"
@@ -73,7 +74,7 @@ main :: proc() {
     // Make window
     resolution: vkw.int2
     resolution.x = 800
-    resolution.y = 800
+    resolution.y = 600
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
     sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -174,7 +175,7 @@ main :: proc() {
     {
         info := vkw.Buffer_Info {
             size = size_of(UniformBufferData),
-            usage = {.UNIFORM_BUFFER},
+            usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
         }
@@ -247,9 +248,22 @@ main :: proc() {
 
     log.info("App initialization complete")
 
+    viewport_camera := Camera {
+        position = {0.0, -2.0, -4.0},
+        yaw = 0.0,
+        pitch = 0.0,
+        fov_radians = math.PI / 2.0,
+        aspect_ratio = f32(resolution.x) / f32(resolution.y),
+        nearplane = 0.1,
+        farplane = 1_000_000.0
+    }
+    camera_control := false
+    saved_mouse_coords := hlsl.int2 {0, 0}
+
     do_main_loop := true
     for do_main_loop {
         // Process system events
+        mouse_motion: hlsl.float2 = {0.0, 0.0}
         {
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
@@ -260,6 +274,23 @@ main :: proc() {
                             case .ESCAPE: do_main_loop = false
                             case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
                         }
+                    }
+                    case .MOUSEBUTTONDOWN: {
+                        if event.button.button == sdl2.BUTTON_RIGHT {
+                            camera_control = !camera_control
+
+                            sdl2.SetRelativeMouseMode(sdl2.bool(camera_control))
+                            if camera_control {
+                                saved_mouse_coords.x = event.button.x
+                                saved_mouse_coords.y = event.button.y
+                            } else {
+                                sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                            }
+                        }
+                    }
+                    case .MOUSEMOTION: {
+                        mouse_motion.x += f32(event.motion.xrel)
+                        mouse_motion.y += f32(event.motion.yrel)
                     }
                     case .CONTROLLERDEVICEADDED: {
                         controller_idx := event.cdevice.which
@@ -287,7 +318,17 @@ main :: proc() {
         // Update
 
         // Update camera based on user input
+        if camera_control {
+            SENSITIVITY :: 0.001
+            //viewport_camera.yaw += SENSITIVITY * mouse_motion.x
+            viewport_camera.pitch += SENSITIVITY * mouse_motion.y
+            
+            // for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
+            // for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
 
+            if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
+            if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
+        }
 
         // Delete image test
         if vgd.frame_count == 300 {
@@ -330,7 +371,15 @@ main :: proc() {
             // It is now safe to write to the uniform buffer now that
             // we know frame N-2 has finished
             {
+                uniforms: UniformBufferData
+                uniforms.clip_from_world =
+                    camera_projection_matrix(&viewport_camera) *
+                    camera_view_matrix(&viewport_camera)
 
+                in_slice := slice.from_ptr(&uniforms, 1)
+                if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_state.uniform_buffer, in_slice) {
+                    log.error("Failed to write uniform buffer data")
+                }
             }
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
@@ -409,10 +458,13 @@ main :: proc() {
                     }
                 }
             })
+
+            uniform_buf, ok := vkw.get_buffer(&vgd, render_state.uniform_buffer)
             vkw.cmd_push_constants_gfx(PushConstants, &vgd, gfx_cb_idx, &PushConstants {
                 time = t,
                 image = test_images[selected_image].index,
-                sampler = .Aniso16
+                sampler = .Aniso16,
+                uniform_buffer_address = uniform_buf.address
             })
 
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)

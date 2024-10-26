@@ -58,11 +58,16 @@ struct VertexOutput {
     float4 color;
 }
 
+struct UniformData {
+    float4x4 clip_from_world;
+}
+
 [[vk::push_constant]]
 cbuffer push_constants {
     float t;
     uint image_idx;
     uint sampler_idx;
+    UniformData *u_data;
 }
 
 [shader("vertex")]
@@ -78,7 +83,10 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
     p.y += wiggle_dampening * my_noise(wiggle_freq * t + p + 0.5);
 
     // p = mul(p, rotation(t * (1.0 + 2*idx)));
-    out.clip_out = float4(p.x, p.y, 1.0, 1.0);
+
+    // out.clip_out = float4(p.x, p.y, 1.0, 1.0);
+    // out.clip_out = mul(u_data.clip_from_world, float4(p.x, p.y, 0.0, 1.0));
+    out.clip_out = mul(float4(p.x, p.y, 0.0, 1.0), u_data.clip_from_world);
     out.uv = UVS[idx];
     out.color = float4(COLORS[idx], 1.0);
 
