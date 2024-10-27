@@ -75,8 +75,8 @@ main :: proc() {
     
     // Make window
     resolution: vkw.int2
-    resolution.x = 800
-    resolution.y = 600
+    resolution.x = 1280
+    resolution.y = 720
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
     sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -213,11 +213,14 @@ main :: proc() {
     // Create image
     TEST_IMAGES :: 2
     test_images: [TEST_IMAGES]vkw.Image_Handle
-    selected_image := 1
+    selected_image := 0
     {
         // Load image from disk
 
-        filenames : []cstring = {"data/images/sarah_bonito.jpg", "data/images/me_may2023.jpg"}
+        filenames : []cstring = {
+            "data/images/sarah_bonito.jpg",
+            "data/images/me_may2023.jpg"
+        }
         for filename, i in filenames {
             width, height, channels: i32
             image_bytes := stbi.load(filename, &width, &height, &channels, 4)
@@ -311,6 +314,57 @@ main :: proc() {
             required_flags = {.DEVICE_LOCAL}
         }
         imgui_state.index_buffer = vkw.create_buffer(&vgd, &buffer_info)
+
+        // Create pipeline for drawing
+
+        // Load shader bytecode
+        // This will be embedded into the executable at compile-time
+        vertex_spv := #load("data/shaders/imgui.vert.spv", []u32)
+        fragment_spv := #load("data/shaders/imgui.frag.spv", []u32)
+
+        raster_state := vkw.default_rasterization_state()
+        raster_state.cull_mode = nil
+
+        pipeline_info := vkw.Graphics_Pipeline_Info {
+            vertex_shader_bytecode = vertex_spv,
+            fragment_shader_bytecode = fragment_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false
+            },
+            tessellation_state = {},
+            rasterization_state = raster_state,
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = nil,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = false,
+                do_depth_write = false,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0
+            },
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
+                depth_attachment_format = nil
+            }
+        }
+
+        handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
+        defer delete(handles)
+
+        imgui_state.pipeline = handles[0]
     }
 
     log.info("App initialization complete")
@@ -543,7 +597,10 @@ main :: proc() {
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
             framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
+            framebuffer.color_load_op = .CLEAR
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
+
+
             
             vkw.cmd_bind_descriptor_set(&vgd, gfx_cb_idx)
             vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, render_state.gfx_pipeline)
@@ -558,7 +615,7 @@ main :: proc() {
                 maxDepth = 1.0
             }})
             vkw.cmd_set_scissor(&vgd, gfx_cb_idx, 0, {
-                vkw.Scissor {
+                {
                     offset = vk.Offset2D {
                         x = 0,
                         y = 0
@@ -584,8 +641,99 @@ main :: proc() {
             // Draw Dear Imgui
             {
                 imgui.Render()
-
                 
+                draw_data := imgui.GetDrawData()
+
+                // Copy vertex data into GPU buffer
+                // vertex_slice := slice.from_ptr(draw_data.CmdLists)
+                // vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, )
+
+                // Temp buffers for collecting imgui vertices/indices from all cmd lists
+                vertex_staging := make(
+                    [dynamic]imgui.DrawVert,
+                    0,
+                    draw_data.TotalVtxCount,
+                    allocator = context.temp_allocator
+                )
+                index_staging := make(
+                    [dynamic]imgui.DrawIdx,
+                    0,
+                    draw_data.TotalIdxCount,
+                    allocator = context.temp_allocator
+                )
+
+                imgui_vertex_buffer, ok := vkw.get_buffer(&vgd, imgui_state.vertex_buffer)
+                if !ok {
+                    log.error("Failed to get imgui vertex buffer")
+                }
+
+                vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, imgui_state.index_buffer)
+                vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
+
+                global_vtx_offset : u32 = 0
+                global_idx_offset : u32 = 0
+                cmd_lists := slice.from_ptr(draw_data.CmdLists.Data, int(draw_data.CmdListsCount))
+                for cmd_list in cmd_lists {
+                    // Push this cmd_list's vertex data to the staging buffer
+                    vtx_slice := slice.from_ptr(cmd_list.VtxBuffer.Data, int(cmd_list.VtxBuffer.Size))
+                    append(&vertex_staging, ..vtx_slice)
+
+                    // Now the index data
+                    idx_slice := slice.from_ptr(cmd_list.IdxBuffer.Data, int(cmd_list.IdxBuffer.Size))
+                    append(&index_staging, ..idx_slice)
+
+                    // Record commands into command buffer
+                    cmds := slice.from_ptr(cmd_list.CmdBuffer.Data, int(cmd_list.CmdBuffer.Size))
+                    for cmd in cmds {
+                        vkw.cmd_set_scissor(&vgd, gfx_cb_idx, 0, {
+                            {
+                                offset = {
+                                    x = i32(cmd.ClipRect.x),
+                                    y = i32(cmd.ClipRect.y)
+                                },
+                                extent = {
+                                    width = u32(cmd.ClipRect.z - cmd.ClipRect.x),
+                                    height = u32(cmd.ClipRect.a - cmd.ClipRect.y)
+                                }
+                            }
+                        })
+
+                        // @TODO: Should be able to move this call out of the loop
+                        vkw.cmd_push_constants_gfx(ImguiPushConstants, &vgd, gfx_cb_idx, &ImguiPushConstants {
+                            font_idx = imgui_state.font_atlas.index,
+                            vertex_offset = cmd.VtxOffset + global_vtx_offset,
+                            uniform_data = uniform_buf.address,
+                            vertex_data = imgui_vertex_buffer.address
+                        })
+
+                        vkw.cmd_draw_indexed(
+                            &vgd,
+                            gfx_cb_idx,
+                            cmd.ElemCount + global_idx_offset,
+                            1,
+                            cmd.IdxOffset,
+                            0, // This parameter is unused when doing vertex pulling but would be
+                               // i32(cmd.VtxOffset + global_vtx_offset),
+                            0
+                        )
+
+                        global_vtx_offset += u32(cmd_list.VtxBuffer.Size)
+                        global_idx_offset += u32(cmd_list.IdxBuffer.Size)
+
+                        // vkCmdDrawIndexed(
+                        //     frame_cb,
+                        //     draw_command.ElemCount,
+                        //     1,
+                        //     draw_command.IdxOffset + idx_offset,
+                        //     draw_command.VtxOffset + current_vertex_offset + vtx_offset,
+                        //     0
+                        // );
+                    }
+                }
+
+                // Upload vertex and index data to GPU buffers
+                vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, vertex_staging[:])
+                vkw.sync_write_buffer(u16, &vgd, imgui_state.index_buffer, index_staging[:])
             }
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
@@ -619,6 +767,9 @@ main :: proc() {
             // Clear sync info for next frame
             vkw.clear_sync_info(&render_state.gfx_sync_info)
             vgd.frame_count += 1
+
+            // CLear temp allocator for next frame
+            free_all(context.temp_allocator)
         }
     }
 

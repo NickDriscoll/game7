@@ -7,7 +7,7 @@ import tex_bindings;
 struct ImguiVertex {
     float2 position : POSITION;
     float2 uv : UVS;
-    float4 color : COLOR;
+    uint color : COLOR;
 }
 
 struct ImguiVertexOutput {
@@ -29,9 +29,14 @@ cbuffer PushConstants
 ImguiVertexOutput vertex_main(uint id: SV_VertexID) {
     ImguiVertex vert = imgui_vertices[id + imgui_vertex_offset];
     ImguiVertexOutput out;
-    out.color = vert.color;
-    out.uv = vert.uv;
     out.clip_out = mul(u_data.clip_from_screen, float4(vert.position, 0.0, 1.0));
+    out.uv = vert.uv;
+
+    // out.color = vert.color;
+    out.color.r = (float)(vert.color & 0xFF) / 255.0;
+    out.color.g = (float)((vert.color >> 8) & 0xFF) / 255.0;
+    out.color.b = (float)((vert.color >> 16) & 0xFF) / 255.0;
+    out.color.a = (float)((vert.color >> 24) & 0xFF) / 255.0;
 
     return out;
 }
@@ -39,4 +44,5 @@ ImguiVertexOutput vertex_main(uint id: SV_VertexID) {
 [shader("fragment")]
 float4 fragment_main(ImguiVertexOutput input) {
     return input.color * textures[font_idx].Sample(samplers[0], input.uv).r;
+    //return float4(1.0, 0.0, 0.0, 1.0);
 }
