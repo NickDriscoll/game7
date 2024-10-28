@@ -393,6 +393,8 @@ main :: proc() {
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         {
+            io := imgui.GetIO()
+
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
                 #partial switch event.type {
@@ -408,6 +410,7 @@ main :: proc() {
                             case .Q: camera_down = true
                             case .E: camera_up = true
                         }
+                        imgui.IO_AddKeyEvent(io, imgui.Key(event.key.keysym.sym), true)
                     }
                     case .KEYUP: {
                         #partial switch event.key.keysym.sym {
@@ -418,23 +421,33 @@ main :: proc() {
                             case .Q: camera_down = false
                             case .E: camera_up = false
                         }
+                        imgui.IO_AddKeyEvent(io, imgui.Key(event.key.keysym.sym), false)
                     }
                     case .MOUSEBUTTONDOWN: {
-                        if event.button.button == sdl2.BUTTON_RIGHT {
-                            camera_control = !camera_control
+                        switch event.button.button {
+                            case sdl2.BUTTON_LEFT: {
+                            }
+                            case sdl2.BUTTON_RIGHT: {
+                                camera_control = !camera_control
 
-                            sdl2.SetRelativeMouseMode(sdl2.bool(camera_control))
-                            if camera_control {
-                                saved_mouse_coords.x = event.button.x
-                                saved_mouse_coords.y = event.button.y
-                            } else {
-                                sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                                sdl2.SetRelativeMouseMode(sdl2.bool(camera_control))
+                                if camera_control {
+                                    saved_mouse_coords.x = event.button.x
+                                    saved_mouse_coords.y = event.button.y
+                                } else {
+                                    sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                                }
                             }
                         }
+                        imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
+                    }
+                    case .MOUSEBUTTONUP: {
+                        imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
                     }
                     case .MOUSEMOTION: {
                         camera_rotation.x += f32(event.motion.xrel)
                         camera_rotation.y += f32(event.motion.yrel)
+                        imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
                     }
                     case .CONTROLLERDEVICEADDED: {
                         controller_idx := event.cdevice.which
@@ -644,10 +657,6 @@ main :: proc() {
                 
                 draw_data := imgui.GetDrawData()
 
-                // Copy vertex data into GPU buffer
-                // vertex_slice := slice.from_ptr(draw_data.CmdLists)
-                // vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, )
-
                 // Temp buffers for collecting imgui vertices/indices from all cmd lists
                 vertex_staging := make(
                     [dynamic]imgui.DrawVert,
@@ -717,9 +726,6 @@ main :: proc() {
                             0
                         )
 
-                        global_vtx_offset += u32(cmd_list.VtxBuffer.Size)
-                        global_idx_offset += u32(cmd_list.IdxBuffer.Size)
-
                         // vkCmdDrawIndexed(
                         //     frame_cb,
                         //     draw_command.ElemCount,
@@ -729,11 +735,15 @@ main :: proc() {
                         //     0
                         // );
                     }
+                    
+                    // Update offsets within local vertex/index buffers
+                    global_vtx_offset += u32(cmd_list.VtxBuffer.Size)
+                    global_idx_offset += u32(cmd_list.IdxBuffer.Size)
                 }
 
                 // Upload vertex and index data to GPU buffers
                 vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, vertex_staging[:])
-                vkw.sync_write_buffer(u16, &vgd, imgui_state.index_buffer, index_staging[:])
+                vkw.sync_write_buffer(imgui.DrawIdx, &vgd, imgui_state.index_buffer, index_staging[:])
             }
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
