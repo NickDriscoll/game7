@@ -103,6 +103,7 @@ delete_rendering_state :: proc(vgd: ^vkw.Graphics_Device, r: ^RenderingState) {
 
 ImguiPushConstants :: struct {
     font_idx: u32,
+    sampler: vkw.Immutable_Samplers,
     vertex_offset: u32,
     uniform_data: vk.DeviceAddress,
     vertex_data: vk.DeviceAddress

@@ -698,9 +698,10 @@ main :: proc() {
                             }
                         })
 
-                        // @TODO: Should be able to move this call out of the loop
+                        // @TODO: Might be able to move this call out of the loop
                         vkw.cmd_push_constants_gfx(ImguiPushConstants, &vgd, gfx_cb_idx, &ImguiPushConstants {
                             font_idx = imgui_state.font_atlas.index,
+                            sampler = .Point,
                             vertex_offset = cmd.VtxOffset + global_vtx_offset,
                             uniform_data = uniform_buf.address,
                             vertex_data = imgui_vertex_buffer.address
@@ -709,11 +710,10 @@ main :: proc() {
                         vkw.cmd_draw_indexed(
                             &vgd,
                             gfx_cb_idx,
-                            cmd.ElemCount + global_idx_offset,
+                            cmd.ElemCount,
                             1,
-                            cmd.IdxOffset,
-                            0, // This parameter is unused when doing vertex pulling but would be
-                               // i32(cmd.VtxOffset + global_vtx_offset),
+                            cmd.IdxOffset + global_idx_offset,
+                            0, // This parameter is unused when doing vertex pulling
                             0
                         )
 
