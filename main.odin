@@ -7,6 +7,8 @@ import "core:math/linalg/hlsl"
 import "core:math"
 import "core:os"
 import "core:slice"
+import "core:strings"
+import "core:time"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
 
@@ -16,7 +18,7 @@ import vkw "desktop_vulkan_wrapper"
 
 MAX_PER_FRAME_DRAW_CALLS :: 1024
 MAX_GLOBAL_INDICES :: 1024*1024
-
+FRAMES_IN_FLIGHT :: 2
 
 main :: proc() {
     // Parse command-line arguments
@@ -66,7 +68,7 @@ main :: proc() {
     init_params := vkw.Init_Parameters {
         app_name = "Game7",
         api_version = .Vulkan13,
-        frames_in_flight = 2,
+        frames_in_flight = FRAMES_IN_FLIGHT,
         window_support = true,
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr()
     }
@@ -75,8 +77,8 @@ main :: proc() {
     
     // Make window
     resolution: vkw.int2
-    resolution.x = 1280
-    resolution.y = 720
+    resolution.x = 1920
+    resolution.y = 1080
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
     sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -256,6 +258,8 @@ main :: proc() {
 
     //Dear ImGUI init
     imgui_state: ImguiState
+    IMGUI_VERTEX_MEMORY :: 256 * 1024 * 1024
+    IMGUI_INDEX_MEMORY :: 64 * 1024 * 1024
     defer delete_imgui_state(&vgd, &imgui_state)
     {
         imgui_state.ctxt = imgui.CreateContext()
@@ -296,7 +300,6 @@ main :: proc() {
         imgui.FontAtlas_ClearTexData(io.Fonts)
 
         // Allocate imgui vertex buffer
-        IMGUI_VERTEX_MEMORY :: 256 * 1024 * 1024
         buffer_info := vkw.Buffer_Info {
             size = IMGUI_VERTEX_MEMORY,
             usage = {.STORAGE_BUFFER,.TRANSFER_DST},
@@ -306,7 +309,6 @@ main :: proc() {
         imgui_state.vertex_buffer = vkw.create_buffer(&vgd, &buffer_info)
 
         // Allocate imgui index buffer
-        IMGUI_INDEX_MEMORY :: 64 * 1024 * 1024
         buffer_info = vkw.Buffer_Info {
             size = IMGUI_VERTEX_MEMORY,
             usage = {.INDEX_BUFFER,.TRANSFER_DST},
@@ -319,7 +321,7 @@ main :: proc() {
 
         // Load shader bytecode
         // This will be embedded into the executable at compile-time
-        vertex_spv := #load("data/shaders/imgui.vert.spv", []u32)
+        vertex_spv :: #load("data/shaders/imgui.vert.spv", []u32)
         fragment_spv := #load("data/shaders/imgui.frag.spv", []u32)
 
         raster_state := vkw.default_rasterization_state()
@@ -388,12 +390,23 @@ main :: proc() {
     camera_down := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
+    current_time := time.now()
+    previous_time: time.Time
     do_main_loop := true
     for do_main_loop {
+        // Time
+        current_time = time.now()
+        elapsed_time := time.diff(previous_time, current_time)
+        previous_time = current_time
+        if vgd.frame_count % 1800 == 0 do log.debugf("elapsed_time: %v", elapsed_time)
+
+        imgui.NewFrame()
+
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         {
             io := imgui.GetIO()
+            io.DeltaTime = f32(elapsed_time) / 1_000_000_000.0
 
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
@@ -410,7 +423,7 @@ main :: proc() {
                             case .Q: camera_down = true
                             case .E: camera_up = true
                         }
-                        imgui.IO_AddKeyEvent(io, imgui.Key(event.key.keysym.sym), true)
+                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
                     }
                     case .KEYUP: {
                         #partial switch event.key.keysym.sym {
@@ -421,7 +434,7 @@ main :: proc() {
                             case .Q: camera_down = false
                             case .E: camera_up = false
                         }
-                        imgui.IO_AddKeyEvent(io, imgui.Key(event.key.keysym.sym), false)
+                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
                     }
                     case .MOUSEBUTTONDOWN: {
                         switch event.button.button {
@@ -449,6 +462,9 @@ main :: proc() {
                         camera_rotation.y += f32(event.motion.yrel)
                         imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
                     }
+                    case .MOUSEWHEEL: {
+                        imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
+                    }
                     case .CONTROLLERDEVICEADDED: {
                         controller_idx := event.cdevice.which
                         controller_one = sdl2.GameControllerOpen(controller_idx)
@@ -471,7 +487,6 @@ main :: proc() {
                 }
             }
         }
-        imgui.NewFrame()
 
         // Update
         imgui.ShowDemoWindow()
@@ -501,6 +516,14 @@ main :: proc() {
             viewport_camera.position += 0.1 *
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
+
+        }
+        {
+            using viewport_camera
+            imgui.Text("Frame #%i", vgd.frame_count)
+            imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+            imgui.Text("Camera yaw: %f", yaw)
+            imgui.Text("Camera pitch: %f", pitch)
         }
 
         imgui.EndFrame()
@@ -513,6 +536,7 @@ main :: proc() {
                 value = vgd.frame_count + 1
             })
     
+            // Sync point where we wait if there are already two frames in the gfx queue
             if vgd.frame_count >= u64(vgd.frames_in_flight) {
                 // Wait on timeline semaphore before starting command buffer execution
                 wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
@@ -679,8 +703,17 @@ main :: proc() {
                 vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, imgui_state.index_buffer)
                 vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
 
-                global_vtx_offset : u32 = 0
-                global_idx_offset : u32 = 0
+                // Compute a fixed vertex/index offset based on frame index
+                // so that the CPU doesn't overwrite vertex data for a frame currently
+                // being worked on
+                frame_idx := vgd.frame_count % FRAMES_IN_FLIGHT
+                // global_vtx_offset : u32 = u32(frame_idx * IMGUI_VERTEX_MEMORY / 4)
+                // global_idx_offset : u32 = u32(frame_idx * IMGUI_INDEX_MEMORY / 4)
+                global_vtx_offset : u32 = u32(frame_idx * 64 * 2000)
+                global_idx_offset : u32 = u32(frame_idx * 64 * 2000)
+                local_vtx_offset : u32 = 0
+                local_idx_offset : u32 = 0
+
                 cmd_lists := slice.from_ptr(draw_data.CmdLists.Data, int(draw_data.CmdListsCount))
                 for cmd_list in cmd_lists {
                     // Push this cmd_list's vertex data to the staging buffer
@@ -707,11 +740,10 @@ main :: proc() {
                             }
                         })
 
-                        // @TODO: Might be able to move this call out of the loop
                         vkw.cmd_push_constants_gfx(ImguiPushConstants, &vgd, gfx_cb_idx, &ImguiPushConstants {
                             font_idx = imgui_state.font_atlas.index,
                             sampler = .Point,
-                            vertex_offset = cmd.VtxOffset + global_vtx_offset,
+                            vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
                             uniform_data = uniform_buf.address,
                             vertex_data = imgui_vertex_buffer.address
                         })
@@ -721,7 +753,7 @@ main :: proc() {
                             gfx_cb_idx,
                             cmd.ElemCount,
                             1,
-                            cmd.IdxOffset + global_idx_offset,
+                            cmd.IdxOffset + global_idx_offset + local_idx_offset,
                             0, // This parameter is unused when doing vertex pulling
                             0
                         )
@@ -737,13 +769,13 @@ main :: proc() {
                     }
                     
                     // Update offsets within local vertex/index buffers
-                    global_vtx_offset += u32(cmd_list.VtxBuffer.Size)
-                    global_idx_offset += u32(cmd_list.IdxBuffer.Size)
+                    local_vtx_offset += u32(cmd_list.VtxBuffer.Size)
+                    local_idx_offset += u32(cmd_list.IdxBuffer.Size)
                 }
 
                 // Upload vertex and index data to GPU buffers
-                vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, vertex_staging[:])
-                vkw.sync_write_buffer(imgui.DrawIdx, &vgd, imgui_state.index_buffer, index_staging[:])
+                vkw.sync_write_buffer(imgui.DrawVert, &vgd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
+                vkw.sync_write_buffer(imgui.DrawIdx, &vgd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
             }
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)

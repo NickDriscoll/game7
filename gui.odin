@@ -3,7 +3,6 @@ package main
 import "vendor:sdl2"
 import imgui "odin-imgui"
 
-//ImGuiKey SDL2ToImGuiKey(int keycode) {
 SDL2ToImGuiKey :: proc(keycode: sdl2.Keycode) -> imgui.Key {
     #partial switch (keycode)
     {
@@ -130,7 +129,6 @@ SDL2ToImGuiKey :: proc(keycode: sdl2.Keycode) -> imgui.Key {
     return imgui.Key.None;
 }
 
-// int SDL2ToImGuiMouseButton(int button) {
 SDL2ToImGuiMouseButton :: proc(button: u8) -> i32 {
     button := i32(button)
     switch button {

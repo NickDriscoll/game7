@@ -1,8 +1,5 @@
 import structs;
 import tex_bindings;
-// import bindings.frame_uniforms;
-// import bindings.imgui_vertices;
-// import bindings.global_textures;
 
 struct ImguiVertex {
     float2 position : POSITION;
