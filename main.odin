@@ -74,6 +74,7 @@ main :: proc() {
     }
     vgd := vkw.init_vulkan(&init_params)
     log.debugf("%#v", vgd)
+    log.infof("minStorageBufferOffsetAlignment == %v", vgd.physical_device_properties.properties.limits.minStorageBufferOffsetAlignment)
     
     // Make window
     resolution: vkw.int2
@@ -215,7 +216,7 @@ main :: proc() {
     // Create image
     TEST_IMAGES :: 2
     test_images: [TEST_IMAGES]vkw.Image_Handle
-    selected_image := 0
+    selected_image := 1
     {
         // Load image from disk
 
@@ -258,8 +259,8 @@ main :: proc() {
 
     //Dear ImGUI init
     imgui_state: ImguiState
-    IMGUI_VERTEX_MEMORY :: 256 * 1024 * 1024
-    IMGUI_INDEX_MEMORY :: 64 * 1024 * 1024
+    MAX_IMGUI_VERTICES :: 64 * 1024 * 1024
+    MAX_IMGUI_INDICES :: 16 * 1024 * 1024
     defer delete_imgui_state(&vgd, &imgui_state)
     {
         imgui_state.ctxt = imgui.CreateContext()
@@ -301,7 +302,7 @@ main :: proc() {
 
         // Allocate imgui vertex buffer
         buffer_info := vkw.Buffer_Info {
-            size = IMGUI_VERTEX_MEMORY,
+            size = MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
             usage = {.STORAGE_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
@@ -310,7 +311,7 @@ main :: proc() {
 
         // Allocate imgui index buffer
         buffer_info = vkw.Buffer_Info {
-            size = IMGUI_VERTEX_MEMORY,
+            size = MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
             usage = {.INDEX_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
@@ -414,7 +415,6 @@ main :: proc() {
                     case .QUIT: do_main_loop = false
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
-                            case .ESCAPE: do_main_loop = false
                             case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
                             case .W: camera_forward = true
                             case .S: camera_back = true
@@ -707,10 +707,8 @@ main :: proc() {
                 // so that the CPU doesn't overwrite vertex data for a frame currently
                 // being worked on
                 frame_idx := vgd.frame_count % FRAMES_IN_FLIGHT
-                // global_vtx_offset : u32 = u32(frame_idx * IMGUI_VERTEX_MEMORY / 4)
-                // global_idx_offset : u32 = u32(frame_idx * IMGUI_INDEX_MEMORY / 4)
-                global_vtx_offset : u32 = u32(frame_idx * 64 * 2000)
-                global_idx_offset : u32 = u32(frame_idx * 64 * 2000)
+                global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES / FRAMES_IN_FLIGHT)
+                global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES / FRAMES_IN_FLIGHT)
                 local_vtx_offset : u32 = 0
                 local_idx_offset : u32 = 0
 
@@ -757,15 +755,6 @@ main :: proc() {
                             0, // This parameter is unused when doing vertex pulling
                             0
                         )
-
-                        // vkCmdDrawIndexed(
-                        //     frame_cb,
-                        //     draw_command.ElemCount,
-                        //     1,
-                        //     draw_command.IdxOffset + idx_offset,
-                        //     draw_command.VtxOffset + current_vertex_offset + vtx_offset,
-                        //     0
-                        // );
                     }
                     
                     // Update offsets within local vertex/index buffers
