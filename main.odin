@@ -9,6 +9,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:time"
+import "vendor:cgltf"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
 
@@ -22,6 +23,8 @@ FRAMES_IN_FLIGHT :: 2
 
 main :: proc() {
     // Parse command-line arguments
+    // @TODO: Look at the Odin samples for a better way
+    // of doing command-line args
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
     {
@@ -260,6 +263,17 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer delete_imgui_state(&vgd, &imgui_state)
+
+    // Load test glTF model
+    {
+        path : cstring = "data/models/Duck.glb"
+        gltf_data, res := cgltf.parse_file({}, path)
+        if res != .success {
+            log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+        }
+
+        
+    }
     
     log.info("App initialization complete")
 
