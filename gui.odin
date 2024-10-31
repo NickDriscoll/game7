@@ -1,7 +1,281 @@
 package main
 
+import "core:c"
+import "core:math/linalg/hlsl"
+import "core:log"
+import "core:slice"
 import "vendor:sdl2"
+import vk "vendor:vulkan"
 import imgui "odin-imgui"
+import vkw "desktop_vulkan_wrapper"
+
+MAX_IMGUI_VERTICES :: 64 * 1024 * 1024
+MAX_IMGUI_INDICES :: 16 * 1024 * 1024
+
+ImguiPushConstants :: struct {
+    font_idx: u32,
+    sampler: vkw.Immutable_Samplers,
+    vertex_offset: u32,
+    uniform_data: vk.DeviceAddress,
+    vertex_data: vk.DeviceAddress
+}
+
+ImguiUniforms :: struct {
+    clip_from_screen: hlsl.float4x4
+}
+
+ImguiState :: struct {
+    ctxt: ^imgui.Context,
+    font_atlas: vkw.Image_Handle,
+    vertex_buffer: vkw.Buffer_Handle,
+    index_buffer: vkw.Buffer_Handle,
+    uniform_buffer: vkw.Buffer_Handle,
+    pipeline: vkw.Pipeline_Handle
+}
+
+imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: vkw.int2) -> ImguiState {
+    imgui_state: ImguiState
+    imgui_state.ctxt = imgui.CreateContext()
+    
+    io := imgui.GetIO()
+    io.DisplaySize.x = f32(resolution.x)
+    io.DisplaySize.y = f32(resolution.y)
+
+    // Create font atlas and upload its texture data
+    font_data: ^c.uchar
+    width: c.int
+    height: c.int
+    imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)        
+    info := vkw.Image_Create {
+        flags = nil,
+        image_type = .D2,
+        format = .R8G8B8A8_SRGB,
+        extent = {
+            width = u32(width),
+            height = u32(height),
+            depth = 1,
+        },
+        supports_mipmaps = false,
+        array_layers = 1,
+        samples = {._1},
+        tiling = .OPTIMAL,
+        usage = {.SAMPLED,.TRANSFER_DST},
+        alloc_flags = nil
+    }
+    font_bytes_slice := slice.from_ptr(font_data, int(width * height * 4))
+    ok: bool
+    imgui_state.font_atlas, ok = vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
+    if !ok {
+        log.error("Failed to upload imgui font atlas data.")
+    }
+
+    // Free CPU-side texture data
+    imgui.FontAtlas_ClearTexData(io.Fonts)
+
+    // Allocate imgui vertex buffer
+    buffer_info := vkw.Buffer_Info {
+        size = MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
+        usage = {.STORAGE_BUFFER,.TRANSFER_DST},
+        alloc_flags = nil,
+        required_flags = {.DEVICE_LOCAL}
+    }
+    imgui_state.vertex_buffer = vkw.create_buffer(gd, &buffer_info)
+
+    // Allocate imgui index buffer
+    buffer_info = vkw.Buffer_Info {
+        size = MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
+        usage = {.INDEX_BUFFER,.TRANSFER_DST},
+        alloc_flags = nil,
+        required_flags = {.DEVICE_LOCAL}
+    }
+    imgui_state.index_buffer = vkw.create_buffer(gd, &buffer_info)
+
+    // Create pipeline for drawing
+
+    // Load shader bytecode
+    // This will be embedded into the executable at compile-time
+    vertex_spv :: #load("data/shaders/imgui.vert.spv", []u32)
+    fragment_spv :: #load("data/shaders/imgui.frag.spv", []u32)
+
+    raster_state := vkw.default_rasterization_state()
+    raster_state.cull_mode = nil
+
+    pipeline_info := vkw.Graphics_Pipeline_Info {
+        vertex_shader_bytecode = vertex_spv,
+        fragment_shader_bytecode = fragment_spv,
+        input_assembly_state = vkw.Input_Assembly_State {
+            topology = .TRIANGLE_LIST,
+            primitive_restart_enabled = false
+        },
+        tessellation_state = {},
+        rasterization_state = raster_state,
+        multisample_state = vkw.Multisample_State {
+            sample_count = {._1},
+            do_sample_shading = false,
+            min_sample_shading = 0.0,
+            sample_mask = nil,
+            do_alpha_to_coverage = false,
+            do_alpha_to_one = false
+        },
+        depthstencil_state = vkw.DepthStencil_State {
+            flags = nil,
+            do_depth_test = false,
+            do_depth_write = false,
+            depth_compare_op = .GREATER_OR_EQUAL,
+            do_depth_bounds_test = false,
+            do_stencil_test = false,
+            // front = nil,
+            // back = nil,
+            min_depth_bounds = 0.0,
+            max_depth_bounds = 1.0
+        },
+        colorblend_state = vkw.default_colorblend_state(),
+        renderpass_state = vkw.PipelineRenderpass_Info {
+            color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
+            depth_attachment_format = nil
+        }
+    }
+
+    handles := vkw.create_graphics_pipelines(gd, {pipeline_info})
+    defer delete(handles)
+
+    imgui_state.pipeline = handles[0]
+
+    // Create uniform buffer
+    {
+        info := vkw.Buffer_Info {
+            size = size_of(ImguiUniforms),
+            usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+        }
+        imgui_state.uniform_buffer = vkw.create_buffer(gd, &info)
+    }
+
+    return imgui_state
+}
+
+draw_imgui :: proc(
+    gd: ^vkw.Graphics_Device,
+    gfx_cb_idx: vkw.CommandBuffer_Index,
+    imgui_state: ^ImguiState
+) {
+    // Update uniform buffer
+    
+    io := imgui.GetIO()
+    uniforms: ImguiUniforms
+    uniforms.clip_from_screen = {
+        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    }
+    u_slice := slice.from_ptr(&uniforms, 1)
+    vkw.sync_write_buffer(ImguiUniforms, gd, imgui_state.uniform_buffer, u_slice)
+
+    imgui.Render()
+    
+    draw_data := imgui.GetDrawData()
+
+    // Temp buffers for collecting imgui vertices/indices from all cmd lists
+    vertex_staging := make(
+        [dynamic]imgui.DrawVert,
+        0,
+        draw_data.TotalVtxCount,
+        allocator = context.temp_allocator
+    )
+    index_staging := make(
+        [dynamic]imgui.DrawIdx,
+        0,
+        draw_data.TotalIdxCount,
+        allocator = context.temp_allocator
+    )
+
+    imgui_vertex_buffer, ok := vkw.get_buffer(gd, imgui_state.vertex_buffer)
+    if !ok {
+        log.error("Failed to get imgui vertex buffer")
+    }
+
+    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, imgui_state.index_buffer)
+    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
+    
+    uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
+
+    // Compute a fixed vertex/index offset based on frame index
+    // so that the CPU doesn't overwrite vertex data for a frame currently
+    // being worked on
+    frame_idx := gd.frame_count % FRAMES_IN_FLIGHT
+    global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES / FRAMES_IN_FLIGHT)
+    global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES / FRAMES_IN_FLIGHT)
+    local_vtx_offset : u32 = 0
+    local_idx_offset : u32 = 0
+
+    cmd_lists := slice.from_ptr(draw_data.CmdLists.Data, int(draw_data.CmdListsCount))
+    for cmd_list in cmd_lists {
+        // Push this cmd_list's vertex data to the staging buffer
+        vtx_slice := slice.from_ptr(cmd_list.VtxBuffer.Data, int(cmd_list.VtxBuffer.Size))
+        append(&vertex_staging, ..vtx_slice)
+
+        // Now the index data
+        idx_slice := slice.from_ptr(cmd_list.IdxBuffer.Data, int(cmd_list.IdxBuffer.Size))
+        append(&index_staging, ..idx_slice)
+
+        // Record commands into command buffer
+        cmds := slice.from_ptr(cmd_list.CmdBuffer.Data, int(cmd_list.CmdBuffer.Size))
+        for cmd in cmds {
+            vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
+                {
+                    offset = {
+                        x = i32(cmd.ClipRect.x),
+                        y = i32(cmd.ClipRect.y)
+                    },
+                    extent = {
+                        width = u32(cmd.ClipRect.z - cmd.ClipRect.x),
+                        height = u32(cmd.ClipRect.a - cmd.ClipRect.y)
+                    }
+                }
+            })
+
+            vkw.cmd_push_constants_gfx(ImguiPushConstants, gd, gfx_cb_idx, &ImguiPushConstants {
+                font_idx = imgui_state.font_atlas.index,
+                sampler = .Point,
+                vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
+                uniform_data = uniform_buf.address,
+                vertex_data = imgui_vertex_buffer.address
+            })
+
+            vkw.cmd_draw_indexed(
+                gd,
+                gfx_cb_idx,
+                cmd.ElemCount,
+                1,
+                cmd.IdxOffset + global_idx_offset + local_idx_offset,
+                0, // This parameter is unused when doing vertex pulling
+                0
+            )
+        }
+        
+        // Update offsets within local vertex/index buffers
+        local_vtx_offset += u32(cmd_list.VtxBuffer.Size)
+        local_idx_offset += u32(cmd_list.IdxBuffer.Size)
+    }
+
+    // Upload vertex and index data to GPU buffers
+    vkw.sync_write_buffer(imgui.DrawVert, gd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
+    vkw.sync_write_buffer(imgui.DrawIdx, gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
+    
+}
+
+delete_imgui_state :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
+    imgui.DestroyContext(ctxt)
+    vkw.delete_buffer(vgd, vertex_buffer)
+    vkw.delete_buffer(vgd, index_buffer)
+}
+
+
+
+
+
 
 SDL2ToImGuiKey :: proc(keycode: sdl2.Keycode) -> imgui.Key {
     #partial switch (keycode)

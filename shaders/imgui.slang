@@ -13,13 +13,17 @@ struct ImguiVertexOutput {
     float4 color;
 }
 
+struct ImguiUniforms {
+    float4x4 clip_from_screen;
+}
+
 [[vk::push_constant]]
 cbuffer PushConstants
 {
     uint font_idx;
     uint sampler_idx;
     uint imgui_vertex_offset;
-    UniformData *u_data;
+    ImguiUniforms *u_data;
     ImguiVertex *imgui_vertices;
 }
 

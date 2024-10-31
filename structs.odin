@@ -100,25 +100,3 @@ RenderingState :: struct {
 delete_rendering_state :: proc(vgd: ^vkw.Graphics_Device, r: ^RenderingState) {
     vkw.delete_sync_info(&r.gfx_sync_info)
 }
-
-ImguiPushConstants :: struct {
-    font_idx: u32,
-    sampler: vkw.Immutable_Samplers,
-    vertex_offset: u32,
-    uniform_data: vk.DeviceAddress,
-    vertex_data: vk.DeviceAddress
-}
-
-ImguiState :: struct {
-    ctxt: ^imgui.Context,
-    font_atlas: vkw.Image_Handle,
-    vertex_buffer: vkw.Buffer_Handle,
-    index_buffer: vkw.Buffer_Handle,
-    pipeline: vkw.Pipeline_Handle
-}
-
-delete_imgui_state :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
-    imgui.DestroyContext(ctxt)
-    vkw.delete_buffer(vgd, vertex_buffer)
-    vkw.delete_buffer(vgd, index_buffer)
-}
