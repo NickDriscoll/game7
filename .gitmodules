@@ -4,6 +4,3 @@
 [submodule "desktop_vulkan_wrapper"]
 	path = desktop_vulkan_wrapper
 	url = git@github.com:NickDriscoll/desktop_vulkan_wrapper.git
-[submodule "odin-imgui"]
-	path = odin-imgui
-	url = https://gitlab.com/L-4/odin-imgui.git
