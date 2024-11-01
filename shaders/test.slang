@@ -78,10 +78,10 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 
     //p = mul(p, rotation(t));
 
-    float wiggle_dampening = 0.1;
-    float2 wiggle_freq = float2(0.75, 0.5);
-    p.x += wiggle_dampening * my_noise(wiggle_freq * t + p);
-    p.y += wiggle_dampening * my_noise(wiggle_freq * t + p + 0.5);
+    // float wiggle_dampening = 0.1;
+    // float2 wiggle_freq = float2(0.75, 0.5);
+    // p.x += wiggle_dampening * my_noise(wiggle_freq * t + p);
+    // p.y += wiggle_dampening * my_noise(wiggle_freq * t + p + 0.5);
 
     p *= 20.0;
 
@@ -89,7 +89,7 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 
     // out.clip_out = float4(p.x, p.y, 1.0, 1.0);
     out.clip_out = mul(u_data.clip_from_world, float4(p.x, p.y, 0.0, 1.0));
-    out.uv = UVS[idx];
+    out.uv = 3.0 * UVS[idx];
     out.color = float4(COLORS[idx], 1.0);
 
     return out;

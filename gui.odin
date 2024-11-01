@@ -156,6 +156,8 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: vkw.int2) -> ImguiState
     return imgui_state
 }
 
+// Once-per-frame call to update imgui vtx/idx/uniform buffers
+// and record imgui draw commands into current frame's command buffer
 draw_imgui :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
@@ -197,7 +199,9 @@ draw_imgui :: proc(
         log.error("Failed to get imgui vertex buffer")
     }
 
-    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, imgui_state.index_buffer)
+    if !vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, imgui_state.index_buffer) {
+        log.error("Failed to get imgui index buffer")  
+    } 
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
     
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
@@ -267,16 +271,17 @@ draw_imgui :: proc(
     
 }
 
-delete_imgui_state :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
+imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
     imgui.DestroyContext(ctxt)
     vkw.delete_buffer(vgd, vertex_buffer)
     vkw.delete_buffer(vgd, index_buffer)
+    vkw.delete_buffer(vgd, uniform_buffer)
 }
 
 
 
 
-
+// Utility funcs
 
 SDL2ToImGuiKey :: proc(keycode: sdl2.Keycode) -> imgui.Key {
     #partial switch (keycode)

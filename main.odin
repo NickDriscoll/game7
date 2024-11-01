@@ -16,9 +16,6 @@ import stbi "vendor:stb/image"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
-
-MAX_PER_FRAME_DRAW_CALLS :: 1024
-MAX_GLOBAL_INDICES :: 1024*1024
 FRAMES_IN_FLIGHT :: 2
 
 main :: proc() {
@@ -96,102 +93,8 @@ main :: proc() {
 
     // Initialize the render state structure
     // This is a megastruct for holding the return values from vkw basically
-    render_state: RenderingState
+    render_state := init_rendering_state(&vgd)
     defer delete_rendering_state(&vgd, &render_state)
-
-    // Pipeline creation
-    {
-        // Load shader bytecode
-        // This will be embedded into the executable at compile-time
-        vertex_spv := #load("data/shaders/test.vert.spv", []u32)
-        fragment_spv := #load("data/shaders/test.frag.spv", []u32)
-
-        raster_state := vkw.default_rasterization_state()
-        raster_state.cull_mode = nil
-
-        pipeline_info := vkw.Graphics_Pipeline_Info {
-            vertex_shader_bytecode = vertex_spv,
-            fragment_shader_bytecode = fragment_spv,
-            input_assembly_state = vkw.Input_Assembly_State {
-                topology = .TRIANGLE_LIST,
-                primitive_restart_enabled = false
-            },
-            tessellation_state = {},
-            rasterization_state = raster_state,
-            multisample_state = vkw.Multisample_State {
-                sample_count = {._1},
-                do_sample_shading = false,
-                min_sample_shading = 0.0,
-                sample_mask = nil,
-                do_alpha_to_coverage = false,
-                do_alpha_to_one = false
-            },
-            depthstencil_state = vkw.DepthStencil_State {
-                flags = nil,
-                do_depth_test = false,
-                do_depth_write = false,
-                depth_compare_op = .GREATER_OR_EQUAL,
-                do_depth_bounds_test = false,
-                do_stencil_test = false,
-                // front = nil,
-                // back = nil,
-                min_depth_bounds = 0.0,
-                max_depth_bounds = 1.0
-            },
-            colorblend_state = vkw.default_colorblend_state(),
-            renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
-                depth_attachment_format = nil
-            }
-        }
-
-        handles := vkw.create_graphics_pipelines(&vgd, {pipeline_info})
-        defer delete(handles)
-
-        render_state.gfx_pipeline = handles[0]
-    }
-
-    // Create main timeline semaphore
-    {
-        info := vkw.Semaphore_Info {
-            type = .TIMELINE,
-            init_value = 0
-        }
-        render_state.gfx_timeline = vkw.create_semaphore(&vgd, &info)
-    }
-
-    // Create index buffer
-    {
-        info := vkw.Buffer_Info {
-            size = size_of(u16) * MAX_GLOBAL_INDICES,
-            usage = {.INDEX_BUFFER, .TRANSFER_DST},
-            alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL}
-        }
-        render_state.index_buffer = vkw.create_buffer(&vgd, &info)
-    }
-
-    // Create indirect draw buffer
-    {
-        info := vkw.Buffer_Info {
-            size = 64,
-            usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL}
-        }
-        render_state.draw_buffer = vkw.create_buffer(&vgd, &info)
-    }
-
-    // Create uniform buffer
-    {
-        info := vkw.Buffer_Info {
-            size = size_of(UniformBufferData),
-            usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
-        }
-        render_state.uniform_buffer = vkw.create_buffer(&vgd, &info)
-    }
             
     // Write to static buffers
     {
@@ -217,15 +120,16 @@ main :: proc() {
     }
 
     // Create image
-    TEST_IMAGES :: 2
+    TEST_IMAGES :: 3
     test_images: [TEST_IMAGES]vkw.Image_Handle
-    selected_image := 1
+    selected_image := 0
     {
         // Load image from disk
 
         filenames : []cstring = {
-            "data/images/sarah_bonito.jpg",
-            "data/images/me_may2023.jpg"
+            "data/images/me_may2023.jpg",
+            "data/images/my_face.jpg",
+            "data/images/evas_plan.jpg"
         }
         for filename, i in filenames {
             width, height, channels: i32
@@ -262,7 +166,7 @@ main :: proc() {
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
-    defer delete_imgui_state(&vgd, &imgui_state)
+    defer imgui_cleanup(&vgd, &imgui_state)
 
     // Load test glTF model
     {
@@ -271,6 +175,10 @@ main :: proc() {
         if res != .success {
             log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
         }
+
+        // For now just loading the first mesh we see
+        mesh := gltf_data.meshes[0]
+        primitive := mesh.primitives[0]
 
         
     }
@@ -282,7 +190,7 @@ main :: proc() {
         position = {0.0, -5.0, 10.0},
         yaw = 0.0,
         pitch = math.PI / 4.0,
-        fov_radians = math.PI / 3.0,
+        fov_radians = math.PI / 2.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
         farplane = 1_000.0
