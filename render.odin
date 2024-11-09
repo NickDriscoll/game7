@@ -48,7 +48,7 @@ RenderingState :: struct {
     gfx_sync_info: vkw.Sync_Info,
 }
 
-init_rendering_state :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
+init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     render_state: RenderingState
     hm.init(&render_state.positions_views)
 
@@ -116,11 +116,12 @@ init_rendering_state :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     // Create vertex buffers
     {
         info := vkw.Buffer_Info {
-            size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES,
             usage = {.STORAGE_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
         }
+
+        info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         render_state.positions_buffer = vkw.create_buffer(gd, &info)
 
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
@@ -163,8 +164,9 @@ init_rendering_state :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     return render_state
 }
 
-delete_rendering_state :: proc(vgd: ^vkw.Graphics_Device, r: ^RenderingState) {
-    vkw.delete_sync_info(&r.gfx_sync_info)
+delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
+    vkw.delete_sync_info(&gfx_sync_info)
+    hm.destroy(&positions_views)
 }
 
 create_mesh :: proc(
@@ -186,5 +188,5 @@ create_mesh :: proc(
         offset = positions_offset
     })
 
-
+    
 }

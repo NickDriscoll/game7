@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:math"
+import "core:mem"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -93,8 +94,8 @@ main :: proc() {
 
     // Initialize the render state structure
     // This is a megastruct for holding the return values from vkw basically
-    render_state := init_rendering_state(&vgd)
-    defer delete_rendering_state(&vgd, &render_state)
+    render_state := init_renderer(&vgd)
+    defer delete_renderer(&vgd, &render_state)
             
     // Write to static buffers
     {
@@ -127,9 +128,9 @@ main :: proc() {
         // Load image from disk
 
         filenames : []cstring = {
-            "data/images/me_may2023.jpg",
+            "data/images/evas_plan.jpg",
             "data/images/my_face.jpg",
-            "data/images/evas_plan.jpg"
+            "data/images/me_may2023.jpg",
         }
         for filename, i in filenames {
             width, height, channels: i32
@@ -170,16 +171,58 @@ main :: proc() {
 
     // Load test glTF model
     {
-        path : cstring = "data/models/Duck.glb"
+        path : cstring = "data/models/Box.glb"
         gltf_data, res := cgltf.parse_file({}, path)
+        defer cgltf.free(gltf_data)
         if res != .success {
             log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+        }
+
+        // Load buffers
+        res = cgltf.load_buffers({}, gltf_data, path)
+        if res != .success {
+            log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
         }
 
         // For now just loading the first mesh we see
         mesh := gltf_data.meshes[0]
         primitive := mesh.primitives[0]
 
+        get_buffer_view_ptr :: proc(using a: ^cgltf.accessor) -> rawptr {
+            base_ptr := buffer_view.buffer.data
+            offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+            return offset_ptr
+        }
+
+        // Get indices
+        index_data: [dynamic]u16
+        defer delete(index_data)
+        indices_bytes := primitive.indices.buffer_view.size
+        indices_count := indices_bytes / 2
+        resize(&index_data, indices_count)
+        index_buffer_data := get_buffer_view_ptr(primitive.indices)
+        mem.copy(raw_data(index_data), index_buffer_data, int(indices_bytes))
+        log.debugf("index data: %v", index_data)
+        
+        // Get vertices
+        position_data: [dynamic]hlsl.float3
+        defer delete(position_data)
+
+        for attrib in primitive.attributes {
+            #partial switch (attrib.type) {
+                case .position: {
+                    resize(&position_data, attrib.data.count)
+                    log.debugf("Position data type: %v", attrib.data.type)
+                    log.debugf("Position count: %v", attrib.data.count)
+                    position_ptr := get_buffer_view_ptr(attrib.data)
+                    mem.copy(raw_data(position_data), position_ptr, int(attrib.data.buffer_view.size))
+                    log.debugf("Position data: %v", position_data)
+                }
+            }
+        }
+
+        // Now that we have the mesh data in CPU-side buffers,
+        // it's time to upload them
         
     }
     
@@ -305,17 +348,20 @@ main :: proc() {
         imgui.ShowDemoWindow()
 
         // Update camera based on user input
-        if camera_control {
-            ROTATION_SENSITIVITY :: 0.001
-            viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
-            viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
-            
-            for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
-            for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
-
-            if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
-            if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
-
+        {
+            if camera_control {
+                ROTATION_SENSITIVITY :: 0.001
+                viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
+                viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
+                
+                for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
+                for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
+    
+                if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
+                if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
+    
+            }
+    
             camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
             if camera_forward do camera_direction += {0.0, 1.0, 0.0}
             if camera_back do camera_direction += {0.0, -1.0, 0.0}
@@ -330,13 +376,13 @@ main :: proc() {
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
 
-        }
-        {
-            using viewport_camera
-            imgui.Text("Frame #%i", vgd.frame_count)
-            imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-            imgui.Text("Camera yaw: %f", yaw)
-            imgui.Text("Camera pitch: %f", pitch)
+            {
+                using viewport_camera
+                imgui.Text("Frame #%i", vgd.frame_count)
+                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                imgui.Text("Camera yaw: %f", yaw)
+                imgui.Text("Camera pitch: %f", pitch)
+            }
         }
 
         imgui.EndFrame()
