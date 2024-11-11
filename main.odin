@@ -188,7 +188,7 @@ main :: proc() {
         mesh := gltf_data.meshes[0]
         primitive := mesh.primitives[0]
 
-        get_buffer_view_ptr :: proc(using a: ^cgltf.accessor) -> rawptr {
+        get_accessor_ptr :: proc(using a: ^cgltf.accessor) -> [^]byte {
             base_ptr := buffer_view.buffer.data
             offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
             return offset_ptr
@@ -200,7 +200,7 @@ main :: proc() {
         indices_bytes := primitive.indices.buffer_view.size
         indices_count := indices_bytes / 2
         resize(&index_data, indices_count)
-        index_buffer_data := get_buffer_view_ptr(primitive.indices)
+        index_buffer_data := get_accessor_ptr(primitive.indices)
         mem.copy(raw_data(index_data), index_buffer_data, int(indices_bytes))
         log.debugf("index data: %v", index_data)
         
@@ -209,13 +209,15 @@ main :: proc() {
         defer delete(position_data)
 
         for attrib in primitive.attributes {
+            attrib := attrib
             #partial switch (attrib.type) {
                 case .position: {
                     resize(&position_data, attrib.data.count)
                     log.debugf("Position data type: %v", attrib.data.type)
                     log.debugf("Position count: %v", attrib.data.count)
-                    position_ptr := get_buffer_view_ptr(attrib.data)
-                    mem.copy(raw_data(position_data), position_ptr, int(attrib.data.buffer_view.size))
+                    position_ptr := get_accessor_ptr(attrib.data)
+                    position_bytes := attrib.data.count * size_of(hlsl.float3)
+                    mem.copy(raw_data(position_data), position_ptr, int(position_bytes))
                     log.debugf("Position data: %v", position_data)
                 }
             }
