@@ -17,6 +17,7 @@ import stbi "vendor:stb/image"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
+
 FRAMES_IN_FLIGHT :: 2
 
 main :: proc() {
@@ -101,9 +102,10 @@ main :: proc() {
     {
         // Write indices for drawing quad
         indices : []u16 = {0, 1, 2, 1, 3, 2}
-        if !vkw.sync_write_buffer(u16, &vgd, render_state.index_buffer, indices) {
+        if !vkw.sync_write_buffer(u16, &vgd, render_state.index_buffer, indices, render_state.indices_offset) {
             log.error("vkw.sync_write_buffer() failed.")
         }
+        render_state.indices_offset += u32(len(indices))
 
         // Write quad draw call to indirect draw buffer
         draws : []vk.DrawIndexedIndirectCommand = {
@@ -173,10 +175,10 @@ main :: proc() {
     {
         path : cstring = "data/models/Box.glb"
         gltf_data, res := cgltf.parse_file({}, path)
-        defer cgltf.free(gltf_data)
         if res != .success {
             log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
         }
+        defer cgltf.free(gltf_data)
 
         // Load buffers
         res = cgltf.load_buffers({}, gltf_data, path)
@@ -188,24 +190,24 @@ main :: proc() {
         mesh := gltf_data.meshes[0]
         primitive := mesh.primitives[0]
 
-        get_accessor_ptr :: proc(using a: ^cgltf.accessor) -> [^]byte {
+        get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
             base_ptr := buffer_view.buffer.data
             offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-            return offset_ptr
+            return cast([^]T)offset_ptr
         }
 
         // Get indices
         index_data: [dynamic]u16
         defer delete(index_data)
-        indices_bytes := primitive.indices.buffer_view.size
-        indices_count := indices_bytes / 2
+        indices_count := primitive.indices.count
+        indices_bytes := indices_count * size_of(u16)
         resize(&index_data, indices_count)
-        index_buffer_data := get_accessor_ptr(primitive.indices)
-        mem.copy(raw_data(index_data), index_buffer_data, int(indices_bytes))
+        index_ptr := get_accessor_ptr(primitive.indices, u16)
+        mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
         log.debugf("index data: %v", index_data)
         
         // Get vertices
-        position_data: [dynamic]hlsl.float3
+        position_data: [dynamic]hlsl.float4
         defer delete(position_data)
 
         for attrib in primitive.attributes {
@@ -215,9 +217,18 @@ main :: proc() {
                     resize(&position_data, attrib.data.count)
                     log.debugf("Position data type: %v", attrib.data.type)
                     log.debugf("Position count: %v", attrib.data.count)
-                    position_ptr := get_accessor_ptr(attrib.data)
+                    position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
                     position_bytes := attrib.data.count * size_of(hlsl.float3)
-                    mem.copy(raw_data(position_data), position_ptr, int(position_bytes))
+
+                    // Build up positions buffer
+                    // We have to append a 1.0 to all positions
+                    // in line with homogenous coordinates
+                    for i in 0..<attrib.data.count {
+                        pos := position_ptr[i]
+                        position_data[i] = {pos.x, pos.y, pos.z, 1.0}
+                    }
+
+                    //mem.copy(raw_data(position_data), position_ptr, int(position_bytes))
                     log.debugf("Position data: %v", position_data)
                 }
             }
@@ -225,7 +236,7 @@ main :: proc() {
 
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
-        
+        my_mesh := create_mesh(&vgd, &render_state, position_data[:], index_data[:])
     }
     
     log.info("App initialization complete")
@@ -240,7 +251,7 @@ main :: proc() {
         nearplane = 0.1,
         farplane = 1_000.0
     }
-    camera_control := false
+    mouse_look := false
     camera_forward := false
     camera_back := false
     camera_left := false
@@ -299,10 +310,10 @@ main :: proc() {
                             case sdl2.BUTTON_LEFT: {
                             }
                             case sdl2.BUTTON_RIGHT: {
-                                camera_control = !camera_control
+                                mouse_look = !mouse_look
 
-                                sdl2.SetRelativeMouseMode(sdl2.bool(camera_control))
-                                if camera_control {
+                                sdl2.SetRelativeMouseMode(sdl2.bool(mouse_look))
+                                if mouse_look {
                                     saved_mouse_coords.x = event.button.x
                                     saved_mouse_coords.y = event.button.y
                                 } else {
@@ -318,7 +329,9 @@ main :: proc() {
                     case .MOUSEMOTION: {
                         camera_rotation.x += f32(event.motion.xrel)
                         camera_rotation.y += f32(event.motion.yrel)
-                        imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
+                        if !mouse_look {
+                            imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
+                        }
                     }
                     case .MOUSEWHEEL: {
                         imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
@@ -351,7 +364,7 @@ main :: proc() {
 
         // Update camera based on user input
         {
-            if camera_control {
+            if mouse_look {
                 ROTATION_SENSITIVITY :: 0.001
                 viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
                 viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
@@ -361,7 +374,6 @@ main :: proc() {
     
                 if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
                 if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
-    
             }
     
             camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
@@ -501,7 +513,7 @@ main :: proc() {
 
             
             vkw.cmd_bind_descriptor_set(&vgd, gfx_cb_idx)
-            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, render_state.gfx_pipeline)
+            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, render_state.test_pipeline)
 
             res := resolution
             vkw.cmd_set_viewport(&vgd, gfx_cb_idx, 0, {vkw.Viewport {
@@ -533,7 +545,7 @@ main :: proc() {
                 uniform_buffer_address = uniform_buf.address
             })
 
-            // There will be one of these commands per "bucket"
+            // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
             vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)
 
             // Draw Dear Imgui
@@ -541,7 +553,7 @@ main :: proc() {
     
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
-            // Memory barrier between rendering and image present
+            // Memory barrier between rendering to swapchain image and swapchain present
             vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
                     src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -565,15 +577,14 @@ main :: proc() {
     
             vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_state.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
-    
-            
-            // Clear sync info for next frame
-            vkw.clear_sync_info(&render_state.gfx_sync_info)
-            vgd.frame_count += 1
-
-            // CLear temp allocator for next frame
-            free_all(context.temp_allocator)
         }
+
+        // Clear sync info for next frame
+        vkw.clear_sync_info(&render_state.gfx_sync_info)
+        vgd.frame_count += 1
+
+        // CLear temp allocator for next frame
+        free_all(context.temp_allocator)
     }
 
     log.info("Returning from main()")

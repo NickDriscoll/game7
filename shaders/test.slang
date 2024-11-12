@@ -98,7 +98,14 @@ VertexOutput vertex_main(uint idx : SV_VertexID) {
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
     float2 uv = input.uv;
+    
+    float wiggle_dampening = 0.1;
+    float2 wiggle_freq = float2(0.75, 0.5);
+    uv.x += wiggle_dampening * my_noise(wiggle_freq * t + uv);
+    uv.y += wiggle_dampening * my_noise(wiggle_freq * t + uv + 0.5);
+
     float4 sample = textures[image_idx].Sample(samplers[sampler_idx], uv);
+
     //uv.y = 1.0 - uv.y;
     //return float4(uv, 0.0, 1.0);
     return sample * input.color;

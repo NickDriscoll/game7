@@ -7,7 +7,7 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
-MAX_PER_FRAME_DRAW_CALLS :: 1024
+MAX_PER_FRAME_DRAW_CMDS :: 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
 MAX_GLOBAL_INDICES :: 1024*1024
 
@@ -28,22 +28,42 @@ AttributeView :: struct {
     offset: u32
 }
 
+PositionViewKey :: distinct hm.Handle
+IndexViewKey :: distinct hm.Handle
+
+MeshData :: struct {
+    position_key: PositionViewKey,
+    index_key: IndexViewKey
+}
+
 Mesh_Handle :: distinct hm.Handle
+
+DrawData :: struct {
+    instance_count: u32,
+    position_offset: u32,
+    index_offset: u32
+}
 
 RenderingState :: struct {
     // Vertex attribute buffers
     positions_buffer: vkw.Buffer_Handle,
     uvs_buffer: vkw.Buffer_Handle,
+    index_buffer: vkw.Buffer_Handle,
 
     // Vertex metadata
     positions_views: hm.Handle_Map(AttributeView),
+    indices_views: hm.Handle_Map(AttributeView),
     positions_offset: u32,
     uvs_offset: u32,
+    indices_offset: u32,
 
-    index_buffer: vkw.Buffer_Handle,
+    test_pipeline: vkw.Pipeline_Handle,
+    test_draw_list: [dynamic]DrawData,
+
     draw_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
-    gfx_pipeline: vkw.Pipeline_Handle,
+
+
     gfx_timeline: vkw.Semaphore_Handle,
     gfx_sync_info: vkw.Sync_Info,
 }
@@ -101,7 +121,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
         handles := vkw.create_graphics_pipelines(gd, {pipeline_info})
         defer delete(handles)
 
-        render_state.gfx_pipeline = handles[0]
+        render_state.test_pipeline = handles[0]
     }
 
     // Create main timeline semaphore
@@ -142,7 +162,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     // Create indirect draw buffer
     {
         info := vkw.Buffer_Info {
-            size = 64,
+            size = size_of(vk.DrawIndexedIndirectCommand) * MAX_PER_FRAME_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
@@ -174,19 +194,114 @@ create_mesh :: proc(
     using r: ^RenderingState,
     positions: []hlsl.float4,
     indices: []u16
+) -> MeshData {
+
+    // upload_vertex_attribute :: proc($T: typeid, using r: ^RenderingState, attr_data: []T) -> hm.Handle {
+    //     positions_len := u32(len(positions))
+    //     assert(positions_offset + positions_len < MAX_GLOBAL_VERTICES)
+    
+    //     start := positions_offset
+    //     positions_offset += positions_len
+    
+    //     vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, start)
+    
+    //     positions_view_handle = hm.insert(&positions_views, AttributeView {
+    //         start = start,
+    //         offset = positions_offset
+    //     })
+    // }
+
+    positions_view_handle: hm.Handle
+    {
+        positions_len := u32(len(positions))
+        assert(positions_offset + positions_len < MAX_GLOBAL_VERTICES)
+    
+        start := positions_offset
+        positions_offset += positions_len
+    
+        vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, start)
+    
+        positions_view_handle = hm.insert(&positions_views, AttributeView {
+            start = start,
+            offset = positions_offset
+        })
+    }
+
+    indices_view_handle: hm.Handle
+    {
+        indices_len := u32(len(indices))
+        assert(indices_offset + indices_len < MAX_GLOBAL_INDICES)
+
+        start := indices_offset
+        indices_offset += indices_len
+
+        vkw.sync_write_buffer(u16, gd, index_buffer, indices, start)
+
+        indices_view_handle = hm.insert(&indices_views, AttributeView {
+            start = start,
+            offset = indices_offset
+        })
+    }
+
+    mesh := MeshData {
+        position_key = PositionViewKey(positions_view_handle),
+        index_key = IndexViewKey(indices_view_handle)
+    }
+
+    return mesh
+}
+
+draw_mesh :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, mesh: ^MeshData) {
+
+}
+
+render :: proc(
+    gd: ^vkw.Graphics_Device,
+    gfx_cb_idx: vkw.CommandBuffer_Index,
+    using r: ^RenderingState,
+    framebuffer: ^vkw.Framebuffer
 ) {
-    positions_len := u32(len(positions))
-    assert(positions_offset + positions_len < MAX_GLOBAL_VERTICES)
+    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
 
-    start := positions_offset
-    positions_offset += positions_len
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
-    vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, start)
-
-    positions_view_handle := hm.insert(&positions_views, AttributeView {
-        start = start,
-        offset = positions_offset
-    })
 
     
+    vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
+    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, test_pipeline)
+
+    res := framebuffer.resolution
+    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+        x = 0.0,
+        y = 0.0,
+        width = f32(res.x),
+        height = f32(res.y),
+        minDepth = 0.0,
+        maxDepth = 1.0
+    }})
+    vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
+        {
+            offset = vk.Offset2D {
+                x = 0,
+                y = 0
+            },
+            extent = vk.Extent2D {
+                width = u32(res.x),
+                height = u32(res.y),
+            }
+        }
+    })
+
+            
+    t := f32(gd.frame_count) / 144.0
+    uniform_buf, ok := vkw.get_buffer(gd, uniform_buffer)
+    // vkw.cmd_push_constants_gfx(PushConstants, gd, gfx_cb_idx, &PushConstants {
+    //     time = t,
+    //     image = test_images[selected_image].index,
+    //     sampler = .Aniso16,
+    //     uniform_buffer_address = uniform_buf.address
+    // })
+
+    // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
+    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, 1)
 }
