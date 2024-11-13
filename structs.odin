@@ -17,7 +17,7 @@ Camera :: struct {
     farplane: f32
 }
 
-camera_view_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
+camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
     // float cosroll = cosf(roll);
     // float sinroll = sinf(roll);
     // float4x4 roll_matrix(
@@ -56,7 +56,7 @@ camera_view_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
-camera_projection_matrix :: proc(camera: ^Camera) -> hlsl.float4x4 {
+camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
     c_matrix := hlsl.float4x4 {
         1.0, 0.0, 0.0, 0.0,
         0.0, 0.0, -1.0, 0.0,

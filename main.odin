@@ -76,7 +76,7 @@ main :: proc() {
     }
     vgd := vkw.init_vulkan(&init_params)
     log.debugf("%#v", vgd)
-    log.infof("minStorageBufferOffsetAlignment == %v", vgd.physical_device_properties.properties.limits.minStorageBufferOffsetAlignment)
+    log.debugf("minStorageBufferOffsetAlignment == %v", vgd.physical_device_properties.properties.limits.minStorageBufferOffsetAlignment)
     
     // Make window
     resolution: vkw.int2
@@ -172,8 +172,10 @@ main :: proc() {
     defer imgui_cleanup(&vgd, &imgui_state)
 
     // Load test glTF model
+    my_gltf: Mesh_Handle
     {
         path : cstring = "data/models/Box.glb"
+
         gltf_data, res := cgltf.parse_file({}, path)
         if res != .success {
             log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -205,7 +207,7 @@ main :: proc() {
         index_ptr := get_accessor_ptr(primitive.indices, u16)
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
         log.debugf("index data: %v", index_data)
-        
+
         // Get vertices
         position_data: [dynamic]hlsl.float4
         defer delete(position_data)
@@ -228,7 +230,6 @@ main :: proc() {
                         position_data[i] = {pos.x, pos.y, pos.z, 1.0}
                     }
 
-                    //mem.copy(raw_data(position_data), position_ptr, int(position_bytes))
                     log.debugf("Position data: %v", position_data)
                 }
             }
@@ -236,7 +237,7 @@ main :: proc() {
 
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
-        my_mesh := create_mesh(&vgd, &render_state, position_data[:], index_data[:])
+        my_gltf = create_mesh(&vgd, &render_state, position_data[:], index_data[:])
     }
     
     log.info("App initialization complete")
@@ -385,7 +386,7 @@ main :: proc() {
             if camera_down do camera_direction += {0.0, 0.0, -1.0}
             
             //Compute temporary camera matrix for orienting player inputted direction vector
-            world_from_view := hlsl.inverse(camera_view_matrix(&viewport_camera))
+            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
             viewport_camera.position += 0.1 *
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
@@ -440,8 +441,8 @@ main :: proc() {
             {
                 uniforms: UniformBufferData
                 uniforms.clip_from_world =
-                    camera_projection_matrix(&viewport_camera) *
-                    camera_view_matrix(&viewport_camera)
+                    camera_projection_from_view(&viewport_camera) *
+                    camera_view_from_world(&viewport_camera)
 
                 io := imgui.GetIO()
                 uniforms.clip_from_screen = {
@@ -450,6 +451,17 @@ main :: proc() {
                     0.0, 0.0, 1.0, 0.0,
                     0.0, 0.0, 0.0, 1.0
                 }
+
+                mesh_buffer, _ := vkw.get_buffer(&vgd, render_state.mesh_buffer)
+                material_buffer, _ := vkw.get_buffer(&vgd, render_state.material_buffer)
+                instance_buffer, _ := vkw.get_buffer(&vgd, render_state.instance_buffer)
+                position_buffer, _ := vkw.get_buffer(&vgd, render_state.positions_buffer)
+                uv_buffer, _ := vkw.get_buffer(&vgd, render_state.uvs_buffer)
+
+                uniforms.mesh_ptr = mesh_buffer.address
+                uniforms.instance_ptr = instance_buffer.address
+                uniforms.position_ptr = position_buffer.address
+                uniforms.uv_ptr = uv_buffer.address
 
                 in_slice := slice.from_ptr(&uniforms, 1)
                 if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_state.uniform_buffer, in_slice) {
@@ -538,7 +550,7 @@ main :: proc() {
             })
 
             uniform_buf, ok := vkw.get_buffer(&vgd, render_state.uniform_buffer)
-            vkw.cmd_push_constants_gfx(PushConstants, &vgd, gfx_cb_idx, &PushConstants {
+            vkw.cmd_push_constants_gfx(TestPushConstants, &vgd, gfx_cb_idx, &TestPushConstants {
                 time = t,
                 image = test_images[selected_image].index,
                 sampler = .Aniso16,
