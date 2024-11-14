@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "core:math/linalg/hlsl"
 import "core:math"
 import hm "desktop_vulkan_wrapper/handlemap"
@@ -7,7 +8,7 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
-MAX_PER_FRAME_DRAW_CMDS :: 1024
+MAX_GLOBAL_DRAW_CMDS :: 64 * 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
 MAX_GLOBAL_INDICES :: 1024*1024
 MAX_GLOBAL_MESHES :: 64 * 1024
@@ -40,14 +41,10 @@ AttributeView :: struct {
     offset: u32
 }
 
-PositionViewKey :: distinct hm.Handle
-IndexViewKey :: distinct hm.Handle
-
-MeshData :: struct {
+CPUMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    position_start: u32,
-    uv_start: u32
+    gpu_data: GPUMeshData
 }
 
 GPUMeshData :: struct {
@@ -61,9 +58,9 @@ MaterialData :: struct {
 
 DrawData :: struct {
     instance_count: u32,
-    position_offset: u32,
-    index_offset: u32,
-    mesh_idx: Mesh_Handle
+    instance_offset: u32,
+    index_count: u32,
+    index_offset: u32
 }
 
 InstanceData :: struct {
@@ -76,14 +73,14 @@ GPUInstanceData :: struct {
     mesh_idx: u32,
 }
 
-Mesh_Handle :: distinct hm.Handle
-
 GPUBufferFlags :: bit_set[enum{
     Mesh,
     Material,
     Instance,
     Draw
 }]
+
+Mesh_Handle :: distinct hm.Handle
 
 RenderingState :: struct {
     // Vertex attribute buffers
@@ -92,24 +89,25 @@ RenderingState :: struct {
 
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
 
-    cpu_meshes: hm.Handle_Map(GPUMeshData),
-    mesh_buffer: vkw.Buffer_Handle,             // Global GPU buffer of mesh metadata
+    cpu_meshes: hm.Handle_Map(CPUMeshData),
+    gpu_meshes: [dynamic]GPUMeshData,
+
+    // Global GPU buffer of mesh metadata
+    // i.e. offsets into the vertex attribute buffers
+    mesh_buffer: vkw.Buffer_Handle,
 
     material_buffer: vkw.Buffer_Handle,         // Global GPU buffer of materials
 
-    cpu_instances: [dynamic]InstanceData,
+    cpu_instances: [dynamic]GPUInstanceData,
     instance_buffer: vkw.Buffer_Handle,         // Global GPU buffer of instances
+    instance_head: u32,                         // Index of next instance. Reset per-frame
 
-    cpu_draws: [dynamic]DrawData,
-    draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
-
-    uniform_buffer: vkw.Buffer_Handle,          // Uniform buffer
+    cpu_uniforms: UniformBufferData,
+    uniform_buffer: vkw.Buffer_Handle,          // Global uniform buffer
 
     dirty_flags: GPUBufferFlags,                // Represents which CPU/GPU buffers need synced this cycle
 
     // Vertex metadata
-    // positions_views: hm.Handle_Map(AttributeView),
-    // indices_views: hm.Handle_Map(AttributeView),
     positions_offset: u32,
     uvs_offset: u32,
     indices_offset: u32,
@@ -118,7 +116,9 @@ RenderingState :: struct {
 
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
-    ps1_draw_list: [dynamic]DrawData,
+    ps1_draws: [dynamic]DrawData,
+
+    draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
 
     gfx_timeline: vkw.Semaphore_Handle,
@@ -127,7 +127,6 @@ RenderingState :: struct {
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     render_state: RenderingState
-    //hm.init(&render_state.positions_views)
 
     // Pipeline creation
     {
@@ -272,7 +271,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
     // Create indirect draw buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(vk.DrawIndexedIndirectCommand) * MAX_PER_FRAME_DRAW_CMDS,
+            size = size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL}
@@ -296,7 +295,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
 
 delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
     vkw.delete_sync_info(&gfx_sync_info)
-    //hm.destroy(&positions_views)
 }
 
 create_mesh :: proc(
@@ -306,7 +304,6 @@ create_mesh :: proc(
     indices: []u16
 ) -> Mesh_Handle {
     
-    //positions_view_handle: hm.Handle
     position_start: u32
     {
         positions_len := u32(len(positions))
@@ -316,37 +313,31 @@ create_mesh :: proc(
         positions_offset += positions_len
     
         vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, position_start)
-    
-        // positions_view_handle = hm.insert(&positions_views, AttributeView {
-        //     start = position_start,
-        //     offset = positions_offset
-        // })
     }
 
-    //indices_view_handle: hm.Handle
     indices_start: u32
+    indices_len: u32
     {
-        indices_len := u32(len(indices))
+        indices_len = u32(len(indices))
         assert(indices_offset + indices_len < MAX_GLOBAL_INDICES)
 
         indices_start := indices_offset
         indices_offset += indices_len
 
         vkw.sync_write_buffer(u16, gd, index_buffer, indices, indices_start)
-
-        // indices_view_handle = hm.insert(&indices_views, AttributeView {
-        //     start = start,
-        //     offset = indices_offset
-        // })
     }
 
+    mesh := CPUMeshData {
+        indices_start = indices_start,
+        indices_len = indices_len,
+    }
+    handle := Mesh_Handle(hm.insert(&cpu_meshes, mesh))
 
-
-    mesh := GPUMeshData {
+    gpu_mesh := GPUMeshData {
         position_offset = position_start,
         uv_offset = 0
     }
-    handle := Mesh_Handle(hm.insert(&cpu_meshes, mesh))
+    append(&gpu_meshes, gpu_mesh)
 
     dirty_flags += {.Mesh}
 
@@ -360,10 +351,32 @@ draw_instances :: proc(
     mesh_handle: Mesh_Handle,
     instances: []InstanceData
 ) {
-    dirty_flags += {.Instance}
-    for instance in instances {
-        append(&cpu_instances, instance)
+    dirty_flags += {.Instance,.Draw}
+
+    cpu_mesh, ok := hm.get(&cpu_meshes, hm.Handle(mesh_handle))
+    if !ok {
+        log.error("Failed to fetch CPU mesh data")
     }
+
+    for instance in instances {
+        gi := GPUInstanceData {
+            world_from_model = instance.world_from_model,
+            mesh_idx = mesh_handle.index
+        }
+        append(&cpu_instances, gi)
+    }
+
+    instance_count := u32(len(instances))
+
+    dd := DrawData {
+        instance_count = instance_count,
+        instance_offset = instance_head,
+        index_count = cpu_mesh.indices_len,
+        index_offset = cpu_mesh.indices_start
+    }
+    append(&ps1_draws, dd)
+
+    instance_head += instance_count
 }
 
 // This is called once per frame to sync buffer with the GPU
@@ -378,8 +391,35 @@ render :: proc(
 
     // Mesh buffer
     if .Mesh in dirty_flags {
-        //vkw.sync_write_buffer(GPUMeshData, gd, mesh_buffer, cpu_m)
+        vkw.sync_write_buffer(GPUMeshData, gd, mesh_buffer, gpu_meshes[:])
     }
+
+    // Instance buffer
+    if .Instance in dirty_flags {
+        vkw.sync_write_buffer(GPUInstanceData, gd, instance_buffer, cpu_instances[:])
+    }
+
+    // Draw buffer
+    if .Draw in dirty_flags {
+        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, len(ps1_draws), context.temp_allocator)
+        defer delete(gpu_draws)
+
+        for draw_data, i in ps1_draws {
+            gpu_draw := vk.DrawIndexedIndirectCommand {
+                indexCount = draw_data.index_count,
+                instanceCount = draw_data.instance_count,
+                firstIndex = draw_data.index_offset,
+                vertexOffset = 0,
+                firstInstance = draw_data.instance_offset
+            }
+            gpu_draws[i] = gpu_draw
+        }
+
+        vkw.sync_write_buffer(vk.DrawIndexedIndirectCommand, gd, draw_buffer, gpu_draws[:])
+    }
+
+    // Clear dirty flags after checking them
+    dirty_flags = {}
 
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     
@@ -387,7 +427,8 @@ render :: proc(
 
     
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
-    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, test_pipeline)
+    //vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, test_pipeline)
+    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
 
     res := framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
@@ -411,7 +452,6 @@ render :: proc(
         }
     })
 
-            
     t := f32(gd.frame_count) / 144.0
     uniform_buf, ok := vkw.get_buffer(gd, uniform_buffer)
     vkw.cmd_push_constants_gfx(PushConstants, gd, gfx_cb_idx, &PushConstants {
@@ -420,5 +460,12 @@ render :: proc(
     })
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, 1)
+    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, u32(len(ps1_draws)))
+
+    vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+    
+    // Reset per-frame state vars
+    instance_head = 0
+    clear(&ps1_draws)
+    clear(&cpu_instances)
 }

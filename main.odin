@@ -50,6 +50,7 @@ main :: proc() {
     
     // Set up Odin context
     context.logger = log.create_console_logger(log_level)
+    log.info("Initiating swag mode...")
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -97,30 +98,6 @@ main :: proc() {
     // This is a megastruct for holding the return values from vkw basically
     render_state := init_renderer(&vgd)
     defer delete_renderer(&vgd, &render_state)
-            
-    // Write to static buffers
-    {
-        // Write indices for drawing quad
-        indices : []u16 = {0, 1, 2, 1, 3, 2}
-        if !vkw.sync_write_buffer(u16, &vgd, render_state.index_buffer, indices, render_state.indices_offset) {
-            log.error("vkw.sync_write_buffer() failed.")
-        }
-        render_state.indices_offset += u32(len(indices))
-
-        // Write quad draw call to indirect draw buffer
-        draws : []vk.DrawIndexedIndirectCommand = {
-            {
-                indexCount = u32(len(indices)),
-                instanceCount = 1,
-                firstIndex = 0,
-                vertexOffset = 0,
-                firstInstance = 0
-            }
-        }
-        if !vkw.sync_write_buffer(vk.DrawIndexedIndirectCommand, &vgd, render_state.draw_buffer, draws) {
-            log.error("vkw.sync_write_buffer() failed.")
-        }
-    }
 
     // Create image
     TEST_IMAGES :: 3
@@ -174,70 +151,74 @@ main :: proc() {
     // Load test glTF model
     my_gltf: Mesh_Handle
     {
-        path : cstring = "data/models/Box.glb"
-
-        gltf_data, res := cgltf.parse_file({}, path)
-        if res != .success {
-            log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
-        }
-        defer cgltf.free(gltf_data)
-
-        // Load buffers
-        res = cgltf.load_buffers({}, gltf_data, path)
-        if res != .success {
-            log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
-        }
-
-        // For now just loading the first mesh we see
-        mesh := gltf_data.meshes[0]
-        primitive := mesh.primitives[0]
-
-        get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-            base_ptr := buffer_view.buffer.data
-            offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-            return cast([^]T)offset_ptr
-        }
-
-        // Get indices
-        index_data: [dynamic]u16
-        defer delete(index_data)
-        indices_count := primitive.indices.count
-        indices_bytes := indices_count * size_of(u16)
-        resize(&index_data, indices_count)
-        index_ptr := get_accessor_ptr(primitive.indices, u16)
-        mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
-        log.debugf("index data: %v", index_data)
-
-        // Get vertices
-        position_data: [dynamic]hlsl.float4
-        defer delete(position_data)
-
-        for attrib in primitive.attributes {
-            attrib := attrib
-            #partial switch (attrib.type) {
-                case .position: {
-                    resize(&position_data, attrib.data.count)
-                    log.debugf("Position data type: %v", attrib.data.type)
-                    log.debugf("Position count: %v", attrib.data.count)
-                    position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                    position_bytes := attrib.data.count * size_of(hlsl.float3)
-
-                    // Build up positions buffer
-                    // We have to append a 1.0 to all positions
-                    // in line with homogenous coordinates
-                    for i in 0..<attrib.data.count {
-                        pos := position_ptr[i]
-                        position_data[i] = {pos.x, pos.y, pos.z, 1.0}
+        load_gltf_mesh :: proc(gd: ^vkw.Graphics_Device, render_state: ^RenderingState, path: cstring) -> Mesh_Handle {
+            gltf_data, res := cgltf.parse_file({}, path)
+            if res != .success {
+                log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+            }
+            defer cgltf.free(gltf_data)
+    
+            // Load buffers
+            res = cgltf.load_buffers({}, gltf_data, path)
+            if res != .success {
+                log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
+            }
+    
+            // For now just loading the first mesh we see
+            mesh := gltf_data.meshes[0]
+            primitive := mesh.primitives[0]
+    
+            get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
+                base_ptr := buffer_view.buffer.data
+                offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+                return cast([^]T)offset_ptr
+            }
+    
+            // Get indices
+            index_data: [dynamic]u16
+            defer delete(index_data)
+            indices_count := primitive.indices.count
+            indices_bytes := indices_count * size_of(u16)
+            resize(&index_data, indices_count)
+            index_ptr := get_accessor_ptr(primitive.indices, u16)
+            mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+            log.debugf("index data: %v", index_data)
+    
+            // Get vertices
+            position_data: [dynamic]hlsl.float4
+            defer delete(position_data)
+    
+            for attrib in primitive.attributes {
+                attrib := attrib
+                #partial switch (attrib.type) {
+                    case .position: {
+                        resize(&position_data, attrib.data.count)
+                        log.debugf("Position data type: %v", attrib.data.type)
+                        log.debugf("Position count: %v", attrib.data.count)
+                        position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                        position_bytes := attrib.data.count * size_of(hlsl.float3)
+    
+                        // Build up positions buffer
+                        // We have to append a 1.0 to all positions
+                        // in line with homogenous coordinates
+                        for i in 0..<attrib.data.count {
+                            pos := position_ptr[i]
+                            position_data[i] = {pos.x, pos.y, pos.z, 1.0}
+                        }
+    
+                        log.debugf("Position data: %v", position_data)
                     }
-
-                    log.debugf("Position data: %v", position_data)
                 }
             }
+    
+            // Now that we have the mesh data in CPU-side buffers,
+            // it's time to upload them
+            return create_mesh(gd, render_state, position_data[:], index_data[:])
         }
 
-        // Now that we have the mesh data in CPU-side buffers,
-        // it's time to upload them
-        my_gltf = create_mesh(&vgd, &render_state, position_data[:], index_data[:])
+        
+        path : cstring = "data/models/Box.glb"
+        my_gltf = load_gltf_mesh(&vgd, &render_state, path)
     }
     
     log.info("App initialization complete")
@@ -252,13 +233,6 @@ main :: proc() {
         nearplane = 0.1,
         farplane = 1_000.0
     }
-    mouse_look := false
-    camera_forward := false
-    camera_back := false
-    camera_left := false
-    camera_right := false
-    camera_up := false
-    camera_down := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     current_time := time.now()
@@ -276,6 +250,7 @@ main :: proc() {
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         {
+            using viewport_camera
             io := imgui.GetIO()
             io.DeltaTime = f32(elapsed_time) / 1_000_000_000.0
 
@@ -286,24 +261,36 @@ main :: proc() {
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
                             case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
-                            case .W: camera_forward = true
-                            case .S: camera_back = true
-                            case .A: camera_left = true
-                            case .D: camera_right = true
-                            case .Q: camera_down = true
-                            case .E: camera_up = true
+                            case .W: control_flags += {.MoveForward}
+                            case .S: control_flags += {.MoveBackward}
+                            case .A: control_flags += {.MoveLeft}
+                            case .D: control_flags += {.MoveRight}
+                            case .Q: control_flags += {.MoveDown}
+                            case .E: control_flags += {.MoveUp}
                         }
+                        // if .LSHIFT in event.key.keysym.mod {
+                        //     control_flags += {.Speed}
+                        // }
+                        // if .LCTRL in event.key.keysym.mod {
+                        //     control_flags += {.Slow}
+                        // }
                         imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
                     }
                     case .KEYUP: {
                         #partial switch event.key.keysym.sym {
-                            case .W: camera_forward = false
-                            case .S: camera_back = false
-                            case .A: camera_left = false
-                            case .D: camera_right = false
-                            case .Q: camera_down = false
-                            case .E: camera_up = false
+                            case .W: control_flags -= {.MoveForward}
+                            case .S: control_flags -= {.MoveBackward}
+                            case .A: control_flags -= {.MoveLeft}
+                            case .D: control_flags -= {.MoveRight}
+                            case .Q: control_flags -= {.MoveDown}
+                            case .E: control_flags -= {.MoveUp}
                         }
+                        // if .LSHIFT in event.key.keysym.mod {
+                        //     control_flags -= {.Speed}
+                        // }
+                        // if .LCTRL in event.key.keysym.mod {
+                        //     control_flags -= {.Slow}
+                        // }
                         imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
                     }
                     case .MOUSEBUTTONDOWN: {
@@ -311,10 +298,13 @@ main :: proc() {
                             case sdl2.BUTTON_LEFT: {
                             }
                             case sdl2.BUTTON_RIGHT: {
-                                mouse_look = !mouse_look
+                                // The ~ is "symmetric difference" for bit_sets
+                                // Basically like XOR
+                                control_flags ~= {.MouseLook}
+                                mlook := .MouseLook in control_flags
 
-                                sdl2.SetRelativeMouseMode(sdl2.bool(mouse_look))
-                                if mouse_look {
+                                sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
+                                if mlook {
                                     saved_mouse_coords.x = event.button.x
                                     saved_mouse_coords.y = event.button.y
                                 } else {
@@ -330,7 +320,7 @@ main :: proc() {
                     case .MOUSEMOTION: {
                         camera_rotation.x += f32(event.motion.xrel)
                         camera_rotation.y += f32(event.motion.yrel)
-                        if !mouse_look {
+                        if .MouseLook not_in control_flags {
                             imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
                         }
                     }
@@ -365,7 +355,15 @@ main :: proc() {
 
         // Update camera based on user input
         {
-            if mouse_look {
+            using viewport_camera
+
+            CAMERA_SPEED :: 144.0 / 144.0 // m/s
+
+            speed_mod := 1.0
+            if .Speed in control_flags do speed_mod *= 5.0
+            if .Slow in control_flags do speed_mod /= 5.0
+
+            if .MouseLook in control_flags {
                 ROTATION_SENSITIVITY :: 0.001
                 viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
                 viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
@@ -378,12 +376,17 @@ main :: proc() {
             }
     
             camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
-            if camera_forward do camera_direction += {0.0, 1.0, 0.0}
-            if camera_back do camera_direction += {0.0, -1.0, 0.0}
-            if camera_left do camera_direction += {-1.0, 0.0, 0.0}
-            if camera_right do camera_direction += {1.0, 0.0, 0.0}
-            if camera_up do camera_direction += {0.0, 0.0, 1.0}
-            if camera_down do camera_direction += {0.0, 0.0, -1.0}
+            if .MoveForward in control_flags do camera_direction += {0.0, 1.0, 0.0}
+            if .MoveBackward in control_flags do camera_direction += {0.0, -1.0, 0.0}
+            if .MoveLeft in control_flags do camera_direction += {-1.0, 0.0, 0.0}
+            if .MoveRight in control_flags do camera_direction += {1.0, 0.0, 0.0}
+            if .MoveUp in control_flags do camera_direction += {0.0, 0.0, 1.0}
+            if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
+
+            if camera_direction != {0.0, 0.0, 0.0} {
+                
+                camera_direction = hlsl.float3(speed_mod) * hlsl.float3(CAMERA_SPEED) * hlsl.normalize(camera_direction)
+            }
             
             //Compute temporary camera matrix for orienting player inputted direction vector
             world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
@@ -399,6 +402,18 @@ main :: proc() {
                 imgui.Text("Camera pitch: %f", pitch)
             }
         }
+
+        // Queue up draw call of my_gltf
+        draw_instances(&vgd, &render_state, my_gltf, {
+            {
+                world_from_model = {
+                    20.0, 0.0, 0.0, 0.0,
+                    0.0, 5.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
+            }
+        })
 
         imgui.EndFrame()
 
@@ -439,13 +454,13 @@ main :: proc() {
             // It is now safe to write to the uniform buffer now that
             // we know frame N-2 has finished
             {
-                uniforms: UniformBufferData
-                uniforms.clip_from_world =
+                
+                render_state.cpu_uniforms.clip_from_world =
                     camera_projection_from_view(&viewport_camera) *
                     camera_view_from_world(&viewport_camera)
 
                 io := imgui.GetIO()
-                uniforms.clip_from_screen = {
+                render_state.cpu_uniforms.clip_from_screen = {
                     2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
                     0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
                     0.0, 0.0, 1.0, 0.0,
@@ -458,12 +473,12 @@ main :: proc() {
                 position_buffer, _ := vkw.get_buffer(&vgd, render_state.positions_buffer)
                 uv_buffer, _ := vkw.get_buffer(&vgd, render_state.uvs_buffer)
 
-                uniforms.mesh_ptr = mesh_buffer.address
-                uniforms.instance_ptr = instance_buffer.address
-                uniforms.position_ptr = position_buffer.address
-                uniforms.uv_ptr = uv_buffer.address
+                render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
+                render_state.cpu_uniforms.instance_ptr = instance_buffer.address
+                render_state.cpu_uniforms.position_ptr = position_buffer.address
+                render_state.cpu_uniforms.uv_ptr = uv_buffer.address
 
-                in_slice := slice.from_ptr(&uniforms, 1)
+                in_slice := slice.from_ptr(&render_state.cpu_uniforms, 1)
                 if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_state.uniform_buffer, in_slice) {
                     log.error("Failed to write uniform buffer data")
                 }
@@ -509,8 +524,6 @@ main :: proc() {
                     }
                 }
             })
-    
-            vkw.cmd_bind_index_buffer(&vgd, gfx_cb_idx, render_state.index_buffer)
             
             t := f32(vgd.frame_count) / 144.0
     
@@ -518,51 +531,17 @@ main :: proc() {
             framebuffer.color_images[0] = swapchain_image_handle
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
-            framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
+            //framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
+            framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
             framebuffer.color_load_op = .CLEAR
-            vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
 
-
-            
-            vkw.cmd_bind_descriptor_set(&vgd, gfx_cb_idx)
-            vkw.cmd_bind_pipeline(&vgd, gfx_cb_idx, .GRAPHICS, render_state.test_pipeline)
-
-            res := resolution
-            vkw.cmd_set_viewport(&vgd, gfx_cb_idx, 0, {vkw.Viewport {
-                x = 0.0,
-                y = 0.0,
-                width = f32(res.x),
-                height = f32(res.y),
-                minDepth = 0.0,
-                maxDepth = 1.0
-            }})
-            vkw.cmd_set_scissor(&vgd, gfx_cb_idx, 0, {
-                {
-                    offset = vk.Offset2D {
-                        x = 0,
-                        y = 0
-                    },
-                    extent = vk.Extent2D {
-                        width = u32(res.x),
-                        height = u32(res.y),
-                    }
-                }
-            })
-
-            uniform_buf, ok := vkw.get_buffer(&vgd, render_state.uniform_buffer)
-            vkw.cmd_push_constants_gfx(TestPushConstants, &vgd, gfx_cb_idx, &TestPushConstants {
-                time = t,
-                image = test_images[selected_image].index,
-                sampler = .Aniso16,
-                uniform_buffer_address = uniform_buf.address
-            })
-
-            // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-            vkw.cmd_draw_indexed_indirect(&vgd, gfx_cb_idx, render_state.draw_buffer, 0, 1)
+            // Main render call
+            render(&vgd, gfx_cb_idx, &render_state, &framebuffer)
+            framebuffer.color_load_op = .LOAD
 
             // Draw Dear Imgui
+            vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
             draw_imgui(&vgd, gfx_cb_idx, &imgui_state)
-    
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
             // Memory barrier between rendering to swapchain image and swapchain present

@@ -7,6 +7,18 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
+CameraFlags :: bit_set[enum {
+    MouseLook,
+    MoveForward,
+    MoveBackward,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    Speed,
+    Slow
+}]
+
 Camera :: struct {
     position: hlsl.float3,
     yaw: f32,
@@ -14,7 +26,8 @@ Camera :: struct {
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
-    farplane: f32
+    farplane: f32,
+    control_flags: CameraFlags
 }
 
 camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
