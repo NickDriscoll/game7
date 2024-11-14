@@ -24,9 +24,13 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
     MeshData mesh = u_data.m_data[inst.mesh_idx];
 
     VertexOutput out;
-    float4 p = u_data.position_data[idx + mesh.position_offset];
 
-    out.clip_out = mul(u_data.clip_from_world, p);
+    float4 model_position = u_data.position_data[idx + mesh.position_offset];
+    float4 world_position = mul(inst.world_from_model, model_position);
+    out.clip_out = mul(u_data.clip_from_world, world_position);
+
+    
+
     // out.uv = u_data.uv_data[idx + mesh.uv_offset];
     // out.uv = UVS[idx];
     // out.color = float4(COLORS[idx], 1.0);
