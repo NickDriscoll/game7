@@ -72,6 +72,8 @@ GPUInstanceData :: struct {
     world_from_model: hlsl.float4x4,
     // normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
+    _pad0: hlsl.uint3,
+    _pad3: hlsl.float4x3
 }
 
 GPUBufferFlags :: bit_set[enum{

@@ -9,6 +9,8 @@ struct MeshData {
 struct InstanceData {
     float4x4 world_from_model;
     uint mesh_idx;
+    uint3 _pad0;
+    float4x3 _pad4;
 }
 
 struct MaterialData {

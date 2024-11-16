@@ -442,12 +442,20 @@ main :: proc() {
 
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
-        y_translation := 100.0 * math.sin(2.0 * t)
+        y_translation := 20.0 * math.sin(t)
         draw_ps1_instances(&vgd, &render_data, my_gltf, {
             {
                 world_from_model = {
-                    20.0, 0.0, 0.0, 0.0,
+                    5.0, 0.0, 0.0, 10.0,
                     0.0, 5.0, 0.0, y_translation,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
+            },
+            {
+                world_from_model = {
+                    1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
                     0.0, 0.0, 1.0, 0.0,
                     0.0, 0.0, 0.0, 1.0
                 }

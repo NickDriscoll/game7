@@ -30,7 +30,6 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
 
     // out.uv = u_data.uv_data[idx + mesh.uv_offset];
     // out.uv = UVS[idx];
-    // out.color = float4(COLORS[idx], 1.0);
 
     out.color = float4(1.0, 1.0, 1.0, 1.0);
     if (mesh.color_offset != 0xFFFFFFFF) {
