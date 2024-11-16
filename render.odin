@@ -14,31 +14,31 @@ MAX_GLOBAL_INDICES :: 1024*1024
 MAX_GLOBAL_MESHES :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
+NULL_OFFSET :: 0xFFFFFFFF
+
+FRAMES_IN_FLIGHT :: 2
 
 UniformBufferData :: struct {
     clip_from_world: hlsl.float4x4,
     clip_from_screen: hlsl.float4x4,
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
+    material_ptr: vk.DeviceAddress,
     position_ptr: vk.DeviceAddress,
-    uv_ptr: vk.DeviceAddress
+    uv_ptr: vk.DeviceAddress,
+    color_ptr: vk.DeviceAddress,
+    time: f32,
 }
 
 TestPushConstants :: struct {
     time: f32,
     image: u32,
-    sampler: vkw.Immutable_Samplers,
+    sampler: vkw.Immutable_Sampler_Index,
     uniform_buffer_address: vk.DeviceAddress
 }
 
 PushConstants :: struct {
-    time: f32,
     uniform_buffer_ptr: vk.DeviceAddress,
-}
-
-AttributeView :: struct {
-    start: u32,
-    offset: u32
 }
 
 CPUMeshData :: struct {
@@ -50,6 +50,7 @@ CPUMeshData :: struct {
 GPUMeshData :: struct {
     position_offset: u32,
     uv_offset: u32,
+    color_offset: u32
 }
 
 MaterialData :: struct {
@@ -83,21 +84,28 @@ GPUBufferFlags :: bit_set[enum{
 Mesh_Handle :: distinct hm.Handle
 
 RenderingState :: struct {
-    // Vertex attribute buffers
     positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
-    uvs_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex uvs
+    positions_head: u32,
 
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
+    indices_head: u32,
+    
+    
+    uvs_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex uvs
+    uvs_offset: u32,
 
-    cpu_meshes: hm.Handle_Map(CPUMeshData),
-    gpu_meshes: [dynamic]GPUMeshData,
+    colors_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex colors
+    colors_head: u32,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
     mesh_buffer: vkw.Buffer_Handle,
-
+    cpu_meshes: hm.Handle_Map(CPUMeshData),
+    gpu_meshes: [dynamic]GPUMeshData,
+    
+    
     material_buffer: vkw.Buffer_Handle,         // Global GPU buffer of materials
-
+    
     cpu_instances: [dynamic]GPUInstanceData,
     instance_buffer: vkw.Buffer_Handle,         // Global GPU buffer of instances
     instance_head: u32,                         // Index of next instance. Reset per-frame
@@ -106,11 +114,6 @@ RenderingState :: struct {
     uniform_buffer: vkw.Buffer_Handle,          // Global uniform buffer
 
     dirty_flags: GPUBufferFlags,                // Represents which CPU/GPU buffers need synced this cycle
-
-    // Vertex metadata
-    positions_offset: u32,
-    uvs_offset: u32,
-    indices_offset: u32,
 
     test_pipeline: vkw.Pipeline_Handle,
 
@@ -180,6 +183,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
             }
         })
 
+        raster_state.cull_mode = {.BACK}
+
         // PS1 pipeline
         append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
             vertex_shader_bytecode = ps1_vert_spv,
@@ -242,6 +247,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
             required_flags = {.DEVICE_LOCAL}
         }
         render_state.index_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create storage buffers
@@ -254,18 +260,27 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
 
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         render_state.positions_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
         render_state.uvs_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.uvs_buffer", f32(info.size) / 1024 / 1024)
+
+        info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
+        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
         info.size = size_of(GPUMeshData) * MAX_GLOBAL_MESHES
         render_state.mesh_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
         render_state.material_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.size = size_of(GPUInstanceData) * MAX_GLOBAL_INSTANCES
         render_state.instance_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create indirect draw buffer
@@ -273,10 +288,11 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
         info := vkw.Buffer_Info {
             size = size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL}
+            alloc_flags = {.Mapped},
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
         }
         render_state.draw_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create uniform buffer
@@ -284,10 +300,11 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
         info := vkw.Buffer_Info {
             size = size_of(UniformBufferData),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
+            alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
         }
         render_state.uniform_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
     }
 
     return render_state
@@ -307,10 +324,10 @@ create_mesh :: proc(
     position_start: u32
     {
         positions_len := u32(len(positions))
-        assert(positions_offset + positions_len < MAX_GLOBAL_VERTICES)
+        assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
     
-        position_start := positions_offset
-        positions_offset += positions_len
+        position_start = positions_head
+        positions_head += positions_len
     
         vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, position_start)
     }
@@ -319,10 +336,10 @@ create_mesh :: proc(
     indices_len: u32
     {
         indices_len = u32(len(indices))
-        assert(indices_offset + indices_len < MAX_GLOBAL_INDICES)
+        assert(indices_head + indices_len < MAX_GLOBAL_INDICES)
 
-        indices_start := indices_offset
-        indices_offset += indices_len
+        indices_start = indices_head
+        indices_head += indices_len
 
         vkw.sync_write_buffer(u16, gd, index_buffer, indices, indices_start)
     }
@@ -335,7 +352,8 @@ create_mesh :: proc(
 
     gpu_mesh := GPUMeshData {
         position_offset = position_start,
-        uv_offset = 0
+        uv_offset = NULL_OFFSET,
+        color_offset = NULL_OFFSET
     }
     append(&gpu_meshes, gpu_mesh)
 
@@ -344,8 +362,26 @@ create_mesh :: proc(
     return handle
 }
 
+add_vertex_colors :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^RenderingState,
+    handle: Mesh_Handle,
+    colors: []hlsl.float4
+) -> bool {
+    color_start := colors_head
+    colors_len := u32(len(colors))
+    assert(colors_head + colors_len < MAX_GLOBAL_VERTICES)
+
+    colors_head += colors_len
+
+    gpu_mesh := &gpu_meshes[handle.index]
+    gpu_mesh.color_offset = color_start
+
+    return vkw.sync_write_buffer(hlsl.float4, gd, colors_buffer, colors, color_start)
+}
+
 // User code calls this to queue up draw calls
-draw_instances :: proc(
+draw_ps1_instances :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^RenderingState,
     mesh_handle: Mesh_Handle,
@@ -424,10 +460,7 @@ render :: proc(
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
-
-    
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
-    //vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, test_pipeline)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
 
     res := framebuffer.resolution
@@ -455,7 +488,6 @@ render :: proc(
     t := f32(gd.frame_count) / 144.0
     uniform_buf, ok := vkw.get_buffer(gd, uniform_buffer)
     vkw.cmd_push_constants_gfx(PushConstants, gd, gfx_cb_idx, &PushConstants {
-        time = t,
         uniform_buffer_ptr = uniform_buf.address
     })
 

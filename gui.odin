@@ -14,7 +14,7 @@ MAX_IMGUI_INDICES :: 16 * 1024 * 1024
 
 ImguiPushConstants :: struct {
     font_idx: u32,
-    sampler: vkw.Immutable_Samplers,
+    sampler: vkw.Immutable_Sampler_Index,
     vertex_offset: u32,
     uniform_data: vk.DeviceAddress,
     vertex_data: vk.DeviceAddress

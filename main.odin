@@ -7,6 +7,7 @@ import "core:math/linalg/hlsl"
 import "core:math"
 import "core:mem"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -18,12 +19,8 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
-FRAMES_IN_FLIGHT :: 2
-
 main :: proc() {
     // Parse command-line arguments
-    // @TODO: Look at the Odin samples for a better way
-    // of doing command-line args
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
     {
@@ -76,8 +73,6 @@ main :: proc() {
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr()
     }
     vgd := vkw.init_vulkan(&init_params)
-    log.debugf("%#v", vgd)
-    log.debugf("minStorageBufferOffsetAlignment == %v", vgd.physical_device_properties.properties.limits.minStorageBufferOffsetAlignment)
     
     // Make window
     resolution: vkw.int2
@@ -88,29 +83,47 @@ main :: proc() {
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize the state required for rendering to the window
-    {
-        if !vkw.init_sdl2_window(&vgd, sdl_window) {
-            log.fatal("Couldn't init SDL2 surface.")
-        }
+    if !vkw.init_sdl2_window(&vgd, sdl_window) {
+        log.fatal("Couldn't init SDL2 surface.")
     }
 
-    // Initialize the render state structure
-    // This is a megastruct for holding the return values from vkw basically
-    render_state := init_renderer(&vgd)
-    defer delete_renderer(&vgd, &render_state)
+    // Initialize the renderer
+    render_data := init_renderer(&vgd)
+    defer delete_renderer(&vgd, &render_data)
 
-    // Create image
-    TEST_IMAGES :: 3
-    test_images: [TEST_IMAGES]vkw.Image_Handle
+    // Create test images
+    // TEST_IMAGES :: 3
+    test_images: [dynamic]vkw.Image_Handle
+    defer delete(test_images)
     selected_image := 0
     {
-        // Load image from disk
+        filenames := make([dynamic]cstring, context.temp_allocator)
+        defer delete(filenames)
 
-        filenames : []cstring = {
-            "data/images/evas_plan.jpg",
-            "data/images/my_face.jpg",
-            "data/images/me_may2023.jpg",
+        err := filepath.walk("data/images", proc(info: os.File_Info, in_err: os.Error, user_data: rawptr) -> 
+        (err: os.Error, skip_dir: bool) {
+
+            if info.is_dir do return
+
+            cs, e := strings.clone_to_cstring(info.fullpath, context.temp_allocator)
+            if e != .None {
+                log.errorf("Error cloning filepath \"%v\" to cstring", info.fullpath)
+            }
+            
+            fnames : ^[dynamic]cstring = cast(^[dynamic]cstring)user_data
+            append(fnames, cs)
+            
+            err = nil
+            skip_dir = false
+            return
+        }, &filenames)
+        if err != nil {
+            log.error("Error walking images directory")
         }
+
+        resize(&test_images, len(filenames))
+
+        // Load images from disk
         for filename, i in filenames {
             width, height, channels: i32
             image_bytes := stbi.load(filename, &width, &height, &channels, 4)
@@ -147,11 +160,12 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
+    show_gui := true
 
     // Load test glTF model
     my_gltf: Mesh_Handle
     {
-        load_gltf_mesh :: proc(gd: ^vkw.Graphics_Device, render_state: ^RenderingState, path: cstring) -> Mesh_Handle {
+        load_gltf_mesh :: proc(gd: ^vkw.Graphics_Device, render_data: ^RenderingState, path: cstring) -> Mesh_Handle {
             gltf_data, res := cgltf.parse_file({}, path)
             if res != .success {
                 log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -184,12 +198,13 @@ main :: proc() {
             mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
             log.debugf("index data: %v", index_data)
     
-            // Get vertices
+            // Get vertex data
             position_data: [dynamic]hlsl.float4
             defer delete(position_data)
+            color_data: [dynamic]hlsl.float4
+            defer delete(color_data)
     
             for attrib in primitive.attributes {
-                attrib := attrib
                 #partial switch (attrib.type) {
                     case .position: {
                         resize(&position_data, attrib.data.count)
@@ -208,17 +223,34 @@ main :: proc() {
     
                         log.debugf("Position data: %v", position_data)
                     }
+                    case .color: {
+                        resize(&color_data, attrib.data.count)
+                        log.debugf("Color data type: %v", attrib.data.type)
+                        log.debugf("Color count: %v", attrib.data.count)
+                        color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                        color_bytes := attrib.data.count * size_of(hlsl.float3)
+
+                        for i in 0..<attrib.data.count {
+                            col := color_ptr[i]
+                            color_data[i] = {col.x, col.y, col.z, 1.0}
+                        }
+                        
+                        log.debugf("Color data: %v", color_data)
+                    }
                 }
             }
     
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
-            return create_mesh(gd, render_state, position_data[:], index_data[:])
+            handle := create_mesh(gd, render_data, position_data[:], index_data[:])
+            add_vertex_colors(gd, render_data, handle, color_data[:])
+
+            return handle
         }
 
         
         path : cstring = "data/models/Box.glb"
-        my_gltf = load_gltf_mesh(&vgd, &render_state, path)
+        my_gltf = load_gltf_mesh(&vgd, &render_data, path)
     }
     
     log.info("App initialization complete")
@@ -234,6 +266,8 @@ main :: proc() {
         farplane = 1_000.0
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
+
+    free_all(context.temp_allocator)
 
     current_time := time.now()
     previous_time: time.Time
@@ -260,7 +294,8 @@ main :: proc() {
                     case .QUIT: do_main_loop = false
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
-                            case .SPACE: selected_image = (selected_image + 1) % TEST_IMAGES
+                            case .ESCAPE: show_gui = !show_gui
+                            case .SPACE: selected_image = (selected_image + 1) % len(test_images)
                             case .W: control_flags += {.MoveForward}
                             case .S: control_flags += {.MoveBackward}
                             case .A: control_flags += {.MoveLeft}
@@ -351,13 +386,12 @@ main :: proc() {
         }
 
         // Update
-        imgui.ShowDemoWindow()
 
         // Update camera based on user input
         {
             using viewport_camera
 
-            CAMERA_SPEED :: 144.0 / 144.0 // m/s
+            CAMERA_SPEED :: 0.1
 
             speed_mod := 1.0
             if .Speed in control_flags do speed_mod *= 5.0
@@ -384,16 +418,19 @@ main :: proc() {
             if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
 
             if camera_direction != {0.0, 0.0, 0.0} {
-                
                 camera_direction = hlsl.float3(speed_mod) * hlsl.float3(CAMERA_SPEED) * hlsl.normalize(camera_direction)
             }
             
             //Compute temporary camera matrix for orienting player inputted direction vector
             world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
-            viewport_camera.position += 0.1 *
+            viewport_camera.position += 
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
+        }
 
+        
+        if show_gui {
+            imgui.ShowDemoWindow()
             {
                 using viewport_camera
                 imgui.Text("Frame #%i", vgd.frame_count)
@@ -404,11 +441,13 @@ main :: proc() {
         }
 
         // Queue up draw call of my_gltf
-        draw_instances(&vgd, &render_state, my_gltf, {
+        t := f32(vgd.frame_count) / 144.0
+        y_translation := 100.0 * math.sin(2.0 * t)
+        draw_ps1_instances(&vgd, &render_data, my_gltf, {
             {
                 world_from_model = {
                     20.0, 0.0, 0.0, 0.0,
-                    0.0, 5.0, 0.0, 0.0,
+                    0.0, 5.0, 0.0, y_translation,
                     0.0, 0.0, 1.0, 0.0,
                     0.0, 0.0, 0.0, 1.0
                 }
@@ -420,8 +459,8 @@ main :: proc() {
         // Render
         {
             // Increment timeline semaphore upon command buffer completion
-            append(&render_state.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-                semaphore = render_state.gfx_timeline,
+            append(&render_data.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+                semaphore = render_data.gfx_timeline,
                 value = vgd.frame_count + 1
             })
     
@@ -429,14 +468,14 @@ main :: proc() {
             if vgd.frame_count >= u64(vgd.frames_in_flight) {
                 // Wait on timeline semaphore before starting command buffer execution
                 wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-                append(&render_state.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-                    semaphore = render_state.gfx_timeline,
+                append(&render_data.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+                    semaphore = render_data.gfx_timeline,
                     value = wait_value
                 })
                 
                 // CPU-sync to prevent CPU from getting further ahead than
                 // the number of frames in flight
-                sem, ok := vkw.get_semaphore(&vgd, render_state.gfx_timeline)
+                sem, ok := vkw.get_semaphore(&vgd, render_data.gfx_timeline)
                 if !ok do log.error("Couldn't find semaphore for CPU-sync")
                 info := vk.SemaphoreWaitInfo {
                     sType = .SEMAPHORE_WAIT_INFO,
@@ -455,31 +494,34 @@ main :: proc() {
             // we know frame N-2 has finished
             {
                 
-                render_state.cpu_uniforms.clip_from_world =
+                render_data.cpu_uniforms.clip_from_world =
                     camera_projection_from_view(&viewport_camera) *
                     camera_view_from_world(&viewport_camera)
 
                 io := imgui.GetIO()
-                render_state.cpu_uniforms.clip_from_screen = {
+                render_data.cpu_uniforms.clip_from_screen = {
                     2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
                     0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
                     0.0, 0.0, 1.0, 0.0,
                     0.0, 0.0, 0.0, 1.0
                 }
+                render_data.cpu_uniforms.time = t;
 
-                mesh_buffer, _ := vkw.get_buffer(&vgd, render_state.mesh_buffer)
-                material_buffer, _ := vkw.get_buffer(&vgd, render_state.material_buffer)
-                instance_buffer, _ := vkw.get_buffer(&vgd, render_state.instance_buffer)
-                position_buffer, _ := vkw.get_buffer(&vgd, render_state.positions_buffer)
-                uv_buffer, _ := vkw.get_buffer(&vgd, render_state.uvs_buffer)
+                mesh_buffer, _ := vkw.get_buffer(&vgd, render_data.mesh_buffer)
+                material_buffer, _ := vkw.get_buffer(&vgd, render_data.material_buffer)
+                instance_buffer, _ := vkw.get_buffer(&vgd, render_data.instance_buffer)
+                position_buffer, _ := vkw.get_buffer(&vgd, render_data.positions_buffer)
+                uv_buffer, _ := vkw.get_buffer(&vgd, render_data.uvs_buffer)
+                color_buffer, _ := vkw.get_buffer(&vgd, render_data.colors_buffer)
 
-                render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
-                render_state.cpu_uniforms.instance_ptr = instance_buffer.address
-                render_state.cpu_uniforms.position_ptr = position_buffer.address
-                render_state.cpu_uniforms.uv_ptr = uv_buffer.address
+                render_data.cpu_uniforms.mesh_ptr = mesh_buffer.address
+                render_data.cpu_uniforms.instance_ptr = instance_buffer.address
+                render_data.cpu_uniforms.position_ptr = position_buffer.address
+                render_data.cpu_uniforms.uv_ptr = uv_buffer.address
+                render_data.cpu_uniforms.color_ptr = color_buffer.address
 
-                in_slice := slice.from_ptr(&render_state.cpu_uniforms, 1)
-                if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_state.uniform_buffer, in_slice) {
+                in_slice := slice.from_ptr(&render_data.cpu_uniforms, 1)
+                if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_data.uniform_buffer, in_slice) {
                     log.error("Failed to write uniform buffer data")
                 }
             }
@@ -495,10 +537,10 @@ main :: proc() {
     
             // Wait on swapchain image acquire semaphore
             // and signal when we're done drawing on a different semaphore
-            append(&render_state.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            append(&render_data.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
                 semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
             })
-            append(&render_state.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+            append(&render_data.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
                 semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
             })
     
@@ -534,9 +576,10 @@ main :: proc() {
             //framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
             framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
             framebuffer.color_load_op = .CLEAR
+            //framebuffer.color_load_op = .DONT_CARE
 
             // Main render call
-            render(&vgd, gfx_cb_idx, &render_state, &framebuffer)
+            render(&vgd, gfx_cb_idx, &render_data, &framebuffer)
             framebuffer.color_load_op = .LOAD
 
             // Draw Dear Imgui
@@ -566,12 +609,12 @@ main :: proc() {
                 }
             })
     
-            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_state.gfx_sync_info)
+            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_data.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
         }
 
         // Clear sync info for next frame
-        vkw.clear_sync_info(&render_state.gfx_sync_info)
+        vkw.clear_sync_info(&render_data.gfx_sync_info)
         vgd.frame_count += 1
 
         // CLear temp allocator for next frame

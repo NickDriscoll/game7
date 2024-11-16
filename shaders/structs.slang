@@ -1,10 +1,9 @@
-// struct PositionData {
-//     float4
-// }
+
 
 struct MeshData {
     uint position_offset;
     uint uv_offset;
+    uint color_offset;
 }
 
 struct InstanceData {
@@ -12,11 +11,20 @@ struct InstanceData {
     uint mesh_idx;
 }
 
+struct MaterialData {
+    float4 base_color;
+}
+
 struct UniformData {
     float4x4 clip_from_world;
     float4x4 clip_from_screen;
-    MeshData *m_data;
+    MeshData *mesh_data;
     InstanceData *i_data;
+    MaterialData *mat_data;
     float4 *position_data;
     float2 *uv_data;
+    float4 *color_data;
+    
+    // Periodic time value
+    float time;
 }
