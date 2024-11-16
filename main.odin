@@ -163,94 +163,11 @@ main :: proc() {
     show_gui := true
 
     // Load test glTF model
-    my_gltf: Mesh_Handle
+    my_gltf_mesh: Mesh_Handle
+    my_gltf_material: Material_Handle
     {
-        load_gltf_mesh :: proc(gd: ^vkw.Graphics_Device, render_data: ^RenderingState, path: cstring) -> Mesh_Handle {
-            gltf_data, res := cgltf.parse_file({}, path)
-            if res != .success {
-                log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
-            }
-            defer cgltf.free(gltf_data)
-    
-            // Load buffers
-            res = cgltf.load_buffers({}, gltf_data, path)
-            if res != .success {
-                log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
-            }
-    
-            // For now just loading the first mesh we see
-            mesh := gltf_data.meshes[0]
-            primitive := mesh.primitives[0]
-    
-            get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-                base_ptr := buffer_view.buffer.data
-                offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-                return cast([^]T)offset_ptr
-            }
-    
-            // Get indices
-            index_data: [dynamic]u16
-            defer delete(index_data)
-            indices_count := primitive.indices.count
-            indices_bytes := indices_count * size_of(u16)
-            resize(&index_data, indices_count)
-            index_ptr := get_accessor_ptr(primitive.indices, u16)
-            mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
-            log.debugf("index data: %v", index_data)
-    
-            // Get vertex data
-            position_data: [dynamic]hlsl.float4
-            defer delete(position_data)
-            color_data: [dynamic]hlsl.float4
-            defer delete(color_data)
-    
-            for attrib in primitive.attributes {
-                #partial switch (attrib.type) {
-                    case .position: {
-                        resize(&position_data, attrib.data.count)
-                        log.debugf("Position data type: %v", attrib.data.type)
-                        log.debugf("Position count: %v", attrib.data.count)
-                        position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                        position_bytes := attrib.data.count * size_of(hlsl.float3)
-    
-                        // Build up positions buffer
-                        // We have to append a 1.0 to all positions
-                        // in line with homogenous coordinates
-                        for i in 0..<attrib.data.count {
-                            pos := position_ptr[i]
-                            position_data[i] = {pos.x, pos.y, pos.z, 1.0}
-                        }
-    
-                        log.debugf("Position data: %v", position_data)
-                    }
-                    case .color: {
-                        resize(&color_data, attrib.data.count)
-                        log.debugf("Color data type: %v", attrib.data.type)
-                        log.debugf("Color count: %v", attrib.data.count)
-                        color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                        color_bytes := attrib.data.count * size_of(hlsl.float3)
-
-                        for i in 0..<attrib.data.count {
-                            col := color_ptr[i]
-                            color_data[i] = {col.x, col.y, col.z, 1.0}
-                        }
-                        
-                        log.debugf("Color data: %v", color_data)
-                    }
-                }
-            }
-    
-            // Now that we have the mesh data in CPU-side buffers,
-            // it's time to upload them
-            handle := create_mesh(gd, render_data, position_data[:], index_data[:])
-            add_vertex_colors(gd, render_data, handle, color_data[:])
-
-            return handle
-        }
-
-        
-        path : cstring = "data/models/Box.glb"
-        my_gltf = load_gltf_mesh(&vgd, &render_data, path)
+        path : cstring = "data/models/spyro2.glb"
+        my_gltf_mesh, my_gltf_material = load_gltf_mesh(&vgd, &render_data, path)
     }
     
     log.info("App initialization complete")
@@ -443,15 +360,15 @@ main :: proc() {
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
         y_translation := 20.0 * math.sin(t)
-        draw_ps1_instances(&vgd, &render_data, my_gltf, {
-            {
-                world_from_model = {
-                    5.0, 0.0, 0.0, 10.0,
-                    0.0, 5.0, 0.0, y_translation,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0
-                }
-            },
+        draw_ps1_instances(&vgd, &render_data, my_gltf_mesh, {
+            // {
+            //     world_from_model = {
+            //         5.0, 0.0, 0.0, 10.0,
+            //         0.0, 5.0, 0.0, y_translation,
+            //         0.0, 0.0, 1.0, 0.0,
+            //         0.0, 0.0, 0.0, 1.0
+            //     }
+            // },
             {
                 world_from_model = {
                     1.0, 0.0, 0.0, 0.0,

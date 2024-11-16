@@ -3,6 +3,8 @@ package main
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:math"
+import "core:mem"
+import "vendor:cgltf"
 import hm "desktop_vulkan_wrapper/handlemap"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
@@ -54,6 +56,9 @@ GPUMeshData :: struct {
 }
 
 MaterialData :: struct {
+    color_texture: u32,
+    normal_texture: u32,
+    arm_texture: u32,           // "arm" as in ambient roughness metalness, packed in RGB in that order    
     base_color: hlsl.float4
 }
 
@@ -84,6 +89,7 @@ GPUBufferFlags :: bit_set[enum{
 }]
 
 Mesh_Handle :: distinct hm.Handle
+Material_Handle :: distinct hm.Handle
 
 RenderingState :: struct {
     positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
@@ -94,7 +100,7 @@ RenderingState :: struct {
     
     
     uvs_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex uvs
-    uvs_offset: u32,
+    uvs_head: u32,
 
     colors_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex colors
     colors_head: u32,
@@ -107,6 +113,7 @@ RenderingState :: struct {
     
     
     material_buffer: vkw.Buffer_Handle,         // Global GPU buffer of materials
+    cpu_materials: hm.Handle_Map(MaterialData),
     
     cpu_instances: [dynamic]GPUInstanceData,
     instance_buffer: vkw.Buffer_Handle,         // Global GPU buffer of instances
@@ -382,6 +389,28 @@ add_vertex_colors :: proc(
     return vkw.sync_write_buffer(hlsl.float4, gd, colors_buffer, colors, color_start)
 }
 
+add_vertex_uvs :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^RenderingState,
+    handle: Mesh_Handle,
+    uvs: []hlsl.float2
+) -> bool {
+    uv_start := uvs_head
+    uvs_len := u32(len(uvs))
+    assert(uvs_head + uvs_len < MAX_GLOBAL_VERTICES)
+
+    uvs_head += uvs_len
+
+    gpu_mesh := &gpu_meshes[handle.index]
+    gpu_mesh.uv_offset = uv_start
+
+    return vkw.sync_write_buffer(hlsl.float2, gd, uvs_buffer, uvs, uv_start)
+}
+
+add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Material_Handle {
+    return Material_Handle(hm.insert(&cpu_materials, new_mat^))
+}
+
 // User code calls this to queue up draw calls
 draw_ps1_instances :: proc(
     gd: ^vkw.Graphics_Device,
@@ -502,4 +531,109 @@ render :: proc(
     instance_head = 0
     clear(&ps1_draws)
     clear(&cpu_instances)
+}
+
+
+
+
+load_gltf_mesh :: proc(
+    gd: ^vkw.Graphics_Device,
+    render_data: ^RenderingState,
+    path: cstring
+) -> (Mesh_Handle, Material_Handle) {
+    gltf_data, res := cgltf.parse_file({}, path)
+    if res != .success {
+        log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+    }
+    defer cgltf.free(gltf_data)
+
+    // Load buffers
+    res = cgltf.load_buffers({}, gltf_data, path)
+    if res != .success {
+        log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
+    }
+
+    // For now just loading the first mesh we see
+    mesh := gltf_data.meshes[0]
+    primitive := mesh.primitives[0]
+
+    get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
+        base_ptr := buffer_view.buffer.data
+        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+        return cast([^]T)offset_ptr
+    }
+
+    // Get indices
+    index_data: [dynamic]u16
+    defer delete(index_data)
+    indices_count := primitive.indices.count
+    indices_bytes := indices_count * size_of(u16)
+    resize(&index_data, indices_count)
+    index_ptr := get_accessor_ptr(primitive.indices, u16)
+    mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+    //log.debugf("index data: %v", index_data)
+
+    // Get vertex data
+    position_data: [dynamic]hlsl.float4
+    defer delete(position_data)
+    color_data: [dynamic]hlsl.float4
+    defer delete(color_data)
+    uv_data: [dynamic]hlsl.float2
+    defer delete(uv_data)
+
+    for attrib in primitive.attributes {
+        #partial switch (attrib.type) {
+            case .position: {
+                resize(&position_data, attrib.data.count)
+                log.debugf("Position data type: %v", attrib.data.type)
+                log.debugf("Position count: %v", attrib.data.count)
+                position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                position_bytes := attrib.data.count * size_of(hlsl.float3)
+
+                // Build up positions buffer
+                // We have to append a 1.0 to all positions
+                // in line with homogenous coordinates
+                for i in 0..<attrib.data.count {
+                    pos := position_ptr[i]
+                    position_data[i] = {pos.x, pos.y, pos.z, 1.0}
+                }
+
+                //log.debugf("Position data: %v", position_data)
+            }
+            case .color: {
+                resize(&color_data, attrib.data.count)
+                log.debugf("Color data type: %v", attrib.data.type)
+                log.debugf("Color count: %v", attrib.data.count)
+                color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                color_bytes := attrib.data.count * size_of(hlsl.float3)
+
+                for i in 0..<attrib.data.count {
+                    col := color_ptr[i]
+                    color_data[i] = {col.x, col.y, col.z, 1.0}
+                }
+                
+                //log.debugf("Color data: %v", color_data)
+            }
+            case .texcoord: {
+                resize(&uv_data, attrib.data.count)
+                log.debugf("UV data type: %v", attrib.data.type)
+                log.debugf("UV count: %v", attrib.data.count)
+                uv_ptr := get_accessor_ptr(attrib.data, hlsl.float2)
+                uv_bytes := attrib.data.count * size_of(hlsl.float2)
+
+                mem.copy(&uv_data[0], uv_ptr, int(uv_bytes))
+            }
+        }
+    }
+
+    // Now that we have the mesh data in CPU-side buffers,
+    // it's time to upload them
+    mesh_handle := create_mesh(gd, render_data, position_data[:], index_data[:])
+    if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+    if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+
+    // Now get material data
+    material_handle: Material_Handle
+
+    return mesh_handle, material_handle
 }

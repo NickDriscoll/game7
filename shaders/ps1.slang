@@ -17,6 +17,8 @@ cbuffer push_constants {
     UniformData *u_data;
 }
 
+static const uint NULL_OFFSET = 0xFFFFFFFF;
+
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
     InstanceData inst = u_data.i_data[inst_idx];
@@ -31,8 +33,13 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
     // out.uv = u_data.uv_data[idx + mesh.uv_offset];
     // out.uv = UVS[idx];
 
+    out.uv = float2(0.0);
+    if (mesh.uv_offset != NULL_OFFSET) {
+        out.uv = u_data.uv_data[idx + mesh.uv_offset];
+    }
+
     out.color = float4(1.0, 1.0, 1.0, 1.0);
-    if (mesh.color_offset != 0xFFFFFFFF) {
+    if (mesh.color_offset != NULL_OFFSET) {
         out.color = u_data.color_data[idx + mesh.color_offset];
     }
 
@@ -50,5 +57,7 @@ float4 fragment_main(VertexOutput input) {
 
     float4 vtx_color = input.color;
 
-    return vtx_color;
+    return float4(input.uv, 0.0, 1.0);
+    //return vtx_color;
+    //return float4(1.0, 0.0, 1.0, 1.0);
 }
