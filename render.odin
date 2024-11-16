@@ -595,7 +595,7 @@ load_gltf_mesh :: proc(
     defer delete(loaded_glb_images)
 
     // Load all textures
-    for glb_texture in gltf_data.textures {
+    for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
         log.debugf("Image mime type: %v", glb_image.mime_type)
@@ -625,7 +625,8 @@ load_gltf_mesh :: proc(
         if !ok {
             log.error("Error loading image from glb")
         }
-        append(&loaded_glb_images, handle)
+        //append(&loaded_glb_images, handle)
+        loaded_glb_images[i] = handle
     }
     
     // For now just loading the first mesh we see
@@ -633,7 +634,7 @@ load_gltf_mesh :: proc(
 
     draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)
 
-    for primitive in mesh.primitives {
+    for primitive, i in mesh.primitives {
         // Get indices
         index_data: [dynamic]u16
         defer delete(index_data)
@@ -713,17 +714,18 @@ load_gltf_mesh :: proc(
         color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0]))
         log.debugf("Texture index is %v", color_tex_idx)
         
+        bindless_image_idx := loaded_glb_images[color_tex_idx]
         material := MaterialData {
-            color_texture = color_tex_idx,
+            color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
             base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
         }
         material_handle := add_material(render_data, &material)
 
-        append(&draw_primitives, DrawPrimitive {
+        draw_primitives[i] = DrawPrimitive {
             mesh = mesh_handle,
             material = material_handle
-        })
+        }
     }
 
     return draw_primitives

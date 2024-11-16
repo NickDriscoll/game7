@@ -441,6 +441,7 @@ main :: proc() {
                 color_buffer, _ := vkw.get_buffer(&vgd, render_data.colors_buffer)
 
                 render_data.cpu_uniforms.mesh_ptr = mesh_buffer.address
+                render_data.cpu_uniforms.material_ptr = material_buffer.address
                 render_data.cpu_uniforms.instance_ptr = instance_buffer.address
                 render_data.cpu_uniforms.position_ptr = position_buffer.address
                 render_data.cpu_uniforms.uv_ptr = uv_buffer.address

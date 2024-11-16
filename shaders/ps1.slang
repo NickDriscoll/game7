@@ -64,9 +64,13 @@ float4 fragment_main(VertexOutput input) {
 
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
     if (material.color_texture != NULL_OFFSET) {
-        // color_sample = textures[material.color_texture].Sample(samplers[material.sampler_idx], input.uv);
+        color_sample = textures[material.color_texture].Sample(samplers[material.sampler_idx], input.uv);
         //color_sample = textures[0].Sample(samplers[0], input.uv);
     }
+
+    // if (inst.material_idx == 0) {
+    //     color_sample.b = 0.0;
+    // }
 
     return vtx_color * color_sample;
     //return float4(input.uv, 0.0, 1.0);
