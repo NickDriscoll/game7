@@ -10,6 +10,7 @@ struct VertexOutput {
     float4 clip_out : SV_Position;
     float2 uv;
     float4 color;
+    uint instance_idx;
 }
 
 [[vk::push_constant]]
@@ -43,21 +44,32 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
         out.color = u_data.color_data[idx + mesh.color_offset];
     }
 
+    out.instance_idx = inst_idx;
+
     return out;
-    
 }
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
-    float3 periodic_color = float3(
-        0.5 * cos(0.6 * u_data.time + 0.1) + 0.5,
-        0.5 * sin(u_data.time) + 0.5,
-        0.5 * sin(0.7 * u_data.time + 0.1) + 0.5,
-    );
+    InstanceData inst = u_data.i_data[input.instance_idx];
+    MaterialData material = u_data.mat_data[inst.material_idx];
+
+    // float3 periodic_color = float3(
+    //     0.5 * cos(0.6 * u_data.time + 0.1) + 0.5,
+    //     0.5 * sin(u_data.time) + 0.5,
+    //     0.5 * sin(0.7 * u_data.time + 0.1) + 0.5,
+    // );
 
     float4 vtx_color = input.color;
 
-    return float4(input.uv, 0.0, 1.0);
+    float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
+    if (material.color_texture != NULL_OFFSET) {
+        // color_sample = textures[material.color_texture].Sample(samplers[material.sampler_idx], input.uv);
+        //color_sample = textures[0].Sample(samplers[0], input.uv);
+    }
+
+    return vtx_color * color_sample;
+    //return float4(input.uv, 0.0, 1.0);
     //return vtx_color;
     //return float4(1.0, 0.0, 1.0, 1.0);
 }

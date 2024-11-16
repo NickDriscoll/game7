@@ -163,11 +163,11 @@ main :: proc() {
     show_gui := true
 
     // Load test glTF model
-    my_gltf_mesh: Mesh_Handle
-    my_gltf_material: Material_Handle
+    my_gltf_mesh: [dynamic]DrawPrimitive
+    defer delete(my_gltf_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
-        my_gltf_mesh, my_gltf_material = load_gltf_mesh(&vgd, &render_data, path)
+        my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path, context.allocator)
     }
     
     log.info("App initialization complete")
@@ -360,15 +360,16 @@ main :: proc() {
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
         y_translation := 20.0 * math.sin(t)
-        draw_ps1_instances(&vgd, &render_data, my_gltf_mesh, {
-            // {
-            //     world_from_model = {
-            //         5.0, 0.0, 0.0, 10.0,
-            //         0.0, 5.0, 0.0, y_translation,
-            //         0.0, 0.0, 1.0, 0.0,
-            //         0.0, 0.0, 0.0, 1.0
-            //     }
-            // },
+        mesh_im_drawing := my_gltf_mesh[0]
+        draw_ps1_primitives(&vgd, &render_data, mesh_im_drawing.mesh, mesh_im_drawing.material, {
+            {
+                world_from_model = {
+                    5.0, 0.0, 0.0, 10.0,
+                    0.0, 5.0, 0.0, y_translation,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
+            },
             {
                 world_from_model = {
                     1.0, 0.0, 0.0, 0.0,
