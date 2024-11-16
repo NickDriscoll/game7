@@ -563,6 +563,12 @@ load_gltf_mesh :: proc(
         return cast([^]T)offset_ptr
     }
 
+    get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
+        base_ptr := buffer.data
+        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
+        return cast([^]T)offset_ptr
+    }
+
     // Get indices
     index_data: [dynamic]u16
     defer delete(index_data)
@@ -632,7 +638,22 @@ load_gltf_mesh :: proc(
     if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
     if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
 
+    // Load all textures
+    for glb_texture in gltf_data.textures {
+        glb_image := glb_texture.image_
+        data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
+        
+    }
+
     // Now get material data
+    glb_material := primitive.material
+    
+
+
+    material := MaterialData {
+        base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+    }
+
     material_handle: Material_Handle
 
     return mesh_handle, material_handle
