@@ -18,6 +18,7 @@ MAX_GLOBAL_INDICES :: 1024*1024
 MAX_GLOBAL_MESHES :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
+
 NULL_OFFSET :: 0xFFFFFFFF
 
 FRAMES_IN_FLIGHT :: 2
@@ -97,6 +98,10 @@ DrawPrimitive :: struct {
     material: Material_Handle
 }
 
+RenderTarget :: struct {
+
+}
+
 Mesh_Handle :: distinct hm.Handle
 Material_Handle :: distinct hm.Handle
 
@@ -141,12 +146,15 @@ RenderingState :: struct {
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
-
+    // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
     gfx_sync_info: vkw.Sync_Info,
+
+    // Main render target
+    main_framebuffer: vkw.Framebuffer
 }
 
-init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
+init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
     render_state: RenderingState
 
     // Pipeline creation
@@ -323,6 +331,55 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device) -> RenderingState {
         }
         render_state.uniform_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
+    }
+
+    // Create main rendertarget
+    {
+        color_target := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .R8G8B8A8_UNORM,
+            extent = {
+                width = screen_size.x,
+                height = screen_size.y,
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.COLOR_ATTACHMENT},
+            alloc_flags = nil
+        }
+        color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
+
+        depth_target := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .D32_SFLOAT,
+            extent = {
+                width = screen_size.x,
+                height = screen_size.y,
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
+            alloc_flags = nil
+        }
+        depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
+
+        color_images: [8]vkw.Image_Handle
+        color_images[0] = color_target_handle
+        render_state.main_framebuffer = {
+            color_images = color_images,
+            depth_image = depth_handle,
+            resolution = screen_size,
+            clear_color = {1.0, 0.0, 1.0, 1.0},
+            color_load_op = .CLEAR
+        }
     }
 
     return render_state

@@ -33,7 +33,7 @@ ImguiState :: struct {
     pipeline: vkw.Pipeline_Handle
 }
 
-imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: vkw.int2) -> ImguiState {
+imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiState {
     imgui_state: ImguiState
     imgui_state.ctxt = imgui.CreateContext()
     

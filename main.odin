@@ -75,11 +75,11 @@ main :: proc() {
     vgd := vkw.init_vulkan(&init_params)
     
     // Make window
-    resolution: vkw.int2
+    resolution: hlsl.uint2
     resolution.x = 1920
     resolution.y = 1080
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
-    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, resolution.x, resolution.y, sdl_windowflags)
+    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize the state required for rendering to the window
@@ -88,7 +88,7 @@ main :: proc() {
     }
 
     // Initialize the renderer
-    render_data := init_renderer(&vgd)
+    render_data := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &render_data)
 
     // Create test images
@@ -167,8 +167,10 @@ main :: proc() {
     defer delete(my_gltf_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
-        my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path, context.allocator)
+        my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
+
+    main_scene_mesh := load_gltf_mesh(&vgd, &render_data, "data/models/town_square.glb")
     
     log.info("App initialization complete")
 
@@ -375,6 +377,17 @@ main :: proc() {
                     1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
                     0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
+            }
+        })
+
+        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh[0].mesh, main_scene_mesh[0].material, {
+            {
+                world_from_model = {
+                    1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, -100.0,
                     0.0, 0.0, 0.0, 1.0
                 }
             }

@@ -7,7 +7,7 @@ Texture2D textures[];
 SamplerState samplers[];
 
 struct VertexOutput {
-    float4 clip_out : SV_Position;
+    float4 clip_pos : SV_Position;
     float2 uv;
     float4 color;
     uint instance_idx;
@@ -29,7 +29,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
 
     float4 model_position = u_data.position_data[idx + mesh.position_offset];
     float4 world_position = mul(inst.world_from_model, model_position);
-    out.clip_out = mul(u_data.clip_from_world, world_position);
+    out.clip_pos = mul(u_data.clip_from_world, world_position);
 
     // out.uv = u_data.uv_data[idx + mesh.uv_offset];
     // out.uv = UVS[idx];
