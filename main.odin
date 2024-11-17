@@ -357,7 +357,26 @@ main :: proc() {
                 imgui.Text("Camera yaw: %f", yaw)
                 imgui.Text("Camera pitch: %f", pitch)
             }
+
+            if imgui.BeginMainMenuBar() {
+                if imgui.MenuItem("File", "shortcut?") {
+                    
+                }
+                
+                imgui.EndMainMenuBar()
+            }
         }
+
+        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh[0].mesh, main_scene_mesh[0].material, {
+            {
+                world_from_model = {
+                    1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, -50.0,
+                    0.0, 0.0, 0.0, 1.0
+                }
+            }
+        })
 
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
@@ -377,17 +396,6 @@ main :: proc() {
                     1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
                     0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0
-                }
-            }
-        })
-
-        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh[0].mesh, main_scene_mesh[0].material, {
-            {
-                world_from_model = {
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, -100.0,
                     0.0, 0.0, 0.0, 1.0
                 }
             }
@@ -524,7 +532,7 @@ main :: proc() {
 
             // Draw Dear Imgui
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
-            draw_imgui(&vgd, gfx_cb_idx, &imgui_state)
+            render_imgui(&vgd, gfx_cb_idx, &imgui_state)
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
     
             // Memory barrier between rendering to swapchain image and swapchain present

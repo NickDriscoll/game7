@@ -158,7 +158,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
 
 // Once-per-frame call to update imgui vtx/idx/uniform buffers
 // and record imgui draw commands into current frame's command buffer
-draw_imgui :: proc(
+render_imgui :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     imgui_state: ^ImguiState
