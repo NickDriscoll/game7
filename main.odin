@@ -349,21 +349,35 @@ main :: proc() {
 
         
         if show_gui {
-            imgui.ShowDemoWindow()
+            @static show_demo := false
+
+            if imgui.BeginMainMenuBar() {
+                if imgui.BeginMenu("File") {
+                
+
+                    imgui.EndMenu()
+                }
+
+                if imgui.BeginMenu("Debug") {
+                    if imgui.MenuItem("Show Dear ImGUI demo window", selected = show_demo) {
+                        show_demo = !show_demo
+                    }
+
+                    imgui.EndMenu()
+                }
+                
+                imgui.EndMainMenuBar()
+            }
+
+
+            if show_demo do imgui.ShowDemoWindow()
+
             {
                 using viewport_camera
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                 imgui.Text("Camera yaw: %f", yaw)
                 imgui.Text("Camera pitch: %f", pitch)
-            }
-
-            if imgui.BeginMainMenuBar() {
-                if imgui.MenuItem("File", "shortcut?") {
-                    
-                }
-                
-                imgui.EndMainMenuBar()
             }
         }
 
