@@ -1,3 +1,4 @@
+import tex_bindings;
 
 // Hardcoding a screen-filling triangle in clip space
 static const float2 POSITIONS[] = {

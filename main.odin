@@ -96,69 +96,69 @@ main :: proc() {
 
     // Create test images
     // TEST_IMAGES :: 3
-    test_images: [dynamic]vkw.Image_Handle
-    defer delete(test_images)
-    selected_image := 0
-    {
-        filenames := make([dynamic]cstring, context.temp_allocator)
-        defer delete(filenames)
+    // test_images: [dynamic]vkw.Image_Handle
+    // defer delete(test_images)
+    // selected_image := 0
+    // {
+    //     filenames := make([dynamic]cstring, context.temp_allocator)
+    //     defer delete(filenames)
 
-        err := filepath.walk("data/images", proc(info: os.File_Info, in_err: os.Error, user_data: rawptr) -> 
-        (err: os.Error, skip_dir: bool) {
+    //     err := filepath.walk("data/images", proc(info: os.File_Info, in_err: os.Error, user_data: rawptr) -> 
+    //     (err: os.Error, skip_dir: bool) {
 
-            if info.is_dir do return
+    //         if info.is_dir do return
 
-            cs, e := strings.clone_to_cstring(info.fullpath, context.temp_allocator)
-            if e != .None {
-                log.errorf("Error cloning filepath \"%v\" to cstring", info.fullpath)
-            }
+    //         cs, e := strings.clone_to_cstring(info.fullpath, context.temp_allocator)
+    //         if e != .None {
+    //             log.errorf("Error cloning filepath \"%v\" to cstring", info.fullpath)
+    //         }
             
-            fnames : ^[dynamic]cstring = cast(^[dynamic]cstring)user_data
-            append(fnames, cs)
+    //         fnames : ^[dynamic]cstring = cast(^[dynamic]cstring)user_data
+    //         append(fnames, cs)
             
-            err = nil
-            skip_dir = false
-            return
-        }, &filenames)
-        if err != nil {
-            log.error("Error walking images directory")
-        }
+    //         err = nil
+    //         skip_dir = false
+    //         return
+    //     }, &filenames)
+    //     if err != nil {
+    //         log.error("Error walking images directory")
+    //     }
 
-        resize(&test_images, len(filenames))
+    //     resize(&test_images, len(filenames))
 
-        // Load images from disk
-        for filename, i in filenames {
-            width, height, channels: i32
-            image_bytes := stbi.load(filename, &width, &height, &channels, 4)
-            defer stbi.image_free(image_bytes)
-            byte_count := int(width * height * 4)
-            image_slice := slice.from_ptr(image_bytes, byte_count)
-            log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
+    //     // Load images from disk
+    //     for filename, i in filenames {
+    //         width, height, channels: i32
+    //         image_bytes := stbi.load(filename, &width, &height, &channels, 4)
+    //         defer stbi.image_free(image_bytes)
+    //         byte_count := int(width * height * 4)
+    //         image_slice := slice.from_ptr(image_bytes, byte_count)
+    //         log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
     
-            info := vkw.Image_Create {
-                flags = nil,
-                image_type = .D2,
-                format = .R8G8B8A8_SRGB,
-                extent = {
-                    width = u32(width),
-                    height = u32(height),
-                    depth = 1
-                },
-                supports_mipmaps = false,
-                array_layers = 1,
-                samples = {._1},
-                tiling = .OPTIMAL,
-                usage = {.SAMPLED,.TRANSFER_DST},
-                alloc_flags = nil
-            }
-            ok: bool
-            test_images[i], ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
-            if !ok {
-                log.error("vkw.sync_create_image_with_data failed.")
-            }
-        }
+    //         info := vkw.Image_Create {
+    //             flags = nil,
+    //             image_type = .D2,
+    //             format = .R8G8B8A8_SRGB,
+    //             extent = {
+    //                 width = u32(width),
+    //                 height = u32(height),
+    //                 depth = 1
+    //             },
+    //             supports_mipmaps = false,
+    //             array_layers = 1,
+    //             samples = {._1},
+    //             tiling = .OPTIMAL,
+    //             usage = {.SAMPLED,.TRANSFER_DST},
+    //             alloc_flags = nil
+    //         }
+    //         ok: bool
+    //         test_images[i], ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
+    //         if !ok {
+    //             log.error("vkw.sync_create_image_with_data failed.")
+    //         }
+    //     }
 
-    }
+    // }
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
@@ -172,6 +172,7 @@ main :: proc() {
         path : cstring = "data/models/spyro2.glb"
         my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
+    spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
 
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, "data/models/town_square.glb")
     
@@ -205,6 +206,7 @@ main :: proc() {
 
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
+        move_spyro := false
         {
             using viewport_camera
             io := imgui.GetIO()
@@ -217,7 +219,7 @@ main :: proc() {
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: show_gui = !show_gui
-                            case .SPACE: selected_image = (selected_image + 1) % len(test_images)
+                            case .SPACE: move_spyro = true
                             case .W: control_flags += {.MoveForward}
                             case .S: control_flags += {.MoveBackward}
                             case .A: control_flags += {.MoveLeft}
@@ -348,6 +350,18 @@ main :: proc() {
             viewport_camera.position += 
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
+
+
+        }
+
+        // Teleport spyro in front of camera
+        if move_spyro {
+            using viewport_camera
+            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
+            world_facing : hlsl.float3 = (world_from_view * hlsl.float4{0.0, 1.0, 0.0, 0.0}).xyz
+            spyro_pos = position + world_facing
+
+            move_spyro = false
         }
 
         
@@ -401,22 +415,22 @@ main :: proc() {
 
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
-        y_translation := 20.0 * math.sin(t)
+        translation := 2.0 * math.sin(t)
         mesh_im_drawing := my_gltf_mesh[0]
         draw_ps1_primitives(&vgd, &render_data, mesh_im_drawing.mesh, mesh_im_drawing.material, {
             {
                 world_from_model = {
-                    5.0, 0.0, 0.0, 10.0,
-                    0.0, 5.0, 0.0, y_translation,
-                    0.0, 0.0, 0.3, 0.0,
+                    1.0, 0.0, 0.0, 10.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 0.3, translation,
                     0.0, 0.0, 0.0, 1.0
                 }
             },
             {
                 world_from_model = {
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0,
+                    1.0, 0.0, 0.0, spyro_pos.x,
+                    0.0, 1.0, 0.0, spyro_pos.y,
+                    0.0, 0.0, 1.0, spyro_pos.z,
                     0.0, 0.0, 0.0, 1.0
                 }
             }
