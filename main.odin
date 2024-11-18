@@ -19,6 +19,9 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
+TITLE_WITHOUT_IMGUI :: "KataWARi"
+TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
+
 main :: proc() {
     // Parse command-line arguments
     log_level := log.Level.Info
@@ -79,7 +82,7 @@ main :: proc() {
     resolution.x = 1920
     resolution.y = 1080
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
-    sdl_window := sdl2.CreateWindow("KataWARi", sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
+    sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
     // Initialize the state required for rendering to the window
@@ -379,6 +382,10 @@ main :: proc() {
                 imgui.Text("Camera yaw: %f", yaw)
                 imgui.Text("Camera pitch: %f", pitch)
             }
+
+            sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+        } else {
+            sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
         }
 
         draw_ps1_primitives(&vgd, &render_data, main_scene_mesh[0].mesh, main_scene_mesh[0].material, {
@@ -401,7 +408,7 @@ main :: proc() {
                 world_from_model = {
                     5.0, 0.0, 0.0, 10.0,
                     0.0, 5.0, 0.0, y_translation,
-                    0.0, 0.0, 0.7, 0.0,
+                    0.0, 0.0, 0.3, 0.0,
                     0.0, 0.0, 0.0, 1.0
                 }
             },
@@ -542,9 +549,9 @@ main :: proc() {
 
             // Main render call
             render(&vgd, gfx_cb_idx, &render_data, &framebuffer)
-            framebuffer.color_load_op = .LOAD
-
+            
             // Draw Dear Imgui
+            framebuffer.color_load_op = .LOAD
             vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
             render_imgui(&vgd, gfx_cb_idx, &imgui_state)
             vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)

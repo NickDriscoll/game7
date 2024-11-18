@@ -138,8 +138,6 @@ RenderingState :: struct {
 
     dirty_flags: GPUBufferDirtyFlags,               // Represents which CPU/GPU buffers need synced this cycle
 
-    test_pipeline: vkw.Pipeline_Handle,
-
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
     ps1_draws: [dynamic]DrawData,
@@ -157,103 +155,9 @@ RenderingState :: struct {
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
     render_state: RenderingState
 
-    // Pipeline creation
-    {
-        // Load shader bytecode
-        // This will be embedded into the executable at compile-time
-        vertex_spv := #load("data/shaders/test.vert.spv", []u32)
-        fragment_spv := #load("data/shaders/test.frag.spv", []u32)
-
-        ps1_vert_spv := #load("data/shaders/ps1.vert.spv", []u32)
-        ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
-
-        raster_state := vkw.default_rasterization_state()
-        raster_state.cull_mode = nil
-
-        pipeline_infos := make([dynamic]vkw.Graphics_Pipeline_Info, context.temp_allocator)
-
-        // Test pipeline
-        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
-            vertex_shader_bytecode = vertex_spv,
-            fragment_shader_bytecode = fragment_spv,
-            input_assembly_state = vkw.Input_Assembly_State {
-                topology = .TRIANGLE_LIST,
-                primitive_restart_enabled = false
-            },
-            tessellation_state = {},
-            rasterization_state = raster_state,
-            multisample_state = vkw.Multisample_State {
-                sample_count = {._1},
-                do_sample_shading = false,
-                min_sample_shading = 0.0,
-                sample_mask = nil,
-                do_alpha_to_coverage = false,
-                do_alpha_to_one = false
-            },
-            depthstencil_state = vkw.DepthStencil_State {
-                flags = nil,
-                do_depth_test = false,
-                do_depth_write = false,
-                depth_compare_op = .GREATER_OR_EQUAL,
-                do_depth_bounds_test = false,
-                do_stencil_test = false,
-                // front = nil,
-                // back = nil,
-                min_depth_bounds = 0.0,
-                max_depth_bounds = 1.0
-            },
-            colorblend_state = vkw.default_colorblend_state(),
-            renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
-                depth_attachment_format = nil
-            }
-        })
-
-        raster_state.cull_mode = {.BACK}
-
-        // PS1 pipeline
-        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
-            vertex_shader_bytecode = ps1_vert_spv,
-            fragment_shader_bytecode = ps1_frag_spv,
-            input_assembly_state = vkw.Input_Assembly_State {
-                topology = .TRIANGLE_LIST,
-                primitive_restart_enabled = false
-            },
-            tessellation_state = {},
-            rasterization_state = raster_state,
-            multisample_state = vkw.Multisample_State {
-                sample_count = {._1},
-                do_sample_shading = false,
-                min_sample_shading = 0.0,
-                sample_mask = nil,
-                do_alpha_to_coverage = false,
-                do_alpha_to_one = false
-            },
-            depthstencil_state = vkw.DepthStencil_State {
-                flags = nil,
-                do_depth_test = false,
-                do_depth_write = false,
-                depth_compare_op = .GREATER_OR_EQUAL,
-                do_depth_bounds_test = false,
-                do_stencil_test = false,
-                // front = nil,
-                // back = nil,
-                min_depth_bounds = 0.0,
-                max_depth_bounds = 1.0
-            },
-            colorblend_state = vkw.default_colorblend_state(),
-            renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
-                depth_attachment_format = nil
-            }
-        })
-
-        handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
-        defer delete(handles)
-
-        render_state.test_pipeline = handles[0]
-        render_state.ps1_pipeline = handles[1]
-    }
+    //main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
+    main_color_attachment_formats : []vk.Format = {vk.Format.B8G8R8A8_SRGB}
+    main_depth_attachment_format := vk.Format.D32_SFLOAT
 
     // Create main timeline semaphore
     {
@@ -380,6 +284,60 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             clear_color = {1.0, 0.0, 1.0, 1.0},
             color_load_op = .CLEAR
         }
+    }
+
+    // Pipeline creation
+    {
+        // Load shader bytecode
+        // This will be embedded into the executable at compile-time
+        ps1_vert_spv := #load("data/shaders/ps1.vert.spv", []u32)
+        ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
+
+        raster_state := vkw.default_rasterization_state()
+
+        pipeline_infos := make([dynamic]vkw.Graphics_Pipeline_Info, context.temp_allocator)
+
+        // PS1 pipeline
+        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
+            vertex_shader_bytecode = ps1_vert_spv,
+            fragment_shader_bytecode = ps1_frag_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false
+            },
+            tessellation_state = {},
+            rasterization_state = raster_state,
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = nil,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = true,
+                do_depth_write = true,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0
+            },
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = main_color_attachment_formats,
+                depth_attachment_format = main_depth_attachment_format
+            }
+        })
+
+        handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
+        defer delete(handles)
+
+        render_state.ps1_pipeline = handles[0]
     }
 
     return render_state
@@ -566,13 +524,17 @@ render :: proc(
     // Clear dirty flags after checking them
     dirty_flags = {}
 
+    framebuffer.depth_image = main_framebuffer.depth_image
+    framebuffer.depth_load_op = .CLEAR
+
+    //vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
 
-    res := framebuffer.resolution
+    res := main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
         x = 0.0,
         y = 0.0,
@@ -609,6 +571,19 @@ render :: proc(
     instance_head = 0
     clear(&ps1_draws)
     clear(&cpu_instances)
+
+    framebuffer.depth_image = vkw.Image_Handle {
+        generation = 0xFFFFFFFF,
+        index = 0xFFFFFFFF,
+    }
+
+    // Postprocessing step to write final output
+    
+    // vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
+
+    
+
+    // vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 }
 
 

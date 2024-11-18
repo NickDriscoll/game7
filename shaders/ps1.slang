@@ -1,10 +1,5 @@
 import structs;
-
-[[vk_binding(0, 0)]]
-Texture2D textures[];
-
-[[vk_binding(1, 0)]]
-SamplerState samplers[];
+import tex_bindings;
 
 struct VertexOutput {
     float4 clip_pos : SV_Position;
