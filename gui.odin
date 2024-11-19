@@ -30,11 +30,13 @@ ImguiState :: struct {
     vertex_buffer: vkw.Buffer_Handle,
     index_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
-    pipeline: vkw.Pipeline_Handle
+    pipeline: vkw.Pipeline_Handle,
+    show_gui: bool
 }
 
 imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiState {
     imgui_state: ImguiState
+    imgui_state.show_gui = true
     imgui_state.ctxt = imgui.CreateContext()
     
     io := imgui.GetIO()

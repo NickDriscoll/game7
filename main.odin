@@ -94,76 +94,9 @@ main :: proc() {
     render_data := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &render_data)
 
-    // Create test images
-    // TEST_IMAGES :: 3
-    // test_images: [dynamic]vkw.Image_Handle
-    // defer delete(test_images)
-    // selected_image := 0
-    // {
-    //     filenames := make([dynamic]cstring, context.temp_allocator)
-    //     defer delete(filenames)
-
-    //     err := filepath.walk("data/images", proc(info: os.File_Info, in_err: os.Error, user_data: rawptr) -> 
-    //     (err: os.Error, skip_dir: bool) {
-
-    //         if info.is_dir do return
-
-    //         cs, e := strings.clone_to_cstring(info.fullpath, context.temp_allocator)
-    //         if e != .None {
-    //             log.errorf("Error cloning filepath \"%v\" to cstring", info.fullpath)
-    //         }
-            
-    //         fnames : ^[dynamic]cstring = cast(^[dynamic]cstring)user_data
-    //         append(fnames, cs)
-            
-    //         err = nil
-    //         skip_dir = false
-    //         return
-    //     }, &filenames)
-    //     if err != nil {
-    //         log.error("Error walking images directory")
-    //     }
-
-    //     resize(&test_images, len(filenames))
-
-    //     // Load images from disk
-    //     for filename, i in filenames {
-    //         width, height, channels: i32
-    //         image_bytes := stbi.load(filename, &width, &height, &channels, 4)
-    //         defer stbi.image_free(image_bytes)
-    //         byte_count := int(width * height * 4)
-    //         image_slice := slice.from_ptr(image_bytes, byte_count)
-    //         log.debugf("%v uncompressed size: %v bytes", filename, byte_count)
-    
-    //         info := vkw.Image_Create {
-    //             flags = nil,
-    //             image_type = .D2,
-    //             format = .R8G8B8A8_SRGB,
-    //             extent = {
-    //                 width = u32(width),
-    //                 height = u32(height),
-    //                 depth = 1
-    //             },
-    //             supports_mipmaps = false,
-    //             array_layers = 1,
-    //             samples = {._1},
-    //             tiling = .OPTIMAL,
-    //             usage = {.SAMPLED,.TRANSFER_DST},
-    //             alloc_flags = nil
-    //         }
-    //         ok: bool
-    //         test_images[i], ok = vkw.sync_create_image_with_data(&vgd, &info, image_slice)
-    //         if !ok {
-    //             log.error("vkw.sync_create_image_with_data failed.")
-    //         }
-    //     }
-
-    // }
-
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
-    show_gui := true
 
     // Load test glTF model
     my_gltf_mesh: [dynamic]DrawPrimitive
@@ -174,7 +107,10 @@ main :: proc() {
     }
     spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
 
-    main_scene_mesh := load_gltf_mesh(&vgd, &render_data, "data/models/town_square.glb")
+    main_scene_path : cstring = "data/models/town_square.glb"
+    //main_scene_path : cstring = "data/models/artisans.glb"
+    //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
+    main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
     
     log.info("App initialization complete")
 
@@ -218,7 +154,7 @@ main :: proc() {
                     case .QUIT: do_main_loop = false
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
-                            case .ESCAPE: show_gui = !show_gui
+                            case .ESCAPE: imgui_state.show_gui = !imgui_state.show_gui
                             case .SPACE: move_spyro = true
                             case .W: control_flags += {.MoveForward}
                             case .S: control_flags += {.MoveBackward}
@@ -227,12 +163,11 @@ main :: proc() {
                             case .Q: control_flags += {.MoveDown}
                             case .E: control_flags += {.MoveUp}
                         }
-                        // if .LSHIFT in event.key.keysym.mod {
-                        //     control_flags += {.Speed}
-                        // }
-                        // if .LCTRL in event.key.keysym.mod {
-                        //     control_flags += {.Slow}
-                        // }
+
+                        #partial switch event.key.keysym.scancode {
+                            case .LSHIFT: control_flags += {.Speed}
+                            case .LCTRL: control_flags += {.Slow}
+                        }
                         imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
                     }
                     case .KEYUP: {
@@ -244,12 +179,11 @@ main :: proc() {
                             case .Q: control_flags -= {.MoveDown}
                             case .E: control_flags -= {.MoveUp}
                         }
-                        // if .LSHIFT in event.key.keysym.mod {
-                        //     control_flags -= {.Speed}
-                        // }
-                        // if .LCTRL in event.key.keysym.mod {
-                        //     control_flags -= {.Slow}
-                        // }
+
+                        #partial switch event.key.keysym.scancode {
+                            case .LSHIFT: control_flags -= {.Speed}
+                            case .LCTRL: control_flags -= {.Slow}
+                        }
                         imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
                     }
                     case .MOUSEBUTTONDOWN: {
@@ -364,13 +298,24 @@ main :: proc() {
             move_spyro = false
         }
 
-        
-        if show_gui {
+
+        if imgui_state.show_gui {
             @static show_demo := false
 
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
-                
+                    if imgui.MenuItem("New") {
+                        
+                    }
+                    if imgui.MenuItem("Load") {
+                        
+                    }
+                    if imgui.MenuItem("Save") {
+                        
+                    }
+                    if imgui.MenuItem("Save As") {
+                        
+                    }
 
                     imgui.EndMenu()
                 }
@@ -446,73 +391,7 @@ main :: proc() {
                 value = vgd.frame_count + 1
             })
     
-            // Sync point where we wait if there are already two frames in the gfx queue
-            if vgd.frame_count >= u64(vgd.frames_in_flight) {
-                // Wait on timeline semaphore before starting command buffer execution
-                wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-                append(&render_data.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-                    semaphore = render_data.gfx_timeline,
-                    value = wait_value
-                })
-                
-                // CPU-sync to prevent CPU from getting further ahead than
-                // the number of frames in flight
-                sem, ok := vkw.get_semaphore(&vgd, render_data.gfx_timeline)
-                if !ok do log.error("Couldn't find semaphore for CPU-sync")
-                info := vk.SemaphoreWaitInfo {
-                    sType = .SEMAPHORE_WAIT_INFO,
-                    pNext = nil,
-                    flags = nil,
-                    semaphoreCount = 1,
-                    pSemaphores = sem,
-                    pValues = &wait_value
-                }
-                if vk.WaitSemaphores(vgd.device, &info, max(u64)) != .SUCCESS {
-                    log.error("Failed to wait for timeline semaphore CPU-side man what")
-                }
-            }
-
-            // It is now safe to write to the uniform buffer now that
-            // we know frame N-2 has finished
-            {
-                
-                render_data.cpu_uniforms.clip_from_world =
-                    camera_projection_from_view(&viewport_camera) *
-                    camera_view_from_world(&viewport_camera)
-
-                io := imgui.GetIO()
-                render_data.cpu_uniforms.clip_from_screen = {
-                    2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-                    0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0
-                }
-                render_data.cpu_uniforms.time = t;
-
-                mesh_buffer, _ := vkw.get_buffer(&vgd, render_data.mesh_buffer)
-                material_buffer, _ := vkw.get_buffer(&vgd, render_data.material_buffer)
-                instance_buffer, _ := vkw.get_buffer(&vgd, render_data.instance_buffer)
-                position_buffer, _ := vkw.get_buffer(&vgd, render_data.positions_buffer)
-                uv_buffer, _ := vkw.get_buffer(&vgd, render_data.uvs_buffer)
-                color_buffer, _ := vkw.get_buffer(&vgd, render_data.colors_buffer)
-
-                render_data.cpu_uniforms.mesh_ptr = mesh_buffer.address
-                render_data.cpu_uniforms.material_ptr = material_buffer.address
-                render_data.cpu_uniforms.instance_ptr = instance_buffer.address
-                render_data.cpu_uniforms.position_ptr = position_buffer.address
-                render_data.cpu_uniforms.uv_ptr = uv_buffer.address
-                render_data.cpu_uniforms.color_ptr = color_buffer.address
-
-                in_slice := slice.from_ptr(&render_data.cpu_uniforms, 1)
-                if !vkw.sync_write_buffer(UniformBufferData, &vgd, render_data.uniform_buffer, in_slice) {
-                    log.error("Failed to write uniform buffer data")
-                }
-            }
-    
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
-
-            // This has to be called once per frame
-            vkw.begin_frame(&vgd, gfx_cb_idx)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -549,20 +428,16 @@ main :: proc() {
                     }
                 }
             })
-            
-            t := f32(vgd.frame_count) / 144.0
     
             framebuffer: vkw.Framebuffer
             framebuffer.color_images[0] = swapchain_image_handle
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
-            //framebuffer.clear_color = {0.0, 0.5*math.cos(t)+0.5, 0.5*math.sin(t)+0.5, 1.0}
             framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
             framebuffer.color_load_op = .CLEAR
-            //framebuffer.color_load_op = .DONT_CARE
 
             // Main render call
-            render(&vgd, gfx_cb_idx, &render_data, &framebuffer)
+            render(&vgd, gfx_cb_idx, &render_data, &viewport_camera, &framebuffer)
             
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD

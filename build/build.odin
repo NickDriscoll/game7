@@ -16,14 +16,16 @@ import "core:strings"
 VERTEX_SHADERS : []string : {
     "test",
     "imgui",
-    "ps1"
+    "ps1",
+    "postprocessing"
 }
 
 // List of all .slang files with a fragment shader entry point
 FRAGMENT_SHADERS : []string : {
     "test",
     "imgui",
-    "ps1"
+    "ps1",
+    "postprocessing"
 }
 
 // List of all .slang files with a compute shader entry point

@@ -46,6 +46,11 @@ PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
 }
 
+PostFxPushConstants :: struct {
+    color_target: u32,
+    sampler_idx: u32
+}
+
 CPUMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
@@ -142,6 +147,8 @@ RenderingState :: struct {
     ps1_pipeline: vkw.Pipeline_Handle,
     ps1_draws: [dynamic]DrawData,
 
+    postfx_pipeline: vkw.Pipeline_Handle,
+
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
     // Sync primitives
@@ -155,9 +162,11 @@ RenderingState :: struct {
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
     render_state: RenderingState
 
-    //main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
-    main_color_attachment_formats : []vk.Format = {vk.Format.B8G8R8A8_SRGB}
+    main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
+    //main_color_attachment_formats : []vk.Format = {vk.Format.B8G8R8A8_SRGB}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
+
+    swapchain_format := vk.Format.B8G8R8A8_SRGB
 
     // Create main timeline semaphore
     {
@@ -282,7 +291,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             depth_image = depth_handle,
             resolution = screen_size,
             clear_color = {1.0, 0.0, 1.0, 1.0},
-            color_load_op = .CLEAR
+            color_load_op = .CLEAR,
+            depth_load_op = .CLEAR
         }
     }
 
@@ -334,10 +344,52 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             }
         })
 
+        // Postprocessing pass info
+
+        postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
+        postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
+
+        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
+            vertex_shader_bytecode = postfx_vert_spv,
+            fragment_shader_bytecode = postfx_frag_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false
+            },
+            tessellation_state = {},
+            rasterization_state = raster_state,
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = nil,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = false,
+                do_depth_write = false,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0
+            },
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = {swapchain_format},
+                depth_attachment_format = nil
+            }
+        })
+
         handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
         defer delete(handles)
 
         render_state.ps1_pipeline = handles[0]
+        render_state.postfx_pipeline = handles[1]
     }
 
     return render_state
@@ -483,6 +535,7 @@ render :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     using r: ^RenderingState,
+    viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer
 ) {
     // Sync CPU and GPU buffers
@@ -521,18 +574,54 @@ render :: proc(
         vkw.sync_write_buffer(vk.DrawIndexedIndirectCommand, gd, draw_buffer, gpu_draws[:])
     }
 
+    // Update uniforms buffer
+    {
+                
+        cpu_uniforms.clip_from_world =
+            camera_projection_from_view(viewport_camera) *
+            camera_view_from_world(viewport_camera)
+
+        io := imgui.GetIO()
+        cpu_uniforms.clip_from_screen = {
+            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        }
+        cpu_uniforms.time = f32(gd.frame_count) / 144;
+
+        mesh_buffer, _ := vkw.get_buffer(gd, mesh_buffer)
+        material_buffer, _ := vkw.get_buffer(gd, material_buffer)
+        instance_buffer, _ := vkw.get_buffer(gd, instance_buffer)
+        position_buffer, _ := vkw.get_buffer(gd, positions_buffer)
+        uv_buffer, _ := vkw.get_buffer(gd, uvs_buffer)
+        color_buffer, _ := vkw.get_buffer(gd, colors_buffer)
+
+        cpu_uniforms.mesh_ptr = mesh_buffer.address
+        cpu_uniforms.material_ptr = material_buffer.address
+        cpu_uniforms.instance_ptr = instance_buffer.address
+        cpu_uniforms.position_ptr = position_buffer.address
+        cpu_uniforms.uv_ptr = uv_buffer.address
+        cpu_uniforms.color_ptr = color_buffer.address
+
+        in_slice := slice.from_ptr(&cpu_uniforms, 1)
+        if !vkw.sync_write_buffer(UniformBufferData, gd, uniform_buffer, in_slice) {
+            log.error("Failed to write uniform buffer data")
+        }
+    }
+
     // Clear dirty flags after checking them
     dirty_flags = {}
-
-    framebuffer.depth_image = main_framebuffer.depth_image
-    framebuffer.depth_load_op = .CLEAR
-
-    //vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
-    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
+
+    framebuffer.depth_image = main_framebuffer.depth_image
+    framebuffer.depth_load_op = .CLEAR
+
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
+    //vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
     res := main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
@@ -578,12 +667,44 @@ render :: proc(
     }
 
     // Postprocessing step to write final output
-    
-    // vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
-    
+    // Transition internal framebuffer to be sampled from
 
-    // vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+    color_target, ok3 := vkw.get_image(gd, main_framebuffer.color_images[0])
+    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
+        vkw.Image_Barrier {
+            src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+            src_access_mask = {.MEMORY_WRITE},
+            dst_stage_mask = {.ALL_COMMANDS},
+            dst_access_mask = {.MEMORY_READ},
+            old_layout = .COLOR_ATTACHMENT_OPTIMAL,
+            new_layout = .SHADER_READ_ONLY_OPTIMAL,
+            src_queue_family = gd.gfx_queue_family,
+            dst_queue_family = gd.gfx_queue_family,
+            image = color_target.image,
+            subresource_range = vk.ImageSubresourceRange {
+                aspectMask = {.COLOR},
+                baseMipLevel = 0,
+                levelCount = 1,
+                baseArrayLayer = 0,
+                layerCount = 1
+            }
+        }
+    })
+    
+    framebuffer.color_load_op = .LOAD
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
+    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, postfx_pipeline)
+
+    vkw.cmd_push_constants_gfx(PostFxPushConstants, gd, gfx_cb_idx, &PostFxPushConstants{
+        color_target = main_framebuffer.color_images[0].index,
+        sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
+    })
+
+    // Draw screen-filling triangle
+    vkw.cmd_draw(gd, gfx_cb_idx, 3, 1, 0, 0)
+
+    vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 }
 
 
