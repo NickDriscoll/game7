@@ -48,7 +48,8 @@ PushConstants :: struct {
 
 PostFxPushConstants :: struct {
     color_target: u32,
-    sampler_idx: u32
+    sampler_idx: u32,
+    time: f32
 }
 
 CPUMeshData :: struct {
@@ -698,7 +699,8 @@ render :: proc(
 
     vkw.cmd_push_constants_gfx(PostFxPushConstants, gd, gfx_cb_idx, &PostFxPushConstants{
         color_target = main_framebuffer.color_images[0].index,
-        sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
+        sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
+        time = f32(gd.frame_count) / 144
     })
 
     // Draw screen-filling triangle

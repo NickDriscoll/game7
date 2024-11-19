@@ -7,9 +7,9 @@ static const float2 POSITIONS[] = {
     3.0, 1.0            // Bottom Right
 };
 static const float2 UVS[] = {
-    0.0, -2.0,
-    0.0, 0.0,
-    2.0, 0.0
+    0.0, -1.0,
+    0.0, 1.0,
+    2.0, 1.0
 };
 
 struct VertexOutput {
@@ -21,6 +21,7 @@ struct VertexOutput {
 cbuffer push_constants {
     uint color_target;
     uint sampler_idx;
+    float t;
 }
 
 float2 hash(float2 p) {
@@ -53,7 +54,9 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
-    float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], input.uv);
+    float2 sample_pos = input.uv + 0.05 * float2(my_noise(input.uv + 0.5 * t), my_noise(input.uv + 0.5 * t + 1.0));
+
+    float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
 
     return target_sample;
 }
