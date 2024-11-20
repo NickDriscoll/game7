@@ -305,6 +305,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
 
         raster_state := vkw.default_rasterization_state()
+        raster_state.cull_mode = nil
 
         pipeline_infos := make([dynamic]vkw.Graphics_Pipeline_Info, context.temp_allocator)
 
@@ -398,6 +399,62 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
 delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
     vkw.delete_sync_info(&gfx_sync_info)
+}
+
+resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, screen_size: hlsl.uint2) {
+    vkw.delete_image(gd, main_framebuffer.color_images[0])
+    vkw.delete_image(gd, main_framebuffer.depth_image)
+    
+
+    // Create main rendertarget
+    {
+        color_target := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .R8G8B8A8_UNORM,
+            extent = {
+                width = screen_size.x,
+                height = screen_size.y,
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.COLOR_ATTACHMENT},
+            alloc_flags = nil
+        }
+        color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
+
+        depth_target := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .D32_SFLOAT,
+            extent = {
+                width = screen_size.x,
+                height = screen_size.y,
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
+            alloc_flags = nil
+        }
+        depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
+
+        color_images: [8]vkw.Image_Handle
+        color_images[0] = color_target_handle
+        main_framebuffer = {
+            color_images = color_images,
+            depth_image = depth_handle,
+            resolution = screen_size,
+            clear_color = {1.0, 0.0, 1.0, 1.0},
+            color_load_op = .CLEAR,
+            depth_load_op = .CLEAR
+        }
+    }
 }
 
 create_mesh :: proc(
@@ -618,8 +675,28 @@ render :: proc(
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
 
-    framebuffer.depth_image = main_framebuffer.depth_image
-    framebuffer.depth_load_op = .CLEAR
+    // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
+    color_target, ok3 := vkw.get_image(gd, main_framebuffer.color_images[0])
+    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
+        vkw.Image_Barrier {
+            src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+            src_access_mask = {.MEMORY_WRITE},
+            dst_stage_mask = {.ALL_COMMANDS},
+            dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+            old_layout = .UNDEFINED,
+            new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+            src_queue_family = gd.gfx_queue_family,
+            dst_queue_family = gd.gfx_queue_family,
+            image = color_target.image,
+            subresource_range = vk.ImageSubresourceRange {
+                aspectMask = {.COLOR},
+                baseMipLevel = 0,
+                levelCount = 1,
+                baseArrayLayer = 0,
+                layerCount = 1
+            }
+        }
+    })
 
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
     //vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
@@ -662,16 +739,9 @@ render :: proc(
     clear(&ps1_draws)
     clear(&cpu_instances)
 
-    framebuffer.depth_image = vkw.Image_Handle {
-        generation = 0xFFFFFFFF,
-        index = 0xFFFFFFFF,
-    }
-
     // Postprocessing step to write final output
 
     // Transition internal framebuffer to be sampled from
-
-    color_target, ok3 := vkw.get_image(gd, main_framebuffer.color_images[0])
     vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
         vkw.Image_Barrier {
             src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -693,7 +763,6 @@ render :: proc(
         }
     })
     
-    framebuffer.color_load_op = .LOAD
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, postfx_pipeline)
 

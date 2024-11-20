@@ -81,7 +81,7 @@ main :: proc() {
     resolution: hlsl.uint2
     resolution.x = 1920
     resolution.y = 1080
-    sdl_windowflags : sdl2.WindowFlags = {.VULKAN}
+    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
@@ -122,12 +122,13 @@ main :: proc() {
         fov_radians = math.PI / 2.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
-        farplane = 1_000.0
+        farplane = 1_000_000_000.0
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     free_all(context.temp_allocator)
 
+    move_spyro := false
     current_time := time.now()
     previous_time: time.Time
     do_main_loop := true
@@ -142,7 +143,6 @@ main :: proc() {
 
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
-        move_spyro := false
         {
             using viewport_camera
             io := imgui.GetIO()
@@ -152,6 +152,22 @@ main :: proc() {
             for sdl2.PollEvent(&event) {
                 #partial switch event.type {
                     case .QUIT: do_main_loop = false
+                    case .WINDOWEVENT: {
+                        #partial switch (event.window.event) {
+                            case .RESIZED: {
+                                new_x := event.window.data1
+                                new_y := event.window.data2
+
+                                resolution.x = u32(new_x)
+                                resolution.y = u32(new_y)
+
+                                io.DisplaySize.x = f32(new_x)
+                                io.DisplaySize.y = f32(new_y)
+
+                                vgd.resize_window = true
+                            }
+                        }
+                    }
                     case .KEYDOWN: {
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: imgui_state.show_gui = !imgui_state.show_gui
@@ -172,6 +188,7 @@ main :: proc() {
                     }
                     case .KEYUP: {
                         #partial switch event.key.keysym.sym {
+                            case .SPACE: move_spyro = false
                             case .W: control_flags -= {.MoveForward}
                             case .S: control_flags -= {.MoveBackward}
                             case .A: control_flags -= {.MoveLeft}
@@ -291,11 +308,10 @@ main :: proc() {
         // Teleport spyro in front of camera
         if move_spyro {
             using viewport_camera
+            placement_distance := 5.0
             world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
             world_facing : hlsl.float3 = (world_from_view * hlsl.float4{0.0, 1.0, 0.0, 0.0}).xyz
-            spyro_pos = position + world_facing
-
-            move_spyro = false
+            spyro_pos = position + world_facing * hlsl.float3(placement_distance)
         }
 
 
@@ -392,6 +408,14 @@ main :: proc() {
             })
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
+
+            // Resize swapchain if necessary
+            if vgd.resize_window {
+                if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
+                resize_framebuffers(&vgd, &render_data, resolution)
+
+                vgd.resize_window = false
+            }
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -431,6 +455,7 @@ main :: proc() {
     
             framebuffer: vkw.Framebuffer
             framebuffer.color_images[0] = swapchain_image_handle
+            framebuffer.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
             framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
