@@ -406,16 +406,19 @@ main :: proc() {
                 semaphore = render_data.gfx_timeline,
                 value = vgd.frame_count + 1
             })
-    
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
 
             // Resize swapchain if necessary
             if vgd.resize_window {
+                vk.DeviceWaitIdle(vgd.device)
+
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
-                resize_framebuffers(&vgd, &render_data, resolution)
+                //resize_framebuffers(&vgd, &render_data, resolution)
+
 
                 vgd.resize_window = false
             }
+    
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)

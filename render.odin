@@ -173,7 +173,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     {
         info := vkw.Semaphore_Info {
             type = .TIMELINE,
-            init_value = 0
+            init_value = 0,
+            name = "GFX Timeline"
         }
         render_state.gfx_timeline = vkw.create_semaphore(gd, &info)
     }
@@ -263,7 +264,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             samples = {._1},
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.COLOR_ATTACHMENT},
-            alloc_flags = nil
+            alloc_flags = nil,
+            name = "Main color target"
         }
         color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
 
@@ -281,7 +283,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             samples = {._1},
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
-            alloc_flags = nil
+            alloc_flags = nil,
+            name = "Main depth target"
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
@@ -403,7 +406,7 @@ delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, main_framebuffer.color_images[0])
-    vkw.delete_image(gd, main_framebuffer.depth_image)
+    //vkw.delete_image(gd, main_framebuffer.depth_image)
     
 
     // Create main rendertarget
@@ -426,30 +429,32 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, 
         }
         color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
 
-        depth_target := vkw.Image_Create {
-            flags = nil,
-            image_type = .D2,
-            format = .D32_SFLOAT,
-            extent = {
-                width = screen_size.x,
-                height = screen_size.y,
-                depth = 1
-            },
-            supports_mipmaps = false,
-            array_layers = 1,
-            samples = {._1},
-            tiling = .OPTIMAL,
-            usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
-            alloc_flags = nil
-        }
-        depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
+        // depth_target := vkw.Image_Create {
+        //     flags = nil,
+        //     image_type = .D2,
+        //     format = .D32_SFLOAT,
+        //     extent = {
+        //         width = screen_size.x,
+        //         height = screen_size.y,
+        //         depth = 1
+        //     },
+        //     supports_mipmaps = false,
+        //     array_layers = 1,
+        //     samples = {._1},
+        //     tiling = .OPTIMAL,
+        //     usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
+        //     alloc_flags = nil
+        // }
+        // depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
         color_images: [8]vkw.Image_Handle
         color_images[0] = color_target_handle
         main_framebuffer = {
             color_images = color_images,
-            depth_image = depth_handle,
-            resolution = screen_size,
+            //depth_image = depth_handle,
+            depth_image = main_framebuffer.depth_image,
+            //resolution = screen_size,
+            resolution = main_framebuffer.resolution,
             clear_color = {1.0, 0.0, 1.0, 1.0},
             color_load_op = .CLEAR,
             depth_load_op = .CLEAR

@@ -55,12 +55,12 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
     float2 sample_pos = input.uv;
-    // float heat_wave_amplitude = 0.005;
-    // float2 sample_pos += heat_wave_amplitude  * 
-    // float2(
-    //     my_noise(input.uv + 0.5 * t),
-    //     my_noise(input.uv + 0.5 * t + 1.0)
-    // );
+    float heat_wave_amplitude = 0.005;
+    sample_pos += heat_wave_amplitude  * 
+    float2(
+        my_noise(input.uv + 0.5 * t),
+        my_noise(input.uv + 0.5 * t + 1.0)
+    );
 
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
 
