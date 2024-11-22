@@ -63,7 +63,8 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         samples = {._1},
         tiling = .OPTIMAL,
         usage = {.SAMPLED,.TRANSFER_DST},
-        alloc_flags = nil
+        alloc_flags = nil,
+        name = "Dear ImGUI font atlas"
     }
     font_bytes_slice := slice.from_ptr(font_data, int(width * height * 4))
     ok: bool
@@ -92,6 +93,17 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         required_flags = {.DEVICE_LOCAL}
     }
     imgui_state.index_buffer = vkw.create_buffer(gd, &buffer_info)
+
+    // Create uniform buffer
+    {
+        info := vkw.Buffer_Info {
+            size = size_of(ImguiUniforms),
+            usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
+            alloc_flags = nil,
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+        }
+        imgui_state.uniform_buffer = vkw.create_buffer(gd, &info)
+    }
 
     // Create pipeline for drawing
 
@@ -143,17 +155,6 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     defer delete(handles)
 
     imgui_state.pipeline = handles[0]
-
-    // Create uniform buffer
-    {
-        info := vkw.Buffer_Info {
-            size = size_of(ImguiUniforms),
-            usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
-        }
-        imgui_state.uniform_buffer = vkw.create_buffer(gd, &info)
-    }
 
     return imgui_state
 }
