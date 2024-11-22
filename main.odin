@@ -409,11 +409,9 @@ main :: proc() {
 
             // Resize swapchain if necessary
             if vgd.resize_window {
-                vk.DeviceWaitIdle(vgd.device)
-
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
-                //resize_framebuffers(&vgd, &render_data, resolution)
-
+                resize_framebuffers(&vgd, &render_data, resolution)
+                viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
 
                 vgd.resize_window = false
             }

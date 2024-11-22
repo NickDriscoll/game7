@@ -1,10 +1,12 @@
 package main
 
+import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:math"
 import "core:mem"
 import "core:slice"
+import "core:strings"
 import "vendor:cgltf"
 import stbi "vendor:stb/image"
 import hm "desktop_vulkan_wrapper/handlemap"
@@ -406,7 +408,7 @@ delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, main_framebuffer.color_images[0])
-    //vkw.delete_image(gd, main_framebuffer.depth_image)
+    vkw.delete_image(gd, main_framebuffer.depth_image)
     
 
     // Create main rendertarget
@@ -425,36 +427,36 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, 
             samples = {._1},
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.COLOR_ATTACHMENT},
-            alloc_flags = nil
+            alloc_flags = nil,
+            name = "Main color target"
         }
         color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
 
-        // depth_target := vkw.Image_Create {
-        //     flags = nil,
-        //     image_type = .D2,
-        //     format = .D32_SFLOAT,
-        //     extent = {
-        //         width = screen_size.x,
-        //         height = screen_size.y,
-        //         depth = 1
-        //     },
-        //     supports_mipmaps = false,
-        //     array_layers = 1,
-        //     samples = {._1},
-        //     tiling = .OPTIMAL,
-        //     usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
-        //     alloc_flags = nil
-        // }
-        // depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
+        depth_target := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .D32_SFLOAT,
+            extent = {
+                width = screen_size.x,
+                height = screen_size.y,
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.DEPTH_STENCIL_ATTACHMENT},
+            alloc_flags = nil,
+            name = "Main depth target"
+        }
+        depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
         color_images: [8]vkw.Image_Handle
         color_images[0] = color_target_handle
         main_framebuffer = {
             color_images = color_images,
-            //depth_image = depth_handle,
-            depth_image = main_framebuffer.depth_image,
-            //resolution = screen_size,
-            resolution = main_framebuffer.resolution,
+            depth_image = depth_handle,
+            resolution = screen_size,
             clear_color = {1.0, 0.0, 1.0, 1.0},
             color_load_op = .CLEAR,
             depth_load_op = .CLEAR
@@ -745,28 +747,31 @@ render :: proc(
     clear(&cpu_instances)
 
     // Postprocessing step to write final output
+    framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
 
     // Transition internal framebuffer to be sampled from
-    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
-        vkw.Image_Barrier {
-            src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-            src_access_mask = {.MEMORY_WRITE},
-            dst_stage_mask = {.ALL_COMMANDS},
-            dst_access_mask = {.MEMORY_READ},
-            old_layout = .COLOR_ATTACHMENT_OPTIMAL,
-            new_layout = .SHADER_READ_ONLY_OPTIMAL,
-            src_queue_family = gd.gfx_queue_family,
-            dst_queue_family = gd.gfx_queue_family,
-            image = color_target.image,
-            subresource_range = vk.ImageSubresourceRange {
-                aspectMask = {.COLOR},
-                baseMipLevel = 0,
-                levelCount = 1,
-                baseArrayLayer = 0,
-                layerCount = 1
+    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx,
+        {
+            {
+                src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                src_access_mask = {.MEMORY_WRITE},
+                dst_stage_mask = {.ALL_COMMANDS},
+                dst_access_mask = {.MEMORY_READ},
+                old_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                new_layout = .SHADER_READ_ONLY_OPTIMAL,
+                src_queue_family = gd.gfx_queue_family,
+                dst_queue_family = gd.gfx_queue_family,
+                image = color_target.image,
+                subresource_range = vk.ImageSubresourceRange {
+                    aspectMask = {.COLOR},
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
             }
         }
-    })
+    )
     
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, postfx_pipeline)
@@ -832,7 +837,7 @@ load_gltf_mesh :: proc(
         channels : i32 = 4
         width, height: i32
         raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, &channels, channels)
-        
+
         image_create_info := vkw.Image_Create {
             flags = nil,
             image_type = .D2,
@@ -847,7 +852,8 @@ load_gltf_mesh :: proc(
             samples = {._1},
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.TRANSFER_DST},
-            alloc_flags = nil
+            alloc_flags = nil,
+            name = glb_image.name
         }
         image_slice := slice.from_ptr(raw_image_ptr, int(width * height * channels))
         handle, ok := vkw.sync_create_image_with_data(gd, &image_create_info, image_slice)
