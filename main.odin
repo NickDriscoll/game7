@@ -79,8 +79,8 @@ main :: proc() {
     
     // Make window
     resolution: hlsl.uint2
-    resolution.x = 1920
-    resolution.y = 1080
+    resolution.x = 1280
+    resolution.y = 720
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -130,23 +130,23 @@ main :: proc() {
 
     move_spyro := false
     current_time := time.now()
-    previous_time: time.Time
+    previous_time := current_time
     do_main_loop := true
     for do_main_loop {
         // Time
         current_time = time.now()
-        elapsed_time := time.diff(previous_time, current_time)
+        nanosecond_dt := time.diff(previous_time, current_time)
+        elapsed_time := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
-        if vgd.frame_count % 1800 == 0 do log.debugf("elapsed_time: %v", elapsed_time)
-
-        imgui.NewFrame()
 
         // Process system events
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         {
             using viewport_camera
+            
             io := imgui.GetIO()
-            io.DeltaTime = f32(elapsed_time) / 1_000_000_000.0
+            io.DeltaTime = elapsed_time
+            imgui.NewFrame()
 
             event: sdl2.Event
             for sdl2.PollEvent(&event) {
@@ -332,6 +332,11 @@ main :: proc() {
                     if imgui.MenuItem("Save As") {
                         
                     }
+
+                    imgui.EndMenu()
+                }
+
+                if imgui.BeginMenu("Screen") {
 
                     imgui.EndMenu()
                 }
