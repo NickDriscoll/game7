@@ -35,6 +35,7 @@ UniformBufferData :: struct {
     uv_ptr: vk.DeviceAddress,
     color_ptr: vk.DeviceAddress,
     time: f32,
+    distortion_strength: f32
 }
 
 TestPushConstants :: struct {
@@ -51,7 +52,7 @@ PushConstants :: struct {
 PostFxPushConstants :: struct {
     color_target: u32,
     sampler_idx: u32,
-    time: f32
+    uniforms_address: vk.DeviceAddress
 }
 
 CPUMeshData :: struct {
@@ -653,7 +654,7 @@ render :: proc(
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0
         }
-        cpu_uniforms.time = f32(gd.frame_count) / 144;
+        cpu_uniforms.time = f32(gd.frame_count) / 144
 
         mesh_buffer, _ := vkw.get_buffer(gd, mesh_buffer)
         material_buffer, _ := vkw.get_buffer(gd, material_buffer)
@@ -779,7 +780,7 @@ render :: proc(
     vkw.cmd_push_constants_gfx(PostFxPushConstants, gd, gfx_cb_idx, &PostFxPushConstants{
         color_target = main_framebuffer.color_images[0].index,
         sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
-        time = f32(gd.frame_count) / 144
+        uniforms_address = uniform_buf.address
     })
 
     // Draw screen-filling triangle

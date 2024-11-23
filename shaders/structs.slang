@@ -25,14 +25,20 @@ struct MaterialData {
 
 struct UniformData {
     float4x4 clip_from_world;
+
     float4x4 clip_from_screen;
+
     MeshData *mesh_data;
     InstanceData *i_data;
+
     MaterialData *mat_data;
     float4 *position_data;
+    
     float2 *uv_data;
     float4 *color_data;
     
     // Periodic time value
     float time;
+
+    float distortion_strength;
 }

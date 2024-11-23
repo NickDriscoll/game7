@@ -340,6 +340,7 @@ main :: proc() {
                     if imgui.MenuItem("Save As") {
                         
                     }
+                    if imgui.MenuItem("Exit") do do_main_loop = false
 
                     imgui.EndMenu()
                 }
@@ -403,6 +404,7 @@ main :: proc() {
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                 imgui.Text("Camera yaw: %f", yaw)
                 imgui.Text("Camera pitch: %f", pitch)
+                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
             }
 
             sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
