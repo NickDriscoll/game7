@@ -77,10 +77,18 @@ main :: proc() {
     }
     vgd := vkw.init_vulkan(&init_params)
     
-    // Make window
-    resolution: hlsl.uint2
-    resolution.x = 1280
-    resolution.y = 720
+    // Make window 
+    desktop_display_mode: sdl2.DisplayMode
+    if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
+        log.error("Error getting desktop display mode.")
+    }
+    display_resolution := hlsl.uint2 {
+        u32(desktop_display_mode.w),
+        u32(desktop_display_mode.h),
+    }
+
+    default_resolution := hlsl.uint2 {1280, 720}
+    resolution := default_resolution
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
@@ -107,8 +115,8 @@ main :: proc() {
     }
     spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
 
-    main_scene_path : cstring = "data/models/town_square.glb"
-    //main_scene_path : cstring = "data/models/artisans.glb"
+    //main_scene_path : cstring = "data/models/town_square.glb"
+    main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
     
@@ -337,6 +345,40 @@ main :: proc() {
                 }
 
                 if imgui.BeginMenu("Screen") {
+                    @static fullscreen := false
+                    @static borderless := false
+                    
+                    if imgui.MenuItem("Exclusive Fullscreen", selected = fullscreen) {
+                        fullscreen = !fullscreen
+                        borderless = false
+
+                        if fullscreen do sdl2.SetWindowFullscreen(sdl_window, {.FULLSCREEN})
+                        else do sdl2.SetWindowFullscreen(sdl_window, nil)
+                    }
+
+                    if imgui.MenuItem("Borderless Fullscreen", selected = borderless) {
+                        borderless = !borderless
+                        fullscreen = false
+
+                        xpos, ypos: c.int
+                        if borderless {
+                            resolution = display_resolution
+                        }
+                        else {
+                            resolution = default_resolution
+                            xpos = c.int(display_resolution.x / 2 - default_resolution.x / 2)
+                            ypos = c.int(display_resolution.y / 2 - default_resolution.y / 2)
+                        }
+
+                        io := imgui.GetIO()
+                        io.DisplaySize.x = f32(resolution.x)
+                        io.DisplaySize.y = f32(resolution.y)
+
+                        vgd.resize_window = true
+                        sdl2.SetWindowBordered(sdl_window, !borderless)
+                        sdl2.SetWindowPosition(sdl_window, xpos, ypos)
+                        sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+                    }
 
                     imgui.EndMenu()
                 }
