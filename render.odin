@@ -792,12 +792,20 @@ render :: proc(
 
 
 
+GltfData :: struct {
+    primitives: [dynamic]DrawPrimitive
+}
+
+gltf_delete :: proc(using d: ^GltfData)  {
+    delete(primitives)
+}
+
 load_gltf_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     render_data: ^RenderingState,
     path: cstring,
     allocator := context.allocator
-) -> [dynamic]DrawPrimitive {
+) -> GltfData {
 
 
     get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
@@ -946,11 +954,16 @@ load_gltf_mesh :: proc(
         defer delete(loaded_glb_materials)
         glb_material := primitive.material
 
-        tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
-        color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0]))
-        log.debugf("Texture index is %v", color_tex_idx)
+        bindless_image_idx := vkw.Image_Handle {
+            index = NULL_OFFSET
+        }
+        if glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+            tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
+            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0]))
+            log.debugf("Texture index is %v", color_tex_idx)
+            bindless_image_idx = loaded_glb_images[color_tex_idx]
+        }
         
-        bindless_image_idx := loaded_glb_images[color_tex_idx]
         material := MaterialData {
             color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
@@ -964,5 +977,7 @@ load_gltf_mesh :: proc(
         }
     }
 
-    return draw_primitives
+    return GltfData {
+        primitives = draw_primitives
+    }
 }
