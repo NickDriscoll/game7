@@ -8,6 +8,7 @@ import "vendor:sdl2"
 import vk "vendor:vulkan"
 import imgui "odin-imgui"
 import vkw "desktop_vulkan_wrapper"
+import hm "desktop_vulkan_wrapper/handlemap"
 
 MAX_IMGUI_VERTICES :: 64 * 1024 * 1024
 MAX_IMGUI_INDICES :: 16 * 1024 * 1024
@@ -75,6 +76,8 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
 
     // Free CPU-side texture data
     imgui.FontAtlas_ClearTexData(io.Fonts)
+
+    imgui.FontAtlas_SetTexID(io.Fonts, hm.handle_to_rawptr(imgui_state.font_atlas))
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -245,8 +248,9 @@ render_imgui :: proc(
                 }
             })
 
+            tex_handle := hm.rawptr_to_handle(cmd.TextureId)
             vkw.cmd_push_constants_gfx(ImguiPushConstants, gd, gfx_cb_idx, &ImguiPushConstants {
-                font_idx = imgui_state.font_atlas.index,
+                font_idx = tex_handle.index,
                 sampler = .Point,
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
                 uniform_data = uniform_buf.address,
