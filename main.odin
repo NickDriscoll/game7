@@ -18,9 +18,11 @@ import stbi "vendor:stb/image"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
+import hm "desktop_vulkan_wrapper/handlemap"
 
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
+DEFAULT_RESOLUTION : hlsl.uint2 : {1280, 720}
 
 main :: proc() {
     // Parse command-line arguments
@@ -86,10 +88,15 @@ main :: proc() {
         u32(desktop_display_mode.w),
         u32(desktop_display_mode.h),
     }
+    
+    fullscreen := false
+    borderless := true
 
-    default_resolution := hlsl.uint2 {1280, 720}
-    resolution := default_resolution
-    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
+    resolution := DEFAULT_RESOLUTION
+    if fullscreen || borderless do resolution = display_resolution
+
+    //sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
+    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE,.BORDERLESS}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
@@ -107,8 +114,8 @@ main :: proc() {
     defer imgui_cleanup(&vgd, &imgui_state)
 
     // Load test glTF model
-    my_gltf_mesh: [dynamic]DrawPrimitive
-    defer delete(my_gltf_mesh)
+    my_gltf_mesh: GltfData
+    defer gltf_delete(&my_gltf_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
         my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path)
@@ -174,6 +181,12 @@ main :: proc() {
 
                                 vgd.resize_window = true
                             }
+                        }
+                    }
+                    case .TEXTINPUT: {
+                        for ch in event.text.text {
+                            if ch == 0x00 do break
+                            imgui.IO_AddInputCharacter(io, c.uint(ch))
                         }
                     }
                     case .KEYDOWN: {
@@ -264,6 +277,9 @@ main :: proc() {
                             log.error("Rumble not supported!")
                         }
                     }
+                    case: {
+                        log.debugf("Unknown event: %v", event)
+                    }
                 }
             }
         }
@@ -325,6 +341,7 @@ main :: proc() {
 
         if imgui_state.show_gui {
             @static show_demo := false
+            @static show_debug := true
 
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -346,17 +363,6 @@ main :: proc() {
                 }
 
                 if imgui.BeginMenu("Screen") {
-                    @static fullscreen := false
-                    @static borderless := false
-                    
-                    if imgui.MenuItem("Exclusive Fullscreen", selected = fullscreen) {
-                        fullscreen = !fullscreen
-                        borderless = false
-
-                        if fullscreen do sdl2.SetWindowFullscreen(sdl_window, {.FULLSCREEN})
-                        else do sdl2.SetWindowFullscreen(sdl_window, nil)
-                    }
-
                     if imgui.MenuItem("Borderless Fullscreen", selected = borderless) {
                         borderless = !borderless
                         fullscreen = false
@@ -366,9 +372,9 @@ main :: proc() {
                             resolution = display_resolution
                         }
                         else {
-                            resolution = default_resolution
-                            xpos = c.int(display_resolution.x / 2 - default_resolution.x / 2)
-                            ypos = c.int(display_resolution.y / 2 - default_resolution.y / 2)
+                            resolution = DEFAULT_RESOLUTION
+                            xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                            ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                         }
 
                         io := imgui.GetIO()
@@ -379,6 +385,26 @@ main :: proc() {
                         sdl2.SetWindowBordered(sdl_window, !borderless)
                         sdl2.SetWindowPosition(sdl_window, xpos, ypos)
                         sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+                        sdl2.SetWindowResizable(sdl_window, true)
+                    }
+                    
+                    if imgui.MenuItem("Exclusive Fullscreen", selected = fullscreen) {
+                        fullscreen = !fullscreen
+                        borderless = false
+
+                        flags : sdl2.WindowFlags = nil
+                        resolution = DEFAULT_RESOLUTION
+                        if fullscreen do flags += {.FULLSCREEN}
+                        if fullscreen do resolution = display_resolution
+
+                        io := imgui.GetIO()
+                        io.DisplaySize.x = f32(resolution.x)
+                        io.DisplaySize.y = f32(resolution.y)
+
+                        sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+                        sdl2.SetWindowFullscreen(sdl_window, flags)
+                        sdl2.SetWindowResizable(sdl_window, true)
+                        vgd.resize_window = true
                     }
 
                     imgui.EndMenu()
@@ -388,6 +414,9 @@ main :: proc() {
                     if imgui.MenuItem("Show Dear ImGUI demo window", selected = show_demo) {
                         show_demo = !show_demo
                     }
+                    if imgui.MenuItem("Show debug window", selected = show_debug) {
+                        show_debug = !show_debug
+                    }
 
                     imgui.EndMenu()
                 }
@@ -395,16 +424,46 @@ main :: proc() {
                 imgui.EndMainMenuBar()
             }
 
+            // Try making a dockspace
+            if false {
+                dock_window_flags := imgui.WindowFlags {
+                    .NoTitleBar
+                }
+                if imgui.Begin("Main dock window", flags = dock_window_flags) {
+                    id := imgui.GetID("Main dockspace")
+                    flags := imgui.DockNodeFlags {
+                        .NoDockingOverCentralNode,
+
+                    }
+                    //imgui.DockSpace(id, imgui.Vec2{f32(resolution.x), f32(resolution.y)})
+                    imgui.DockSpace(id, )
+                    
+
+                }
+                imgui.End()
+            }
 
             if show_demo do imgui.ShowDemoWindow()
 
-            {
+            if show_debug {
                 using viewport_camera
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                 imgui.Text("Camera yaw: %f", yaw)
                 imgui.Text("Camera pitch: %f", pitch)
                 imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+
+                render_image_handle := render_data.main_framebuffer.color_images[0]
+                render_image, _ := vkw.get_image(&vgd, render_image_handle)
+                imgui.Image(
+                    hm.handle_to_rawptr(render_image_handle),
+                    {
+                        // f32(render_image.extent.width),
+                        // f32(render_image.extent.height)
+                        320,
+                        180
+                    }
+                )
             }
 
             sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
@@ -412,7 +471,7 @@ main :: proc() {
             sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
         }
 
-        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh[0].mesh, main_scene_mesh[0].material, {
+        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh.primitives[0].mesh, main_scene_mesh.primitives[0].material, {
             {
                 world_from_model = {
                     1.0, 0.0, 0.0, 0.0,
@@ -426,25 +485,27 @@ main :: proc() {
         // Queue up draw call of my_gltf
         t := f32(vgd.frame_count) / 144.0
         translation := 2.0 * math.sin(t)
-        mesh_im_drawing := my_gltf_mesh[0]
-        draw_ps1_primitives(&vgd, &render_data, mesh_im_drawing.mesh, mesh_im_drawing.material, {
-            {
-                world_from_model = {
-                    1.0, 0.0, 0.0, 10.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 0.3, translation,
-                    0.0, 0.0, 0.0, 1.0
+        //mesh_im_drawing := my_gltf_mesh.primitives[0]
+        for prim in my_gltf_mesh.primitives {
+            draw_ps1_primitives(&vgd, &render_data, prim.mesh, prim.material, {
+                {
+                    world_from_model = {
+                        1.0, 0.0, 0.0, 10.0,
+                        0.0, 1.0, 0.0, 0.0,
+                        0.0, 0.0, 0.3, translation,
+                        0.0, 0.0, 0.0, 1.0
+                    }
+                },
+                {
+                    world_from_model = {
+                        1.0, 0.0, 0.0, spyro_pos.x,
+                        0.0, 1.0, 0.0, spyro_pos.y,
+                        0.0, 0.0, 1.0, spyro_pos.z,
+                        0.0, 0.0, 0.0, 1.0
+                    }
                 }
-            },
-            {
-                world_from_model = {
-                    1.0, 0.0, 0.0, spyro_pos.x,
-                    0.0, 1.0, 0.0, spyro_pos.y,
-                    0.0, 0.0, 1.0, spyro_pos.z,
-                    0.0, 0.0, 0.0, 1.0
-                }
-            }
-        })
+            })
+        }
 
         imgui.EndFrame()
 
@@ -544,14 +605,17 @@ main :: proc() {
     
             vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_data.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
-        }
 
-        // Clear sync info for next frame
-        vkw.clear_sync_info(&render_data.gfx_sync_info)
-        vgd.frame_count += 1
+            // Clear sync info for next frame
+            vkw.clear_sync_info(&render_data.gfx_sync_info)
+            vgd.frame_count += 1
+        }
 
         // CLear temp allocator for next frame
         free_all(context.temp_allocator)
+
+        // CPU limiter
+        //time.sleep(time.Duration(1_000_000 * 100))
     }
 
     log.info("Returning from main()")
