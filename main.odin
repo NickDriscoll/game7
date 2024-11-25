@@ -22,7 +22,7 @@ import hm "desktop_vulkan_wrapper/handlemap"
 
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
-DEFAULT_RESOLUTION : hlsl.uint2 : {1280, 720}
+DEFAULT_RESOLUTION : hlsl.uint2 : {1920, 1080}
 
 main :: proc() {
     // Parse command-line arguments
@@ -90,13 +90,12 @@ main :: proc() {
     }
     
     fullscreen := false
-    borderless := true
+    borderless := false
 
     resolution := DEFAULT_RESOLUTION
     if fullscreen || borderless do resolution = display_resolution
 
-    //sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
-    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE,.BORDERLESS}
+    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
 
@@ -112,6 +111,8 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
+
+    save_ini_buffer: [2048]u8
 
     // Load test glTF model
     my_gltf_mesh: GltfData
@@ -190,6 +191,11 @@ main :: proc() {
                         }
                     }
                     case .KEYDOWN: {
+                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
+
+                        // Do nothing if Dear ImGUI wants keyboard input
+                        if io.WantCaptureKeyboard do continue
+
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: imgui_state.show_gui = !imgui_state.show_gui
                             case .SPACE: move_spyro = true
@@ -205,9 +211,13 @@ main :: proc() {
                             case .LSHIFT: control_flags += {.Speed}
                             case .LCTRL: control_flags += {.Slow}
                         }
-                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
                     }
                     case .KEYUP: {
+                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
+                        
+                        // Do nothing if Dear ImGUI wants keyboard input
+                        if io.WantCaptureKeyboard do continue
+
                         #partial switch event.key.keysym.sym {
                             case .SPACE: move_spyro = false
                             case .W: control_flags -= {.MoveForward}
@@ -222,13 +232,15 @@ main :: proc() {
                             case .LSHIFT: control_flags -= {.Speed}
                             case .LCTRL: control_flags -= {.Slow}
                         }
-                        imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
                     }
                     case .MOUSEBUTTONDOWN: {
                         switch event.button.button {
                             case sdl2.BUTTON_LEFT: {
                             }
                             case sdl2.BUTTON_RIGHT: {
+                                // Do nothing if Dear ImGUI wants mouse input
+                                if io.WantCaptureMouse do continue
+
                                 // The ~ is "symmetric difference" for bit_sets
                                 // Basically like XOR
                                 control_flags ~= {.MouseLook}
@@ -325,8 +337,6 @@ main :: proc() {
             viewport_camera.position += 
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
-
-
         }
 
         // Teleport spyro in front of camera
@@ -341,7 +351,8 @@ main :: proc() {
 
         if imgui_state.show_gui {
             @static show_demo := false
-            @static show_debug := true
+            @static show_debug := false
+            @static show_dockspace := true
 
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -417,6 +428,9 @@ main :: proc() {
                     if imgui.MenuItem("Show debug window", selected = show_debug) {
                         show_debug = !show_debug
                     }
+                    if imgui.MenuItem("Show WIP dockspace", selected = show_dockspace) {
+                        show_dockspace = !show_dockspace
+                    }
 
                     imgui.EndMenu()
                 }
@@ -425,20 +439,23 @@ main :: proc() {
             }
 
             // Try making a dockspace
-            if false {
+            if show_dockspace {
                 dock_window_flags := imgui.WindowFlags {
-                    .NoTitleBar
+                    .NoTitleBar,
+                    .NoMove,
+                    .NoResize,
+                    .NoBackground,
+                    .NoMouseInputs
                 }
                 if imgui.Begin("Main dock window", flags = dock_window_flags) {
                     id := imgui.GetID("Main dockspace")
                     flags := imgui.DockNodeFlags {
                         .NoDockingOverCentralNode,
-
+                        .PassthruCentralNode,
                     }
-                    //imgui.DockSpace(id, imgui.Vec2{f32(resolution.x), f32(resolution.y)})
-                    imgui.DockSpace(id, )
-                    
+                    imgui.DockSpaceOverViewport(id, imgui.GetMainViewport(), flags = flags)
 
+                    
                 }
                 imgui.End()
             }
@@ -447,23 +464,24 @@ main :: proc() {
 
             if show_debug {
                 using viewport_camera
-                imgui.Text("Frame #%i", vgd.frame_count)
-                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                imgui.Text("Camera yaw: %f", yaw)
-                imgui.Text("Camera pitch: %f", pitch)
-                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
 
-                render_image_handle := render_data.main_framebuffer.color_images[0]
-                render_image, _ := vkw.get_image(&vgd, render_image_handle)
-                imgui.Image(
-                    hm.handle_to_rawptr(render_image_handle),
-                    {
-                        // f32(render_image.extent.width),
-                        // f32(render_image.extent.height)
-                        320,
-                        180
+                if imgui.Begin("Hacking window") {
+                    imgui.Text("Frame #%i", vgd.frame_count)
+                    imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                    imgui.Text("Camera yaw: %f", yaw)
+                    imgui.Text("Camera pitch: %f", pitch)
+                    imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                    
+                    imgui.Separator()
+
+                    imgui.Text("Save current configuration of Dear ImGUI windows")
+                    imgui.InputText(".ini filename", cstring(&save_ini_buffer[0]), len(save_ini_buffer))
+                    if imgui.Button("Save current GUI configuration") {
+                        imgui.SaveIniSettingsToDisk(cstring(&save_ini_buffer[0]))
+                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", save_ini_buffer)
                     }
-                )
+                }
+                imgui.End()
             }
 
             sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
@@ -569,7 +587,7 @@ main :: proc() {
             framebuffer.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
-            framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
+            //framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
             framebuffer.color_load_op = .CLEAR
 
             // Main render call

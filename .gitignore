@@ -1,6 +1,7 @@
 *.exe
 *.pdb
 *.rdbg
+*.ini
 .vscode/
 ols.json
 data/shaders/*

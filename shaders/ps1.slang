@@ -11,6 +11,7 @@ struct VertexOutput {
 [[vk::push_constant]]
 cbuffer push_constants {
     UniformData *u_data;
+    uint sampler_idx;
 }
 
 static const uint NULL_OFFSET = 0xFFFFFFFF;
@@ -59,7 +60,7 @@ float4 fragment_main(VertexOutput input) {
 
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
     if (material.color_texture != NULL_OFFSET) {
-        color_sample = textures[material.color_texture].Sample(samplers[material.sampler_idx], input.uv);
+        color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
         //color_sample = textures[0].Sample(samplers[0], input.uv);
     }
 

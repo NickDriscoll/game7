@@ -45,8 +45,9 @@ TestPushConstants :: struct {
     uniform_buffer_address: vk.DeviceAddress
 }
 
-PushConstants :: struct {
+Ps1PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
+    sampler_idx: u32
 }
 
 PostFxPushConstants :: struct {
@@ -707,7 +708,6 @@ render :: proc(
     })
 
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
-    //vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
     res := main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
@@ -733,8 +733,9 @@ render :: proc(
 
     t := f32(gd.frame_count) / 144.0
     uniform_buf, ok := vkw.get_buffer(gd, uniform_buffer)
-    vkw.cmd_push_constants_gfx(PushConstants, gd, gfx_cb_idx, &PushConstants {
-        uniform_buffer_ptr = uniform_buf.address
+    vkw.cmd_push_constants_gfx(Ps1PushConstants, gd, gfx_cb_idx, &Ps1PushConstants {
+        uniform_buffer_ptr = uniform_buf.address,
+        sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
     })
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
