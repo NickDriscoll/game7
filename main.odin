@@ -290,7 +290,7 @@ main :: proc() {
                         }
                     }
                     case: {
-                        log.debugf("Unknown event: %v", event)
+                        log.debugf("Unhandled event: %v", event.type)
                     }
                 }
             }
@@ -352,7 +352,6 @@ main :: proc() {
         if imgui_state.show_gui {
             @static show_demo := false
             @static show_debug := false
-            @static show_dockspace := true
 
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -428,9 +427,6 @@ main :: proc() {
                     if imgui.MenuItem("Show debug window", selected = show_debug) {
                         show_debug = !show_debug
                     }
-                    if imgui.MenuItem("Show WIP dockspace", selected = show_dockspace) {
-                        show_dockspace = !show_dockspace
-                    }
 
                     imgui.EndMenu()
                 }
@@ -438,8 +434,8 @@ main :: proc() {
                 imgui.EndMainMenuBar()
             }
 
-            // Try making a dockspace
-            if show_dockspace {
+            // Make viewport-sized dockspace
+            {
                 dock_window_flags := imgui.WindowFlags {
                     .NoTitleBar,
                     .NoMove,
@@ -447,13 +443,16 @@ main :: proc() {
                     .NoBackground,
                     .NoMouseInputs
                 }
+                window_viewport := imgui.GetWindowViewport()
+                imgui.SetNextWindowPos(window_viewport.WorkPos)
+                imgui.SetNextWindowSize(window_viewport.WorkSize)
                 if imgui.Begin("Main dock window", flags = dock_window_flags) {
                     id := imgui.GetID("Main dockspace")
                     flags := imgui.DockNodeFlags {
                         .NoDockingOverCentralNode,
                         .PassthruCentralNode,
                     }
-                    imgui.DockSpaceOverViewport(id, imgui.GetMainViewport(), flags = flags)
+                    imgui.DockSpaceOverViewport(id, window_viewport, flags = flags)
 
                     
                 }
@@ -474,15 +473,27 @@ main :: proc() {
                     
                     imgui.Separator()
 
+                    ini_cstring := cstring(&save_ini_buffer[0])
                     imgui.Text("Save current configuration of Dear ImGUI windows")
-                    imgui.InputText(".ini filename", cstring(&save_ini_buffer[0]), len(save_ini_buffer))
+                    imgui.InputText(".ini filename", ini_cstring, len(save_ini_buffer))
                     if imgui.Button("Save current GUI configuration") {
-                        imgui.SaveIniSettingsToDisk(cstring(&save_ini_buffer[0]))
-                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", save_ini_buffer)
+                        imgui.SaveIniSettingsToDisk(ini_cstring)
+                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                        save_ini_buffer = {}
                     }
                 }
                 imgui.End()
             }
+
+            // if imgui.Begin("3D viewport") {
+            //     handle := render_data.main_framebuffer.color_images[0]
+            //     color_image, ok := vkw.get_image(&vgd, handle)
+            //     if !ok {
+            //         log.error("Couldn't get framebuffer color image.")
+            //     }
+            //     imgui.Image(hm.handle_to_rawptr(handle), {f32(color_image.extent.width), f32(color_image.extent.height)})
+            // }
+            // imgui.End()
 
             sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
         } else {
