@@ -148,6 +148,8 @@ main :: proc() {
     current_time := time.now()
     previous_time := current_time
     do_main_loop := true
+    window_minimized := false
+    limit_cpu := false
     for do_main_loop {
         // Time
         current_time = time.now()
@@ -182,6 +184,8 @@ main :: proc() {
 
                                 vgd.resize_window = true
                             }
+                            case .MINIMIZED: window_minimized = true
+                            case .FOCUS_GAINED: window_minimized = false
                         }
                     }
                     case .TEXTINPUT: {
@@ -350,8 +354,8 @@ main :: proc() {
 
 
         if imgui_state.show_gui {
-            @static show_demo := false
-            @static show_debug := false
+            @static show_demo := true
+            @static show_debug := true
 
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -471,6 +475,13 @@ main :: proc() {
                     imgui.Text("Camera pitch: %f", pitch)
                     imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
                     
+                    imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                    imgui.SameLine()
+                    HelpMarker(
+                        "Enabling this setting forces the main thread " +
+                        "to sleep for 100 milliseconds at the end of the main loop"
+                    )
+                    
                     imgui.Separator()
 
                     ini_cstring := cstring(&save_ini_buffer[0])
@@ -484,6 +495,8 @@ main :: proc() {
                 }
                 imgui.End()
             }
+
+            
 
             // if imgui.Begin("3D viewport") {
             //     handle := render_data.main_framebuffer.color_images[0]
@@ -541,10 +554,7 @@ main :: proc() {
         // Render
         {
             // Increment timeline semaphore upon command buffer completion
-            append(&render_data.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-                semaphore = render_data.gfx_timeline,
-                value = vgd.frame_count + 1
-            })
+            vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
 
             // Resize swapchain if necessary
             if vgd.resize_window {
@@ -644,7 +654,9 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // CPU limiter
-        //time.sleep(time.Duration(1_000_000 * 100))
+        if limit_cpu {
+            time.sleep(time.Duration(1_000_000 * 100)) // 100 mil nanoseconds == 100 milliseconds
+        }
     }
 
     log.info("Returning from main()")
