@@ -68,7 +68,7 @@ float4 fragment_main(VertexOutput input) {
     //     color_sample.b = 0.0;
     // }
 
-    return vtx_color * color_sample;
+    return vtx_color * color_sample * material.base_color;
     //return float4(input.uv, 0.0, 1.0);
     //return vtx_color;
     //return float4(1.0, 0.0, 1.0, 1.0);
