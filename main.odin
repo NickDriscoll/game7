@@ -111,6 +111,8 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
+    show_demo := false
+    show_debug := false
 
     save_ini_buffer: [2048]u8
 
@@ -354,9 +356,6 @@ main :: proc() {
 
 
         if imgui_state.show_gui {
-            @static show_demo := true
-            @static show_debug := true
-
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
                     if imgui.MenuItem("New") {
@@ -373,6 +372,12 @@ main :: proc() {
                     }
                     if imgui.MenuItem("Exit") do do_main_loop = false
 
+                    imgui.EndMenu()
+                }
+
+                if imgui.BeginMenu("Edit") {
+
+                    
                     imgui.EndMenu()
                 }
 
@@ -457,18 +462,16 @@ main :: proc() {
                         .PassthruCentralNode,
                     }
                     imgui.DockSpaceOverViewport(id, window_viewport, flags = flags)
-
-                    
                 }
                 imgui.End()
             }
 
-            if show_demo do imgui.ShowDemoWindow()
+            if show_demo do imgui.ShowDemoWindow(&show_demo)
 
-            if show_debug {
+            {
                 using viewport_camera
 
-                if imgui.Begin("Hacking window") {
+                if show_debug && imgui.Begin("Hacking window", &show_debug) {
                     imgui.Text("Frame #%i", vgd.frame_count)
                     imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                     imgui.Text("Camera yaw: %f", yaw)
@@ -492,8 +495,8 @@ main :: proc() {
                         log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
                         save_ini_buffer = {}
                     }
+                    imgui.End()
                 }
-                imgui.End()
             }
 
             
