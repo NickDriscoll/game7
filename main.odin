@@ -24,6 +24,15 @@ TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION : hlsl.uint2 : {1920, 1080}
 
+LooseProp :: struct {
+    transform: hlsl.float4x4,
+    render_data: MeshData
+}
+
+GameState :: struct {
+    props: [dynamic]LooseProp
+}
+
 main :: proc() {
     // Parse command-line arguments
     log_level := log.Level.Info
@@ -117,7 +126,7 @@ main :: proc() {
     save_ini_buffer: [2048]u8
 
     // Load test glTF model
-    my_gltf_mesh: GltfData
+    my_gltf_mesh: MeshData
     defer gltf_delete(&my_gltf_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
@@ -149,9 +158,12 @@ main :: proc() {
     move_spyro := false
     current_time := time.now()
     previous_time := current_time
-    do_main_loop := true
     window_minimized := false
     limit_cpu := false
+
+    game_state: GameState
+
+    do_main_loop := true
     for do_main_loop {
         // Time
         current_time = time.now()
@@ -471,7 +483,7 @@ main :: proc() {
             {
                 using viewport_camera
 
-                if show_debug && imgui.Begin("Hacking window", &show_debug) {
+                if imgui.Begin("Hacking window", &show_debug) && show_debug {
                     imgui.Text("Frame #%i", vgd.frame_count)
                     imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                     imgui.Text("Camera yaw: %f", yaw)
@@ -495,8 +507,8 @@ main :: proc() {
                         log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
                         save_ini_buffer = {}
                     }
-                    imgui.End()
                 }
+                imgui.End()
             }
 
             

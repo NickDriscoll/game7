@@ -793,11 +793,11 @@ render :: proc(
 
 
 
-GltfData :: struct {
+MeshData :: struct {
     primitives: [dynamic]DrawPrimitive
 }
 
-gltf_delete :: proc(using d: ^GltfData)  {
+gltf_delete :: proc(using d: ^MeshData)  {
     delete(primitives)
 }
 
@@ -806,7 +806,7 @@ load_gltf_mesh :: proc(
     render_data: ^RenderingState,
     path: cstring,
     allocator := context.allocator
-) -> GltfData {
+) -> MeshData {
 
 
     get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
@@ -978,7 +978,7 @@ load_gltf_mesh :: proc(
         }
     }
 
-    return GltfData {
+    return MeshData {
         primitives = draw_primitives
     }
 }
