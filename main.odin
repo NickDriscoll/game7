@@ -141,15 +141,6 @@ main :: proc() {
     // Main app structure storing the game's overall state
     game_state: GameState
 
-    // Load test glTF model
-    my_gltf_mesh: MeshData
-    defer gltf_delete(&my_gltf_mesh)
-    {
-        path : cstring = "data/models/spyro2.glb"
-        my_gltf_mesh = load_gltf_mesh(&vgd, &render_data, path)
-    }
-    spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
-
     //main_scene_path : cstring = "data/models/town_square.glb"
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
@@ -157,6 +148,15 @@ main :: proc() {
     append(&game_state.terrain_pieces, TerrainPiece {
         mesh_data = main_scene_mesh
     })
+
+    // Load test glTF model
+    spyro_mesh: MeshData
+    defer gltf_delete(&spyro_mesh)
+    {
+        path : cstring = "data/models/spyro2.glb"
+        spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
+    }
+    spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
     
     log.info("App initialization complete")
 
@@ -174,14 +174,16 @@ main :: proc() {
 
     // Add loose props to container
     {
-        SPACING :: 7.0
-        ROWS :: 10
+        SPACING :: 10.0
+        ROWS :: 100
         for y in 0..<ROWS {
             for x in 0..<ROWS {
+                //scale := f32(x + y) * 0.1 + 0.01
                 my_prop := LooseProp {
+                    //position = {f32(x) * (SPACING + scale), f32(y) * (SPACING + scale), 0.0},
                     position = {f32(x) * SPACING, f32(y) * SPACING, 0.0},
-                    scale = f32(x + y) * 0.1 + 0.01,
-                    mesh_data = my_gltf_mesh
+                    scale = 1.0,
+                    mesh_data = spyro_mesh
                 }
                 append(&game_state.props, my_prop)
             }

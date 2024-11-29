@@ -14,7 +14,7 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
-MAX_GLOBAL_DRAW_CMDS :: 64 * 1024
+MAX_GLOBAL_DRAW_CMDS :: 4 * 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
 MAX_GLOBAL_INDICES :: 1024*1024
 MAX_GLOBAL_MESHES :: 64 * 1024
@@ -76,8 +76,14 @@ MaterialData :: struct {
     base_color: hlsl.float4
 }
 
+DrawData :: struct {
+    world_from_model: hlsl.float4x4,
+}
+
 InstanceData :: struct {
     world_from_model: hlsl.float4x4,
+    mesh_handle: Mesh_Handle,
+    material_handle: Material_Handle
 }
 
 GPUInstanceData :: struct {
@@ -95,13 +101,6 @@ GPUBufferDirtyFlags :: bit_set[enum{
     Instance,
     Draw
 }]
-
-DrawData :: struct {
-    instance_count: u32,
-    instance_offset: u32,
-    index_count: u32,
-    index_offset: u32
-}
 
 DrawPrimitive :: struct {
     mesh: Mesh_Handle,
@@ -139,9 +138,9 @@ RenderingState :: struct {
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(MaterialData),
     
-    cpu_instances: [dynamic]GPUInstanceData,
+    cpu_instances: [dynamic]InstanceData,
+    gpu_instances: [dynamic]GPUInstanceData,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
-    instance_head: u32,                             // Index of next instance. Reset per-frame
 
     cpu_uniforms: UniformBufferData,
     uniform_buffer: vkw.Buffer_Handle,              // Global uniform buffer
@@ -150,7 +149,6 @@ RenderingState :: struct {
 
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
-    ps1_draws: [dynamic]DrawData,
 
     postfx_pipeline: vkw.Pipeline_Handle,
 
@@ -482,7 +480,7 @@ create_mesh :: proc(
         position_start = positions_head
         positions_head += positions_len
     
-        vkw.sync_write_buffer(hlsl.float4, gd, positions_buffer, positions, position_start)
+        vkw.sync_write_buffer(gd, positions_buffer, positions, position_start)
     }
 
     indices_start: u32
@@ -495,7 +493,7 @@ create_mesh :: proc(
         indices_start = indices_head
         indices_head += indices_len
 
-        vkw.sync_write_buffer(u16, gd, index_buffer, indices, indices_start)
+        vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
     }
 
     mesh := CPUMeshData {
@@ -532,7 +530,7 @@ add_vertex_colors :: proc(
     gpu_mesh := &gpu_meshes[handle.index]
     gpu_mesh.color_offset = color_start
 
-    return vkw.sync_write_buffer(hlsl.float4, gd, colors_buffer, colors, color_start)
+    return vkw.sync_write_buffer(gd, colors_buffer, colors, color_start)
 }
 
 add_vertex_uvs :: proc(
@@ -551,7 +549,7 @@ add_vertex_uvs :: proc(
     gpu_mesh := &gpu_meshes[handle.index]
     gpu_mesh.uv_offset = uv_start
 
-    return vkw.sync_write_buffer(hlsl.float2, gd, uvs_buffer, uvs, uv_start)
+    return vkw.sync_write_buffer(gd, uvs_buffer, uvs, uv_start)
 }
 
 add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Material_Handle {
@@ -560,43 +558,27 @@ add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Materi
 }
 
 // User code calls this to queue up draw calls
-draw_ps1_primitives :: proc(
+draw_ps1_primitive :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^RenderingState,
     mesh_handle: Mesh_Handle,
     material_handle: Material_Handle,
-    instances: []InstanceData
-) {
+    draw_data: DrawData
+) -> bool {
     dirty_flags += {.Instance,.Draw}
 
-    cpu_mesh, ok := hm.get(&cpu_meshes, hm.Handle(mesh_handle))
-    if !ok {
-        log.error("Failed to fetch CPU mesh data")
+    // Append instance representing this primitive
+    new_inst := InstanceData {
+        world_from_model = draw_data.world_from_model,
+        mesh_handle = mesh_handle,
+        material_handle = material_handle
     }
+    append(&cpu_instances, new_inst)
 
-    for instance in instances {
-        gi := GPUInstanceData {
-            world_from_model = instance.world_from_model,
-            mesh_idx = mesh_handle.index,
-            material_idx = material_handle.index
-        }
-        append(&cpu_instances, gi)
-    }
-
-    instance_count := u32(len(instances))
-
-    dd := DrawData {
-        instance_count = instance_count,
-        instance_offset = instance_head,
-        index_count = cpu_mesh.indices_len,
-        index_offset = cpu_mesh.indices_start
-    }
-    append(&ps1_draws, dd)
-
-    instance_head += instance_count
+    return true
 }
 
-// This is called once per frame to sync buffer with the GPU
+// This is called once per frame to sync buffers with the GPU
 // and record the relevant commands into the frame's command buffer
 render :: proc(
     gd: ^vkw.Graphics_Device,
@@ -609,36 +591,92 @@ render :: proc(
 
     // Mesh buffer
     if .Mesh in dirty_flags {
-        vkw.sync_write_buffer(GPUMeshData, gd, mesh_buffer, gpu_meshes[:])
+        vkw.sync_write_buffer(gd, mesh_buffer, gpu_meshes[:])
     }
 
     // Material buffer
     if .Material in dirty_flags {
-        vkw.sync_write_buffer(MaterialData, gd, material_buffer, cpu_materials.values[:])
+        vkw.sync_write_buffer(gd, material_buffer, cpu_materials.values[:])
     }
 
-    // Instance buffer
-    if .Instance in dirty_flags {
-        vkw.sync_write_buffer(GPUInstanceData, gd, instance_buffer, cpu_instances[:])
-    }
-
-    // Draw buffer
-    if .Draw in dirty_flags {
-        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, len(ps1_draws), context.temp_allocator)
+    // Draw and Instance buffers
+    ps1_draw_count : u32 = 0
+    if .Draw in dirty_flags || .Instance in dirty_flags {
+        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_instances), context.temp_allocator)
         defer delete(gpu_draws)
 
-        for draw_data, i in ps1_draws {
-            gpu_draw := vk.DrawIndexedIndirectCommand {
-                indexCount = draw_data.index_count,
-                instanceCount = draw_data.instance_count,
-                firstIndex = draw_data.index_offset,
-                vertexOffset = 0,
-                firstInstance = draw_data.instance_offset
+        
+        // Sort instances by mesh handle
+        slice.sort_by(cpu_instances[:], proc(i, j: InstanceData) -> bool {
+            return i.mesh_handle.index < j.mesh_handle.index
+        })
+
+        // With the understanding that these instances are already sorted by
+        // mesh_idx, construct the draw stream with appropriate instancing
+        current_inst_count := 0
+        inst_offset := 0
+        current_mesh_handle: Mesh_Handle
+        for inst in cpu_instances {
+            g_inst := GPUInstanceData {
+                world_from_model = inst.world_from_model,
+                mesh_idx = inst.mesh_handle.index,
+                material_idx = inst.material_handle.index
             }
-            gpu_draws[i] = gpu_draw
+            append(&gpu_instances, g_inst)
+
+            if current_inst_count == 0 {
+                // First iteration case
+
+                current_mesh_handle = inst.mesh_handle
+                current_inst_count += 1
+            } else {
+                if current_mesh_handle != inst.mesh_handle {
+                    // First instance of next mesh handle case
+
+                    mesh_data, ok := hm.get(&cpu_meshes, hm.Handle(current_mesh_handle))
+                    if !ok {
+                        log.error("Couldn't get CPU mesh during draw command building")
+                    }
+
+                    draw_call := vk.DrawIndexedIndirectCommand {
+                        indexCount = mesh_data.indices_len,
+                        instanceCount = u32(current_inst_count),
+                        firstIndex = mesh_data.indices_start,
+                        vertexOffset = 0,
+                        firstInstance = u32(inst_offset)
+                    }
+                    append(&gpu_draws, draw_call)
+                    inst_offset += current_inst_count
+                    ps1_draw_count += 1
+
+                    current_inst_count = 1
+                    current_mesh_handle = inst.mesh_handle
+                } else {
+                    // Another instance of current mesh case
+                    current_inst_count += 1
+                }
+            }
         }
 
-        vkw.sync_write_buffer(vk.DrawIndexedIndirectCommand, gd, draw_buffer, gpu_draws[:])
+        // Final draw call
+        mesh_data, ok := hm.get(&cpu_meshes, hm.Handle(current_mesh_handle))
+        if !ok {
+            log.error("Couldn't get CPU mesh during draw command building")
+        }
+
+        draw_call := vk.DrawIndexedIndirectCommand {
+            indexCount = mesh_data.indices_len,
+            instanceCount = u32(current_inst_count),
+            firstIndex = mesh_data.indices_start,
+            vertexOffset = 0,
+            firstInstance = u32(inst_offset)
+        }
+        append(&gpu_draws, draw_call)
+        inst_offset += current_inst_count
+        ps1_draw_count += 1
+
+        vkw.sync_write_buffer(gd, instance_buffer, gpu_instances[:])
+        vkw.sync_write_buffer(gd, draw_buffer, gpu_draws[:])
     }
 
     // Update uniforms buffer
@@ -672,7 +710,7 @@ render :: proc(
         cpu_uniforms.color_ptr = color_buffer.address
 
         in_slice := slice.from_ptr(&cpu_uniforms, 1)
-        if !vkw.sync_write_buffer(UniformBufferData, gd, uniform_buffer, in_slice) {
+        if !vkw.sync_write_buffer(gd, uniform_buffer, in_slice) {
             log.error("Failed to write uniform buffer data")
         }
     }
@@ -739,14 +777,13 @@ render :: proc(
     })
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, u32(len(ps1_draws)))
+    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, ps1_draw_count)
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
     
     // Reset per-frame state vars
-    instance_head = 0
-    clear(&ps1_draws)
     clear(&cpu_instances)
+    clear(&gpu_instances)
 
     // Postprocessing step to write final output
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
