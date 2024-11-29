@@ -180,7 +180,7 @@ render_imgui :: proc(
         0.0, 0.0, 0.0, 1.0
     }
     u_slice := slice.from_ptr(&uniforms, 1)
-    vkw.sync_write_buffer(ImguiUniforms, gd, imgui_state.uniform_buffer, u_slice)
+    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice)
 
     imgui.Render()
     
@@ -274,8 +274,8 @@ render_imgui :: proc(
     }
 
     // Upload vertex and index data to GPU buffers
-    vkw.sync_write_buffer(imgui.DrawVert, gd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
-    vkw.sync_write_buffer(imgui.DrawIdx, gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
+    vkw.sync_write_buffer(gd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
+    vkw.sync_write_buffer(gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
     
 }
 
