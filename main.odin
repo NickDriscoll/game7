@@ -25,12 +25,23 @@ TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION : hlsl.uint2 : {1920, 1080}
 
 LooseProp :: struct {
-    transform: hlsl.float4x4,
-    render_data: MeshData
+    position: hlsl.float3,
+    scale: f32,
+    mesh_data: MeshData
+}
+
+TerrainPiece :: struct {
+    mesh_data: MeshData
 }
 
 GameState :: struct {
-    props: [dynamic]LooseProp
+    props: [dynamic]LooseProp,
+    terrain_pieces: [dynamic]TerrainPiece
+}
+
+delete_game :: proc(using g: ^GameState) {
+    delete(props)
+    delete(terrain_pieces)
 }
 
 main :: proc() {
@@ -97,9 +108,10 @@ main :: proc() {
         u32(desktop_display_mode.w),
         u32(desktop_display_mode.h),
     }
-    
+
     fullscreen := false
     borderless := false
+    always_on_top : sdl2.bool = false
 
     resolution := DEFAULT_RESOLUTION
     if fullscreen || borderless do resolution = display_resolution
@@ -107,6 +119,7 @@ main :: proc() {
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
+    sdl2.SetWindowAlwaysOnTop(sdl_window, always_on_top)
 
     // Initialize the state required for rendering to the window
     if !vkw.init_sdl2_window(&vgd, sdl_window) {
@@ -123,7 +136,10 @@ main :: proc() {
     show_demo := false
     show_debug := false
 
-    save_ini_buffer: [2048]u8
+    ini_savename_buffer: [2048]u8
+
+    // Main app structure storing the game's overall state
+    game_state: GameState
 
     // Load test glTF model
     my_gltf_mesh: MeshData
@@ -138,6 +154,9 @@ main :: proc() {
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
+    append(&game_state.terrain_pieces, TerrainPiece {
+        mesh_data = main_scene_mesh
+    })
     
     log.info("App initialization complete")
 
@@ -153,6 +172,22 @@ main :: proc() {
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
 
+    // Add loose props to container
+    {
+        SPACING :: 7.0
+        for y in 0..<10 {
+            for x in 0..<10 {
+                my_prop := LooseProp {
+                    position = {f32(x) * SPACING, f32(y) * SPACING, 0.0},
+                    //scale = f32(x + y) + 0.01 * 2
+                    scale = 1.0,
+                    mesh_data = my_gltf_mesh
+                }
+                append(&game_state.props, my_prop)
+            }
+        }
+    }
+
     free_all(context.temp_allocator)
 
     move_spyro := false
@@ -160,8 +195,6 @@ main :: proc() {
     previous_time := current_time
     window_minimized := false
     limit_cpu := false
-
-    game_state: GameState
 
     do_main_loop := true
     for do_main_loop {
@@ -393,7 +426,12 @@ main :: proc() {
                     imgui.EndMenu()
                 }
 
-                if imgui.BeginMenu("Screen") {
+                if imgui.BeginMenu("Window") {
+                    if imgui.MenuItem("Always On Top", selected = bool(always_on_top)) {
+                        always_on_top = !always_on_top
+                        sdl2.SetWindowAlwaysOnTop(sdl_window, always_on_top)
+                    }
+
                     if imgui.MenuItem("Borderless Fullscreen", selected = borderless) {
                         borderless = !borderless
                         fullscreen = false
@@ -483,32 +521,34 @@ main :: proc() {
             {
                 using viewport_camera
 
-                if imgui.Begin("Hacking window", &show_debug) && show_debug {
-                    imgui.Text("Frame #%i", vgd.frame_count)
-                    imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                    imgui.Text("Camera yaw: %f", yaw)
-                    imgui.Text("Camera pitch: %f", pitch)
-                    imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
-                    
-                    imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
-                    imgui.SameLine()
-                    HelpMarker(
-                        "Enabling this setting forces the main thread " +
-                        "to sleep for 100 milliseconds at the end of the main loop"
-                    )
-                    
-                    imgui.Separator()
-
-                    ini_cstring := cstring(&save_ini_buffer[0])
-                    imgui.Text("Save current configuration of Dear ImGUI windows")
-                    imgui.InputText(".ini filename", ini_cstring, len(save_ini_buffer))
-                    if imgui.Button("Save current GUI configuration") {
-                        imgui.SaveIniSettingsToDisk(ini_cstring)
-                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                        save_ini_buffer = {}
+                if show_debug {
+                    if imgui.Begin("Hacking window", &show_debug) {
+                        imgui.Text("Frame #%i", vgd.frame_count)
+                        imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                        imgui.Text("Camera yaw: %f", yaw)
+                        imgui.Text("Camera pitch: %f", pitch)
+                        imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                        
+                        imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                        imgui.SameLine()
+                        HelpMarker(
+                            "Enabling this setting forces the main thread " +
+                            "to sleep for 100 milliseconds at the end of the main loop"
+                        )
+                        
+                        imgui.Separator()
+    
+                        ini_cstring := cstring(&ini_savename_buffer[0])
+                        imgui.Text("Save current configuration of Dear ImGUI windows")
+                        imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
+                        if imgui.Button("Save current GUI configuration") {
+                            imgui.SaveIniSettingsToDisk(ini_cstring)
+                            log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                            ini_savename_buffer = {}
+                        }
                     }
-                }
-                imgui.End()
+                    imgui.End()
+                } 
             }
 
             
@@ -528,40 +568,48 @@ main :: proc() {
             sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
         }
 
-        draw_ps1_primitives(&vgd, &render_data, main_scene_mesh.primitives[0].mesh, main_scene_mesh.primitives[0].material, {
-            {
+        // Draw terrain pieces
+        for piece in game_state.terrain_pieces {
+            tform := InstanceData {
                 world_from_model = {
                     1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, -50.0,
-                    0.0, 0.0, 0.0, 1.0
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0,
                 }
             }
-        })
+            for prim in piece.mesh_data.primitives {
+                draw_ps1_primitives(
+                    &vgd,
+                    &render_data,
+                    prim.mesh,
+                    prim.material,
+                    {tform}
+                )
+            }
+        }
 
-        // Queue up draw call of my_gltf
-        t := f32(vgd.frame_count) / 144.0
-        translation := 2.0 * math.sin(t)
-        //mesh_im_drawing := my_gltf_mesh.primitives[0]
-        for prim in my_gltf_mesh.primitives {
-            draw_ps1_primitives(&vgd, &render_data, prim.mesh, prim.material, {
-                {
-                    world_from_model = {
-                        1.0, 0.0, 0.0, 10.0,
-                        0.0, 1.0, 0.0, 0.0,
-                        0.0, 0.0, 0.3, translation,
-                        0.0, 0.0, 0.0, 1.0
-                    }
-                },
-                {
-                    world_from_model = {
-                        1.0, 0.0, 0.0, spyro_pos.x,
-                        0.0, 1.0, 0.0, spyro_pos.y,
-                        0.0, 0.0, 1.0, spyro_pos.z,
-                        0.0, 0.0, 0.0, 1.0
-                    }
+        // Draw loose props
+        for prop in game_state.props {
+            transform := InstanceData {
+                world_from_model = {
+                    prop.scale, 0.0, 0.0, prop.position.x,
+                    0.0, prop.scale, 0.0, prop.position.y,
+                    0.0, 0.0, prop.scale, prop.position.z,
+                    0.0, 0.0, 0.0, 1.0,
                 }
-            })
+            }
+
+            // Render prop's primitives
+            for prim in prop.mesh_data.primitives {
+                draw_ps1_primitives(
+                    &vgd,
+                    &render_data,
+                    prim.mesh,
+                    prim.material,
+                    {transform}
+                )
+            }
         }
 
         imgui.EndFrame()
@@ -669,9 +717,8 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // CPU limiter
-        if limit_cpu {
-            time.sleep(time.Duration(1_000_000 * 100)) // 100 mil nanoseconds == 100 milliseconds
-        }
+        // 100 mil nanoseconds == 100 milliseconds
+        if limit_cpu do time.sleep(time.Duration(1_000_000 * 100))
     }
 
     log.info("Returning from main()")
