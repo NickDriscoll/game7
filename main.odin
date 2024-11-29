@@ -175,12 +175,12 @@ main :: proc() {
     // Add loose props to container
     {
         SPACING :: 7.0
-        for y in 0..<10 {
-            for x in 0..<10 {
+        ROWS :: 10
+        for y in 0..<ROWS {
+            for x in 0..<ROWS {
                 my_prop := LooseProp {
                     position = {f32(x) * SPACING, f32(y) * SPACING, 0.0},
-                    //scale = f32(x + y) + 0.01 * 2
-                    scale = 1.0,
+                    scale = f32(x + y) * 0.1 + 0.01,
                     mesh_data = my_gltf_mesh
                 }
                 append(&game_state.props, my_prop)
@@ -201,7 +201,7 @@ main :: proc() {
         // Time
         current_time = time.now()
         nanosecond_dt := time.diff(previous_time, current_time)
-        elapsed_time := f32(nanosecond_dt / 1000) / 1_000_000
+        last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
 
         // Process system events
@@ -210,7 +210,7 @@ main :: proc() {
             using viewport_camera
             
             io := imgui.GetIO()
-            io.DeltaTime = elapsed_time
+            io.DeltaTime = last_frame_duration
             imgui.NewFrame()
 
             event: sdl2.Event
@@ -353,7 +353,9 @@ main :: proc() {
         {
             using viewport_camera
 
-            CAMERA_SPEED :: 0.1
+            //CAMERA_SPEED :: 0.1
+            CAMERA_SPEED :: 10
+            per_frame_speed := CAMERA_SPEED * last_frame_duration
 
             speed_mod := 1.0
             if .Speed in control_flags do speed_mod *= 5.0
@@ -380,7 +382,7 @@ main :: proc() {
             if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
 
             if camera_direction != {0.0, 0.0, 0.0} {
-                camera_direction = hlsl.float3(speed_mod) * hlsl.float3(CAMERA_SPEED) * hlsl.normalize(camera_direction)
+                camera_direction = hlsl.float3(speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
             }
             
             //Compute temporary camera matrix for orienting player inputted direction vector
@@ -570,7 +572,7 @@ main :: proc() {
 
         // Draw terrain pieces
         for piece in game_state.terrain_pieces {
-            tform := InstanceData {
+            tform := DrawData {
                 world_from_model = {
                     1.0, 0.0, 0.0, 0.0,
                     0.0, 1.0, 0.0, 0.0,
@@ -579,19 +581,19 @@ main :: proc() {
                 }
             }
             for prim in piece.mesh_data.primitives {
-                draw_ps1_primitives(
+                draw_ps1_primitive(
                     &vgd,
                     &render_data,
                     prim.mesh,
                     prim.material,
-                    {tform}
+                    tform
                 )
             }
         }
 
         // Draw loose props
         for prop in game_state.props {
-            transform := InstanceData {
+            transform := DrawData {
                 world_from_model = {
                     prop.scale, 0.0, 0.0, prop.position.x,
                     0.0, prop.scale, 0.0, prop.position.y,
@@ -602,12 +604,12 @@ main :: proc() {
 
             // Render prop's primitives
             for prim in prop.mesh_data.primitives {
-                draw_ps1_primitives(
+                draw_ps1_primitive(
                     &vgd,
                     &render_data,
                     prim.mesh,
                     prim.material,
-                    {transform}
+                    transform
                 )
             }
         }
