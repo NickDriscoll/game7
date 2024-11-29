@@ -45,10 +45,6 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     io.DisplaySize.y = f32(resolution.y)
     io.ConfigFlags += {.DockingEnable}
 
-    style := imgui.GetStyle()
-    style.HoverDelayNormal = 0
-    style.HoverDelayShort = 0
-
     // Create font atlas and upload its texture data
     font_data: ^c.uchar
     width: c.int
