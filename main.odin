@@ -163,15 +163,14 @@ main :: proc() {
     defer gltf_delete(&spyro_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
+        //path : cstring = "data/models/majoras_moon.glb"
         spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
     spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
-    
-    log.info("App initialization complete")
 
     // Initialize main viewport camera
     viewport_camera := Camera {
-        position = {0.0, -5.0, 10.0},
+        position = {0.0, -5.0, 60.0},
         yaw = 0.0,
         pitch = math.PI / 4.0,
         fov_radians = math.PI / 2.0,
@@ -205,6 +204,8 @@ main :: proc() {
     previous_time := current_time
     window_minimized := false
     limit_cpu := false
+    
+    log.info("App initialization complete. Entering main loop")
 
     do_main_loop := true
     for do_main_loop {
