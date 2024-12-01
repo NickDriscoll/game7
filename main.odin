@@ -109,6 +109,7 @@ main :: proc() {
         u32(desktop_display_mode.h),
     }
 
+    // Window flags I'd like to load from a config file
     fullscreen := false
     borderless := false
     always_on_top : sdl2.bool = false
@@ -135,7 +136,6 @@ main :: proc() {
     defer imgui_cleanup(&vgd, &imgui_state)
     show_demo := false
     show_debug := false
-
     ini_savename_buffer: [2048]u8
 
     // Main app structure storing the game's overall state
@@ -148,6 +148,15 @@ main :: proc() {
     append(&game_state.terrain_pieces, TerrainPiece {
         mesh_data = main_scene_mesh
     })
+
+    // Get collision data out of main scene model
+    main_collision: StaticTriangleCollision
+    defer delete_static_triangles(&main_collision)
+    {
+        positions := get_glb_positions(main_scene_path, context.temp_allocator)
+        defer delete(positions)
+        main_collision = static_triangle_mesh(positions[:])
+    }
 
     // Load test glTF model
     spyro_mesh: MeshData
@@ -175,13 +184,12 @@ main :: proc() {
     // Add loose props to container
     {
         SPACING :: 10.0
-        ROWS :: 100
+        ROWS :: 10
+        OFFSET :: -(ROWS/2 * SPACING)
         for y in 0..<ROWS {
             for x in 0..<ROWS {
-                //scale := f32(x + y) * 0.1 + 0.01
                 my_prop := LooseProp {
-                    //position = {f32(x) * (SPACING + scale), f32(y) * (SPACING + scale), 0.0},
-                    position = {f32(x) * SPACING, f32(y) * SPACING, 0.0},
+                    position = {f32(x) * SPACING + OFFSET, f32(y) * SPACING + OFFSET, 50.0},
                     scale = 1.0,
                     mesh_data = spyro_mesh
                 }
@@ -594,12 +602,15 @@ main :: proc() {
         }
 
         // Draw loose props
-        for prop in game_state.props {
+        for prop, i in game_state.props {
+            zpos := prop.position.z
+            // zpos_offset := 5 * math.sin(f32(i) * render_data.cpu_uniforms.time / 100);
+            // zpos += zpos_offset
             transform := DrawData {
                 world_from_model = {
                     prop.scale, 0.0, 0.0, prop.position.x,
                     0.0, prop.scale, 0.0, prop.position.y,
-                    0.0, 0.0, prop.scale, prop.position.z,
+                    0.0, 0.0, prop.scale, zpos,
                     0.0, 0.0, 0.0, 1.0,
                 }
             }
