@@ -6,6 +6,11 @@ import "core:mem"
 
 import "vendor:cgltf"
 
+Sphere :: struct {
+    origin: hlsl.float3,
+    radius: f32
+}
+
 Ray :: struct {
     start: hlsl.float3,
     direction: hlsl.float3
@@ -119,4 +124,65 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
     assert(len(out_positions) > 0)
 
     return out_positions
+}
+
+// Implementation adapted from section 5.1.5 of Realtime Collision Detection
+closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+    found_intersection := false
+
+    // Test each triangle until an intersection is found
+    intersection: hlsl.float3
+    for triangle in triangles {
+        using triangle // a, b, c, normal
+
+        // Triangle edges
+        ab := b - a
+        ac := c - a
+        bc := c - b
+
+        // Compute parametric position s for projection P' of P on AB
+        // P' = A + s*AB, s = snom/(snom + sdenom)
+        snom := hlsl.dot(point - a, ab)
+        sdenom := hlsl.dot(point - b, a - b)
+
+        // Compute parametric position t for projection P' of P on AC
+        // P' = A + t*AC, t = tnom/(tnom + tdenom)
+        tnom := hlsl.dot(point - a, ac)
+        tdenom := hlsl.dot(point - c, a - c)
+
+        // Early out if in A's voronoi region
+        if snom <= 0.0 && tnom <= 0 {
+            intersection = a
+            found_intersection = true
+            break
+        }
+
+        // Compute parametric position u for projection P' of P on BC
+        // P' = B + u*BC, u = unom/(unom + udenom)
+        unom := hlsl.dot(point - b, bc)
+        udenom := hlsl.dot(point - c, b - c)
+
+        // Early out for voronoi region B
+        if sdenom <= 0.0 && unom <= 0.0 {
+            intersection = b
+            found_intersection = true
+            break
+        }
+
+        // Early out for voronoi region C
+        if tdenom <= 0.0 && udenom <= 0.0 {
+            intersection = c
+            found_intersection = true
+            break
+        }
+
+        
+    }
+
+    return {}, found_intersection
+}
+
+intersect_ray_triangles :: proc(ray: ^Ray, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
+
+    return {}
 }
