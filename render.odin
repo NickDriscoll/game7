@@ -38,13 +38,6 @@ UniformBufferData :: struct {
     distortion_strength: f32
 }
 
-TestPushConstants :: struct {
-    time: f32,
-    image: u32,
-    sampler: vkw.Immutable_Sampler_Index,
-    uniform_buffer_address: vk.DeviceAddress
-}
-
 Ps1PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
     sampler_idx: u32
