@@ -1,6 +1,7 @@
 package main
 
 import "core:log"
+import "core:math"
 import "core:math/linalg/hlsl"
 import "core:mem"
 
@@ -127,59 +128,95 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 }
 
 // Implementation adapted from section 5.1.5 of Realtime Collision Detection
+// This proc returns the first 
 closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
-    found_intersection := false
 
-    // Test each triangle until an intersection is found
-    intersection: hlsl.float3
-    for triangle in triangles {
-        using triangle // a, b, c, normal
-
-        // Triangle edges
-        ab := b - a
-        ac := c - a
-        bc := c - b
-
-        // Compute parametric position s for projection P' of P on AB
-        // P' = A + s*AB, s = snom/(snom + sdenom)
-        snom := hlsl.dot(point - a, ab)
-        sdenom := hlsl.dot(point - b, a - b)
-
-        // Compute parametric position t for projection P' of P on AC
-        // P' = A + t*AC, t = tnom/(tnom + tdenom)
-        tnom := hlsl.dot(point - a, ac)
-        tdenom := hlsl.dot(point - c, a - c)
-
-        // Early out if in A's voronoi region
-        if snom <= 0.0 && tnom <= 0 {
-            intersection = a
-            found_intersection = true
-            break
+    // Helper proc to check if a closest point is
+    // the closest one we've found so far
+    check_candidate_point :: proc(
+        point: hlsl.float3,
+        candidate: hlsl.float3,
+        closest: ^hlsl.float3,
+        shortest_dist: ^f32
+    ) -> bool {
+        dist := hlsl.distance(point, candidate)
+        if dist < shortest_dist^ {
+            closest^ = candidate
+            shortest_dist^ = dist
+            return true
         }
-
-        // Compute parametric position u for projection P' of P on BC
-        // P' = B + u*BC, u = unom/(unom + udenom)
-        unom := hlsl.dot(point - b, bc)
-        udenom := hlsl.dot(point - c, b - c)
-
-        // Early out for voronoi region B
-        if sdenom <= 0.0 && unom <= 0.0 {
-            intersection = b
-            found_intersection = true
-            break
-        }
-
-        // Early out for voronoi region C
-        if tdenom <= 0.0 && udenom <= 0.0 {
-            intersection = c
-            found_intersection = true
-            break
-        }
-
-        
+        return false
     }
 
-    return {}, found_intersection
+    // Test each triangle until the closest point
+    closest_point: hlsl.float3
+    shortest_distance := math.INF_F32
+    found_intersection := false
+    for triangle in triangles {
+        using triangle // a, b, c, normal
+        dot :: hlsl.dot
+
+        // Check if point is in vertex region outside A
+        ab := b - a
+        ac := c - a
+        ap := point - a
+        d1 := dot(ab, ap)
+        d2 := dot(ac, ap)
+        if d1 <= 0 && d2 <= 0 {
+            found_intersection |= check_candidate_point(point, a, &closest_point, &shortest_distance)
+        }
+
+        // Check if the point is in vertex region outside B
+        bp := point - b
+        d3 := dot(ab, bp)
+        d4 := dot(ac, bp)
+        if d3 >= 0 && d4 <= d3 { 
+            found_intersection |= check_candidate_point(point, b, &closest_point, &shortest_distance)
+        }
+
+        // Check if P in edge region of AB
+        vc := d1*d4 - d3*d2
+        if vc <= 0 && d1 >= 0 && d3 <= 0 {
+            w := d1 / (d1 - d3)
+            candidate_point := a + w * ab
+            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        }
+
+        // Check if P in vertex region outside C
+        cp := point - c
+        d5 := dot(ab, cp)
+        d6 := dot(ac, cp)
+        if d6 >= 0 && d5 <= d6 {
+            found_intersection |= check_candidate_point(point, c, &closest_point, &shortest_distance)
+        }
+
+        // Check if P in edge region AC
+        vb := d5*d2 - d1*d6
+        if vb <= 0 && d2 >= 0 && d6 <= 0 {
+            w := d2 / (d2 - d6)
+            candidate_point := a + w * ac
+            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        }
+
+        // Check if P is in edge region of BC
+        va := d3*d6 - d5*d4
+        if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+            w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
+            candidate_point := b + w * (c - b)
+            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        }
+
+        // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
+        {
+            denom := 1.0 / (va + vb + vc)
+            v := vb * denom
+            w := vc * denom
+            candidate := a + ab * v + ac * w
+            found_intersection |= check_candidate_point(point, candidate, &closest_point, &shortest_distance)
+        }
+    }
+
+    return closest_point, found_intersection
 }
 
 intersect_ray_triangles :: proc(ray: ^Ray, using tris: ^StaticTriangleCollision) -> hlsl.float3 {

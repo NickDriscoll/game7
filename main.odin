@@ -31,7 +31,12 @@ LooseProp :: struct {
 }
 
 TerrainPiece :: struct {
+    collision: StaticTriangleCollision,
     mesh_data: MeshData
+}
+
+delete_terrain_piece :: proc(using t: ^TerrainPiece) {
+    delete_static_triangles(&collision)
 }
 
 GameState :: struct {
@@ -41,6 +46,7 @@ GameState :: struct {
 
 delete_game :: proc(using g: ^GameState) {
     delete(props)
+    for &piece in terrain_pieces do delete_terrain_piece(&piece)
     delete(terrain_pieces)
 }
 
@@ -145,17 +151,16 @@ main :: proc() {
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
-    append(&game_state.terrain_pieces, TerrainPiece {
-        mesh_data = main_scene_mesh
-    })
 
     // Get collision data out of main scene model
-    main_collision: StaticTriangleCollision
-    defer delete_static_triangles(&main_collision)
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
         defer delete(positions)
-        main_collision = static_triangle_mesh(positions[:])
+        collision := static_triangle_mesh(positions[:])
+        append(&game_state.terrain_pieces, TerrainPiece {
+            collision = collision,
+            mesh_data = main_scene_mesh
+        })
     }
 
     // Load test glTF model
@@ -361,6 +366,8 @@ main :: proc() {
         // Update
 
         // Update camera based on user input
+        camera_collision_point: hlsl.float3
+        camera_collided := false
         {
             using viewport_camera
 
@@ -401,6 +408,28 @@ main :: proc() {
             viewport_camera.position += 
                 (world_from_view *
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
+
+            // Collision test the camera's bounding sphere against the terrain
+            closest_pt, found := closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
+            if found {
+                CAMERA_RADIUS :: 100.0
+                if hlsl.distance(closest_pt, position) < CAMERA_RADIUS {
+                    camera_collision_point = closest_pt
+                    camera_collided = true
+                }
+            }
+        }
+        if camera_collided {
+            for prim in spyro_mesh.primitives {
+                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
+                    world_from_model = {
+                        1.0, 0.0, 0.0, camera_collision_point.x,
+                        0.0, 1.0, 0.0, camera_collision_point.y,
+                        0.0, 0.0, 1.0, camera_collision_point.z,
+                        0.0, 0.0, 0.0, 1.0,
+                    }
+                })
+            }
         }
 
         // Teleport spyro in front of camera
@@ -548,6 +577,11 @@ main :: proc() {
                             "Enabling this setting forces the main thread " +
                             "to sleep for 100 milliseconds at the end of the main loop"
                         )
+
+                        if camera_collided {
+                            imgui.Separator()
+                            imgui.Text("Closest point: (%f, %f, %f)", camera_collision_point.x, camera_collision_point.y, camera_collision_point.z)
+                        }
                         
                         imgui.Separator()
     
