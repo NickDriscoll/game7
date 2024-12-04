@@ -147,9 +147,10 @@ main :: proc() {
     // Main app structure storing the game's overall state
     game_state: GameState
 
+    //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
     main_scene_path : cstring = "data/models/artisans.glb"
-    //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
+    //main_scene_path : cstring = "data/models/plane.glb"
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
 
     // Get collision data out of main scene model
@@ -183,6 +184,7 @@ main :: proc() {
         nearplane = 0.1,
         farplane = 1_000_000_000.0
     }
+    freecam_collision := true
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     // Add loose props to container
@@ -365,6 +367,26 @@ main :: proc() {
 
         // Update
 
+        // for prim in spyro_mesh.primitives {
+        //     draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
+        //         world_from_model = {
+        //             1.0, 0.0, 0.0, camera_collision_point.x,
+        //             0.0, 1.0, 0.0, camera_collision_point.y,
+        //             0.0, 0.0, 1.0, camera_collision_point.z,
+        //             0.0, 0.0, 0.0, 1.0,
+        //         }
+        //     })
+        // }
+
+        // Teleport spyro in front of camera
+        if move_spyro {
+            using viewport_camera
+            placement_distance := 5.0
+            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
+            world_facing : hlsl.float3 = (world_from_view * hlsl.float4{0.0, 1.0, 0.0, 0.0}).xyz
+            spyro_pos = position + world_facing * hlsl.float3(placement_distance)
+        }
+
         // Update camera based on user input
         camera_collision_point: hlsl.float3
         camera_collided := false
@@ -410,37 +432,18 @@ main :: proc() {
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
 
             // Collision test the camera's bounding sphere against the terrain
-            closest_pt, found := closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
-            if found {
-                CAMERA_RADIUS :: 100.0
-                if hlsl.distance(closest_pt, position) < CAMERA_RADIUS {
+            if freecam_collision {
+                closest_pt := closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
+                CAMERA_RADIUS :: 0.8
+                dist := hlsl.distance(closest_pt, position)
+                if dist < CAMERA_RADIUS {
                     camera_collision_point = closest_pt
+                    diff := CAMERA_RADIUS - dist
+                    position += diff * hlsl.normalize(position - camera_collision_point)
                     camera_collided = true
                 }
             }
         }
-        if camera_collided {
-            for prim in spyro_mesh.primitives {
-                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
-                    world_from_model = {
-                        1.0, 0.0, 0.0, camera_collision_point.x,
-                        0.0, 1.0, 0.0, camera_collision_point.y,
-                        0.0, 0.0, 1.0, camera_collision_point.z,
-                        0.0, 0.0, 0.0, 1.0,
-                    }
-                })
-            }
-        }
-
-        // Teleport spyro in front of camera
-        if move_spyro {
-            using viewport_camera
-            placement_distance := 5.0
-            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
-            world_facing : hlsl.float3 = (world_from_view * hlsl.float4{0.0, 1.0, 0.0, 0.0}).xyz
-            spyro_pos = position + world_facing * hlsl.float3(placement_distance)
-        }
-
 
         if imgui_state.show_gui {
             if imgui.BeginMainMenuBar() {
@@ -569,6 +572,12 @@ main :: proc() {
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
+                        imgui.Checkbox("Enable freecam collision", &freecam_collision)
+                        if camera_collided {
+                            imgui.Separator()
+                            imgui.Text("Closest point: (%f, %f, %f)", camera_collision_point.x, camera_collision_point.y, camera_collision_point.z)
+                        }
+                        imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
                         
                         imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
@@ -577,11 +586,6 @@ main :: proc() {
                             "Enabling this setting forces the main thread " +
                             "to sleep for 100 milliseconds at the end of the main loop"
                         )
-
-                        if camera_collided {
-                            imgui.Separator()
-                            imgui.Text("Closest point: (%f, %f, %f)", camera_collision_point.x, camera_collision_point.y, camera_collision_point.z)
-                        }
                         
                         imgui.Separator()
     
