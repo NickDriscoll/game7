@@ -41,7 +41,7 @@ static_triangle_mesh :: proc(positions: []f32, allocator := context.allocator) -
         // Triangle vertices
         a := hlsl.float3{positions[i], positions[i + 1], positions[i + 2]}
         b := hlsl.float3{positions[i + 3], positions[i + 4], positions[i + 5]}
-        c := hlsl.float3{positions[i + 5], positions[i + 6], positions[i + 7]}
+        c := hlsl.float3{positions[i + 6], positions[i + 7], positions[i + 8]}
 
         // Edges AB and AC
         ab := b - a
@@ -115,8 +115,9 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 
             positions_ptr := get_accessor_ptr(attrib.data, f32)
             for idx, i in index_data {
-                f := positions_ptr[idx]
-                out_positions[i] = f
+                out_positions[3 * i] = positions_ptr[3 * idx]
+                out_positions[3 * i + 1] = positions_ptr[3 * idx + 1]
+                out_positions[3 * i + 2] = positions_ptr[3 * idx + 2]
             }
             
             //mem.copy(&out_positions[0], positions_ptr, int(position_byte_count))
@@ -129,7 +130,7 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 
 // Implementation adapted from section 5.1.5 of Realtime Collision Detection
 // This proc returns the first 
-closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
@@ -138,20 +139,17 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         candidate: hlsl.float3,
         closest: ^hlsl.float3,
         shortest_dist: ^f32
-    ) -> bool {
+    ) {
         dist := hlsl.distance(point, candidate)
         if dist < shortest_dist^ {
             closest^ = candidate
             shortest_dist^ = dist
-            return true
         }
-        return false
     }
 
     // Test each triangle until the closest point
     closest_point: hlsl.float3
     shortest_distance := math.INF_F32
-    found_intersection := false
     for triangle in triangles {
         using triangle // a, b, c, normal
         dot :: hlsl.dot
@@ -163,7 +161,8 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         d1 := dot(ab, ap)
         d2 := dot(ac, ap)
         if d1 <= 0 && d2 <= 0 {
-            found_intersection |= check_candidate_point(point, a, &closest_point, &shortest_distance)
+            check_candidate_point(point, a, &closest_point, &shortest_distance)
+            continue
         }
 
         // Check if the point is in vertex region outside B
@@ -171,7 +170,8 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         d3 := dot(ab, bp)
         d4 := dot(ac, bp)
         if d3 >= 0 && d4 <= d3 { 
-            found_intersection |= check_candidate_point(point, b, &closest_point, &shortest_distance)
+            check_candidate_point(point, b, &closest_point, &shortest_distance)
+            continue
         }
 
         // Check if P in edge region of AB
@@ -179,7 +179,8 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         if vc <= 0 && d1 >= 0 && d3 <= 0 {
             w := d1 / (d1 - d3)
             candidate_point := a + w * ab
-            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            continue
         }
 
         // Check if P in vertex region outside C
@@ -187,7 +188,8 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         d5 := dot(ab, cp)
         d6 := dot(ac, cp)
         if d6 >= 0 && d5 <= d6 {
-            found_intersection |= check_candidate_point(point, c, &closest_point, &shortest_distance)
+            check_candidate_point(point, c, &closest_point, &shortest_distance)
+            continue
         }
 
         // Check if P in edge region AC
@@ -195,7 +197,8 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         if vb <= 0 && d2 >= 0 && d6 <= 0 {
             w := d2 / (d2 - d6)
             candidate_point := a + w * ac
-            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            continue
         }
 
         // Check if P is in edge region of BC
@@ -203,20 +206,19 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
             w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
             candidate_point := b + w * (c - b)
-            found_intersection |= check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+            continue
         }
 
         // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
-        {
-            denom := 1.0 / (va + vb + vc)
-            v := vb * denom
-            w := vc * denom
-            candidate := a + ab * v + ac * w
-            found_intersection |= check_candidate_point(point, candidate, &closest_point, &shortest_distance)
-        }
+        denom := 1.0 / (va + vb + vc)
+        v := vb * denom
+        w := vc * denom
+        candidate := a + ab * v + ac * w
+        check_candidate_point(point, candidate, &closest_point, &shortest_distance)
     }
 
-    return closest_point, found_intersection
+    return closest_point
 }
 
 intersect_ray_triangles :: proc(ray: ^Ray, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
