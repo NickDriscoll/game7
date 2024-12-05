@@ -876,7 +876,7 @@ load_gltf_mesh :: proc(
 
         channels : i32 = 4
         width, height: i32
-        raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, &channels, channels)
+        raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
 
         image_create_info := vkw.Image_Create {
             flags = nil,
@@ -990,7 +990,7 @@ load_gltf_mesh :: proc(
         }
         if glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
             tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
-            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0]))
+            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
             log.debugf("Texture index is %v", color_tex_idx)
             bindless_image_idx = loaded_glb_images[color_tex_idx]
         }
