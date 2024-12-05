@@ -135,12 +135,12 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     // Helper proc to check if a closest point is
     // the closest one we've found so far
     check_candidate_point :: proc(
-        point: hlsl.float3,
+        test_point: hlsl.float3,
         candidate: hlsl.float3,
         closest: ^hlsl.float3,
         shortest_dist: ^f32
     ) {
-        dist := hlsl.distance(point, candidate)
+        dist := hlsl.distance(test_point, candidate)
         if dist < shortest_dist^ {
             closest^ = candidate
             shortest_dist^ = dist
