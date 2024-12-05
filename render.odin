@@ -403,6 +403,7 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, 
     vkw.delete_image(gd, main_framebuffer.color_images[0])
     vkw.delete_image(gd, main_framebuffer.depth_image)
     
+    old_clearcolor := main_framebuffer.clear_color
 
     // Create main rendertarget
     {
@@ -450,7 +451,7 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, 
             color_images = color_images,
             depth_image = depth_handle,
             resolution = screen_size,
-            clear_color = {1.0, 0.0, 1.0, 1.0},
+            clear_color = old_clearcolor,
             color_load_op = .CLEAR,
             depth_load_op = .CLEAR
         }
