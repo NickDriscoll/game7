@@ -34,9 +34,9 @@ COMPUTE_SHADERS : []string : {
 }
 
 when ODIN_DEBUG {
-    ODIN_COMMAND : []string : {"odin", "build", ".", "-debug"}
+    ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing"}
 } else {
-    ODIN_COMMAND : []string : {"odin", "build", "."}
+    ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing"}
 }
 
 // @TODO: Automatically compile stb on Linux platforms
