@@ -166,11 +166,13 @@ main :: proc() {
 
     // Load test glTF model
     spyro_mesh: MeshData
+    moon_mesh: MeshData
     defer gltf_delete(&spyro_mesh)
     {
-        //path : cstring = "data/models/spyro2.glb"
-        path : cstring = "data/models/majoras_moon.glb"
+        path : cstring = "data/models/spyro2.glb"
         spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
+        path = "data/models/majoras_moon.glb"
+        moon_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
     spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
 
@@ -437,7 +439,7 @@ main :: proc() {
         }
 
         if show_closest_point {
-            for prim in spyro_mesh.primitives {
+            for prim in moon_mesh.primitives {
                 draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
                     world_from_model = {
                         1.0, 0.0, 0.0, camera_collision_point.x,
