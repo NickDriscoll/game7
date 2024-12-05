@@ -168,8 +168,8 @@ main :: proc() {
     spyro_mesh: MeshData
     defer gltf_delete(&spyro_mesh)
     {
-        path : cstring = "data/models/spyro2.glb"
-        //path : cstring = "data/models/majoras_moon.glb"
+        //path : cstring = "data/models/spyro2.glb"
+        path : cstring = "data/models/majoras_moon.glb"
         spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
     spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
@@ -185,6 +185,7 @@ main :: proc() {
         farplane = 1_000_000_000.0
     }
     freecam_collision := true
+    show_closest_point := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     // Add loose props to container
@@ -367,17 +368,6 @@ main :: proc() {
 
         // Update
 
-        // for prim in spyro_mesh.primitives {
-        //     draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
-        //         world_from_model = {
-        //             1.0, 0.0, 0.0, camera_collision_point.x,
-        //             0.0, 1.0, 0.0, camera_collision_point.y,
-        //             0.0, 0.0, 1.0, camera_collision_point.z,
-        //             0.0, 0.0, 0.0, 1.0,
-        //         }
-        //     })
-        // }
-
         // Teleport spyro in front of camera
         if move_spyro {
             using viewport_camera
@@ -432,18 +422,33 @@ main :: proc() {
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
 
             // Collision test the camera's bounding sphere against the terrain
-            if freecam_collision {
-                closest_pt := closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
-                CAMERA_RADIUS :: 0.8
-                dist := hlsl.distance(closest_pt, position)
-                if dist < CAMERA_RADIUS {
-                    camera_collision_point = closest_pt
-                    diff := CAMERA_RADIUS - dist
-                    position += diff * hlsl.normalize(position - camera_collision_point)
-                    camera_collided = true
+            if show_closest_point || freecam_collision {
+                camera_collision_point = closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
+                if freecam_collision {
+                    CAMERA_RADIUS :: 0.8
+                    dist := hlsl.distance(camera_collision_point, position)
+                    if dist < CAMERA_RADIUS {
+                        diff := CAMERA_RADIUS - dist
+                        position += diff * hlsl.normalize(position - camera_collision_point)
+                        camera_collided = true
+                    }
                 }
             }
         }
+
+        if show_closest_point {
+            for prim in spyro_mesh.primitives {
+                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
+                    world_from_model = {
+                        1.0, 0.0, 0.0, camera_collision_point.x,
+                        0.0, 1.0, 0.0, camera_collision_point.y,
+                        0.0, 0.0, 1.0, camera_collision_point.z,
+                        0.0, 0.0, 0.0, 1.0,
+                    }
+                })
+            }
+        }
+
 
         if imgui_state.show_gui {
             if imgui.BeginMainMenuBar() {
@@ -572,6 +577,7 @@ main :: proc() {
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
+                        imgui.Checkbox("Show closest point on terrain to camera", &show_closest_point)
                         imgui.Checkbox("Enable freecam collision", &freecam_collision)
                         if camera_collided {
                             imgui.Separator()
@@ -579,6 +585,8 @@ main :: proc() {
                         }
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+
+                        imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color))
                         
                         imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
                         imgui.SameLine()
