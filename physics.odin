@@ -30,7 +30,7 @@ delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
     delete(triangles)
 }
 
-static_triangle_mesh :: proc(positions: []f32, allocator := context.allocator) -> StaticTriangleCollision {
+static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
     assert(len(positions) % 9 == 0)
 
     static_mesh: StaticTriangleCollision
@@ -39,9 +39,14 @@ static_triangle_mesh :: proc(positions: []f32, allocator := context.allocator) -
     // For each implicit triangle
     for i := 0; i < len(positions); i += 9 {
         // Triangle vertices
-        a := hlsl.float3{positions[i], positions[i + 1], positions[i + 2]}
-        b := hlsl.float3{positions[i + 3], positions[i + 4], positions[i + 5]}
-        c := hlsl.float3{positions[i + 6], positions[i + 7], positions[i + 8]}
+        a4 := hlsl.float4{positions[i], positions[i + 1], positions[i + 2], 1.0}
+        b4 := hlsl.float4{positions[i + 3], positions[i + 4], positions[i + 5], 1.0}
+        c4 := hlsl.float4{positions[i + 6], positions[i + 7], positions[i + 8], 1.0}
+
+        // Transform with supplied model matrix
+        a := hlsl.float3((model_matrix * a4).xyz)
+        b := hlsl.float3((model_matrix * b4).xyz)
+        c := hlsl.float3((model_matrix * c4).xyz)
 
         // Edges AB and AC
         ab := b - a

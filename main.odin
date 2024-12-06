@@ -24,6 +24,13 @@ TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION : hlsl.uint2 : {1920, 1080}
 
+IDENTITY_MATRIX :: hlsl.float4x4 {
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 0.0,
+    0.0, 0.0, 0.0, 1.0,
+}
+
 LooseProp :: struct {
     position: hlsl.float3,
     scale: f32,
@@ -32,6 +39,7 @@ LooseProp :: struct {
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
+    model_matrix: hlsl.float4x4,
     mesh_data: MeshData
 }
 
@@ -93,6 +101,7 @@ main :: proc() {
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
         log.fatal("Couldn't load Vulkan library.")
+        return
     }
     
     // Initialize graphics device
@@ -131,6 +140,7 @@ main :: proc() {
     // Initialize the state required for rendering to the window
     if !vkw.init_sdl2_window(&vgd, sdl_window) {
         log.fatal("Couldn't init SDL2 surface.")
+        return
     }
 
     // Initialize the renderer
@@ -158,9 +168,10 @@ main :: proc() {
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
         defer delete(positions)
-        collision := static_triangle_mesh(positions[:])
+        collision := static_triangle_mesh(positions[:], IDENTITY_MATRIX)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
+            model_matrix = IDENTITY_MATRIX,
             mesh_data = main_scene_mesh
         })
     }
@@ -174,6 +185,23 @@ main :: proc() {
         spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
         path = "data/models/majoras_moon.glb"
         moon_mesh = load_gltf_mesh(&vgd, &render_data, path)
+    }
+    
+    {
+        positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
+        defer delete(positions)
+        mat := hlsl.float4x4 {
+            150.0, 0.0, 0.0, 150.0,
+            0.0, 150.0, 0.0, 200.0,
+            0.0, 0.0, 150.0, 300.0,
+            0.0, 0.0, 0.0, 1.0
+        }
+        collision := static_triangle_mesh(positions[:], mat)
+        append(&game_state.terrain_pieces, TerrainPiece {
+            collision = collision,
+            model_matrix = mat,
+            mesh_data = moon_mesh
+        })
     }
 
     // Initialize main viewport camera
@@ -205,17 +233,10 @@ main :: proc() {
                 append(&game_state.props, my_prop)
             }
         }
-
-        append(&game_state.props, LooseProp {
-            position = {0.0, 200.0, 300.0},
-            scale = 150.0,
-            mesh_data = moon_mesh
-        })
     }
 
     free_all(context.temp_allocator)
 
-    move_spyro := false
     current_time := time.now()
     previous_time := current_time
     window_minimized := false
@@ -276,7 +297,6 @@ main :: proc() {
 
                         #partial switch event.key.keysym.sym {
                             case .ESCAPE: imgui_state.show_gui = !imgui_state.show_gui
-                            case .SPACE: move_spyro = true
                             case .W: control_flags += {.MoveForward}
                             case .S: control_flags += {.MoveBackward}
                             case .A: control_flags += {.MoveLeft}
@@ -297,7 +317,6 @@ main :: proc() {
                         if io.WantCaptureKeyboard do continue
 
                         #partial switch event.key.keysym.sym {
-                            case .SPACE: move_spyro = false
                             case .W: control_flags -= {.MoveForward}
                             case .S: control_flags -= {.MoveBackward}
                             case .A: control_flags -= {.MoveLeft}
@@ -421,7 +440,16 @@ main :: proc() {
 
             // Collision test the camera's bounding sphere against the terrain
             if show_closest_point || freecam_collision {
-                camera_collision_point = closest_pt_triangles(position, &game_state.terrain_pieces[0].collision)
+                closest_dist := math.INF_F32
+                for &piece in game_state.terrain_pieces {
+                    candidate := closest_pt_triangles(position, &piece.collision)
+                    candidate_dist := hlsl.distance(candidate, position)
+                    if candidate_dist < closest_dist {
+                        camera_collision_point = candidate
+                        closest_dist = candidate_dist
+                    }
+                }
+
                 if freecam_collision {
                     CAMERA_RADIUS :: 0.8
                     dist := hlsl.distance(camera_collision_point, position)
@@ -628,12 +656,7 @@ main :: proc() {
         // Draw terrain pieces
         for piece in game_state.terrain_pieces {
             tform := DrawData {
-                world_from_model = {
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0,
-                }
+                world_from_model = piece.model_matrix
             }
             for prim in piece.mesh_data.primitives {
                 draw_ps1_primitive(
