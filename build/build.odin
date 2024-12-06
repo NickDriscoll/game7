@@ -34,8 +34,10 @@ COMPUTE_SHADERS : []string : {
 }
 
 when ODIN_DEBUG {
+    //ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing", "-strict-style"}
     ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing"}
 } else {
+    //ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing", "-strict-style"}
     ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing"}
 }
 
