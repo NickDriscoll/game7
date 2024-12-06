@@ -18,11 +18,11 @@ ImguiPushConstants :: struct {
     sampler: vkw.Immutable_Sampler_Index,
     vertex_offset: u32,
     uniform_data: vk.DeviceAddress,
-    vertex_data: vk.DeviceAddress
+    vertex_data: vk.DeviceAddress,
 }
 
 ImguiUniforms :: struct {
-    clip_from_screen: hlsl.float4x4
+    clip_from_screen: hlsl.float4x4,
 }
 
 ImguiState :: struct {
@@ -32,7 +32,7 @@ ImguiState :: struct {
     index_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
     pipeline: vkw.Pipeline_Handle,
-    show_gui: bool
+    show_gui: bool,
 }
 
 imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiState {
@@ -65,7 +65,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         tiling = .OPTIMAL,
         usage = {.SAMPLED,.TRANSFER_DST},
         alloc_flags = nil,
-        name = "Dear ImGUI font atlas"
+        name = "Dear ImGUI font atlas",
     }
     font_bytes_slice := slice.from_ptr(font_data, int(width * height * 4))
     ok: bool
@@ -84,7 +84,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         size = MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
         usage = {.STORAGE_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
-        required_flags = {.DEVICE_LOCAL}
+        required_flags = {.DEVICE_LOCAL},
     }
     imgui_state.vertex_buffer = vkw.create_buffer(gd, &buffer_info)
 
@@ -93,7 +93,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         size = MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
         usage = {.INDEX_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
-        required_flags = {.DEVICE_LOCAL}
+        required_flags = {.DEVICE_LOCAL},
     }
     imgui_state.index_buffer = vkw.create_buffer(gd, &buffer_info)
 
@@ -103,7 +103,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             size = size_of(ImguiUniforms),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
         }
         imgui_state.uniform_buffer = vkw.create_buffer(gd, &info)
     }
@@ -123,7 +123,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         fragment_shader_bytecode = fragment_spv,
         input_assembly_state = vkw.Input_Assembly_State {
             topology = .TRIANGLE_LIST,
-            primitive_restart_enabled = false
+            primitive_restart_enabled = false,
         },
         tessellation_state = {},
         rasterization_state = raster_state,
@@ -133,7 +133,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             min_sample_shading = 0.0,
             sample_mask = nil,
             do_alpha_to_coverage = false,
-            do_alpha_to_one = false
+            do_alpha_to_one = false,
         },
         depthstencil_state = vkw.DepthStencil_State {
             flags = nil,
@@ -145,13 +145,13 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             // front = nil,
             // back = nil,
             min_depth_bounds = 0.0,
-            max_depth_bounds = 1.0
+            max_depth_bounds = 1.0,
         },
         colorblend_state = vkw.default_colorblend_state(),
         renderpass_state = vkw.PipelineRenderpass_Info {
             color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
-            depth_attachment_format = nil
-        }
+            depth_attachment_format = nil,
+        },
     }
 
     handles := vkw.create_graphics_pipelines(gd, {pipeline_info})
@@ -167,7 +167,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
 render_imgui :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
-    imgui_state: ^ImguiState
+    imgui_state: ^ImguiState,
 ) {
     // Update uniform buffer
     
@@ -177,7 +177,7 @@ render_imgui :: proc(
         2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
         0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
         0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     }
     u_slice := slice.from_ptr(&uniforms, 1)
     vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice)
@@ -191,13 +191,13 @@ render_imgui :: proc(
         [dynamic]imgui.DrawVert,
         0,
         draw_data.TotalVtxCount,
-        allocator = context.temp_allocator
+        allocator = context.temp_allocator,
     )
     index_staging := make(
         [dynamic]imgui.DrawIdx,
         0,
         draw_data.TotalIdxCount,
-        allocator = context.temp_allocator
+        allocator = context.temp_allocator,
     )
 
     imgui_vertex_buffer, ok := vkw.get_buffer(gd, imgui_state.vertex_buffer)
@@ -239,13 +239,13 @@ render_imgui :: proc(
                 {
                     offset = {
                         x = i32(cmd.ClipRect.x),
-                        y = i32(cmd.ClipRect.y)
+                        y = i32(cmd.ClipRect.y),
                     },
                     extent = {
                         width = u32(cmd.ClipRect.z - cmd.ClipRect.x),
-                        height = u32(cmd.ClipRect.a - cmd.ClipRect.y)
-                    }
-                }
+                        height = u32(cmd.ClipRect.a - cmd.ClipRect.y),
+                    },
+                },
             })
 
             tex_handle := hm.rawptr_to_handle(cmd.TextureId)
@@ -254,7 +254,7 @@ render_imgui :: proc(
                 sampler = .Point,
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
                 uniform_data = uniform_buf.address,
-                vertex_data = imgui_vertex_buffer.address
+                vertex_data = imgui_vertex_buffer.address,
             })
 
             vkw.cmd_draw_indexed(

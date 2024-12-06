@@ -35,30 +35,30 @@ UniformBufferData :: struct {
     uv_ptr: vk.DeviceAddress,
     color_ptr: vk.DeviceAddress,
     time: f32,
-    distortion_strength: f32
+    distortion_strength: f32,
 }
 
 Ps1PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
-    sampler_idx: u32
+    sampler_idx: u32,
 }
 
 PostFxPushConstants :: struct {
     color_target: u32,
     sampler_idx: u32,
-    uniforms_address: vk.DeviceAddress
+    uniforms_address: vk.DeviceAddress,
 }
 
 CPUMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    gpu_data: GPUMeshData
+    gpu_data: GPUMeshData,
 }
 
 GPUMeshData :: struct {
     position_offset: u32,
     uv_offset: u32,
-    color_offset: u32
+    color_offset: u32,
 }
 
 MaterialData :: struct {
@@ -66,7 +66,7 @@ MaterialData :: struct {
     normal_texture: u32,
     arm_texture: u32,           // "arm" as in ambient roughness metalness, packed in RGB in that order    
     sampler_idx: u32,
-    base_color: hlsl.float4
+    base_color: hlsl.float4,
 }
 
 DrawData :: struct {
@@ -76,7 +76,7 @@ DrawData :: struct {
 InstanceData :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Mesh_Handle,
-    material_handle: Material_Handle
+    material_handle: Material_Handle,
 }
 
 GPUInstanceData :: struct {
@@ -85,19 +85,19 @@ GPUInstanceData :: struct {
     mesh_idx: u32,
     material_idx: u32,
     _pad0: hlsl.uint2,
-    _pad3: hlsl.float4x3
+    _pad3: hlsl.float4x3,
 }
 
 GPUBufferDirtyFlags :: bit_set[enum{
     Mesh,
     Material,
     Instance,
-    Draw
+    Draw,
 }]
 
 DrawPrimitive :: struct {
     mesh: Mesh_Handle,
-    material: Material_Handle
+    material: Material_Handle,
 }
 
 RenderTarget :: struct {
@@ -152,7 +152,7 @@ RenderingState :: struct {
     gfx_sync_info: vkw.Sync_Info,
 
     // Main render target
-    main_framebuffer: vkw.Framebuffer
+    main_framebuffer: vkw.Framebuffer,
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
@@ -169,7 +169,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info := vkw.Semaphore_Info {
             type = .TIMELINE,
             init_value = 0,
-            name = "GFX Timeline"
+            name = "GFX Timeline",
         }
         render_state.gfx_timeline = vkw.create_semaphore(gd, &info)
     }
@@ -180,7 +180,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             size = size_of(u16) * MAX_GLOBAL_INDICES,
             usage = {.INDEX_BUFFER, .TRANSFER_DST},
             alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL}
+            required_flags = {.DEVICE_LOCAL},
         }
         render_state.index_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
@@ -191,7 +191,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info := vkw.Buffer_Info {
             usage = {.STORAGE_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
-            required_flags = {.DEVICE_LOCAL}
+            required_flags = {.DEVICE_LOCAL},
         }
 
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
@@ -225,7 +225,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             size = size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
-            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
         }
         render_state.draw_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
@@ -237,7 +237,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             size = size_of(UniformBufferData),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
-            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT}
+            required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
         }
         render_state.uniform_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
@@ -252,7 +252,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             extent = {
                 width = screen_size.x,
                 height = screen_size.y,
-                depth = 1
+                depth = 1,
             },
             supports_mipmaps = false,
             array_layers = 1,
@@ -260,7 +260,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.COLOR_ATTACHMENT},
             alloc_flags = nil,
-            name = "Main color target"
+            name = "Main color target",
         }
         color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
 
@@ -279,7 +279,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.DEPTH_STENCIL_ATTACHMENT},
             alloc_flags = nil,
-            name = "Main depth target"
+            name = "Main depth target",
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
@@ -291,7 +291,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             resolution = screen_size,
             clear_color = {1.0, 0.0, 1.0, 1.0},
             color_load_op = .CLEAR,
-            depth_load_op = .CLEAR
+            depth_load_op = .CLEAR,
         }
     }
 
@@ -313,7 +313,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             fragment_shader_bytecode = ps1_frag_spv,
             input_assembly_state = vkw.Input_Assembly_State {
                 topology = .TRIANGLE_LIST,
-                primitive_restart_enabled = false
+                primitive_restart_enabled = false,
             },
             tessellation_state = {},
             rasterization_state = raster_state,
@@ -323,7 +323,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 min_sample_shading = 0.0,
                 sample_mask = nil,
                 do_alpha_to_coverage = false,
-                do_alpha_to_one = false
+                do_alpha_to_one = false,
             },
             depthstencil_state = vkw.DepthStencil_State {
                 flags = nil,
@@ -335,13 +335,13 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 // front = nil,
                 // back = nil,
                 min_depth_bounds = 0.0,
-                max_depth_bounds = 1.0
+                max_depth_bounds = 1.0,
             },
             colorblend_state = vkw.default_colorblend_state(),
             renderpass_state = vkw.PipelineRenderpass_Info {
                 color_attachment_formats = main_color_attachment_formats,
-                depth_attachment_format = main_depth_attachment_format
-            }
+                depth_attachment_format = main_depth_attachment_format,
+            },
         })
 
         // Postprocessing pass info
@@ -354,7 +354,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             fragment_shader_bytecode = postfx_frag_spv,
             input_assembly_state = vkw.Input_Assembly_State {
                 topology = .TRIANGLE_LIST,
-                primitive_restart_enabled = false
+                primitive_restart_enabled = false,
             },
             tessellation_state = {},
             rasterization_state = raster_state,
@@ -364,7 +364,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 min_sample_shading = 0.0,
                 sample_mask = nil,
                 do_alpha_to_coverage = false,
-                do_alpha_to_one = false
+                do_alpha_to_one = false,
             },
             depthstencil_state = vkw.DepthStencil_State {
                 flags = nil,
@@ -376,12 +376,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 // front = nil,
                 // back = nil,
                 min_depth_bounds = 0.0,
-                max_depth_bounds = 1.0
+                max_depth_bounds = 1.0,
             },
             colorblend_state = vkw.default_colorblend_state(),
             renderpass_state = vkw.PipelineRenderpass_Info {
                 color_attachment_formats = {swapchain_format},
-                depth_attachment_format = nil
+                depth_attachment_format = nil,
             }
         })
 
