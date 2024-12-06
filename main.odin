@@ -136,6 +136,7 @@ main :: proc() {
     // Initialize the renderer
     render_data := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &render_data)
+    render_data.main_framebuffer.clear_color = {0.1568627, 0.443137, 0.9176471, 1.0}
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
@@ -174,7 +175,6 @@ main :: proc() {
         path = "data/models/majoras_moon.glb"
         moon_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
-    spyro_pos := hlsl.float3 {0.0, 0.0, 0.0}
 
     // Initialize main viewport camera
     viewport_camera := Camera {
@@ -205,6 +205,12 @@ main :: proc() {
                 append(&game_state.props, my_prop)
             }
         }
+
+        append(&game_state.props, LooseProp {
+            position = {0.0, 200.0, 300.0},
+            scale = 150.0,
+            mesh_data = moon_mesh
+        })
     }
 
     free_all(context.temp_allocator)
@@ -370,22 +376,12 @@ main :: proc() {
 
         // Update
 
-        // Teleport spyro in front of camera
-        if move_spyro {
-            using viewport_camera
-            placement_distance := 5.0
-            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
-            world_facing : hlsl.float3 = (world_from_view * hlsl.float4{0.0, 1.0, 0.0, 0.0}).xyz
-            spyro_pos = position + world_facing * hlsl.float3(placement_distance)
-        }
-
         // Update camera based on user input
         camera_collision_point: hlsl.float3
         camera_collided := false
         {
             using viewport_camera
 
-            //CAMERA_SPEED :: 0.1
             CAMERA_SPEED :: 10
             per_frame_speed := CAMERA_SPEED * last_frame_duration
 
@@ -653,8 +649,6 @@ main :: proc() {
         // Draw loose props
         for prop, i in game_state.props {
             zpos := prop.position.z
-            // zpos_offset := 5 * math.sin(f32(i) * render_data.cpu_uniforms.time / 100);
-            // zpos += zpos_offset
             transform := DrawData {
                 world_from_model = {
                     prop.scale, 0.0, 0.0, prop.position.x,
@@ -679,7 +673,7 @@ main :: proc() {
         imgui.EndFrame()
 
         // Render
-        {
+        if !window_minimized {
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
 
@@ -735,7 +729,6 @@ main :: proc() {
             framebuffer.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
             framebuffer.resolution.x = u32(resolution.x)
             framebuffer.resolution.y = u32(resolution.y)
-            //framebuffer.clear_color = {0.0, 0.5, 0.5, 1.0}
             framebuffer.color_load_op = .CLEAR
 
             // Main render call
@@ -771,14 +764,14 @@ main :: proc() {
     
             vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_data.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
-
-            // Clear sync info for next frame
-            vkw.clear_sync_info(&render_data.gfx_sync_info)
-            vgd.frame_count += 1
         }
 
         // CLear temp allocator for next frame
         free_all(context.temp_allocator)
+
+        // Clear sync info for next frame
+        vkw.clear_sync_info(&render_data.gfx_sync_info)
+        vgd.frame_count += 1
 
         // CPU limiter
         // 100 mil nanoseconds == 100 milliseconds
