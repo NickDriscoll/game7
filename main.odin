@@ -34,13 +34,13 @@ IDENTITY_MATRIX :: hlsl.float4x4 {
 LooseProp :: struct {
     position: hlsl.float3,
     scale: f32,
-    mesh_data: MeshData
+    mesh_data: MeshData,
 }
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     model_matrix: hlsl.float4x4,
-    mesh_data: MeshData
+    mesh_data: MeshData,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -49,7 +49,7 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
 
 GameState :: struct {
     props: [dynamic]LooseProp,
-    terrain_pieces: [dynamic]TerrainPiece
+    terrain_pieces: [dynamic]TerrainPiece,
 }
 
 delete_game :: proc(using g: ^GameState) {
@@ -76,7 +76,7 @@ main :: proc() {
                         case: log.warnf(
                             "Unrecognized --log-level: %v. Using default (%v)",
                             os.args[i + 1],
-                            log_level
+                            log_level,
                         )
                     }
                 }
@@ -87,6 +87,16 @@ main :: proc() {
     // Set up Odin context
     context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
+
+    // Load user configuration
+    user_config: UserConfiguration
+    user_config.flags["borderless_fullscreen"] = false
+    user_config.flags["exclusive_fullscreen"] = false
+    user_config.flags["always_on_top"] = false
+    user_config.flags["show_imgui_demo"] = false
+    user_config.flags["show_debug_menu"] = true
+    user_config.flags["freecam_collision"] = true
+    user_config.flags["show_closest_point"] = true
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -110,7 +120,7 @@ main :: proc() {
         api_version = .Vulkan13,
         frames_in_flight = FRAMES_IN_FLIGHT,
         window_support = true,
-        vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr()
+        vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
     vgd := vkw.init_vulkan(&init_params)
     
@@ -124,18 +134,20 @@ main :: proc() {
         u32(desktop_display_mode.h),
     }
 
-    // Window flags I'd like to load from a config file
-    fullscreen := false
-    borderless := false
-    always_on_top : sdl2.bool = false
-
     resolution := DEFAULT_RESOLUTION
-    if fullscreen || borderless do resolution = display_resolution
+    if user_config.flags["exclusive_fullscreen"] || user_config.flags["borderless_fullscreen"] do resolution = display_resolution
 
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
+    if user_config.flags["exclusive_fullscreen"] {
+        sdl_windowflags += {.FULLSCREEN}
+    }
+    if user_config.flags["borderless_fullscreen"] {
+        sdl_windowflags += {.BORDERLESS}
+    }
+
     sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
     defer sdl2.DestroyWindow(sdl_window)
-    sdl2.SetWindowAlwaysOnTop(sdl_window, always_on_top)
+    sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
 
     // Initialize the state required for rendering to the window
     if !vkw.init_sdl2_window(&vgd, sdl_window) {
@@ -151,8 +163,6 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
-    show_demo := false
-    show_debug := false
     ini_savename_buffer: [2048]u8
 
     // Main app structure storing the game's overall state
@@ -172,7 +182,7 @@ main :: proc() {
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
             model_matrix = IDENTITY_MATRIX,
-            mesh_data = main_scene_mesh
+            mesh_data = main_scene_mesh,
         })
     }
 
@@ -194,7 +204,7 @@ main :: proc() {
             150.0, 0.0, 0.0, 150.0,
             0.0, 150.0, 0.0, 200.0,
             0.0, 0.0, 150.0, 300.0,
-            0.0, 0.0, 0.0, 1.0
+            0.0, 0.0, 0.0, 1.0,
         }
         collision := static_triangle_mesh(positions[:], mat)
         append(&game_state.terrain_pieces, TerrainPiece {
@@ -214,8 +224,6 @@ main :: proc() {
         nearplane = 0.1,
         farplane = 1_000_000_000.0
     }
-    freecam_collision := true
-    show_closest_point := false
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     // Add loose props to container
@@ -439,7 +447,7 @@ main :: proc() {
                 hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
 
             // Collision test the camera's bounding sphere against the terrain
-            if show_closest_point || freecam_collision {
+            if user_config.flags["show_closest_point"] || user_config.flags["freecam_collision"] {
                 closest_dist := math.INF_F32
                 for &piece in game_state.terrain_pieces {
                     candidate := closest_pt_triangles(position, &piece.collision)
@@ -450,7 +458,7 @@ main :: proc() {
                     }
                 }
 
-                if freecam_collision {
+                if user_config.flags["freecam_collision"] {
                     CAMERA_RADIUS :: 0.8
                     dist := hlsl.distance(camera_collision_point, position)
                     if dist < CAMERA_RADIUS {
@@ -462,7 +470,7 @@ main :: proc() {
             }
         }
 
-        if show_closest_point {
+        if user_config.flags["show_closest_point"] {
             for prim in moon_mesh.primitives {
                 draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
                     world_from_model = {
@@ -503,17 +511,17 @@ main :: proc() {
                 }
 
                 if imgui.BeginMenu("Window") {
-                    if imgui.MenuItem("Always On Top", selected = bool(always_on_top)) {
-                        always_on_top = !always_on_top
-                        sdl2.SetWindowAlwaysOnTop(sdl_window, always_on_top)
+                    if imgui.MenuItem("Always On Top", selected = bool(user_config.flags["always_on_top"])) {
+                        user_config.flags["always_on_top"] = !user_config.flags["always_on_top"]
+                        sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
                     }
 
-                    if imgui.MenuItem("Borderless Fullscreen", selected = borderless) {
-                        borderless = !borderless
-                        fullscreen = false
+                    if imgui.MenuItem("Borderless Fullscreen", selected = user_config.flags["borderless_fullscreen"]) {
+                        user_config.flags["borderless_fullscreen"] = !user_config.flags["borderless_fullscreen"]
+                        user_config.flags["exclusive_fullscreen"] = false
 
                         xpos, ypos: c.int
-                        if borderless {
+                        if user_config.flags["borderless_fullscreen"] {
                             resolution = display_resolution
                         }
                         else {
@@ -527,20 +535,20 @@ main :: proc() {
                         io.DisplaySize.y = f32(resolution.y)
 
                         vgd.resize_window = true
-                        sdl2.SetWindowBordered(sdl_window, !borderless)
+                        sdl2.SetWindowBordered(sdl_window, !user_config.flags["borderless_fullscreen"])
                         sdl2.SetWindowPosition(sdl_window, xpos, ypos)
                         sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
                         sdl2.SetWindowResizable(sdl_window, true)
                     }
                     
-                    if imgui.MenuItem("Exclusive Fullscreen", selected = fullscreen) {
-                        fullscreen = !fullscreen
-                        borderless = false
+                    if imgui.MenuItem("Exclusive Fullscreen", selected = user_config.flags["exclusive_fullscreen"]) {
+                        user_config.flags["exclusive_fullscreen"] = !user_config.flags["exclusive_fullscreen"]
+                        user_config.flags["borderless_fullscreen"] = false
 
                         flags : sdl2.WindowFlags = nil
                         resolution = DEFAULT_RESOLUTION
-                        if fullscreen do flags += {.FULLSCREEN}
-                        if fullscreen do resolution = display_resolution
+                        if user_config.flags["exclusive_fullscreen"] do flags += {.FULLSCREEN}
+                        if user_config.flags["exclusive_fullscreen"] do resolution = display_resolution
 
                         io := imgui.GetIO()
                         io.DisplaySize.x = f32(resolution.x)
@@ -556,11 +564,11 @@ main :: proc() {
                 }
 
                 if imgui.BeginMenu("Debug") {
-                    if imgui.MenuItem("Show Dear ImGUI demo window", selected = show_demo) {
-                        show_demo = !show_demo
+                    if imgui.MenuItem("Show Dear ImGUI demo window", selected = user_config.flags["show_imgui_demo"]) {
+                        user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
                     }
-                    if imgui.MenuItem("Show debug window", selected = show_debug) {
-                        show_debug = !show_debug
+                    if imgui.MenuItem("Show debug window", selected = user_config.flags["show_debug_menu"]) {
+                        user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
                     }
 
                     imgui.EndMenu()
@@ -592,19 +600,17 @@ main :: proc() {
                 imgui.End()
             }
 
-            if show_demo do imgui.ShowDemoWindow(&show_demo)
-
             {
                 using viewport_camera
 
-                if show_debug {
-                    if imgui.Begin("Hacking window", &show_debug) {
+                if user_config.flags["show_debug_menu"] {
+                    if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                         imgui.Text("Frame #%i", vgd.frame_count)
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
-                        imgui.Checkbox("Show closest point on terrain to camera", &show_closest_point)
-                        imgui.Checkbox("Enable freecam collision", &freecam_collision)
+                        imgui.Checkbox("Show closest point on terrain to camera", &user_config.flags["show_closest_point"])
+                        imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
                         if camera_collided {
                             imgui.Separator()
                             imgui.Text("Closest point: (%f, %f, %f)", camera_collision_point.x, camera_collision_point.y, camera_collision_point.z)
@@ -612,7 +618,7 @@ main :: proc() {
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
 
-                        imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color))
+                        imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
                         
                         imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
                         imgui.SameLine()
@@ -620,6 +626,9 @@ main :: proc() {
                             "Enabling this setting forces the main thread " +
                             "to sleep for 100 milliseconds at the end of the main loop"
                         )
+                        if imgui.Button("Save user config") {
+                            save_user_config(&user_config, "user.cfg")
+                        }
                         
                         imgui.Separator()
     
@@ -648,6 +657,7 @@ main :: proc() {
             // }
             // imgui.End()
 
+            if user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
             sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
         } else {
             sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)

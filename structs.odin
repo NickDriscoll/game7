@@ -16,7 +16,7 @@ CameraFlags :: bit_set[enum {
     MoveUp,
     MoveDown,
     Speed,
-    Slow
+    Slow,
 }]
 
 Camera :: struct {
@@ -27,7 +27,7 @@ Camera :: struct {
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
-    control_flags: CameraFlags
+    control_flags: CameraFlags,
 }
 
 camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
@@ -46,7 +46,7 @@ camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
         1.0, 0.0, 0.0, 0.0,
         0.0, cospitch, -sinpitch, 0.0,
         0.0, sinpitch, cospitch, 0.0,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     }
 
     cosyaw := math.cos(camera.yaw)
@@ -55,14 +55,14 @@ camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
         cosyaw, -sinyaw, 0.0, 0.0,
         sinyaw, cosyaw, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     }
 
     trans := hlsl.float4x4 {
         1.0, 0.0, 0.0, -camera.position.x,
         0.0, 1.0, 0.0, -camera.position.y,
         0.0, 0.0, 1.0, -camera.position.z,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     }
 
     return pitch * yaw * trans
@@ -74,7 +74,7 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
         1.0, 0.0, 0.0, 0.0,
         0.0, 0.0, -1.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     }
 
     tan_fovy := math.tan(camera.fov_radians / 2.0)
@@ -84,7 +84,7 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
         1.0 / (tan_fovy * camera.aspect_ratio), 0.0, 0.0, 0.0,
         0.0, 1.0 / tan_fovy, 0.0, 0.0,
         0.0, 0.0, near / (near - far), (near * far) / (far - near),
-        0.0, 0.0, 1.0, 0.0
+        0.0, 0.0, 1.0, 0.0,
     }
 
     return proj_matrix * c_matrix

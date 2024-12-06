@@ -2,6 +2,7 @@
 *.pdb
 *.rdbg
 *.ini
+*.cfg
 .vscode/
 ols.json
 data/shaders/*

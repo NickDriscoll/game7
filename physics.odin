@@ -9,21 +9,21 @@ import "vendor:cgltf"
 
 Sphere :: struct {
     origin: hlsl.float3,
-    radius: f32
+    radius: f32,
 }
 
 Ray :: struct {
     start: hlsl.float3,
-    direction: hlsl.float3
+    direction: hlsl.float3,
 }
 
 Triangle :: struct {
     a, b, c: hlsl.float3,
-    normal: hlsl.float3
+    normal: hlsl.float3,
 }
 
 StaticTriangleCollision :: struct {
-    triangles: [dynamic]Triangle
+    triangles: [dynamic]Triangle,
 }
 
 delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
@@ -60,7 +60,7 @@ static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allo
             a = a,
             b = b,
             c = c,
-            normal = n
+            normal = n,
         })
     }
 
@@ -153,7 +153,7 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
         test_point: hlsl.float3,
         candidate: hlsl.float3,
         closest: ^hlsl.float3,
-        shortest_dist: ^f32
+        shortest_dist: ^f32,
     ) {
         dist := hlsl.distance(test_point, candidate)
         if dist < shortest_dist^ {
