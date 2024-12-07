@@ -7,6 +7,63 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
+// angle is in radians
+pitch_rotation_matrix :: proc(angle: f32) -> hlsl.float4x4 {
+    c := math.cos(angle)
+    s := math.sin(angle)
+    pitch := hlsl.float4x4 {
+        1.0, 0.0, 0.0, 0.0,
+        0.0, c, -s, 0.0,
+        0.0, s, c, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+    return pitch
+}
+
+// angle is in radians
+yaw_rotation_matrix :: proc(angle: f32) -> hlsl.float4x4 {
+    c := math.cos(angle)
+    s := math.sin(angle)
+    yaw := hlsl.float4x4 {
+        c, -s, 0.0, 0.0,
+        s, c, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+    return yaw
+}
+
+// angle is in radians
+roll_rotation_matrix :: proc(angle: f32) -> hlsl.float4x4 {
+    c := math.cos(angle)
+    s := math.sin(angle)
+    roll := hlsl.float4x4 {
+        c, 0.0, s, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        -s, 0.0, c, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+    return roll
+}
+
+translation_matrix :: proc(trans: hlsl.float3) -> hlsl.float4x4 {
+    return {
+        1.0, 0.0, 0.0, trans.x,
+        0.0, 1.0, 0.0, trans.y,
+        0.0, 0.0, 1.0, trans.z,
+        0.0, 0.0, 0.0, 1.0,
+    }
+}
+
+uniform_scaling_matrix :: proc(scale: f32) -> hlsl.float4x4 {
+    return {
+        scale, 0.0, 0.0, 0.0,
+        0.0, scale, 0.0, 0.0,
+        0.0, 0.0, scale, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+}
+
 CameraFlags :: bit_set[enum {
     MouseLook,
     MoveForward,
@@ -31,39 +88,9 @@ Camera :: struct {
 }
 
 camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
-    // float cosroll = cosf(roll);
-    // float sinroll = sinf(roll);
-    // float4x4 roll_matrix(
-    //     cosroll, 0.0f, sinroll, 0.0f,
-    //     0.0f, 1.0f, 0.0f, 0.0f,
-    //     -sinroll, 0.0f, cosroll, 0.0f,
-    //     0.0f, 0.0f, 0.0f, 1.0f
-    // );
-
-    cospitch := math.cos(camera.pitch)
-    sinpitch := math.sin(camera.pitch)
-    pitch := hlsl.float4x4 {
-        1.0, 0.0, 0.0, 0.0,
-        0.0, cospitch, -sinpitch, 0.0,
-        0.0, sinpitch, cospitch, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    }
-
-    cosyaw := math.cos(camera.yaw)
-    sinyaw := math.sin(camera.yaw)
-    yaw := hlsl.float4x4 {
-        cosyaw, -sinyaw, 0.0, 0.0,
-        sinyaw, cosyaw, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    }
-
-    trans := hlsl.float4x4 {
-        1.0, 0.0, 0.0, -camera.position.x,
-        0.0, 1.0, 0.0, -camera.position.y,
-        0.0, 0.0, 1.0, -camera.position.z,
-        0.0, 0.0, 0.0, 1.0,
-    }
+    pitch := pitch_rotation_matrix(camera.pitch)
+    yaw := yaw_rotation_matrix(camera.yaw)
+    trans := translation_matrix(-camera.position)
 
     return pitch * yaw * trans
 }

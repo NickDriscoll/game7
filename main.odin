@@ -97,6 +97,8 @@ main :: proc() {
     user_config.flags["show_debug_menu"] = true
     user_config.flags["freecam_collision"] = true
     user_config.flags["show_closest_point"] = true
+    
+    cfg := load_user_config("user.cfg")
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -200,12 +202,10 @@ main :: proc() {
     {
         positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
         defer delete(positions)
-        mat := hlsl.float4x4 {
-            150.0, 0.0, 0.0, 150.0,
-            0.0, 150.0, 0.0, 200.0,
-            0.0, 0.0, 150.0, 300.0,
-            0.0, 0.0, 0.0, 1.0,
-        }
+        scale := uniform_scaling_matrix(200.0)
+        rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
+        trans := translation_matrix({150.0, 200.0, 300.0})
+        mat := trans * rot * scale
         collision := static_triangle_mesh(positions[:], mat)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
@@ -406,15 +406,17 @@ main :: proc() {
         // Update camera based on user input
         camera_collision_point: hlsl.float3
         camera_collided := false
+        @static camera_sprint_multiplier : f32 = 5.0
+        @static camera_slow_multiplier : f32 = 1.0 / 5.0
         {
             using viewport_camera
 
             CAMERA_SPEED :: 10
             per_frame_speed := CAMERA_SPEED * last_frame_duration
 
-            speed_mod := 1.0
-            if .Speed in control_flags do speed_mod *= 5.0
-            if .Slow in control_flags do speed_mod /= 5.0
+            speed_mod : f32 = 1.0
+            if .Speed in control_flags do speed_mod *= camera_sprint_multiplier
+            if .Slow in control_flags do speed_mod *= camera_slow_multiplier
 
             if .MouseLook in control_flags {
                 ROTATION_SENSITIVITY :: 0.001
@@ -472,11 +474,12 @@ main :: proc() {
 
         if user_config.flags["show_closest_point"] {
             for prim in moon_mesh.primitives {
+                scale : f32 = 0.1
                 draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
                     world_from_model = {
-                        1.0, 0.0, 0.0, camera_collision_point.x,
-                        0.0, 1.0, 0.0, camera_collision_point.y,
-                        0.0, 0.0, 1.0, camera_collision_point.z,
+                        scale, 0.0, 0.0, camera_collision_point.x,
+                        0.0, scale, 0.0, camera_collision_point.y,
+                        0.0, 0.0, scale, camera_collision_point.z,
                         0.0, 0.0, 0.0, 1.0,
                     }
                 })
@@ -609,6 +612,8 @@ main :: proc() {
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
+                        imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
+                        imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                         imgui.Checkbox("Show closest point on terrain to camera", &user_config.flags["show_closest_point"])
                         imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
                         if camera_collided {
