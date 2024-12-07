@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:text/scanner"
 import "core:strings"
 
 UserConfiguration :: struct {
@@ -37,15 +38,29 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
+}
 
-    // os.write_string(save_file, "borderless_fullscreen = false\n")
-    // os.write_string(save_file, "exclusive_fullscreen = false\n")
-    // os.write_string(save_file, "always_on_top = false\n")
-    // os.write_string(save_file, "show_imgui_demo = false\n")
-    // os.write_string(save_file, "show_debug_menu = false\n")
+save_default_user_config :: proc(filename: string) {
+    
 }
 
 load_user_config :: proc(filename: string) -> UserConfiguration {
+    file_text, ok := os.read_entire_file(filename, allocator = context.temp_allocator)
+    if !ok {
+        log.error("Unable to read entire config file.")
+    }
+
+    sc: scanner.Scanner
+    scanner.init(&sc, string(file_text))
+    log.debugf("Using scanner: %#v", sc)
+    tok := scanner.scan(&sc)
+    for tok != scanner.EOF {
+        st := scanner.token_text(&sc)
+        log.debugf("my string is : %v", st)
+        tok = scanner.scan(&sc)
+    }
+
+
     u: UserConfiguration
 
     return u
