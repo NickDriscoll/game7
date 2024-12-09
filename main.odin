@@ -89,16 +89,15 @@ main :: proc() {
     log.info("Initiating swag mode...")
 
     // Load user configuration
-    user_config: UserConfiguration
-    user_config.flags["borderless_fullscreen"] = false
-    user_config.flags["exclusive_fullscreen"] = false
-    user_config.flags["always_on_top"] = false
-    user_config.flags["show_imgui_demo"] = false
-    user_config.flags["show_debug_menu"] = true
-    user_config.flags["freecam_collision"] = true
-    user_config.flags["show_closest_point"] = true
-    
-    cfg := load_user_config("user.cfg")
+    // user_config: UserConfiguration
+    // user_config.flags["borderless_fullscreen"] = false
+    // user_config.flags["exclusive_fullscreen"] = false
+    // user_config.flags["always_on_top"] = false
+    // user_config.flags["show_imgui_demo"] = false
+    // user_config.flags["show_debug_menu"] = true
+    // user_config.flags["freecam_collision"] = true
+    // user_config.flags["show_closest_point"] = true
+    user_config := load_user_config("user.cfg")
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})

@@ -49,19 +49,38 @@ load_user_config :: proc(filename: string) -> UserConfiguration {
     if !ok {
         log.error("Unable to read entire config file.")
     }
+    
+    u: UserConfiguration
 
     sc: scanner.Scanner
     scanner.init(&sc, string(file_text))
     log.debugf("Using scanner: %#v", sc)
-    tok := scanner.scan(&sc)
-    for tok != scanner.EOF {
-        st := scanner.token_text(&sc)
-        log.debugf("my string is : %v", st)
-        tok = scanner.scan(&sc)
+    
+    // Consume tokens in groups of three
+    // key, =, value
+    key_tok := scanner.scan(&sc)
+    key_str := scanner.token_text(&sc)
+    for key_tok != scanner.EOF {
+        scanner.scan(&sc)
+        eq_tok := scanner.token_text(&sc)
+        if eq_tok != "=" {
+            log.errorf("Expected '=', found %v", eq_tok)
+        }
+
+        scanner.scan(&sc)
+        val_tok := scanner.token_text(&sc)
+        if val_tok == "true" do u.flags[key_str] = true
+        else if val_tok == "false" do u.flags[key_str] = false
+        else {
+
+        }
+
+
+        key_tok = scanner.scan(&sc)
+        key_str = scanner.token_text(&sc)
     }
 
 
-    u: UserConfiguration
 
     return u
 }
