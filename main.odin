@@ -201,7 +201,7 @@ main :: proc() {
     {
         positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
         defer delete(positions)
-        scale := uniform_scaling_matrix(200.0)
+        scale := uniform_scaling_matrix(300.0)
         rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
         trans := translation_matrix({150.0, 200.0, 300.0})
         mat := trans * rot * scale
@@ -471,7 +471,11 @@ main :: proc() {
             }
         }
 
-        if user_config.flags["show_closest_point"] {
+        show_closest_point, okc := user_config.flags["show_closest_point"]
+        if !okc {
+            log.error("Noo")
+        }
+        if show_closest_point {
             for prim in moon_mesh.primitives {
                 scale : f32 = 0.1
                 draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {

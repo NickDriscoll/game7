@@ -45,7 +45,10 @@ save_default_user_config :: proc(filename: string) {
 }
 
 load_user_config :: proc(filename: string) -> UserConfiguration {
-    file_text, ok := os.read_entire_file(filename, allocator = context.temp_allocator)
+    // @TODO: Figure out why this string can't seem to be allocated with temp memory
+
+    file_text, ok := os.read_entire_file(filename)
+    //file_text, ok := os.read_entire_file(filename, allocator = context.temp_allocator)
     if !ok {
         log.error("Unable to read entire config file.")
     }
@@ -60,6 +63,7 @@ load_user_config :: proc(filename: string) -> UserConfiguration {
     // key, =, value
     key_tok := scanner.scan(&sc)
     key_str := scanner.token_text(&sc)
+    //key_str := strings.clone(scanner.token_text(&sc), allocator = context.allocator)
     for key_tok != scanner.EOF {
         scanner.scan(&sc)
         eq_tok := scanner.token_text(&sc)
