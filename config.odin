@@ -4,20 +4,26 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:text/scanner"
+import "core:strconv"
 import "core:strings"
 
 UserConfiguration :: struct {
     flags: map[string]bool,
-    // borderless_fullscreen: bool,
-    // exclusive_fullscreen: bool,
-    // always_on_top: bool,
-    // show_imgui_demo: bool,
-    // show_debug_menu: bool,
+    ints: map[string]i64,
+    floats: map[string]f64,
+
+
+    _interner: strings.Intern,
 }
 
 init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     cfg: UserConfiguration
     cfg.flags = make(map[string]bool, allocator = allocator)
+
+    err := strings.intern_init(&cfg._interner)
+    if err != nil {
+        log.errorf("Error initializing string interner: %v", err)
+    }
 
     return cfg
 }
@@ -33,6 +39,7 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
     strings.builder_init(&sb, allocator = context.temp_allocator)
     defer strings.builder_destroy(&sb)
 
+    // Saving flags
     for key, val in config.flags {
         st := fmt.sbprintfln(&sb, "%v = %v", key, val)
         os.write_string(save_file, st)
@@ -44,16 +51,10 @@ save_default_user_config :: proc(filename: string) {
     
 }
 
-load_user_config :: proc(filename: string) -> UserConfiguration {
-    // @TODO: Figure out why this string can't seem to be allocated with temp memory
+load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
+    file_text := os.read_entire_file(filename, allocator = context.temp_allocator) or_return
 
-    file_text, ok := os.read_entire_file(filename)
-    //file_text, ok := os.read_entire_file(filename, allocator = context.temp_allocator)
-    if !ok {
-        log.error("Unable to read entire config file.")
-    }
-    
-    u: UserConfiguration
+    u := init_user_config()
 
     sc: scanner.Scanner
     scanner.init(&sc, string(file_text))
@@ -63,8 +64,13 @@ load_user_config :: proc(filename: string) -> UserConfiguration {
     // key, =, value
     key_tok := scanner.scan(&sc)
     key_str := scanner.token_text(&sc)
-    //key_str := strings.clone(scanner.token_text(&sc), allocator = context.allocator)
     for key_tok != scanner.EOF {
+        // Put the key in the internerator
+        interned_key, err := strings.intern_get(&u._interner, key_str)
+        if err != nil {
+            log.errorf("Error interning key: %v", err)
+        }
+
         scanner.scan(&sc)
         eq_tok := scanner.token_text(&sc)
         if eq_tok != "=" {
@@ -73,18 +79,15 @@ load_user_config :: proc(filename: string) -> UserConfiguration {
 
         scanner.scan(&sc)
         val_tok := scanner.token_text(&sc)
-        if val_tok == "true" do u.flags[key_str] = true
-        else if val_tok == "false" do u.flags[key_str] = false
-        else {
-
-        }
+        if val_tok == "true"                            do u.flags[interned_key] = true
+        else if val_tok == "false"                      do u.flags[interned_key] = false
+        else if strings.contains(val_tok, ".")          do u.floats[interned_key] = strconv.atof(val_tok)
+        else                                            do u.ints[interned_key] = i64(strconv.atoi(val_tok))
 
 
         key_tok = scanner.scan(&sc)
         key_str = scanner.token_text(&sc)
     }
 
-
-
-    return u
+    return u, true
 }
