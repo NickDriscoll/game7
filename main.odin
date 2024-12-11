@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
@@ -22,7 +23,9 @@ import hm "desktop_vulkan_wrapper/handlemap"
 
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
-DEFAULT_RESOLUTION : hlsl.uint2 : {1920, 1080}
+DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
+
+TEMP_ARENA_SIZE :: 64 * 1024            //Guessing 64KB necessary size for per-frame allocations
 
 IDENTITY_MATRIX :: hlsl.float4x4 {
     1.0, 0.0, 0.0, 0.0,
@@ -84,20 +87,29 @@ main :: proc() {
         }
     }
     
-    // Set up Odin context
+    // Set up logger
     context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
 
+    // Set up memory allocators
+    per_frame_arena: mem.Arena
+    {
+        context.allocator = runtime.heap_allocator()
+
+        backing_memory, err := mem.alloc_bytes(TEMP_ARENA_SIZE)
+        if err != nil {
+            log.error("Error allocating temporary memory backing buffer.")
+        }
+
+        mem.arena_init(&per_frame_arena, backing_memory)
+        context.temp_allocator = mem.arena_allocator(&per_frame_arena)
+    }
+
     // Load user configuration
-    // user_config: UserConfiguration
-    // user_config.flags["borderless_fullscreen"] = false
-    // user_config.flags["exclusive_fullscreen"] = false
-    // user_config.flags["always_on_top"] = false
-    // user_config.flags["show_imgui_demo"] = false
-    // user_config.flags["show_debug_menu"] = true
-    // user_config.flags["freecam_collision"] = true
-    // user_config.flags["show_closest_point"] = true
-    user_config := load_user_config("user.cfg")
+    user_config, config_ok := load_user_config("user.cfg")
+    if !config_ok {
+        log.error("Failed to load config file")
+    }
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -137,6 +149,11 @@ main :: proc() {
 
     resolution := DEFAULT_RESOLUTION
     if user_config.flags["exclusive_fullscreen"] || user_config.flags["borderless_fullscreen"] do resolution = display_resolution
+    if "window_width" in user_config.ints && "window_height" in user_config.ints {
+        x := user_config.ints["window_width"]
+        y := user_config.ints["window_height"]
+        resolution = {u32(x), u32(y)}
+    }
 
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
     if user_config.flags["exclusive_fullscreen"] {
@@ -146,7 +163,14 @@ main :: proc() {
         sdl_windowflags += {.BORDERLESS}
     }
 
-    sdl_window := sdl2.CreateWindow(TITLE_WITHOUT_IMGUI, sdl2.WINDOWPOS_CENTERED, sdl2.WINDOWPOS_CENTERED, i32(resolution.x), i32(resolution.y), sdl_windowflags)
+    sdl_window := sdl2.CreateWindow(
+        TITLE_WITHOUT_IMGUI,
+        sdl2.WINDOWPOS_CENTERED,
+        sdl2.WINDOWPOS_CENTERED,
+        i32(resolution.x),
+        i32(resolution.y),
+        sdl_windowflags
+    )
     defer sdl2.DestroyWindow(sdl_window)
     sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
 
@@ -200,10 +224,9 @@ main :: proc() {
     
     {
         positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
-        defer delete(positions)
         scale := uniform_scaling_matrix(300.0)
         rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
-        trans := translation_matrix({150.0, 200.0, 300.0})
+        trans := translation_matrix({350.0, 400.0, 500.0})
         mat := trans * rot * scale
         collision := static_triangle_mesh(positions[:], mat)
         append(&game_state.terrain_pieces, TerrainPiece {
@@ -723,6 +746,8 @@ main :: proc() {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
                 resize_framebuffers(&vgd, &render_data, resolution)
                 viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
+                user_config.ints["window_width"] = i64(resolution.x)
+                user_config.ints["window_height"] = i64(resolution.y)
 
                 vgd.resize_window = false
             }
