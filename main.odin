@@ -163,10 +163,19 @@ main :: proc() {
         sdl_windowflags += {.BORDERLESS}
     }
 
+    window_x, window_y: i32
+    if "window_x" in user_config.ints && "window_y" in user_config.ints {
+        window_x = i32(user_config.ints["window_x"])
+        window_y = i32(user_config.ints["window_y"])
+    } else {
+        user_config.ints["window_x"] = i64(sdl2.WINDOWPOS_CENTERED)
+        user_config.ints["window_y"] = i64(sdl2.WINDOWPOS_CENTERED)
+    }
+
     sdl_window := sdl2.CreateWindow(
         TITLE_WITHOUT_IMGUI,
-        sdl2.WINDOWPOS_CENTERED,
-        sdl2.WINDOWPOS_CENTERED,
+        window_x,
+        window_y,
         i32(resolution.x),
         i32(resolution.y),
         sdl_windowflags
@@ -308,6 +317,10 @@ main :: proc() {
                                 io.DisplaySize.y = f32(new_y)
 
                                 vgd.resize_window = true
+                            }
+                            case .MOVED: {
+                                user_config.ints["window_x"] = i64(event.window.data1)
+                                user_config.ints["window_y"] = i64(event.window.data2)
                             }
                             case .MINIMIZED: window_minimized = true
                             case .FOCUS_GAINED: window_minimized = false
