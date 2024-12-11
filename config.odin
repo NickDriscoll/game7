@@ -45,6 +45,20 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
+
+    // Saving ints
+    for key, val in config.ints {
+        st := fmt.sbprintfln(&sb, "%v = %v", key, val)
+        os.write_string(save_file, st)
+        strings.builder_reset(&sb)
+    }
+
+    // Saving floats
+    for key, val in config.floats {
+        st := fmt.sbprintfln(&sb, "%v = %v", key, val)
+        os.write_string(save_file, st)
+        strings.builder_reset(&sb)
+    }
 }
 
 save_default_user_config :: proc(filename: string) {
