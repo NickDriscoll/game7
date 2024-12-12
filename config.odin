@@ -62,7 +62,33 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
 }
 
 save_default_user_config :: proc(filename: string) {
-    
+    // show_debug_menu = true
+    // show_closest_point = false
+    // freecam_collision = true
+    // exclusive_fullscreen = false
+    // borderless_fullscreen = false
+    // always_on_top = true
+    // show_imgui_demo = false
+    // window_height = 1019
+    // window_width = 1386
+    // _width = 1317
+    // window_x = 35
+    // window_y = 323
+
+    out_file, err := os.open(filename, os.O_WRONLY | os.O_CREATE)
+    if err != nil {
+        log.errorf("Error opening default user config file: %v", err)
+    }
+
+    // Write defaults to file
+    os.write_string(out_file, "show_debug_menu = false\n")
+    os.write_string(out_file, "show_closest_point = false\n")
+    os.write_string(out_file, "freecam_collision = true\n")
+    os.write_string(out_file, "exclusive_fullscreen = false\n")
+    os.write_string(out_file, "borderless_fullscreen = false\n")
+    os.write_string(out_file, "always_on_top = false\n")
+    os.write_string(out_file, "show_imgui_demo = false\n")
+
 }
 
 load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {

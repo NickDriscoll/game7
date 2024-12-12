@@ -21,6 +21,7 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import hm "desktop_vulkan_wrapper/handlemap"
 
+USER_CONFIG_FILE :: "user.cfg"
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
@@ -106,9 +107,16 @@ main :: proc() {
     }
 
     // Load user configuration
-    user_config, config_ok := load_user_config("user.cfg")
+    user_config, config_ok := load_user_config(USER_CONFIG_FILE)
     if !config_ok {
-        log.error("Failed to load config file")
+        log.warn("Failed to load config file. Generating default config.")
+        save_default_user_config(USER_CONFIG_FILE)
+
+        ok2: bool
+        user_config, ok2 = load_user_config(USER_CONFIG_FILE)
+        if !ok2 {
+            log.error("Failed to load freshly generated default config file.")
+        }
     }
 
     // Initialize SDL2
@@ -163,7 +171,8 @@ main :: proc() {
         sdl_windowflags += {.BORDERLESS}
     }
 
-    window_x, window_y: i32
+    window_x : i32 = sdl2.WINDOWPOS_CENTERED
+    window_y : i32 = sdl2.WINDOWPOS_CENTERED
     if "window_x" in user_config.ints && "window_y" in user_config.ints {
         window_x = i32(user_config.ints["window_x"])
         window_y = i32(user_config.ints["window_y"])
@@ -507,11 +516,7 @@ main :: proc() {
             }
         }
 
-        show_closest_point, okc := user_config.flags["show_closest_point"]
-        if !okc {
-            log.error("Noo")
-        }
-        if show_closest_point {
+        if user_config.flags["show_closest_point"] {
             for prim in moon_mesh.primitives {
                 scale : f32 = 0.1
                 draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
