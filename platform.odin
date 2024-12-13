@@ -11,9 +11,6 @@ create_write_file :: proc(filename: string) -> (os.Handle, os.Error) {
             filename,
             os.O_WRONLY | os.O_CREATE
         )
-        if err != nil {
-            return h, err
-        }
     }
     when ODIN_OS == .Linux {
         h, err = os.open(
@@ -21,10 +18,7 @@ create_write_file :: proc(filename: string) -> (os.Handle, os.Error) {
             os.O_WRONLY | os.O_CREATE,
             os.S_IRUSR | os.S_IWUSR
         )
-        if err != nil {
-            return h, err
-        }
     }
 
-    return h, nil
+    return h, err
 }
