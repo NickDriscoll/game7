@@ -7,9 +7,12 @@ import "vendor:sdl2"
 
 import imgui "odin-imgui"
 
-ApplicationVerb :: enum {
+VerbType :: enum {
     Quit,
+    MoveWindow,
     ResizeWindow,
+    MinimizeWindow,
+    FocusWindow,
     ToggleImgui,
     TranslateFreecamLeft,
     TranslateFreecamRight,
@@ -19,40 +22,27 @@ ApplicationVerb :: enum {
     TranslateFreecamUp,
 }
 
-BooleanVerb :: struct {
-    type: ApplicationVerb
-}
-
-IntegerVerb :: struct {
-    type: ApplicationVerb,
-    value: i64
-}
-
-FloatVerb :: struct {
-    type: ApplicationVerb,
-    value: f32
-}
-
-Float2Verb :: struct {
-    type: ApplicationVerb,
-    value: [2]f32
+AppVerb :: struct($ValueType: typeid) {
+    type: VerbType,
+    value: ValueType
 }
 
 InputState :: struct {
-    key_mappings: map[sdl2.Scancode]ApplicationVerb
+    key_mappings: map[sdl2.Scancode]VerbType
 }
 
 // Per-frame representation of what actions the
 // user wants to perform this frame
 OutputVerbs :: struct {
-    bools: [dynamic]BooleanVerb,
-    ints: [dynamic]IntegerVerb,
-    floats: [dynamic]FloatVerb,
-    float2s: [dynamic]Float2Verb,
+    bools: [dynamic]AppVerb(bool),
+    ints: [dynamic]AppVerb(i64),
+    int2s: [dynamic]AppVerb([2]i64),
+    floats: [dynamic]AppVerb(f32),
+    float2s: [dynamic]AppVerb([2]f32),
 }
 
 init_input_state :: proc() -> InputState {
-    key_mappings, err := make(map[sdl2.Scancode]ApplicationVerb, 64)
+    key_mappings, err := make(map[sdl2.Scancode]VerbType, 64)
     if err != nil {
         log.errorf("Error making key map: %v", err)
     }
@@ -76,10 +66,11 @@ pump_sdl2_events :: proc(
 ) -> OutputVerbs {
     
     outputs: OutputVerbs
-    outputs.bools = make([dynamic]BooleanVerb, 16, allocator)
-    outputs.ints = make([dynamic]IntegerVerb, 16, allocator)
-    outputs.floats = make([dynamic]FloatVerb, 16, allocator)
-    outputs.float2s = make([dynamic]Float2Verb, 16, allocator)
+    outputs.bools = make([dynamic]AppVerb(bool), 16, allocator)
+    outputs.ints = make([dynamic]AppVerb(i64), 16, allocator)
+    outputs.int2s = make([dynamic]AppVerb([2]i64), 16, allocator)
+    outputs.floats = make([dynamic]AppVerb(f32), 16, allocator)
+    outputs.float2s = make([dynamic]AppVerb([2]f32), 16, allocator)
 
     //using viewport_camera
 
@@ -90,30 +81,46 @@ pump_sdl2_events :: proc(
     for sdl2.PollEvent(&event) {
         #partial switch event.type {
             case .QUIT: {
-                append(&outputs.bools, BooleanVerb {
-                    type = .Quit
+                append(&outputs.bools, AppVerb(bool) {
+                    type = .Quit,
+                    value = true
                 })
             }
             case .WINDOWEVENT: {
                 #partial switch (event.window.event) {
                     case .RESIZED: {
-                        new_x := event.window.data1
-                        new_y := event.window.data2
-
-                        resolution.x = u32(new_x)
-                        resolution.y = u32(new_y)
-
-                        io.DisplaySize.x = f32(new_x)
-                        io.DisplaySize.y = f32(new_y)
-
-                        vgd.resize_window = true
+                        append(&outputs.int2s, AppVerb([2]i64) {
+                            type = .ResizeWindow,
+                            value = {
+                                i64(event.window.data1),
+                                i64(event.window.data2)
+                            }
+                        })
                     }
                     case .MOVED: {
-                        user_config.ints["window_x"] = i64(event.window.data1)
-                        user_config.ints["window_y"] = i64(event.window.data2)
+                        append(&outputs.int2s, AppVerb([2]i64) {
+                            type = .MoveWindow,
+                            value = {i64(event.window.data1), i64(event.window.data2)}
+                        })
                     }
-                    case .MINIMIZED: window_minimized = true
-                    case .FOCUS_GAINED: window_minimized = false
+                    // case .RESIZED: {
+                    //     new_x := event.window.data1
+                    //     new_y := event.window.data2
+
+                    //     resolution.x = u32(new_x)
+                    //     resolution.y = u32(new_y)
+
+                    //     io.DisplaySize.x = f32(new_x)
+                    //     io.DisplaySize.y = f32(new_y)
+
+                    //     vgd.resize_window = true
+                    // }
+                    // case .MOVED: {
+                    //     user_config.ints["window_x"] = i64(event.window.data1)
+                    //     user_config.ints["window_y"] = i64(event.window.data2)
+                    // }
+                    // case .MINIMIZED: window_minimized = true
+                    // case .FOCUS_GAINED: window_minimized = false
                 }
             }
             case .TEXTINPUT: {
@@ -123,7 +130,7 @@ pump_sdl2_events :: proc(
                 }
             }
             case .KEYDOWN: {
-                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if imgui_wants_keyboard do continue
@@ -153,7 +160,7 @@ pump_sdl2_events :: proc(
                 // }
             }
             case .KEYUP: {
-                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
                 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
@@ -233,4 +240,6 @@ pump_sdl2_events :: proc(
             }
         }
     }
+
+    return outputs
 }
