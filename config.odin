@@ -29,7 +29,11 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
-    save_file, err := os.open(filename, os.O_WRONLY | os.O_CREATE)
+    save_file, err := os.open(
+        filename,
+        os.O_WRONLY | os.O_CREATE,
+        os.S_IRUSR | os.S_IWUSR
+    )
     defer os.close(save_file)
     if err != nil {
         log.errorf("Error opening \"%v\" for saving: %v", filename, err)
@@ -75,7 +79,12 @@ save_default_user_config :: proc(filename: string) {
     // window_x = 35
     // window_y = 323
 
-    out_file, err := os.open(filename, os.O_WRONLY | os.O_CREATE)
+    out_file, err := os.open(
+        filename,
+        os.O_WRONLY | os.O_CREATE,
+        os.S_IRUSR | os.S_IWUSR
+    )
+    defer os.close(out_file)
     if err != nil {
         log.errorf("Error opening default user config file: %v", err)
     }
