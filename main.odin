@@ -381,6 +381,10 @@ main :: proc() {
                         resolution.y = u32(verb.value.y)
                         vgd.resize_window = true
                     }
+                    case .MoveWindow: {
+                        user_config.ints["window_x"] = i64(verb.value.x)
+                        user_config.ints["window_y"] = i64(verb.value.y)
+                    }
                 }
             }
         }
@@ -488,6 +492,9 @@ main :: proc() {
                     if imgui.MenuItem("Save As") {
                         
                     }
+                    if imgui.MenuItem("Save user config") {
+                        save_user_config(&user_config, "user.cfg")
+                    }
                     if imgui.MenuItem("Exit") do do_main_loop = false
 
                     imgui.EndMenu()
@@ -508,6 +515,9 @@ main :: proc() {
                     if imgui.MenuItem("Borderless Fullscreen", selected = user_config.flags["borderless_fullscreen"]) {
                         user_config.flags["borderless_fullscreen"] = !user_config.flags["borderless_fullscreen"]
                         user_config.flags["exclusive_fullscreen"] = false
+                        
+                        user_config.ints["window_x"] = 0
+                        user_config.ints["window_y"] = 0
 
                         xpos, ypos: c.int
                         if user_config.flags["borderless_fullscreen"] {
@@ -532,6 +542,9 @@ main :: proc() {
                     if imgui.MenuItem("Exclusive Fullscreen", selected = user_config.flags["exclusive_fullscreen"]) {
                         user_config.flags["exclusive_fullscreen"] = !user_config.flags["exclusive_fullscreen"]
                         user_config.flags["borderless_fullscreen"] = false
+                        
+                        user_config.ints["window_x"] = 0
+                        user_config.ints["window_y"] = 0
 
                         flags : sdl2.WindowFlags = nil
                         resolution = DEFAULT_RESOLUTION
@@ -615,9 +628,6 @@ main :: proc() {
                             "Enabling this setting forces the main thread " +
                             "to sleep for 100 milliseconds at the end of the main loop"
                         )
-                        if imgui.Button("Save user config") {
-                            save_user_config(&user_config, "user.cfg")
-                        }
                         
                         imgui.Separator()
     
