@@ -20,6 +20,8 @@ VerbType :: enum {
     TranslateFreecamBack,
     TranslateFreecamDown,
     TranslateFreecamUp,
+    Sprint,
+    Crawl,
 }
 
 AppVerb :: struct($ValueType: typeid) {
@@ -51,6 +53,12 @@ init_input_state :: proc() -> InputState {
     key_mappings[.ESCAPE] = .ToggleImgui
     key_mappings[.W] = .TranslateFreecamForward
     key_mappings[.S] = .TranslateFreecamBack
+    key_mappings[.A] = .TranslateFreecamLeft
+    key_mappings[.D] = .TranslateFreecamRight
+    key_mappings[.Q] = .TranslateFreecamDown
+    key_mappings[.E] = .TranslateFreecamUp
+    key_mappings[.LSHIFT] = .Sprint
+    key_mappings[.LCTRL] = .Crawl
 
     return InputState {
         key_mappings = key_mappings
@@ -66,11 +74,11 @@ pump_sdl2_events :: proc(
 ) -> OutputVerbs {
     
     outputs: OutputVerbs
-    outputs.bools = make([dynamic]AppVerb(bool), 16, allocator)
-    outputs.ints = make([dynamic]AppVerb(i64), 16, allocator)
-    outputs.int2s = make([dynamic]AppVerb([2]i64), 16, allocator)
-    outputs.floats = make([dynamic]AppVerb(f32), 16, allocator)
-    outputs.float2s = make([dynamic]AppVerb([2]f32), 16, allocator)
+    outputs.bools = make([dynamic]AppVerb(bool), 0, 16, allocator)
+    outputs.ints = make([dynamic]AppVerb(i64), 0, 16, allocator)
+    outputs.int2s = make([dynamic]AppVerb([2]i64), 0, 16, allocator)
+    outputs.floats = make([dynamic]AppVerb(f32), 0, 16, allocator)
+    outputs.float2s = make([dynamic]AppVerb([2]f32), 0, 16, allocator)
 
     //using viewport_camera
 
@@ -101,6 +109,12 @@ pump_sdl2_events :: proc(
                         append(&outputs.int2s, AppVerb([2]i64) {
                             type = .MoveWindow,
                             value = {i64(event.window.data1), i64(event.window.data2)}
+                        })
+                    }
+                    case .MAXIMIZED: {
+                        append(&outputs.bools, AppVerb(bool) {
+                            type = .FocusWindow,
+                            value = true
                         })
                     }
                     // case .RESIZED: {
@@ -135,9 +149,12 @@ pump_sdl2_events :: proc(
                 // Do nothing if Dear ImGUI wants keyboard input
                 if imgui_wants_keyboard do continue
 
-                verb, found := key_mappings[event.key.keysym.scancode]
+                verbtype, found := key_mappings[event.key.keysym.scancode]
                 if found {
-
+                    append(&outputs.bools, AppVerb(bool) {
+                        type = verbtype,
+                        value = true
+                    })
                 }
 
                 // #partial switch event.key.keysym.sym {
@@ -164,6 +181,14 @@ pump_sdl2_events :: proc(
                 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
+
+                verbtype, found := key_mappings[event.key.keysym.scancode]
+                if found {
+                    append(&outputs.bools, AppVerb(bool) {
+                        type = verbtype,
+                        value = false
+                    })
+                }
 
                 // #partial switch event.key.keysym.sym {
                 //     case .W: control_flags -= {.MoveForward}

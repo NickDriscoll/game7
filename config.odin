@@ -29,15 +29,11 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
-    save_file, err := os.open(
-        filename,
-        os.O_WRONLY | os.O_CREATE,
-        os.S_IRUSR | os.S_IWUSR
-    )
-    defer os.close(save_file)
+    save_file, err := create_write_file(filename)
     if err != nil {
         log.errorf("Error opening \"%v\" for saving: %v", filename, err)
     }
+    defer os.close(save_file)
 
     sb: strings.Builder
     strings.builder_init(&sb, allocator = context.temp_allocator)
@@ -66,28 +62,11 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
 }
 
 save_default_user_config :: proc(filename: string) {
-    // show_debug_menu = true
-    // show_closest_point = false
-    // freecam_collision = true
-    // exclusive_fullscreen = false
-    // borderless_fullscreen = false
-    // always_on_top = true
-    // show_imgui_demo = false
-    // window_height = 1019
-    // window_width = 1386
-    // _width = 1317
-    // window_x = 35
-    // window_y = 323
-
-    out_file, err := os.open(
-        filename,
-        os.O_WRONLY | os.O_CREATE,
-        os.S_IRUSR | os.S_IWUSR
-    )
-    defer os.close(out_file)
+    out_file, err := create_write_file(filename)
     if err != nil {
         log.errorf("Error opening default user config file: %v", err)
     }
+    defer os.close(out_file)
 
     // Write defaults to file
     os.write_string(out_file, "show_debug_menu = false\n")

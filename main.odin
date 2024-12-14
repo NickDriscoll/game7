@@ -265,7 +265,8 @@ main :: proc() {
         fov_radians = math.PI / 2.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
-        farplane = 1_000_000_000.0
+        farplane = 1_000_000_000.0,
+        control_flags = nil
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
 
@@ -303,11 +304,11 @@ main :: proc() {
         last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
 
+        camera_rotation: hlsl.float2 = {0.0, 0.0}
         // Process system events
+        // io := imgui.GetIO()
         // {
         //     using viewport_camera
-            
-        //     io := imgui.GetIO()
         //     io.DeltaTime = last_frame_duration
         //     imgui.NewFrame()
 
@@ -344,7 +345,7 @@ main :: proc() {
         //                 }
         //             }
         //             case .KEYDOWN: {
-        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), true)
+        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
 
         //                 // Do nothing if Dear ImGUI wants keyboard input
         //                 if io.WantCaptureKeyboard do continue
@@ -365,7 +366,7 @@ main :: proc() {
         //                 }
         //             }
         //             case .KEYUP: {
-        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.sym), false)
+        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
                         
         //                 // Do nothing if Dear ImGUI wants keyboard input
         //                 if io.WantCaptureKeyboard do continue
@@ -449,8 +450,7 @@ main :: proc() {
         io := imgui.GetIO()
         output_verbs := pump_sdl2_events(&input_state, io.WantCaptureKeyboard, io.WantCaptureMouse)
         
-        // Process the output verbs
-        camera_rotation: hlsl.float2 = {0.0, 0.0}
+        // Process the app verbs that the input system returned to the game
         {
             for verb in output_verbs.bools {
                 #partial switch verb.type {
@@ -459,7 +459,36 @@ main :: proc() {
                     case .MinimizeWindow: window_minimized = true
                     case .ToggleImgui: imgui_state.show_gui = !imgui_state.show_gui
                     case .TranslateFreecamBack: {
-                        
+                        if verb.value do viewport_camera.control_flags += {.MoveBackward}
+                        else do viewport_camera.control_flags -= {.MoveBackward}
+                    }
+                    case .TranslateFreecamForward: {
+                        if verb.value do viewport_camera.control_flags += {.MoveForward}
+                        else do viewport_camera.control_flags -= {.MoveForward}
+                    }
+                    case .TranslateFreecamLeft: {
+                        if verb.value do viewport_camera.control_flags += {.MoveLeft}
+                        else do viewport_camera.control_flags -= {.MoveLeft}
+                    }
+                    case .TranslateFreecamRight: {
+                        if verb.value do viewport_camera.control_flags += {.MoveRight}
+                        else do viewport_camera.control_flags -= {.MoveRight}
+                    }
+                    case .TranslateFreecamDown: {
+                        if verb.value do viewport_camera.control_flags += {.MoveDown}
+                        else do viewport_camera.control_flags -= {.MoveDown}
+                    }
+                    case .TranslateFreecamUp: {
+                        if verb.value do viewport_camera.control_flags += {.MoveUp}
+                        else do viewport_camera.control_flags -= {.MoveUp}
+                    }
+                    case .Sprint: {
+                        if verb.value do viewport_camera.control_flags += {.Speed}
+                        else do viewport_camera.control_flags -= {.Speed}
+                    }
+                    case .Crawl: {
+                        if verb.value do viewport_camera.control_flags += {.Slow}
+                        else do viewport_camera.control_flags -= {.Slow}
                     }
                 }
             }
