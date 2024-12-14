@@ -121,15 +121,12 @@ main :: proc() {
 
     // Init input system
     input_state := init_input_state()
+    defer destroy_input_state(&input_state)
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
     defer sdl2.Quit()
     log.info("Initialized SDL2")
-
-    // Open game controller input
-    controller_one: ^sdl2.GameController
-    defer if controller_one != nil do sdl2.GameControllerClose(controller_one)
     
     // Use SDL2 to dynamically link against the Vulkan loader
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
@@ -305,148 +302,6 @@ main :: proc() {
         previous_time = current_time
 
         camera_rotation: hlsl.float2 = {0.0, 0.0}
-        // Process system events
-        // io := imgui.GetIO()
-        // {
-        //     using viewport_camera
-        //     io.DeltaTime = last_frame_duration
-        //     imgui.NewFrame()
-
-        //     event: sdl2.Event
-        //     for sdl2.PollEvent(&event) {
-        //         #partial switch event.type {
-        //             case .QUIT: do_main_loop = false
-        //             case .WINDOWEVENT: {
-        //                 #partial switch (event.window.event) {
-        //                     case .RESIZED: {
-        //                         new_x := event.window.data1
-        //                         new_y := event.window.data2
-
-        //                         resolution.x = u32(new_x)
-        //                         resolution.y = u32(new_y)
-
-        //                         io.DisplaySize.x = f32(new_x)
-        //                         io.DisplaySize.y = f32(new_y)
-
-        //                         vgd.resize_window = true
-        //                     }
-        //                     case .MOVED: {
-        //                         user_config.ints["window_x"] = i64(event.window.data1)
-        //                         user_config.ints["window_y"] = i64(event.window.data2)
-        //                     }
-        //                     case .MINIMIZED: window_minimized = true
-        //                     case .FOCUS_GAINED: window_minimized = false
-        //                 }
-        //             }
-        //             case .TEXTINPUT: {
-        //                 for ch in event.text.text {
-        //                     if ch == 0x00 do break
-        //                     imgui.IO_AddInputCharacter(io, c.uint(ch))
-        //                 }
-        //             }
-        //             case .KEYDOWN: {
-        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
-
-        //                 // Do nothing if Dear ImGUI wants keyboard input
-        //                 if io.WantCaptureKeyboard do continue
-
-        //                 #partial switch event.key.keysym.sym {
-        //                     case .ESCAPE: imgui_state.show_gui = !imgui_state.show_gui
-        //                     case .W: control_flags += {.MoveForward}
-        //                     case .S: control_flags += {.MoveBackward}
-        //                     case .A: control_flags += {.MoveLeft}
-        //                     case .D: control_flags += {.MoveRight}
-        //                     case .Q: control_flags += {.MoveDown}
-        //                     case .E: control_flags += {.MoveUp}
-        //                 }
-
-        //                 #partial switch event.key.keysym.scancode {
-        //                     case .LSHIFT: control_flags += {.Speed}
-        //                     case .LCTRL: control_flags += {.Slow}
-        //                 }
-        //             }
-        //             case .KEYUP: {
-        //                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
-                        
-        //                 // Do nothing if Dear ImGUI wants keyboard input
-        //                 if io.WantCaptureKeyboard do continue
-
-        //                 #partial switch event.key.keysym.sym {
-        //                     case .W: control_flags -= {.MoveForward}
-        //                     case .S: control_flags -= {.MoveBackward}
-        //                     case .A: control_flags -= {.MoveLeft}
-        //                     case .D: control_flags -= {.MoveRight}
-        //                     case .Q: control_flags -= {.MoveDown}
-        //                     case .E: control_flags -= {.MoveUp}
-        //                 }
-
-        //                 #partial switch event.key.keysym.scancode {
-        //                     case .LSHIFT: control_flags -= {.Speed}
-        //                     case .LCTRL: control_flags -= {.Slow}
-        //                 }
-        //             }
-        //             case .MOUSEBUTTONDOWN: {
-        //                 switch event.button.button {
-        //                     case sdl2.BUTTON_LEFT: {
-        //                     }
-        //                     case sdl2.BUTTON_RIGHT: {
-        //                         // Do nothing if Dear ImGUI wants mouse input
-        //                         if io.WantCaptureMouse do continue
-
-        //                         // The ~ is "symmetric difference" for bit_sets
-        //                         // Basically like XOR
-        //                         control_flags ~= {.MouseLook}
-        //                         mlook := .MouseLook in control_flags
-
-        //                         sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
-        //                         if mlook {
-        //                             saved_mouse_coords.x = event.button.x
-        //                             saved_mouse_coords.y = event.button.y
-        //                         } else {
-        //                             sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
-        //                         }
-        //                     }
-        //                 }
-        //                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
-        //             }
-        //             case .MOUSEBUTTONUP: {
-        //                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
-        //             }
-        //             case .MOUSEMOTION: {
-        //                 camera_rotation.x += f32(event.motion.xrel)
-        //                 camera_rotation.y += f32(event.motion.yrel)
-        //                 if .MouseLook not_in control_flags {
-        //                     imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
-        //                 }
-        //             }
-        //             case .MOUSEWHEEL: {
-        //                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
-        //             }
-        //             case .CONTROLLERDEVICEADDED: {
-        //                 controller_idx := event.cdevice.which
-        //                 controller_one = sdl2.GameControllerOpen(controller_idx)
-        //                 log.debugf("Controller %v connected.", controller_idx)
-        //             }
-        //             case .CONTROLLERDEVICEREMOVED: {
-        //                 controller_idx := event.cdevice.which
-        //                 if controller_idx == 0 {
-        //                     sdl2.GameControllerClose(controller_one)
-        //                     controller_one = nil
-        //                 }
-        //                 log.debugf("Controller %v removed.", controller_idx)
-        //             }
-        //             case .CONTROLLERBUTTONDOWN: {
-        //                 fmt.println(sdl2.GameControllerGetStringForButton(sdl2.GameControllerButton(event.cbutton.button)))
-        //                 if sdl2.GameControllerRumble(controller_one, 0xFFFF, 0xFFFF, 500) != 0 {
-        //                     log.error("Rumble not supported!")
-        //                 }
-        //             }
-        //             case: {
-        //                 log.debugf("Unhandled event: %v", event.type)
-        //             }
-        //         }
-        //     }
-        // }
         io := imgui.GetIO()
         output_verbs := pump_sdl2_events(&input_state, io.WantCaptureKeyboard, io.WantCaptureMouse)
         
@@ -457,7 +312,9 @@ main :: proc() {
                     case .Quit: do_main_loop = false
                     case .FocusWindow: window_minimized = false
                     case .MinimizeWindow: window_minimized = true
-                    case .ToggleImgui: imgui_state.show_gui = !imgui_state.show_gui
+                    case .ToggleImgui: {
+                        if verb.value do imgui_state.show_gui = !imgui_state.show_gui
+                    }
                     case .TranslateFreecamBack: {
                         if verb.value do viewport_camera.control_flags += {.MoveBackward}
                         else do viewport_camera.control_flags -= {.MoveBackward}
@@ -489,6 +346,40 @@ main :: proc() {
                     case .Crawl: {
                         if verb.value do viewport_camera.control_flags += {.Slow}
                         else do viewport_camera.control_flags -= {.Slow}
+                    }
+                }
+            }
+
+            for verb in output_verbs.int2s {
+                #partial switch verb.type {
+                    case .ToggleMouseLook: {
+                        mlook := !(.MouseLook in viewport_camera.control_flags)
+                        
+                        // Do nothing if Dear ImGUI wants mouse input
+                        if mlook && io.WantCaptureMouse do continue
+
+                        sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
+                        if mlook {
+                            saved_mouse_coords.x = i32(verb.value.x)
+                            saved_mouse_coords.y = i32(verb.value.y)
+                        } else {
+                            sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                        }
+                        
+                        // The ~ is "symmetric difference" for bit_sets
+                        // Basically like XOR
+                        viewport_camera.control_flags ~= {.MouseLook}
+                    }
+                    case .MouseMotion: {
+                        if .MouseLook in viewport_camera.control_flags {
+                            camera_rotation = {f32(verb.value.x), f32(verb.value.y)}
+                            sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                        }
+                    }
+                    case .ResizeWindow: {
+                        resolution.x = u32(verb.value.x)
+                        resolution.y = u32(verb.value.y)
+                        vgd.resize_window = true
                     }
                 }
             }
@@ -815,6 +706,8 @@ main :: proc() {
                 viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
                 user_config.ints["window_width"] = i64(resolution.x)
                 user_config.ints["window_height"] = i64(resolution.y)
+                io.DisplaySize.x = f32(resolution.x)
+                io.DisplaySize.y = f32(resolution.y)
 
                 vgd.resize_window = false
             }
