@@ -557,7 +557,7 @@ draw_ps1_primitive :: proc(
     using r: ^RenderingState,
     mesh_handle: Mesh_Handle,
     material_handle: Material_Handle,
-    draw_data: DrawData
+    draw_data: ^DrawData
 ) -> bool {
     dirty_flags += {.Instance,.Draw}
 
