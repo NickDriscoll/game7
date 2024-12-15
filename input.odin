@@ -2,26 +2,39 @@ package main
 
 import "core:c"
 import "core:log"
+import "core:math"
 
 import "vendor:sdl2"
 
 import imgui "odin-imgui"
 
+AXIS_DEADZONE :: 0.1
+
 VerbType :: enum {
     Quit,
+
     MoveWindow,
     ResizeWindow,
     MinimizeWindow,
     FocusWindow,
+    
     MouseMotion,
+
     ToggleImgui,
     ToggleMouseLook,
+
     TranslateFreecamLeft,
     TranslateFreecamRight,
     TranslateFreecamForward,
     TranslateFreecamBack,
     TranslateFreecamDown,
     TranslateFreecamUp,
+
+    TranslateFreecamX,
+    TranslateFreecamY,
+    RotateFreecamX,
+    RotateFreecamY,
+
     Sprint,
     Crawl,
 }
@@ -34,7 +47,13 @@ AppVerb :: struct($ValueType: typeid) {
 InputState :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
+    button_mappings: map[sdl2.GameControllerButton]VerbType,
+    axis_mappings: map[sdl2.GameControllerAxis]VerbType,
+    reverse_axes: bit_set[sdl2.GameControllerAxis],
+    deadzone_axes: bit_set[sdl2.GameControllerAxis],
+
     controller_one: ^sdl2.GameController,
+
 }
 
 // Per-frame representation of what actions the
@@ -58,6 +77,16 @@ init_input_state :: proc() -> InputState {
         log.errorf("Error making mouse map: %v", err2)
     }
 
+    axis_mappings, err3 := make(map[sdl2.GameControllerAxis]VerbType, 64)
+    if err3 != nil {
+        log.errorf("Error making axis map: %v", err2)
+    }
+
+    button_mappings, err4 := make(map[sdl2.GameControllerButton]VerbType, 64)
+    if err4 != nil {
+        log.errorf("Error making button map: %v", err2)
+    }
+
     // Hardcoded default keybindings
     key_mappings[.ESCAPE] = .ToggleImgui
     key_mappings[.W] = .TranslateFreecamForward
@@ -72,23 +101,37 @@ init_input_state :: proc() -> InputState {
     // Hardcoded default mouse mappings
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
+    // Hardcoded axis mappings
+    axis_mappings[.LEFTX] = .TranslateFreecamX
+    axis_mappings[.LEFTY] = .TranslateFreecamY
+    axis_mappings[.RIGHTX] = .RotateFreecamX
+    axis_mappings[.RIGHTY] = .RotateFreecamY
+    axis_mappings[.TRIGGERRIGHT] = .Sprint
+
+    // Hardcoded button mappings
+    button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
+    button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+
     return InputState {
         key_mappings = key_mappings,
-        mouse_mappings = mouse_mappings
+        mouse_mappings = mouse_mappings,
+        button_mappings = button_mappings,
+        axis_mappings = axis_mappings,
+        reverse_axes = {.LEFTY},
+        deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
     }
 }
 
 destroy_input_state :: proc(using s: ^InputState) {
     delete(key_mappings)
     delete(mouse_mappings)
+    delete(axis_mappings)
     if controller_one != nil do sdl2.GameControllerClose(controller_one)
 }
 
 // Main once-per-frame input proc
-pump_sdl2_events :: proc(
+poll_sdl2_events :: proc(
     using state: ^InputState,
-    imgui_wants_keyboard: bool,
-    imgui_wants_mouse: bool,
     allocator := context.temp_allocator
 ) -> OutputVerbs {
     
@@ -99,7 +142,7 @@ pump_sdl2_events :: proc(
     outputs.floats = make([dynamic]AppVerb(f32), 0, 16, allocator)
     outputs.float2s = make([dynamic]AppVerb([2]f32), 0, 16, allocator)
 
-    //using viewport_camera
+    cam_rotation_vector : [2]f32 = {0.0, 0.0}
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
@@ -154,7 +197,7 @@ pump_sdl2_events :: proc(
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
 
                 // Do nothing if Dear ImGUI wants keyboard input
-                if imgui_wants_keyboard do continue
+                if io.WantCaptureKeyboard do continue
 
                 verbtype, found := key_mappings[event.key.keysym.scancode]
                 if found {
@@ -205,7 +248,11 @@ pump_sdl2_events :: proc(
             case .CONTROLLERDEVICEADDED: {
                 controller_idx := event.cdevice.which
                 controller_one = sdl2.GameControllerOpen(controller_idx)
-                log.debugf("Controller %v connected.", controller_idx)
+                type := sdl2.GameControllerGetType(controller_one)
+                name := sdl2.GameControllerName(controller_one)
+                led := sdl2.GameControllerHasLED(controller_one)
+                if led do sdl2.GameControllerSetLED(controller_one, 0x00, 0xFF, 0x00)
+                log.infof("%v connected (%v)", name, type)
             }
             case .CONTROLLERDEVICEREMOVED: {
                 controller_idx := event.cdevice.which
@@ -217,13 +264,27 @@ pump_sdl2_events :: proc(
             }
             case .CONTROLLERBUTTONDOWN: {
                 log.debug(sdl2.GameControllerGetStringForButton(sdl2.GameControllerButton(event.cbutton.button)))
+                
+                verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
+                if found {
+                    append(&outputs.bools, AppVerb(bool) {
+                        type = verbtype,
+                        value = true
+                    })
+                }
+
                 // if sdl2.GameControllerRumble(controller_one, 0xFFFF, 0xFFFF, 500) != 0 {
                 //     log.error("Rumble not supported!")
                 // }
             }
-            case .CONTROLLERAXISMOTION: {
-                corrected_value := f32(event.caxis.value) / sdl2.JOYSTICK_AXIS_MAX
-                log.debugf("Axis %v motion: %v", event.caxis.axis, corrected_value)
+            case .CONTROLLERBUTTONUP: {
+                verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
+                if found {
+                    append(&outputs.bools, AppVerb(bool) {
+                        type = verbtype,
+                        value = false
+                    })
+                }
             }
             case: {
                 //log.debugf("Unhandled event: %v", event.type)
@@ -231,5 +292,27 @@ pump_sdl2_events :: proc(
         }
     }
 
+    // Poll controller axes and emit appropriate verbs
+    for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
+        ax := sdl2.GameControllerAxis(i)
+        val := axis_to_f32(controller_one, ax)
+        if ax in deadzone_axes && math.abs(val) <= AXIS_DEADZONE do continue
+        if ax in reverse_axes do val *= -1.0
+
+        verbtype, found := axis_mappings[ax]
+        if found {
+            log.debugf("Emitting verb %v with value %v", verbtype, val)
+            append(&outputs.floats, AppVerb(f32) {
+                type = verbtype,
+                value = val
+            })
+        }
+    }
+
     return outputs
+}
+
+axis_to_f32 :: proc(cont: ^sdl2.GameController, axis: sdl2.GameControllerAxis) -> f32 {
+    s := sdl2.GameControllerGetAxis(cont, axis)
+    return f32(s) / sdl2.JOYSTICK_AXIS_MAX
 }

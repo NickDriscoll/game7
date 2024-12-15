@@ -51,6 +51,12 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
     delete_static_triangles(&collision)
 }
 
+TestCharacter :: struct {
+    collision: Sphere,
+    facing: hlsl.float3,
+    mesh_data: MeshData,
+}
+
 GameState :: struct {
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
@@ -275,12 +281,20 @@ main :: proc() {
         for y in 0..<ROWS {
             for x in 0..<ROWS {
                 my_prop := LooseProp {
-                    position = {f32(x) * SPACING + OFFSET, f32(y) * SPACING + OFFSET, 50.0},
+                    position = {f32(x) * SPACING + OFFSET, f32(y) * SPACING + OFFSET, 10.0},
                     scale = 1.0,
                     mesh_data = spyro_mesh
                 }
                 append(&game_state.props, my_prop)
             }
+        }
+    }
+
+    // Create test character
+    character := TestCharacter {
+        collision = {
+            origin = {0.0, 0.0, 30.0},
+            radius = 2.0
         }
     }
 
@@ -301,11 +315,16 @@ main :: proc() {
         last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
 
-        camera_rotation: hlsl.float2 = {0.0, 0.0}
         io := imgui.GetIO()
-        output_verbs := pump_sdl2_events(&input_state, io.WantCaptureKeyboard, io.WantCaptureMouse)
+        io.DeltaTime = last_frame_duration
+        output_verbs := poll_sdl2_events(&input_state)
         
         // Process the app verbs that the input system returned to the game
+        camera_rotation: hlsl.float2 = {0.0, 0.0}
+        camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+        camera_speed_mod : f32 = 1.0
+        @static camera_sprint_multiplier : f32 = 5.0
+        @static camera_slow_multiplier : f32 = 1.0 / 5.0
         {
             for verb in output_verbs.bools {
                 #partial switch verb.type {
@@ -371,8 +390,9 @@ main :: proc() {
                         viewport_camera.control_flags ~= {.MouseLook}
                     }
                     case .MouseMotion: {
+                        MOUSE_SENSITIVITY :: 0.001
                         if .MouseLook in viewport_camera.control_flags {
-                            camera_rotation = {f32(verb.value.x), f32(verb.value.y)}
+                            camera_rotation += MOUSE_SENSITIVITY * {f32(verb.value.x), f32(verb.value.y)}
                             sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
                         }
                     }
@@ -387,6 +407,27 @@ main :: proc() {
                     }
                 }
             }
+
+            for verb in output_verbs.floats {
+                JOYSTICK_SENSITIVITY :: 0.02
+                #partial switch verb.type {
+                    case .RotateFreecamX: {
+                        camera_rotation.x += JOYSTICK_SENSITIVITY * verb.value
+                    }
+                    case .RotateFreecamY: {
+                        camera_rotation.y += JOYSTICK_SENSITIVITY * verb.value
+                    }
+                    case .TranslateFreecamX: {
+                        camera_direction.x += JOYSTICK_SENSITIVITY * verb.value
+                    }
+                    case .TranslateFreecamY: {
+                        camera_direction.y += JOYSTICK_SENSITIVITY * verb.value
+                    }
+                    case .Sprint: {
+                        camera_speed_mod += camera_sprint_multiplier * verb.value
+                    }
+                }
+            }
         }
         
         imgui.NewFrame()
@@ -396,31 +437,22 @@ main :: proc() {
         // Update camera based on user input
         camera_collision_point: hlsl.float3
         camera_collided := false
-        @static camera_sprint_multiplier : f32 = 5.0
-        @static camera_slow_multiplier : f32 = 1.0 / 5.0
         {
             using viewport_camera
 
             CAMERA_SPEED :: 10
             per_frame_speed := CAMERA_SPEED * last_frame_duration
 
-            speed_mod : f32 = 1.0
-            if .Speed in control_flags do speed_mod *= camera_sprint_multiplier
-            if .Slow in control_flags do speed_mod *= camera_slow_multiplier
+            if .Speed in control_flags do camera_speed_mod *= camera_sprint_multiplier
+            if .Slow in control_flags do camera_speed_mod *= camera_slow_multiplier
 
-            if .MouseLook in control_flags {
-                ROTATION_SENSITIVITY :: 0.001
-                viewport_camera.yaw += ROTATION_SENSITIVITY * camera_rotation.x
-                viewport_camera.pitch += ROTATION_SENSITIVITY * camera_rotation.y
-                
-                for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
-                for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
-    
-                if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
-                if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
-            }
-    
-            camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+            viewport_camera.yaw += camera_rotation.x
+            viewport_camera.pitch += camera_rotation.y
+            for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
+            for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
+            if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
+            if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
+
             if .MoveForward in control_flags do camera_direction += {0.0, 1.0, 0.0}
             if .MoveBackward in control_flags do camera_direction += {0.0, -1.0, 0.0}
             if .MoveLeft in control_flags do camera_direction += {-1.0, 0.0, 0.0}
@@ -429,7 +461,7 @@ main :: proc() {
             if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
 
             if camera_direction != {0.0, 0.0, 0.0} {
-                camera_direction = hlsl.float3(speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
+                camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
             }
             
             //Compute temporary camera matrix for orienting player inputted direction vector
@@ -465,7 +497,7 @@ main :: proc() {
         if user_config.flags["show_closest_point"] {
             for prim in moon_mesh.primitives {
                 scale : f32 = 0.1
-                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, {
+                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &{
                     world_from_model = {
                         scale, 0.0, 0.0, camera_collision_point.x,
                         0.0, scale, 0.0, camera_collision_point.y,
@@ -673,7 +705,7 @@ main :: proc() {
                     &render_data,
                     prim.mesh,
                     prim.material,
-                    tform
+                    &tform
                 )
             }
         }
@@ -697,9 +729,20 @@ main :: proc() {
                     &render_data,
                     prim.mesh,
                     prim.material,
-                    transform
+                    &transform
                 )
             }
+        }
+
+        // Draw test character
+        for prim in character.mesh_data.primitives {
+            ddata := DrawData {
+                world_from_model = IDENTITY_MATRIX
+            }
+            ddata.world_from_model[3][0] = character.collision.origin.x
+            ddata.world_from_model[3][1] = character.collision.origin.y
+            ddata.world_from_model[3][2] = character.collision.origin.z
+            draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &ddata)
         }
 
         imgui.EndFrame()
