@@ -409,7 +409,7 @@ main :: proc() {
             }
 
             for verb in output_verbs.floats {
-                JOYSTICK_SENSITIVITY :: 0.02
+                JOYSTICK_SENSITIVITY :: 1
                 #partial switch verb.type {
                     case .RotateFreecamX: {
                         camera_rotation.x += JOYSTICK_SENSITIVITY * verb.value
@@ -446,19 +446,21 @@ main :: proc() {
             if .Speed in control_flags do camera_speed_mod *= camera_sprint_multiplier
             if .Slow in control_flags do camera_speed_mod *= camera_slow_multiplier
 
-            viewport_camera.yaw += camera_rotation.x
-            viewport_camera.pitch += camera_rotation.y
+            ROTATION_SPEED :: 0.02
+            viewport_camera.yaw += ROTATION_SPEED * camera_rotation.x
+            viewport_camera.pitch += ROTATION_SPEED * camera_rotation.y
             for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
             for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
             if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
             if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
 
-            if .MoveForward in control_flags do camera_direction += {0.0, 1.0, 0.0}
-            if .MoveBackward in control_flags do camera_direction += {0.0, -1.0, 0.0}
-            if .MoveLeft in control_flags do camera_direction += {-1.0, 0.0, 0.0}
-            if .MoveRight in control_flags do camera_direction += {1.0, 0.0, 0.0}
-            if .MoveUp in control_flags do camera_direction += {0.0, 0.0, 1.0}
-            if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
+            CONTROL_FLAGS_SENSITIVITY :: 1
+            if .MoveForward in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {0.0, 1.0, 0.0}
+            if .MoveBackward in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {0.0, -1.0, 0.0}
+            if .MoveLeft in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {-1.0, 0.0, 0.0}
+            if .MoveRight in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {1.0, 0.0, 0.0}
+            if .MoveUp in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {0.0, 0.0, 1.0}
+            if .MoveDown in control_flags do camera_direction += CONTROL_FLAGS_SENSITIVITY * {0.0, 0.0, -1.0}
 
             if camera_direction != {0.0, 0.0, 0.0} {
                 camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
