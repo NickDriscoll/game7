@@ -142,8 +142,6 @@ poll_sdl2_events :: proc(
     outputs.floats = make([dynamic]AppVerb(f32), 0, 16, allocator)
     outputs.float2s = make([dynamic]AppVerb([2]f32), 0, 16, allocator)
 
-    cam_rotation_vector : [2]f32 = {0.0, 0.0}
-
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
 
@@ -263,8 +261,6 @@ poll_sdl2_events :: proc(
                 log.debugf("Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
-                log.debug(sdl2.GameControllerGetStringForButton(sdl2.GameControllerButton(event.cbutton.button)))
-                
                 verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
                 if found {
                     append(&outputs.bools, AppVerb(bool) {
@@ -272,10 +268,6 @@ poll_sdl2_events :: proc(
                         value = true
                     })
                 }
-
-                // if sdl2.GameControllerRumble(controller_one, 0xFFFF, 0xFFFF, 500) != 0 {
-                //     log.error("Rumble not supported!")
-                // }
             }
             case .CONTROLLERBUTTONUP: {
                 verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
@@ -296,12 +288,14 @@ poll_sdl2_events :: proc(
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
         val := axis_to_f32(controller_one, ax)
-        if ax in deadzone_axes && math.abs(val) <= AXIS_DEADZONE do continue
+        if val == 0.0 do continue
+        abval := math.abs(val)
+        if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
         if ax in reverse_axes do val *= -1.0
 
         verbtype, found := axis_mappings[ax]
         if found {
-            log.debugf("Emitting verb %v with value %v", verbtype, val)
+            log.debugf("Emitting %v with value %v", verbtype, val)
             append(&outputs.floats, AppVerb(f32) {
                 type = verbtype,
                 value = val

@@ -463,12 +463,11 @@ main :: proc() {
             if camera_direction != {0.0, 0.0, 0.0} {
                 camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
             }
-            
+
             //Compute temporary camera matrix for orienting player inputted direction vector
             world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
-            viewport_camera.position += 
-                (world_from_view *
-                hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}).xyz
+            camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
+            viewport_camera.position += (world_from_view * camera_direction4).xyz
 
             // Collision test the camera's bounding sphere against the terrain
             if user_config.flags["show_closest_point"] || user_config.flags["freecam_collision"] {
@@ -639,16 +638,13 @@ main :: proc() {
                     if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                         imgui.Text("Frame #%i", vgd.frame_count)
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                        imgui.Text("Camera direction: (%f, %f, %f)", camera_direction.x, camera_direction.y, camera_direction.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                         imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                         imgui.Checkbox("Show closest point on terrain to camera", &user_config.flags["show_closest_point"])
                         imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
-                        if camera_collided {
-                            imgui.Separator()
-                            imgui.Text("Closest point: (%f, %f, %f)", camera_collision_point.x, camera_collision_point.y, camera_collision_point.z)
-                        }
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
 
