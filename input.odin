@@ -1,8 +1,10 @@
 package main
 
 import "core:c"
+import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:strings"
 
 import "vendor:sdl2"
 
@@ -19,6 +21,7 @@ VerbType :: enum {
     FocusWindow,
     
     MouseMotion,
+    MouseMotionRel,
 
     ToggleImgui,
     ToggleMouseLook,
@@ -48,9 +51,11 @@ InputState :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
+
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
+    axis_sensitivities: map[sdl2.GameControllerAxis]f32,
 
     controller_one: ^sdl2.GameController,
 
@@ -87,6 +92,11 @@ init_input_state :: proc() -> InputState {
         log.errorf("Error making button map: %v", err2)
     }
 
+    axis_sensitivities, err5 := make(map[sdl2.GameControllerAxis]f32, 8)
+    if err5 != nil {
+        log.errorf("Error making button map: %v", err2)
+    }
+
     // Hardcoded default keybindings
     key_mappings[.ESCAPE] = .ToggleImgui
     key_mappings[.W] = .TranslateFreecamForward
@@ -108,6 +118,10 @@ init_input_state :: proc() -> InputState {
     axis_mappings[.RIGHTY] = .RotateFreecamY
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
+    // Axis sensitivities
+    axis_sensitivities[.RIGHTX] = 0.02
+    axis_sensitivities[.RIGHTY] = 0.02
+
     // Hardcoded button mappings
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
@@ -119,6 +133,7 @@ init_input_state :: proc() -> InputState {
         axis_mappings = axis_mappings,
         reverse_axes = {.LEFTY},
         deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
+        axis_sensitivities = axis_sensitivities
     }
 }
 
@@ -236,9 +251,12 @@ poll_sdl2_events :: proc(
             case .MOUSEMOTION: {
                 append(&outputs.int2s, AppVerb([2]i64) {
                     type = .MouseMotion,
+                    value = {i64(event.motion.x), i64(event.motion.y)}
+                })
+                append(&outputs.int2s, AppVerb([2]i64) {
+                    type = .MouseMotionRel,
                     value = {i64(event.motion.xrel), i64(event.motion.yrel)}
                 })
-                imgui.IO_AddMousePosEvent(io, f32(event.motion.x), f32(event.motion.y))
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
@@ -287,15 +305,17 @@ poll_sdl2_events :: proc(
     // Poll controller axes and emit appropriate verbs
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
-        val := axis_to_f32(controller_one, ax)
-        if val == 0.0 do continue
-        abval := math.abs(val)
-        if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
-        if ax in reverse_axes do val *= -1.0
 
         verbtype, found := axis_mappings[ax]
-        if found {
-            log.debugf("Emitting %v with value %v", verbtype, val)
+        if found {val := axis_to_f32(controller_one, ax)
+            if val == 0.0 do continue
+            abval := math.abs(val)
+            if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
+            if ax in reverse_axes do val *= -1.0
+        
+            sensitivity, found2 := axis_sensitivities[ax]
+            if found2 do val *= sensitivity
+
             append(&outputs.floats, AppVerb(f32) {
                 type = verbtype,
                 value = val
@@ -304,6 +324,26 @@ poll_sdl2_events :: proc(
     }
 
     return outputs
+}
+
+input_gui :: proc(using s: ^InputState, open: ^bool) {
+    sb: strings.Builder
+    strings.builder_init(&sb)
+    defer strings.builder_destroy(&sb)
+
+    if imgui.Begin("Input configuration", open) {
+        imgui.Text("Keybindings")
+        for key, verb in key_mappings {
+            imgui.Text("%i", key)
+            imgui.SameLine()
+
+            verbstr : string = fmt.sbprintf(&sb, "%v", verb)
+            imgui.Button(strings.unsafe_string_to_cstring(verbstr))
+
+            strings.builder_reset(&sb)
+        }
+    }
+    imgui.End()
 }
 
 axis_to_f32 :: proc(cont: ^sdl2.GameController, axis: sdl2.GameControllerAxis) -> f32 {
