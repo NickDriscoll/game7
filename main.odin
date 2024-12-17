@@ -685,7 +685,7 @@ main :: proc() {
             }
 
             if "input_config" in user_config.flags {
-                input_gui(&input_state, &user_config.flags["input_config"])
+                if user_config.flags["input_config"] do input_gui(&input_state, &user_config.flags["input_config"])
             }
 
             // if imgui.Begin("3D viewport") {

@@ -326,7 +326,7 @@ poll_sdl2_events :: proc(
     return outputs
 }
 
-input_gui :: proc(using s: ^InputState, open: ^bool) {
+input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb)
     defer strings.builder_destroy(&sb)
@@ -338,7 +338,8 @@ input_gui :: proc(using s: ^InputState, open: ^bool) {
             imgui.SameLine()
 
             verbstr : string = fmt.sbprintf(&sb, "%v", verb)
-            imgui.Button(strings.unsafe_string_to_cstring(verbstr))
+            cs := strings.clone_to_cstring(verbstr, allocator)
+            imgui.Button(cs)
 
             strings.builder_reset(&sb)
         }
