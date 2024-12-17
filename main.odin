@@ -318,6 +318,7 @@ main :: proc() {
         io := imgui.GetIO()
         io.DeltaTime = last_frame_duration
         output_verbs := poll_sdl2_events(&input_state)
+        io.KeyCtrl = input_state.ctrl_pressed
         
         // Process the app verbs that the input system returned to the game
         camera_rotation: hlsl.float2 = {0.0, 0.0}

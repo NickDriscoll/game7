@@ -57,6 +57,8 @@ InputState :: struct {
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
     axis_sensitivities: map[sdl2.GameControllerAxis]f32,
 
+    ctrl_pressed: bool,
+
     controller_one: ^sdl2.GameController,
 
 }
@@ -208,6 +210,9 @@ poll_sdl2_events :: proc(
             }
             case .KEYDOWN: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
+                if event.key.keysym.scancode == .LCTRL || event.key.keysym.scancode == .RCTRL {
+                    ctrl_pressed = true
+                }
 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
@@ -222,6 +227,9 @@ poll_sdl2_events :: proc(
             }
             case .KEYUP: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
+                if event.key.keysym.scancode == .LCTRL || event.key.keysym.scancode == .RCTRL {
+                    ctrl_pressed = false
+                }
                 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
@@ -333,14 +341,30 @@ input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_a
 
     if imgui.Begin("Input configuration", open) {
         imgui.Text("Keybindings")
+        imgui.Separator()
         for key, verb in key_mappings {
-            imgui.Text("%i", key)
+            verbstr := fmt.sbprintf(&sb, "%v", verb)
+            vs := strings.clone_to_cstring(verbstr, allocator)
+            imgui.Text("%s: ", vs)
+            strings.builder_reset(&sb)
             imgui.SameLine()
 
-            verbstr : string = fmt.sbprintf(&sb, "%v", verb)
-            cs := strings.clone_to_cstring(verbstr, allocator)
-            imgui.Button(cs)
+            keystr := fmt.sbprintf(&sb, "%v", key)
+            cs := strings.clone_to_cstring(keystr, allocator)
+            imgui.Button(cs, size = {32.0, 0.0})
 
+            strings.builder_reset(&sb)
+        }
+
+        imgui.Text("Axis sensitivities")
+        imgui.Separator()
+        for axis, &sensitivity in axis_sensitivities {
+            axis_str := fmt.sbprintf(&sb, "%v", axis)
+            as := strings.clone_to_cstring(axis_str, allocator)
+            imgui.Text("%s ", as)
+            imgui.SameLine()
+            imgui.SliderFloat("Sen", &sensitivity, 0.0, 0.1)
+            
             strings.builder_reset(&sb)
         }
     }
