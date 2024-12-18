@@ -275,7 +275,7 @@ poll_sdl2_events :: proc(
                 type := sdl2.GameControllerGetType(controller_one)
                 name := sdl2.GameControllerName(controller_one)
                 led := sdl2.GameControllerHasLED(controller_one)
-                if led do sdl2.GameControllerSetLED(controller_one, 0x00, 0xFF, 0x00)
+                if led do sdl2.GameControllerSetLED(controller_one, 0xFF, 0x00, 0xFF)
                 log.infof("%v connected (%v)", name, type)
             }
             case .CONTROLLERDEVICEREMOVED: {
@@ -358,15 +358,21 @@ input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_a
 
         imgui.Text("Axis sensitivities")
         imgui.Separator()
+        i := 0
         for axis, &sensitivity in axis_sensitivities {
             axis_str := fmt.sbprintf(&sb, "%v", axis)
             as := strings.clone_to_cstring(axis_str, allocator)
+            strings.builder_reset(&sb)
             imgui.Text("%s ", as)
             imgui.SameLine()
-            imgui.SliderFloat("Sen", &sensitivity, 0.0, 0.1)
+            slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
+            ss := strings.clone_to_cstring(slider_id, allocator)
+            imgui.SliderFloat(ss, &sensitivity, 0.0, 0.1)
             
             strings.builder_reset(&sb)
+            i += 1
         }
+        i = 0
     }
     imgui.End()
 }
