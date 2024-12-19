@@ -49,6 +49,8 @@ AppVerb :: struct($ValueType: typeid) {
 
 InputState :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
+    key_being_remapped: sdl2.Scancode,
+
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
 
@@ -209,6 +211,16 @@ poll_sdl2_events :: proc(
                 }
             }
             case .KEYDOWN: {
+                // Handle key remapping here
+                if key_being_remapped != nil {
+                    verb, ok := key_mappings[key_being_remapped]
+                    if !ok do log.error("Key remapping fail that should never fail")
+                    key_mappings[event.key.keysym.scancode] = verb
+                    delete_key(&key_mappings, key_being_remapped)
+                    key_being_remapped = nil
+                    continue
+                }
+
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
                 if event.key.keysym.scancode == .LCTRL || event.key.keysym.scancode == .RCTRL {
                     ctrl_pressed = true
@@ -284,7 +296,7 @@ poll_sdl2_events :: proc(
                     sdl2.GameControllerClose(controller_one)
                     controller_one = nil
                 }
-                log.debugf("Controller %v removed.", controller_idx)
+                log.infof("Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
                 verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
@@ -319,7 +331,7 @@ poll_sdl2_events :: proc(
             if val == 0.0 do continue
             abval := math.abs(val)
             if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
-            if ax in reverse_axes do val *= -1.0
+            if ax in reverse_axes do val = -val
         
             sensitivity, found2 := axis_sensitivities[ax]
             if found2 do val *= sensitivity
@@ -349,9 +361,16 @@ input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_a
             strings.builder_reset(&sb)
             imgui.SameLine()
 
-            keystr := fmt.sbprintf(&sb, "%v", key)
-            cs := strings.clone_to_cstring(keystr, allocator)
-            imgui.Button(cs, size = {32.0, 0.0})
+            if key_being_remapped == key {
+                imgui.Button(" --- PRESS KEY TO REBIND --- ")
+            } else {
+                keystr := fmt.sbprintf(&sb, "%v", key)
+                cs := strings.clone_to_cstring(keystr, allocator)
+                if imgui.Button(cs) {
+                    key_being_remapped = key
+                }
+            }
+
 
             strings.builder_reset(&sb)
         }
