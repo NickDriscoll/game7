@@ -460,15 +460,17 @@ main :: proc() {
             if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
             if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
 
-            if .MoveForward in control_flags do camera_direction += {0.0, 1.0, 0.0}
-            if .MoveBackward in control_flags do camera_direction += {0.0, -1.0, 0.0}
-            if .MoveLeft in control_flags do camera_direction += {-1.0, 0.0, 0.0}
-            if .MoveRight in control_flags do camera_direction += {1.0, 0.0, 0.0}
-            if .MoveUp in control_flags do camera_direction += {0.0, 0.0, 1.0}
-            if .MoveDown in control_flags do camera_direction += {0.0, 0.0, -1.0}
+            control_flags_dir: hlsl.float3
+            if .MoveForward in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
+            if .MoveBackward in control_flags do control_flags_dir += {0.0, -1.0, 0.0}
+            if .MoveLeft in control_flags do control_flags_dir += {-1.0, 0.0, 0.0}
+            if .MoveRight in control_flags do control_flags_dir += {1.0, 0.0, 0.0}
+            if .MoveUp in control_flags do control_flags_dir += {0.0, 0.0, 1.0}
+            if .MoveDown in control_flags do control_flags_dir += {0.0, 0.0, -1.0}
+            if control_flags_dir != {0.0, 0.0, 0.0} do camera_direction += hlsl.normalize(control_flags_dir)
 
             if camera_direction != {0.0, 0.0, 0.0} {
-                camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * hlsl.normalize(camera_direction)
+                camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
             }
 
             //Compute temporary camera matrix for orienting player inputted direction vector
