@@ -667,7 +667,8 @@ main :: proc() {
                         imgui.SameLine()
                         HelpMarker(
                             "Enabling this setting forces the main thread " +
-                            "to sleep for 100 milliseconds at the end of the main loop"
+                            "to sleep for 100 milliseconds at the end of the main loop, " +
+                            "effectively capping the framerate to 10 FPS"
                         )
                         
                         imgui.Separator()
