@@ -211,25 +211,34 @@ poll_sdl2_events :: proc(
                 }
             }
             case .KEYDOWN: {
+                sc := event.key.keysym.scancode
+
                 // Handle key remapping here
                 if key_being_remapped != nil {
+                    existing_verb, key_exists := key_mappings[sc]
+                    if key_exists {
+                        log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                        key_being_remapped = nil
+                        continue
+                    }
+
                     verb, ok := key_mappings[key_being_remapped]
                     if !ok do log.error("Key remapping fail that should never fail")
-                    key_mappings[event.key.keysym.scancode] = verb
+                    key_mappings[sc] = verb
                     delete_key(&key_mappings, key_being_remapped)
                     key_being_remapped = nil
                     continue
                 }
 
-                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), true)
-                if event.key.keysym.scancode == .LCTRL || event.key.keysym.scancode == .RCTRL {
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
+                if sc == .LCTRL || sc == .RCTRL {
                     ctrl_pressed = true
                 }
 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
 
-                verbtype, found := key_mappings[event.key.keysym.scancode]
+                verbtype, found := key_mappings[sc]
                 if found {
                     append(&outputs.bools, AppVerb(bool) {
                         type = verbtype,
@@ -351,28 +360,44 @@ input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_a
     strings.builder_init(&sb)
     defer strings.builder_destroy(&sb)
 
-    if imgui.Begin("Input configuration", open) {
-        imgui.Text("Keybindings")
-        imgui.Separator()
-        for key, verb in key_mappings {
-            verbstr := fmt.sbprintf(&sb, "%v", verb)
-            vs := strings.clone_to_cstring(verbstr, allocator)
-            imgui.Text("%s: ", vs)
-            strings.builder_reset(&sb)
-            imgui.SameLine()
+    // Get widest string
+    largest_key_width : f32 = imgui.CalcTextSize(" --- PRESS KEY TO REBIND --- ").x
+    for k, _ in key_mappings {
+        keystr := fmt.sbprintf(&sb, "%v", k)
+        ks := strings.clone_to_cstring(keystr, allocator)
+        width := imgui.CalcTextSize(ks).x
+        if width > largest_key_width do largest_key_width = width
+        
+        strings.builder_reset(&sb)
+    }
 
-            if key_being_remapped == key {
-                imgui.Button(" --- PRESS KEY TO REBIND --- ")
-            } else {
-                keystr := fmt.sbprintf(&sb, "%v", key)
-                cs := strings.clone_to_cstring(keystr, allocator)
-                if imgui.Button(cs) {
-                    key_being_remapped = key
+    if imgui.Begin("Input configuration", open) {
+        if imgui.BeginTable("Keybinds", 2, imgui.TableFlags_Borders | imgui.TableFlags_RowBg) {
+            for key, verb in key_mappings {
+                imgui.TableNextRow()
+
+                imgui.TableNextColumn()
+                verbstr := fmt.sbprintf(&sb, "%v\t\t\t", verb)
+                vs := strings.clone_to_cstring(verbstr, allocator)
+                imgui.Text("%s", vs)
+                strings.builder_reset(&sb)
+    
+                imgui.TableNextColumn()
+                if key_being_remapped == key {
+                    if imgui.Button(" --- PRESS KEY TO REBIND --- ") do key_being_remapped = nil
+                } else {
+                    keystr := fmt.sbprintf(&sb, "%v", key)
+                    cs := strings.clone_to_cstring(keystr, allocator)
+                    if imgui.Button(cs, {largest_key_width, 0.0}) {
+                        key_being_remapped = key
+                    }
                 }
+    
+    
+                strings.builder_reset(&sb)
             }
 
-
-            strings.builder_reset(&sb)
+            imgui.EndTable()
         }
 
         imgui.Text("Axis sensitivities")
