@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
@@ -47,9 +48,16 @@ AppVerb :: struct($ValueType: typeid) {
     value: ValueType
 }
 
-InputState :: struct {
+RemapInput :: struct #raw_union {
+    key: sdl2.Scancode,
+    button: sdl2.GameControllerButton,
+    axis: sdl2.GameControllerAxis,
+}
+
+InputSystem :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
-    key_being_remapped: sdl2.Scancode,
+
+    input_being_remapped: RemapInput,
 
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
@@ -75,7 +83,7 @@ OutputVerbs :: struct {
     float2s: [dynamic]AppVerb([2]f32),
 }
 
-init_input_state :: proc() -> InputState {
+init_input_state :: proc() -> InputSystem {
     key_mappings, err := make(map[sdl2.Scancode]VerbType, 64)
     if err != nil {
         log.errorf("Error making key map: %v", err)
@@ -130,7 +138,7 @@ init_input_state :: proc() -> InputState {
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
-    return InputState {
+    return InputSystem {
         key_mappings = key_mappings,
         mouse_mappings = mouse_mappings,
         button_mappings = button_mappings,
@@ -141,7 +149,7 @@ init_input_state :: proc() -> InputState {
     }
 }
 
-destroy_input_state :: proc(using s: ^InputState) {
+destroy_input_state :: proc(using s: ^InputSystem) {
     delete(key_mappings)
     delete(mouse_mappings)
     delete(axis_mappings)
@@ -150,7 +158,7 @@ destroy_input_state :: proc(using s: ^InputState) {
 
 // Main once-per-frame input proc
 poll_sdl2_events :: proc(
-    using state: ^InputState,
+    using state: ^InputSystem,
     allocator := context.temp_allocator
 ) -> OutputVerbs {
     
@@ -214,19 +222,19 @@ poll_sdl2_events :: proc(
                 sc := event.key.keysym.scancode
 
                 // Handle key remapping here
-                if key_being_remapped != nil {
+                if input_being_remapped.key != nil {
                     existing_verb, key_exists := key_mappings[sc]
                     if key_exists {
                         log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
-                        key_being_remapped = nil
+                        input_being_remapped.key = nil
                         continue
                     }
 
-                    verb, ok := key_mappings[key_being_remapped]
+                    verb, ok := key_mappings[input_being_remapped.key]
                     if !ok do log.error("Key remapping fail that should never fail")
                     key_mappings[sc] = verb
-                    delete_key(&key_mappings, key_being_remapped)
-                    key_being_remapped = nil
+                    delete_key(&key_mappings, input_being_remapped.key)
+                    input_being_remapped.key = nil
                     continue
                 }
 
@@ -355,65 +363,114 @@ poll_sdl2_events :: proc(
     return outputs
 }
 
-input_gui :: proc(using s: ^InputState, open: ^bool, allocator := context.temp_allocator) {
+input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb)
     defer strings.builder_destroy(&sb)
 
+    KEY_REBIND_TEXT :: " --- PRESS KEY TO REBIND --- "
+    BUTTON_REBIND_TEXT :: " --- PRESS BUTTON TO REBIND --- "
+    AXIS_REBIND_TEXT :: " --- PUSH AXIS TO REBIND --- "
+
+    build_cstring :: proc(x: $T, sb: ^strings.Builder, allocator: runtime.Allocator) -> cstring {
+        t_str := fmt.sbprintf(sb, "%v", x)
+        defer strings.builder_reset(sb)
+        return strings.clone_to_cstring(t_str, allocator)
+    }
+
     // Get widest string
-    largest_key_width : f32 = imgui.CalcTextSize(" --- PRESS KEY TO REBIND --- ").x
+    largest_button_width : f32 = imgui.CalcTextSize(BUTTON_REBIND_TEXT).x
     for k, _ in key_mappings {
         keystr := fmt.sbprintf(&sb, "%v", k)
         ks := strings.clone_to_cstring(keystr, allocator)
         width := imgui.CalcTextSize(ks).x
-        if width > largest_key_width do largest_key_width = width
+        if width > largest_button_width do largest_button_width = width
         
         strings.builder_reset(&sb)
     }
 
+    table_flags := imgui.TableFlags_Borders | imgui.TableFlags_RowBg
+
     if imgui.Begin("Input configuration", open) {
-        if imgui.BeginTable("Keybinds", 2, imgui.TableFlags_Borders | imgui.TableFlags_RowBg) {
+        if imgui.BeginTable("Keybinds", 2, table_flags) {
             for key, verb in key_mappings {
                 imgui.TableNextRow()
 
                 imgui.TableNextColumn()
-                verbstr := fmt.sbprintf(&sb, "%v\t\t\t", verb)
-                vs := strings.clone_to_cstring(verbstr, allocator)
-                imgui.Text("%s", vs)
-                strings.builder_reset(&sb)
+                vs := build_cstring(verb, &sb, allocator)
+                imgui.Text(vs)
     
                 imgui.TableNextColumn()
-                if key_being_remapped == key {
-                    if imgui.Button(" --- PRESS KEY TO REBIND --- ") do key_being_remapped = nil
+                if input_being_remapped.key == key {
+                    if imgui.Button(KEY_REBIND_TEXT) do input_being_remapped.key = nil
                 } else {
-                    keystr := fmt.sbprintf(&sb, "%v", key)
-                    cs := strings.clone_to_cstring(keystr, allocator)
-                    if imgui.Button(cs, {largest_key_width, 0.0}) {
-                        key_being_remapped = key
+                    ks := build_cstring(key, &sb, allocator)
+                    if imgui.Button(ks, {largest_button_width, 0.0}) {
+                        input_being_remapped.key = key
                     }
                 }
-    
-    
-                strings.builder_reset(&sb)
             }
 
             imgui.EndTable()
+        }
+
+        if imgui.BeginTable("Controller buttons", 2, table_flags) {
+            for button, verb in button_mappings {
+                imgui.TableNextRow()
+
+                imgui.TableNextColumn()
+                vs := build_cstring(verb, &sb, allocator)
+                imgui.Text(vs)
+
+                imgui.TableNextColumn()
+                if input_being_remapped.button == button {
+                    if imgui.Button(BUTTON_REBIND_TEXT) do input_being_remapped.button = nil
+                } else {
+                    bs := build_cstring(button, &sb, allocator)
+                    if imgui.Button(bs, {largest_button_width, 0.0}) {
+                        input_being_remapped.button = button
+                    }
+                }
+            }
+
+            imgui.EndTable()
+        }
+
+        if imgui.BeginTable("Axes", 2, table_flags) {
+            for axis, verb in axis_mappings {
+                imgui.TableNextRow()
+
+                imgui.TableNextColumn()
+                vs := build_cstring(verb, &sb, allocator)
+                imgui.Text(vs)
+
+                imgui.TableNextColumn()
+                if input_being_remapped.axis == axis {
+                    if imgui.Button(AXIS_REBIND_TEXT) do input_being_remapped.axis = nil
+                } else {
+                    bs := build_cstring(axis, &sb, allocator)
+                    if imgui.Button(bs, {largest_button_width, 0.0}) {
+                        input_being_remapped.axis = axis
+                    }
+                }
+            }
+
+            imgui.EndTable()
+
         }
 
         imgui.Text("Axis sensitivities")
         imgui.Separator()
         i := 0
         for axis, &sensitivity in axis_sensitivities {
-            axis_str := fmt.sbprintf(&sb, "%v", axis)
-            as := strings.clone_to_cstring(axis_str, allocator)
-            strings.builder_reset(&sb)
+            as := build_cstring(axis, &sb, allocator)
             imgui.Text("%s ", as)
             imgui.SameLine()
             slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
             ss := strings.clone_to_cstring(slider_id, allocator)
+            strings.builder_reset(&sb)
             imgui.SliderFloat(ss, &sensitivity, 0.0, 0.1)
             
-            strings.builder_reset(&sb)
             i += 1
         }
         i = 0
