@@ -393,10 +393,16 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         strings.builder_reset(&sb)
     }
 
-    table_flags := imgui.TableFlags_Borders | imgui.TableFlags_RowBg
+    table_flags := imgui.TableFlags_Borders |
+                   imgui.TableFlags_RowBg |
+                   imgui.TableFlags_Sortable
 
     if imgui.Begin("Input configuration", open) {
         if imgui.BeginTable("Keybinds", 2, table_flags) {
+            imgui.TableSetupColumn("Verb")
+            imgui.TableSetupColumn("Key")
+            imgui.TableHeadersRow()
+
             for key, verb in key_mappings {
                 imgui.TableNextRow()
 
@@ -423,6 +429,10 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         }
 
         if imgui.BeginTable("Controller buttons", 2, table_flags) {
+            imgui.TableSetupColumn("Verb")
+            imgui.TableSetupColumn("Button")
+            imgui.TableHeadersRow()
+
             for button, verb in button_mappings {
                 imgui.TableNextRow()
 
@@ -449,6 +459,10 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         }
 
         if imgui.BeginTable("Axes", 2, table_flags) {
+            imgui.TableSetupColumn("Verb")
+            imgui.TableSetupColumn("Axis")
+            imgui.TableHeadersRow()
+
             for axis, verb in axis_mappings {
                 imgui.TableNextRow()
 
