@@ -241,6 +241,7 @@ main :: proc() {
     defer gltf_delete(&spyro_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
+        //path : cstring = "data/models/klonoa2.glb"
         spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
         path = "data/models/majoras_moon.glb"
         moon_mesh = load_gltf_mesh(&vgd, &render_data, path)

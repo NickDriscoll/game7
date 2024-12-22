@@ -370,7 +370,7 @@ poll_sdl2_events :: proc(
 // @TODO: Clean up proc
 input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_allocator) {
     sb: strings.Builder
-    strings.builder_init(&sb)
+    strings.builder_init(&sb, allocator)
     defer strings.builder_destroy(&sb)
 
     KEY_REBIND_TEXT :: " --- PRESS KEY TO REBIND --- "
@@ -509,7 +509,6 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             
             i += 1
         }
-        i = 0
     }
     imgui.End()
 }

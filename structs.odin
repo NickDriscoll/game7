@@ -116,3 +116,9 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
 
     return proj_matrix * c_matrix
 }
+
+lookat_view_from_world :: proc() -> hlsl.float4x4 {
+    
+
+    return {}
+}
