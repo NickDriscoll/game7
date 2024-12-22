@@ -58,6 +58,7 @@ InputSystem :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
 
     input_being_remapped: RemapInput,
+    currently_remapping: bool,
 
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
@@ -222,11 +223,12 @@ poll_sdl2_events :: proc(
                 sc := event.key.keysym.scancode
 
                 // Handle key remapping here
-                if input_being_remapped.key != nil {
+                if currently_remapping {
                     existing_verb, key_exists := key_mappings[sc]
                     if key_exists {
                         log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
                         input_being_remapped.key = nil
+                        currently_remapping = false
                         continue
                     }
 
@@ -235,6 +237,7 @@ poll_sdl2_events :: proc(
                     key_mappings[sc] = verb
                     delete_key(&key_mappings, input_being_remapped.key)
                     input_being_remapped.key = nil
+                    currently_remapping = false
                     continue
                 }
 
@@ -363,6 +366,7 @@ poll_sdl2_events :: proc(
     return outputs
 }
 
+// @TODO: Clean up proc
 input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb)
@@ -401,12 +405,16 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
                 imgui.Text(vs)
     
                 imgui.TableNextColumn()
-                if input_being_remapped.key == key {
-                    if imgui.Button(KEY_REBIND_TEXT) do input_being_remapped.key = nil
+                if currently_remapping && input_being_remapped.key == key {
+                    if imgui.Button(KEY_REBIND_TEXT) {
+                        input_being_remapped.key = nil
+                        currently_remapping = false
+                    }
                 } else {
                     ks := build_cstring(key, &sb, allocator)
                     if imgui.Button(ks, {largest_button_width, 0.0}) {
                         input_being_remapped.key = key
+                        currently_remapping = true
                     }
                 }
             }
@@ -423,12 +431,16 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
                 imgui.Text(vs)
 
                 imgui.TableNextColumn()
-                if input_being_remapped.button == button {
-                    if imgui.Button(BUTTON_REBIND_TEXT) do input_being_remapped.button = nil
+                if currently_remapping && input_being_remapped.button == button {
+                    if imgui.Button(BUTTON_REBIND_TEXT) {
+                        input_being_remapped.button = nil
+                        currently_remapping = false
+                    }
                 } else {
                     bs := build_cstring(button, &sb, allocator)
                     if imgui.Button(bs, {largest_button_width, 0.0}) {
                         input_being_remapped.button = button
+                        currently_remapping = true
                     }
                 }
             }
@@ -445,12 +457,16 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
                 imgui.Text(vs)
 
                 imgui.TableNextColumn()
-                if input_being_remapped.axis == axis {
-                    if imgui.Button(AXIS_REBIND_TEXT) do input_being_remapped.axis = nil
+                if currently_remapping && input_being_remapped.axis == axis {
+                    if imgui.Button(AXIS_REBIND_TEXT) {
+                        input_being_remapped.axis = nil
+                        currently_remapping = false
+                    }
                 } else {
                     bs := build_cstring(axis, &sb, allocator)
                     if imgui.Button(bs, {largest_button_width, 0.0}) {
                         input_being_remapped.axis = axis
+                        currently_remapping = true
                     }
                 }
             }
