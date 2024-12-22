@@ -126,8 +126,8 @@ main :: proc() {
     }
 
     // Init input system
-    input_state := init_input_state()
-    defer destroy_input_state(&input_state)
+    input_system := init_input_system()
+    defer destroy_input_system(&input_system)
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -317,8 +317,8 @@ main :: proc() {
 
         io := imgui.GetIO()
         io.DeltaTime = last_frame_duration
-        output_verbs := poll_sdl2_events(&input_state)
-        io.KeyCtrl = input_state.ctrl_pressed
+        output_verbs := poll_sdl2_events(&input_system)
+        io.KeyCtrl = input_system.ctrl_pressed
         
         // Process the app verbs that the input system returned to the game
         camera_rotation: hlsl.float2 = {0.0, 0.0}
@@ -689,7 +689,7 @@ main :: proc() {
             }
 
             if "input_config" in user_config.flags {
-                if user_config.flags["input_config"] do input_gui(&input_state, &user_config.flags["input_config"])
+                if user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
             }
 
             // if imgui.Begin("3D viewport") {
