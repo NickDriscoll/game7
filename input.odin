@@ -5,6 +5,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:slice"
 import "core:strings"
 
 import "vendor:sdl2"
@@ -84,7 +85,7 @@ OutputVerbs :: struct {
     float2s: [dynamic]AppVerb([2]f32),
 }
 
-init_input_state :: proc() -> InputSystem {
+init_input_system :: proc() -> InputSystem {
     key_mappings, err := make(map[sdl2.Scancode]VerbType, 64)
     if err != nil {
         log.errorf("Error making key map: %v", err)
@@ -150,7 +151,7 @@ init_input_state :: proc() -> InputSystem {
     }
 }
 
-destroy_input_state :: proc(using s: ^InputSystem) {
+destroy_input_system :: proc(using s: ^InputSystem) {
     delete(key_mappings)
     delete(mouse_mappings)
     delete(axis_mappings)
@@ -382,6 +383,55 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         return strings.clone_to_cstring(t_str, allocator)
     }
 
+    display_sorted_table :: proc(
+        using s: ^InputSystem,
+        m: ^map[$K]$V,
+        button_width: f32,
+        remap_value: ^K,
+        rebind_text: cstring,
+        sb: ^strings.Builder,
+        allocator: runtime.Allocator
+    ) {
+        keys := make([dynamic]K, 0, len(m), allocator)
+        verbs := make([dynamic]V, 0, len(m), allocator)
+        verb_strings := make([dynamic]cstring, 0, len(m), allocator)
+        for k, v in m {
+            v_str := build_cstring(v, sb, allocator)
+            append(&verbs, v)
+            append(&verb_strings, v_str)
+            append(&keys, k)
+        }
+        indices := slice.sort_by_with_indices(verb_strings[:], proc(lhs, rhs: cstring) -> bool {
+            return strings.compare(string(lhs), string(rhs)) == -1
+        })
+
+        for i in indices {
+            key := keys[i]
+            verb := m[key]
+            
+            imgui.TableNextRow()
+
+            imgui.TableNextColumn()
+            vs := build_cstring(verb, sb, allocator)
+            imgui.Text(vs)
+
+            imgui.TableNextColumn()
+            if currently_remapping && remap_value^ == key {
+                if imgui.Button(rebind_text) {
+                    input_being_remapped.key = nil
+                    currently_remapping = false
+                }
+            } else {
+                ks := build_cstring(key, sb, allocator)
+                if imgui.Button(ks, {button_width, 0.0}) {
+                    remap_value^ = key
+                    currently_remapping = true
+                }
+            }
+        }
+        imgui.EndTable()
+    }
+
     // Get widest string
     largest_button_width : f32 = imgui.CalcTextSize(BUTTON_REBIND_TEXT).x
     for k, _ in key_mappings {
@@ -394,8 +444,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
     }
 
     table_flags := imgui.TableFlags_Borders |
-                   imgui.TableFlags_RowBg |
-                   imgui.TableFlags_Sortable
+                   imgui.TableFlags_RowBg
 
     if imgui.Begin("Input configuration", open) {
         if imgui.BeginTable("Keybinds", 2, table_flags) {
@@ -403,29 +452,15 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             imgui.TableSetupColumn("Key")
             imgui.TableHeadersRow()
 
-            for key, verb in key_mappings {
-                imgui.TableNextRow()
-
-                imgui.TableNextColumn()
-                vs := build_cstring(verb, &sb, allocator)
-                imgui.Text(vs)
-    
-                imgui.TableNextColumn()
-                if currently_remapping && input_being_remapped.key == key {
-                    if imgui.Button(KEY_REBIND_TEXT) {
-                        input_being_remapped.key = nil
-                        currently_remapping = false
-                    }
-                } else {
-                    ks := build_cstring(key, &sb, allocator)
-                    if imgui.Button(ks, {largest_button_width, 0.0}) {
-                        input_being_remapped.key = key
-                        currently_remapping = true
-                    }
-                }
-            }
-
-            imgui.EndTable()
+            display_sorted_table(
+                s,
+                &key_mappings,
+                largest_button_width,
+                &input_being_remapped.key,
+                KEY_REBIND_TEXT,
+                &sb,
+                allocator
+            )
         }
 
         if imgui.BeginTable("Controller buttons", 2, table_flags) {
@@ -433,29 +468,15 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             imgui.TableSetupColumn("Button")
             imgui.TableHeadersRow()
 
-            for button, verb in button_mappings {
-                imgui.TableNextRow()
-
-                imgui.TableNextColumn()
-                vs := build_cstring(verb, &sb, allocator)
-                imgui.Text(vs)
-
-                imgui.TableNextColumn()
-                if currently_remapping && input_being_remapped.button == button {
-                    if imgui.Button(BUTTON_REBIND_TEXT) {
-                        input_being_remapped.button = nil
-                        currently_remapping = false
-                    }
-                } else {
-                    bs := build_cstring(button, &sb, allocator)
-                    if imgui.Button(bs, {largest_button_width, 0.0}) {
-                        input_being_remapped.button = button
-                        currently_remapping = true
-                    }
-                }
-            }
-
-            imgui.EndTable()
+            display_sorted_table(
+                s,
+                &button_mappings,
+                largest_button_width,
+                &input_being_remapped.button,
+                BUTTON_REBIND_TEXT,
+                &sb,
+                allocator
+            )
         }
 
         if imgui.BeginTable("Axes", 2, table_flags) {
@@ -463,30 +484,15 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             imgui.TableSetupColumn("Axis")
             imgui.TableHeadersRow()
 
-            for axis, verb in axis_mappings {
-                imgui.TableNextRow()
-
-                imgui.TableNextColumn()
-                vs := build_cstring(verb, &sb, allocator)
-                imgui.Text(vs)
-
-                imgui.TableNextColumn()
-                if currently_remapping && input_being_remapped.axis == axis {
-                    if imgui.Button(AXIS_REBIND_TEXT) {
-                        input_being_remapped.axis = nil
-                        currently_remapping = false
-                    }
-                } else {
-                    bs := build_cstring(axis, &sb, allocator)
-                    if imgui.Button(bs, {largest_button_width, 0.0}) {
-                        input_being_remapped.axis = axis
-                        currently_remapping = true
-                    }
-                }
-            }
-
-            imgui.EndTable()
-
+            display_sorted_table(
+                s,
+                &axis_mappings,
+                largest_button_width,
+                &input_being_remapped.axis,
+                AXIS_REBIND_TEXT,
+                &sb,
+                allocator
+            )
         }
 
         imgui.Text("Axis sensitivities")
