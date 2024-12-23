@@ -444,7 +444,6 @@ main :: proc() {
 
         // Update camera based on user input
         camera_collision_point: hlsl.float3
-        camera_collided := false
         {
             using viewport_camera
 
@@ -497,7 +496,6 @@ main :: proc() {
                     if dist < CAMERA_RADIUS {
                         diff := CAMERA_RADIUS - dist
                         position += diff * hlsl.normalize(position - camera_collision_point)
-                        camera_collided = true
                     }
                 }
             }
@@ -689,9 +687,7 @@ main :: proc() {
                 } 
             }
 
-            if "input_config" in user_config.flags {
-                if user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
-            }
+            if user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
 
             // if imgui.Begin("3D viewport") {
             //     handle := render_data.main_framebuffer.color_images[0]
