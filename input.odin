@@ -225,21 +225,22 @@ poll_sdl2_events :: proc(
 
                 // Handle key remapping here
                 if currently_remapping {
-                    existing_verb, key_exists := key_mappings[sc]
-                    if key_exists {
-                        log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                    verb, ok := key_mappings[input_being_remapped.key]
+                    if ok {
+                        existing_verb, key_exists := key_mappings[sc]
+                        if key_exists {
+                            log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                            input_being_remapped.key = nil
+                            currently_remapping = false
+                            continue
+                        }
+
+                        key_mappings[sc] = verb
+                        delete_key(&key_mappings, input_being_remapped.key)
                         input_being_remapped.key = nil
                         currently_remapping = false
                         continue
                     }
-
-                    verb, ok := key_mappings[input_being_remapped.key]
-                    if !ok do log.error("Key remapping fail that should never fail")
-                    key_mappings[sc] = verb
-                    delete_key(&key_mappings, input_being_remapped.key)
-                    input_being_remapped.key = nil
-                    currently_remapping = false
-                    continue
                 }
 
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
@@ -320,7 +321,29 @@ poll_sdl2_events :: proc(
                 log.infof("Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
-                verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
+                button := sdl2.GameControllerButton(event.cbutton.button)
+
+                // Handle button remapping here
+                if currently_remapping {
+                    verb, ok := button_mappings[input_being_remapped.button]
+                    if ok {
+                        existing_verb, button_exists := button_mappings[button]
+                        if button_exists {
+                            log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
+                            input_being_remapped.key = nil
+                            currently_remapping = false
+                            continue
+                        }
+                        
+                        button_mappings[button] = verb
+                        delete_key(&button_mappings, input_being_remapped.button)
+                        input_being_remapped.button = nil
+                        currently_remapping = false
+                        continue
+                    }
+                }
+
+                verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
                 if found {
                     append(&outputs.bools, AppVerb(bool) {
                         type = verbtype,
