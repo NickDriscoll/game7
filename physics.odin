@@ -120,8 +120,6 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
             if attrib.type == .position {
                 position_float_count := attrib.data.count * 3
                 position_byte_count := position_float_count * size_of(f32)
-                //out_position_count := indices_count * 3
-                //resize(&out_positions, out_position_count)
                 resize(&out_positions, total_position_floats)
     
                 positions_ptr := get_accessor_ptr(attrib.data, f32)
@@ -131,8 +129,6 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
                     out_positions[3 * out_idx + 1] = positions_ptr[3 * idx + 1]
                     out_positions[3 * out_idx + 2] = positions_ptr[3 * idx + 2]
                 }
-                
-                //mem.copy(&out_positions[0], positions_ptr, int(position_byte_count))
             }
         }
         idx_offset += indices_count
@@ -144,7 +140,68 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 }
 
 // Implementation adapted from section 5.1.5 of Realtime Collision Detection
-// This proc returns the first 
+closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
+    dot :: hlsl.dot
+
+    // Check if point is in vertex region outside A
+    ab := b - a
+    ac := c - a
+    ap := point - a
+    d1 := dot(ab, ap)
+    d2 := dot(ac, ap)
+    if d1 <= 0 && d2 <= 0 {
+        return a
+    }
+
+    // Check if the point is in vertex region outside B
+    bp := point - b
+    d3 := dot(ab, bp)
+    d4 := dot(ac, bp)
+    if d3 >= 0 && d4 <= d3 {
+        return b
+    }
+
+    // Check if P in edge region of AB
+    vc := d1*d4 - d3*d2
+    if vc <= 0 && d1 >= 0 && d3 <= 0 {
+        w := d1 / (d1 - d3)
+        candidate_point := a + w * ab
+        return candidate_point
+    }
+
+    // Check if P in vertex region outside C
+    cp := point - c
+    d5 := dot(ab, cp)
+    d6 := dot(ac, cp)
+    if d6 >= 0 && d5 <= d6 {
+        return c
+    }
+
+    // Check if P in edge region AC
+    vb := d5*d2 - d1*d6
+    if vb <= 0 && d2 >= 0 && d6 <= 0 {
+        w := d2 / (d2 - d6)
+        candidate_point := a + w * ac
+        return candidate_point
+    }
+
+    // Check if P is in edge region of BC
+    va := d3*d6 - d5*d4
+    if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+        w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        candidate_point := b + w * (c - b)
+        return candidate_point
+    }
+
+    // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
+    denom := 1.0 / (va + vb + vc)
+    v := vb * denom
+    w := vc * denom
+    candidate := a + ab * v + ac * w
+    return candidate
+}
+
+// This proc returns the first collision detected
 closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
 
     // Helper proc to check if a closest point is
@@ -165,72 +222,76 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     // Test each triangle until the closest point
     closest_point: hlsl.float3
     shortest_distance := math.INF_F32
-    for triangle in triangles {
-        using triangle // a, b, c, normal
-        dot :: hlsl.dot
+    for &triangle in triangles {
+
+        candidate := closest_pt_triangle(point, &triangle)
+        check_candidate_point(point, candidate, &closest_point, &shortest_distance)
+
+        //using triangle // a, b, c, normal
+        //dot :: hlsl.dot
 
         // Check if point is in vertex region outside A
-        ab := b - a
-        ac := c - a
-        ap := point - a
-        d1 := dot(ab, ap)
-        d2 := dot(ac, ap)
-        if d1 <= 0 && d2 <= 0 {
-            check_candidate_point(point, a, &closest_point, &shortest_distance)
-            continue
-        }
+        // ab := b - a
+        // ac := c - a
+        // ap := point - a
+        // d1 := dot(ab, ap)
+        // d2 := dot(ac, ap)
+        // if d1 <= 0 && d2 <= 0 {
+        //     check_candidate_point(point, a, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // Check if the point is in vertex region outside B
-        bp := point - b
-        d3 := dot(ab, bp)
-        d4 := dot(ac, bp)
-        if d3 >= 0 && d4 <= d3 { 
-            check_candidate_point(point, b, &closest_point, &shortest_distance)
-            continue
-        }
+        // // Check if the point is in vertex region outside B
+        // bp := point - b
+        // d3 := dot(ab, bp)
+        // d4 := dot(ac, bp)
+        // if d3 >= 0 && d4 <= d3 { 
+        //     check_candidate_point(point, b, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // Check if P in edge region of AB
-        vc := d1*d4 - d3*d2
-        if vc <= 0 && d1 >= 0 && d3 <= 0 {
-            w := d1 / (d1 - d3)
-            candidate_point := a + w * ab
-            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-            continue
-        }
+        // // Check if P in edge region of AB
+        // vc := d1*d4 - d3*d2
+        // if vc <= 0 && d1 >= 0 && d3 <= 0 {
+        //     w := d1 / (d1 - d3)
+        //     candidate_point := a + w * ab
+        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // Check if P in vertex region outside C
-        cp := point - c
-        d5 := dot(ab, cp)
-        d6 := dot(ac, cp)
-        if d6 >= 0 && d5 <= d6 {
-            check_candidate_point(point, c, &closest_point, &shortest_distance)
-            continue
-        }
+        // // Check if P in vertex region outside C
+        // cp := point - c
+        // d5 := dot(ab, cp)
+        // d6 := dot(ac, cp)
+        // if d6 >= 0 && d5 <= d6 {
+        //     check_candidate_point(point, c, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // Check if P in edge region AC
-        vb := d5*d2 - d1*d6
-        if vb <= 0 && d2 >= 0 && d6 <= 0 {
-            w := d2 / (d2 - d6)
-            candidate_point := a + w * ac
-            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-            continue
-        }
+        // // Check if P in edge region AC
+        // vb := d5*d2 - d1*d6
+        // if vb <= 0 && d2 >= 0 && d6 <= 0 {
+        //     w := d2 / (d2 - d6)
+        //     candidate_point := a + w * ac
+        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // Check if P is in edge region of BC
-        va := d3*d6 - d5*d4
-        if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
-            w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
-            candidate_point := b + w * (c - b)
-            check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-            continue
-        }
+        // // Check if P is in edge region of BC
+        // va := d3*d6 - d5*d4
+        // if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+        //     w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        //     candidate_point := b + w * (c - b)
+        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
+        //     continue
+        // }
 
-        // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
-        denom := 1.0 / (va + vb + vc)
-        v := vb * denom
-        w := vc * denom
-        candidate := a + ab * v + ac * w
-        check_candidate_point(point, candidate, &closest_point, &shortest_distance)
+        // // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
+        // denom := 1.0 / (va + vb + vc)
+        // v := vb * denom
+        // w := vc * denom
+        // candidate := a + ab * v + ac * w
+        // check_candidate_point(point, candidate, &closest_point, &shortest_distance)
     }
 
     return closest_point
