@@ -501,21 +501,7 @@ main :: proc() {
             }
         }
 
-        if user_config.flags["show_closest_point"] {
-            for prim in moon_mesh.primitives {
-                scale : f32 = 0.1
-                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &{
-                    world_from_model = {
-                        scale, 0.0, 0.0, camera_collision_point.x,
-                        0.0, scale, 0.0, camera_collision_point.y,
-                        0.0, 0.0, scale, camera_collision_point.z,
-                        0.0, 0.0, 0.0, 1.0,
-                    }
-                })
-            }
-        }
-
-
+        @static camera_collision_point_scale : f32 = 1.0
         if imgui_state.show_gui {
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -532,7 +518,7 @@ main :: proc() {
                         
                     }
                     if imgui.MenuItem("Save user config") {
-                        save_user_config(&user_config, "user.cfg")
+                        save_user_config(&user_config, USER_CONFIG_FILE)
                     }
                     if imgui.MenuItem("Exit") do do_main_loop = false
 
@@ -658,6 +644,7 @@ main :: proc() {
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                         imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                         imgui.Checkbox("Show closest point on terrain to camera", &user_config.flags["show_closest_point"])
+                        imgui.SliderFloat("Closest point scale", &camera_collision_point_scale, 0.0, 5.0)
                         imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
@@ -754,6 +741,21 @@ main :: proc() {
             ddata.world_from_model[3][1] = character.collision.origin.y
             ddata.world_from_model[3][2] = character.collision.origin.z
             draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &ddata)
+        }
+
+        // Draw closest collision point between camera and terrain mesh
+        if user_config.flags["show_closest_point"] {
+            for prim in moon_mesh.primitives {
+                scale := camera_collision_point_scale
+                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &{
+                    world_from_model = {
+                        scale, 0.0, 0.0, camera_collision_point.x,
+                        0.0, scale, 0.0, camera_collision_point.y,
+                        0.0, 0.0, scale, camera_collision_point.z,
+                        0.0, 0.0, 0.0, 1.0,
+                    }
+                })
+            }
         }
 
         imgui.EndFrame()
