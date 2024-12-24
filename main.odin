@@ -125,10 +125,6 @@ main :: proc() {
         }
     }
 
-    // Init input system
-    input_system := init_input_system()
-    defer destroy_input_system(&input_system)
-
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
     defer sdl2.Quit()
@@ -203,6 +199,10 @@ main :: proc() {
         log.fatal("Couldn't init SDL2 surface.")
         return
     }
+
+    // Init input system
+    input_system := init_input_system()
+    defer destroy_input_system(&input_system)
 
     // Initialize the renderer
     render_data := init_renderer(&vgd, resolution)
