@@ -171,6 +171,16 @@ main :: proc() {
         append(&processes, process)
     }
 
+    // Start odin compilation before waiting on slangc
+    log.info("starting odin compiler...")
+    odin_process: os2.Process
+    {
+        odin_proc := os2.Process_Desc {
+            command = ODIN_COMMAND
+        }
+        odin_process, _ = os2.process_start(odin_proc)
+    }
+
     // Wait on the shader compilers
     log.info("waiting on slangc...")
     for p in processes {
@@ -182,20 +192,11 @@ main :: proc() {
         }
     }
     
-    // Invoke the odin compiler
-    log.info("building main program...")
+    // wait for the odin compiler
+    log.info("waiting on odin compiler..")
     {
-        odin_proc := os2.Process_Desc {
-            command = ODIN_COMMAND
-        }
-        process, error := os2.process_start(odin_proc)
-        if error != nil {
-            fmt.printfln("%#v", error)
-            return
-        }
-        proc_state, _ := os2.process_wait(process)
-	
-	if proc_state.exit_code != 0 {
+        proc_state, _ := os2.process_wait(odin_process)
+	    if proc_state.exit_code != 0 {
             log.errorf("main program failed to build.")
         }
     }
