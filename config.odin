@@ -139,3 +139,13 @@ load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
 
     return u, true
 }
+
+update_user_cfg_camera :: proc(using s: ^UserConfiguration, camera: ^Camera) {
+    floats["freecam_x"] = f64(camera.position.x)
+    floats["freecam_y"] = f64(camera.position.y)
+    floats["freecam_z"] = f64(camera.position.z)
+    floats["camera_fov"] = f64(camera.fov_radians)
+    floats["freecam_pitch"] = f64(camera.pitch)
+    floats["freecam_yaw"] = f64(camera.yaw)
+}
+
