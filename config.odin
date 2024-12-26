@@ -7,6 +7,9 @@ import "core:text/scanner"
 import "core:strconv"
 import "core:strings"
 
+// Constants for user configuration keys
+
+
 UserConfiguration :: struct {
     flags: map[string]bool,
     ints: map[string]i64,
@@ -77,6 +80,12 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "always_on_top = false\n")
     os.write_string(out_file, "show_imgui_demo = false\n")
 
+    os.write_string(out_file, "freecam_x = 0.0\n")
+    os.write_string(out_file, "freecam_y = -5.0\n")
+    os.write_string(out_file, "freecam_z = 60.0\n")
+    os.write_string(out_file, "camera_fov = 1.57079637\n")
+    os.write_string(out_file, "freecam_pitch = 0.78539819\n")
+    os.write_string(out_file, "freecam_yaw = 0.0\n")
 }
 
 load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
@@ -95,6 +104,7 @@ load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
     for key_tok != scanner.EOF {
         // Put the key in the internerator
         interned_key, err := strings.intern_get(&u._interner, key_str)
+        log.debugf("User cfg key: %v", interned_key)
         if err != nil {
             log.errorf("Error interning key: %v", err)
         }
@@ -105,11 +115,21 @@ load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
             log.errorf("Expected '=', found %v", eq_tok)
         }
 
+        negative_number := false
         scanner.scan(&sc)
         val_tok := scanner.token_text(&sc)
+        log.debugf("User cfg value: %v", val_tok)
+        if val_tok == "-" {
+            negative_number = true
+            scanner.scan(&sc)
+            val_tok = scanner.token_text(&sc)
+        }
         if val_tok == "true"                            do u.flags[interned_key] = true
         else if val_tok == "false"                      do u.flags[interned_key] = false
-        else if strings.contains(val_tok, ".")          do u.floats[interned_key] = strconv.atof(val_tok)
+        else if strings.contains(val_tok, ".") {
+            i : f64 = -1 if negative_number else 1
+            u.floats[interned_key] = i * strconv.atof(val_tok)
+        }
         else                                            do u.ints[interned_key] = i64(strconv.atoi(val_tok))
 
 
