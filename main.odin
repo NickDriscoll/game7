@@ -271,15 +271,20 @@ main :: proc() {
 
     // Initialize main viewport camera
     viewport_camera := Camera {
-        position = {0.0, -5.0, 60.0},
-        yaw = 0.0,
-        pitch = math.PI / 4.0,
-        fov_radians = math.PI / 2.0,
+        position = {
+            f32(user_config.floats["freecam_x"]),
+            f32(user_config.floats["freecam_y"]),
+            f32(user_config.floats["freecam_z"])
+        },
+        yaw = f32(user_config.floats["freecam_yaw"]),
+        pitch = f32(user_config.floats["freecam_pitch"]),
+        fov_radians = f32(user_config.floats["camera_fov"]),
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
         farplane = 1_000_000.0,
         control_flags = nil
     }
+    log.debug(viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     // Create test character
@@ -288,6 +293,8 @@ main :: proc() {
             origin = {0.0, 0.0, 30.0},
             radius = 2.0
         },
+        velocity = {},
+        state = .Falling,
         facing = {0.0, 1.0, 0.0},
         mesh_data = moon_mesh
     }
@@ -438,13 +445,21 @@ main :: proc() {
 
         // Update player character
         {
-            GRAVITY_ACCELERATION :: -0.5
-            TERMINAL_VELOCITY :: 4.0
-            character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
-            if math.abs(character.velocity.z) > TERMINAL_VELOCITY {
-                character.velocity.z = TERMINAL_VELOCITY
+            GRAVITY_ACCELERATION :: -1.5
+            TERMINAL_VELOCITY :: 4.
+            
+            switch character.state {
+                case .Grounded: {
+
+                }
+                case .Falling: {
+                    character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+                    if math.abs(character.velocity.z) > TERMINAL_VELOCITY {
+                        character.velocity.z = TERMINAL_VELOCITY
+                    }
+                    character.collision.origin += timescale * last_frame_duration * character.velocity
+                }
             }
-            character.collision.origin += timescale * last_frame_duration * character.velocity
         }
 
         // Update camera based on user input
@@ -654,6 +669,8 @@ main :: proc() {
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
                         imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
+                        imgui.SameLine()
+                        if imgui.Button("Reset") do timescale = 1.0
                         
                         imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
                         
