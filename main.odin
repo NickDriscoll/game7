@@ -538,6 +538,7 @@ main :: proc() {
                         
                     }
                     if imgui.MenuItem("Save user config") {
+                        update_user_cfg_camera(&user_config, &viewport_camera)
                         save_user_config(&user_config, USER_CONFIG_FILE)
                     }
                     if imgui.MenuItem("Exit") do do_main_loop = false
