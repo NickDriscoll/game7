@@ -53,6 +53,7 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
 
 TestCharacter :: struct {
     collision: Sphere,
+    velocity: hlsl.float3,
     facing: hlsl.float3,
     mesh_data: MeshData,
 }
@@ -274,29 +275,14 @@ main :: proc() {
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
 
-    // Add loose props to container
-    {
-        SPACING :: 10.0
-        ROWS :: 10
-        OFFSET :: -(ROWS/2 * SPACING)
-        for y in 0..<ROWS {
-            for x in 0..<ROWS {
-                my_prop := LooseProp {
-                    position = {f32(x) * SPACING + OFFSET, f32(y) * SPACING + OFFSET, 10.0},
-                    scale = 1.0,
-                    mesh_data = spyro_mesh
-                }
-                append(&game_state.props, my_prop)
-            }
-        }
-    }
-
     // Create test character
     character := TestCharacter {
         collision = {
             origin = {0.0, 0.0, 30.0},
             radius = 2.0
-        }
+        },
+        facing = {0.0, 1.0, 0.0},
+        mesh_data = moon_mesh
     }
 
     free_all(context.temp_allocator)
@@ -305,6 +291,7 @@ main :: proc() {
     previous_time := current_time
     window_minimized := false
     limit_cpu := false
+    timescale : f32 = 0.25
     
     log.info("App initialization complete. Entering main loop")
 
@@ -441,6 +428,17 @@ main :: proc() {
         imgui.NewFrame()
 
         // Update
+
+        // Update player character
+        {
+            GRAVITY_ACCELERATION :: -0.5
+            TERMINAL_VELOCITY :: 4.0
+            character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+            if math.abs(character.velocity.z) > TERMINAL_VELOCITY {
+                character.velocity.z = TERMINAL_VELOCITY
+            }
+            character.collision.origin += timescale * last_frame_duration * character.velocity
+        }
 
         // Update camera based on user input
         camera_collision_point: hlsl.float3
@@ -648,7 +646,8 @@ main :: proc() {
                         imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
-
+                        imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
+                        
                         imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
                         
                         imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
