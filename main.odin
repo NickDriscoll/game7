@@ -12,6 +12,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
+
 import "vendor:cgltf"
 import "vendor:sdl2"
 import stbi "vendor:stb/image"
@@ -51,8 +52,14 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
     delete_static_triangles(&collision)
 }
 
+CharacterState :: enum {
+    Grounded,
+    Falling
+}
+
 TestCharacter :: struct {
     collision: Sphere,
+    state: CharacterState,
     velocity: hlsl.float3,
     facing: hlsl.float3,
     mesh_data: MeshData,
@@ -122,7 +129,7 @@ main :: proc() {
         ok2: bool
         user_config, ok2 = load_user_config(USER_CONFIG_FILE)
         if !ok2 {
-            log.error("Failed to load freshly generated default config file.")
+            log.error("Failed to load freshly-generated default config file.")
         }
     }
 
@@ -270,7 +277,7 @@ main :: proc() {
         fov_radians = math.PI / 2.0,
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
-        farplane = 1_000_000_000.0,
+        farplane = 1_000_000.0,
         control_flags = nil
     }
     saved_mouse_coords := hlsl.int2 {0, 0}
