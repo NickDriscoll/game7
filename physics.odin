@@ -206,15 +206,15 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
-    check_candidate_point :: proc(
+    check_closest_candidate :: proc(
         test_point: hlsl.float3,
         candidate: hlsl.float3,
-        closest: ^hlsl.float3,
+        current_closest: ^hlsl.float3,
         shortest_dist: ^f32,
     ) {
         dist := hlsl.distance(test_point, candidate)
         if dist < shortest_dist^ {
-            closest^ = candidate
+            current_closest^ = candidate
             shortest_dist^ = dist
         }
     }
@@ -223,78 +223,44 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     closest_point: hlsl.float3
     shortest_distance := math.INF_F32
     for &triangle in triangles {
-
         candidate := closest_pt_triangle(point, &triangle)
-        check_candidate_point(point, candidate, &closest_point, &shortest_distance)
-
-        //using triangle // a, b, c, normal
-        //dot :: hlsl.dot
-
-        // Check if point is in vertex region outside A
-        // ab := b - a
-        // ac := c - a
-        // ap := point - a
-        // d1 := dot(ab, ap)
-        // d2 := dot(ac, ap)
-        // if d1 <= 0 && d2 <= 0 {
-        //     check_candidate_point(point, a, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // Check if the point is in vertex region outside B
-        // bp := point - b
-        // d3 := dot(ab, bp)
-        // d4 := dot(ac, bp)
-        // if d3 >= 0 && d4 <= d3 { 
-        //     check_candidate_point(point, b, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // Check if P in edge region of AB
-        // vc := d1*d4 - d3*d2
-        // if vc <= 0 && d1 >= 0 && d3 <= 0 {
-        //     w := d1 / (d1 - d3)
-        //     candidate_point := a + w * ab
-        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // Check if P in vertex region outside C
-        // cp := point - c
-        // d5 := dot(ab, cp)
-        // d6 := dot(ac, cp)
-        // if d6 >= 0 && d5 <= d6 {
-        //     check_candidate_point(point, c, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // Check if P in edge region AC
-        // vb := d5*d2 - d1*d6
-        // if vb <= 0 && d2 >= 0 && d6 <= 0 {
-        //     w := d2 / (d2 - d6)
-        //     candidate_point := a + w * ac
-        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // Check if P is in edge region of BC
-        // va := d3*d6 - d5*d4
-        // if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
-        //     w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
-        //     candidate_point := b + w * (c - b)
-        //     check_candidate_point(point, candidate_point, &closest_point, &shortest_distance)
-        //     continue
-        // }
-
-        // // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
-        // denom := 1.0 / (va + vb + vc)
-        // v := vb * denom
-        // w := vc * denom
-        // candidate := a + ab * v + ac * w
-        // check_candidate_point(point, candidate, &closest_point, &shortest_distance)
+        check_closest_candidate(point, candidate, &closest_point, &shortest_distance)
     }
 
     return closest_point
+}
+
+// Implementation adapted from section 5.3.6 of Realtime Collision Detection
+intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3, bool) {
+    ab := b - a
+    ac := c - a
+    //qp := p - q
+
+    // Compute denominator
+    // If <= 0.0, segment is parallel or points away
+    denom := hlsl.dot(ray.direction, normal)
+    if denom <= 0.0 do return {}, false
+
+    ap := ray.start - a
+    t := hlsl.dot(ap, normal)
+    if t < 0.0 do return {}, false
+
+    // Compute barycentric coordinates
+    e := hlsl.cross(ray.direction, ap)
+    v := hlsl.dot(ac, e)
+    if v < 0.0 || v > denom do return {}, false
+    w := -hlsl.dot(ab, e)
+    if w < 0.0 || v + w > denom do return {}, false
+
+    // Ray does intersect
+    ood := 1.0 / denom
+    t *= ood
+    v *= ood
+    w *= ood
+    u := 1.0 - v - w
+
+    world_space_collision := a*u + b*v + c*w
+    return world_space_collision, true
 }
 
 intersect_ray_triangles :: proc(ray: ^Ray, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
