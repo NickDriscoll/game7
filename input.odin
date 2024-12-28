@@ -42,6 +42,8 @@ VerbType :: enum {
 
     Sprint,
     Crawl,
+
+    PlaceThing
 }
 
 AppVerb :: struct($ValueType: typeid) {
@@ -58,9 +60,6 @@ RemapInput :: struct #raw_union {
 InputSystem :: struct {
     key_mappings: map[sdl2.Scancode]VerbType,
 
-    input_being_remapped: RemapInput,
-    currently_remapping: bool,
-
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
 
@@ -68,6 +67,9 @@ InputSystem :: struct {
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
     axis_sensitivities: map[sdl2.GameControllerAxis]f32,
+
+    input_being_remapped: RemapInput,
+    currently_remapping: bool,
 
     ctrl_pressed: bool,
 
@@ -123,6 +125,7 @@ init_input_system :: proc() -> InputSystem {
     key_mappings[.LCTRL] = .Crawl
 
     // Hardcoded default mouse mappings
+    mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
     // Hardcoded axis mappings
@@ -288,6 +291,13 @@ poll_sdl2_events :: proc(
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
             }
             case .MOUSEBUTTONUP: {
+                verbtype, found := mouse_mappings[event.button.button]
+                if found {
+                    append(&outputs.int2s, AppVerb([2]i64) {
+                        type = verbtype,
+                        value = {0, 0}
+                    }) 
+                }
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
             }
             case .MOUSEMOTION: {
