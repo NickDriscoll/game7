@@ -328,6 +328,7 @@ main :: proc() {
         camera_speed_mod : f32 = 1.0
         @static camera_sprint_multiplier : f32 = 5.0
         @static camera_slow_multiplier : f32 = 1.0 / 5.0
+        @static place_thing: hlsl.uint2
         {
             for verb in output_verbs.bools {
                 #partial switch verb.type {
@@ -375,6 +376,8 @@ main :: proc() {
             for verb in output_verbs.int2s {
                 #partial switch verb.type {
                     case .ToggleMouseLook: {
+                        if verb.value == {0, 0} do continue
+
                         mlook := !(.MouseLook in viewport_camera.control_flags)
                         
                         // Do nothing if Dear ImGUI wants mouse input
@@ -414,23 +417,25 @@ main :: proc() {
                         user_config.ints["window_x"] = i64(verb.value.x)
                         user_config.ints["window_y"] = i64(verb.value.y)
                     }
+                    case .PlaceThing: {
+                        place_thing = {u32(verb.value.x), u32(verb.value.y)}
+                    }
                 }
             }
 
             for verb in output_verbs.floats {
-                JOYSTICK_SENSITIVITY :: 1
                 #partial switch verb.type {
                     case .RotateFreecamX: {
-                        camera_rotation.x += JOYSTICK_SENSITIVITY * verb.value
+                        camera_rotation.x += verb.value
                     }
                     case .RotateFreecamY: {
-                        camera_rotation.y += JOYSTICK_SENSITIVITY * verb.value
+                        camera_rotation.y += verb.value
                     }
                     case .TranslateFreecamX: {
-                        camera_direction.x += JOYSTICK_SENSITIVITY * verb.value
+                        camera_direction.x += verb.value
                     }
                     case .TranslateFreecamY: {
-                        camera_direction.y += JOYSTICK_SENSITIVITY * verb.value
+                        camera_direction.y += verb.value
                     }
                     case .Sprint: {
                         camera_speed_mod += camera_sprint_multiplier * verb.value
@@ -445,25 +450,51 @@ main :: proc() {
 
         // Update player character
         {
-            GRAVITY_ACCELERATION :: -1.5
-            TERMINAL_VELOCITY :: 4.
-            
-            switch character.state {
-                case .Grounded: {
+            GRAVITY_ACCELERATION :: -9.8        // m/s^2
+            TERMINAL_VELOCITY :: -16.0           // m/s
 
+            // TEST CODE PLZ REMOVE
+            if place_thing != {0, 0} {
+                world_from_clip := hlsl.inverse(
+                    camera_projection_from_view(&viewport_camera) *
+                    camera_view_from_world(&viewport_camera)
+                )
+                screen_coords := hlsl.float4 {f32(place_thing.x), f32(place_thing.y), 0.0, 1.0}
+                clip_coords := render_data.cpu_uniforms.clip_from_screen * screen_coords
+                world_coords := world_from_clip * clip_coords
+                log.debugf("screen_coords %v", screen_coords)
+                log.debugf("clip_coords %v", clip_coords)
+                log.debugf("world_coords %v", world_coords)
+
+                ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
+                ray := Ray {
+                    start = ray_start,
+                    direction = hlsl.normalize(ray_start - viewport_camera.position)
                 }
-                case .Falling: {
-                    character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
-                    if math.abs(character.velocity.z) > TERMINAL_VELOCITY {
-                        character.velocity.z = TERMINAL_VELOCITY
-                    }
-                    character.collision.origin += timescale * last_frame_duration * character.velocity
-                }
+
+                character.collision.origin = ray.start
             }
+
+            // Snap character to ground if close enough
+            {
+
+            }
+            
+            // switch character.state {
+            //     case .Grounded: {
+
+            //     }
+            //     case .Falling: {
+            //         character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+            //         if character.velocity.z < TERMINAL_VELOCITY {
+            //             character.velocity.z = TERMINAL_VELOCITY
+            //         }
+            //         character.collision.origin += timescale * last_frame_duration * character.velocity
+            //     }
+            // }
         }
 
         // Update camera based on user input
-        camera_collision_point: hlsl.float3
         {
             using viewport_camera
 
@@ -500,6 +531,7 @@ main :: proc() {
 
             // Collision test the camera's bounding sphere against the terrain
             if user_config.flags["show_closest_point"] || user_config.flags["freecam_collision"] {
+                camera_collision_point: hlsl.float3
                 closest_dist := math.INF_F32
                 for &piece in game_state.terrain_pieces {
                     candidate := closest_pt_triangles(position, &piece.collision)
@@ -521,7 +553,6 @@ main :: proc() {
             }
         }
 
-        @static camera_collision_point_scale : f32 = 1.0
         if imgui_state.show_gui {
             if imgui.BeginMainMenuBar() {
                 if imgui.BeginMenu("File") {
@@ -664,8 +695,6 @@ main :: proc() {
                         imgui.Text("Camera pitch: %f", pitch)
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                         imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                        imgui.Checkbox("Show closest point on terrain to camera", &user_config.flags["show_closest_point"])
-                        imgui.SliderFloat("Closest point scale", &camera_collision_point_scale, 0.0, 5.0)
                         imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
@@ -765,21 +794,6 @@ main :: proc() {
             ddata.world_from_model[3][1] = character.collision.origin.y
             ddata.world_from_model[3][2] = character.collision.origin.z
             draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &ddata)
-        }
-
-        // Draw closest collision point between camera and terrain mesh
-        if user_config.flags["show_closest_point"] {
-            for prim in moon_mesh.primitives {
-                scale := camera_collision_point_scale
-                draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &{
-                    world_from_model = {
-                        scale, 0.0, 0.0, camera_collision_point.x,
-                        0.0, scale, 0.0, camera_collision_point.y,
-                        0.0, 0.0, scale, camera_collision_point.z,
-                        0.0, 0.0, 0.0, 1.0,
-                    }
-                })
-            }
         }
 
         imgui.EndFrame()
