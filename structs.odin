@@ -92,15 +92,25 @@ camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
     yaw := yaw_rotation_matrix(camera.yaw)
     trans := translation_matrix(-camera.position)
 
-    return pitch * yaw * trans
+    // Change from right-handed Z-Up to left-handed Y-Up
+    c_mat := hlsl.float4x4 {
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, -1.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+
+    return c_mat * pitch * yaw * trans
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
 camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
+
+    // Change from left-handed Y-Up to Y-down, Z-forward
     c_matrix := hlsl.float4x4 {
         1.0, 0.0, 0.0, 0.0,
+        0.0, -1.0, 0.0, 0.0,
         0.0, 0.0, -1.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 1.0,
     }
 

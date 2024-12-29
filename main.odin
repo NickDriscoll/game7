@@ -448,68 +448,6 @@ main :: proc() {
 
         // Update
 
-        // Update player character
-        {
-            GRAVITY_ACCELERATION :: -9.8        // m/s^2
-            TERMINAL_VELOCITY :: -16.0           // m/s
-
-            // TEST CODE PLZ REMOVE
-            if place_thing_screen_coords != {0, 0} {
-                tan_fovy := math.tan(viewport_camera.fov_radians / 2.0)
-                tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
-                clip_coords := hlsl.float4 {
-                    f32(place_thing_screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
-                    f32(place_thing_screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
-                    1.0,
-                    1.0
-                }
-                view_coords := hlsl.float4 {
-                    clip_coords.x * viewport_camera.nearplane * tan_fovx,
-                    clip_coords.y * viewport_camera.nearplane * tan_fovy,
-                    viewport_camera.nearplane,
-                    1.0
-                }
-                world_coords := hlsl.inverse(camera_view_from_world(&viewport_camera)) * view_coords
-
-
-
-
-
-                // world_coords := world_from_clip * clip_coords
-                // log.debugf("screen_coords %v", screen_coords)
-                // log.debugf("clip_coords %v", clip_coords)
-                // log.debugf("world_coords %v", world_coords)
-
-
-
-                ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
-                ray := Ray {
-                    start = ray_start,
-                    direction = hlsl.normalize(ray_start - viewport_camera.position)
-                }
-
-                character.collision.origin = ray.start + ray.direction * 20.0
-            }
-
-            // Snap character to ground if close enough
-            {
-
-            }
-            
-            // switch character.state {
-            //     case .Grounded: {
-
-            //     }
-            //     case .Falling: {
-            //         character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
-            //         if character.velocity.z < TERMINAL_VELOCITY {
-            //             character.velocity.z = TERMINAL_VELOCITY
-            //         }
-            //         character.collision.origin += timescale * last_frame_duration * character.velocity
-            //     }
-            // }
-        }
-
         // Update camera based on user input
         {
             using viewport_camera
@@ -528,12 +466,12 @@ main :: proc() {
             if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
 
             control_flags_dir: hlsl.float3
-            if .MoveForward in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
-            if .MoveBackward in control_flags do control_flags_dir += {0.0, -1.0, 0.0}
+            if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
+            if .MoveDown in control_flags do control_flags_dir += {0.0, -1.0, 0.0}
             if .MoveLeft in control_flags do control_flags_dir += {-1.0, 0.0, 0.0}
             if .MoveRight in control_flags do control_flags_dir += {1.0, 0.0, 0.0}
-            if .MoveUp in control_flags do control_flags_dir += {0.0, 0.0, 1.0}
-            if .MoveDown in control_flags do control_flags_dir += {0.0, 0.0, -1.0}
+            if .MoveBackward in control_flags do control_flags_dir += {0.0, 0.0, 1.0}
+            if .MoveForward in control_flags do control_flags_dir += {0.0, 0.0, -1.0}
             if control_flags_dir != {0.0, 0.0, 0.0} do camera_direction += hlsl.normalize(control_flags_dir)
 
             if camera_direction != {0.0, 0.0, 0.0} {
@@ -567,6 +505,69 @@ main :: proc() {
                     }
                 }
             }
+        }
+
+        // Update player character
+        {
+            GRAVITY_ACCELERATION :: -9.8        // m/s^2
+            TERMINAL_VELOCITY :: -16.0           // m/s
+
+            // TEST CODE PLZ REMOVE
+            if place_thing_screen_coords != {0, 0} {
+                tan_fovy := math.tan(viewport_camera.fov_radians / 2.0)
+                tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
+                clip_coords := hlsl.float4 {
+                    f32(place_thing_screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
+                    f32(place_thing_screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
+                    1.0,
+                    1.0
+                }
+                view_coords := hlsl.float4 {
+                    clip_coords.x * viewport_camera.nearplane * tan_fovx,
+                    -clip_coords.y * viewport_camera.nearplane * tan_fovy,
+                    -viewport_camera.nearplane,
+                    1.0
+                }
+                world_coords := hlsl.inverse(camera_view_from_world(&viewport_camera)) * view_coords
+
+
+
+
+
+                // world_coords := world_from_clip * clip_coords
+                // log.debugf("screen_coords %v", screen_coords)
+                // log.debugf("clip_coords %v", clip_coords)
+                // log.debugf("world_coords %v", world_coords)
+
+
+
+                ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
+                ray := Ray {
+                    start = ray_start,
+                    direction = hlsl.normalize(ray_start - viewport_camera.position)
+                }
+
+                //character.collision.origin = ray.start
+                character.collision.origin = ray.start + ray.direction * 10.0
+            }
+
+            // Snap character to ground if close enough
+            {
+
+            }
+            
+            // switch character.state {
+            //     case .Grounded: {
+
+            //     }
+            //     case .Falling: {
+            //         character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+            //         if character.velocity.z < TERMINAL_VELOCITY {
+            //             character.velocity.z = TERMINAL_VELOCITY
+            //         }
+            //         character.collision.origin += timescale * last_frame_duration * character.velocity
+            //     }
+            // }
         }
 
         if imgui_state.show_gui {
@@ -804,7 +805,7 @@ main :: proc() {
         // Draw test character
         for prim in character.mesh_data.primitives {
             ddata := DrawData {
-                world_from_model = IDENTITY_MATRIX
+                world_from_model = uniform_scaling_matrix(0.2)
             }
             ddata.world_from_model[3][0] = character.collision.origin.x
             ddata.world_from_model[3][1] = character.collision.origin.y
