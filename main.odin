@@ -328,7 +328,7 @@ main :: proc() {
         camera_speed_mod : f32 = 1.0
         @static camera_sprint_multiplier : f32 = 5.0
         @static camera_slow_multiplier : f32 = 1.0 / 5.0
-        @static place_thing: hlsl.uint2
+        @static place_thing_screen_coords: hlsl.uint2
         {
             for verb in output_verbs.bools {
                 #partial switch verb.type {
@@ -418,7 +418,7 @@ main :: proc() {
                         user_config.ints["window_y"] = i64(verb.value.y)
                     }
                     case .PlaceThing: {
-                        place_thing = {u32(verb.value.x), u32(verb.value.y)}
+                        place_thing_screen_coords = {u32(verb.value.x), u32(verb.value.y)}
                     }
                 }
             }
@@ -454,17 +454,33 @@ main :: proc() {
             TERMINAL_VELOCITY :: -16.0           // m/s
 
             // TEST CODE PLZ REMOVE
-            if place_thing != {0, 0} {
-                world_from_clip := hlsl.inverse(
-                    camera_projection_from_view(&viewport_camera) *
-                    camera_view_from_world(&viewport_camera)
-                )
-                screen_coords := hlsl.float4 {f32(place_thing.x), f32(place_thing.y), 0.0, 1.0}
-                clip_coords := render_data.cpu_uniforms.clip_from_screen * screen_coords
-                world_coords := world_from_clip * clip_coords
-                log.debugf("screen_coords %v", screen_coords)
-                log.debugf("clip_coords %v", clip_coords)
-                log.debugf("world_coords %v", world_coords)
+            if place_thing_screen_coords != {0, 0} {
+                tan_fovy := math.tan(viewport_camera.fov_radians / 2.0)
+                tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
+                clip_coords := hlsl.float4 {
+                    f32(place_thing_screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
+                    f32(place_thing_screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
+                    1.0,
+                    1.0
+                }
+                view_coords := hlsl.float4 {
+                    clip_coords.x * viewport_camera.nearplane * tan_fovx,
+                    clip_coords.y * viewport_camera.nearplane * tan_fovy,
+                    viewport_camera.nearplane,
+                    1.0
+                }
+                world_coords := hlsl.inverse(camera_view_from_world(&viewport_camera)) * view_coords
+
+
+
+
+
+                // world_coords := world_from_clip * clip_coords
+                // log.debugf("screen_coords %v", screen_coords)
+                // log.debugf("clip_coords %v", clip_coords)
+                // log.debugf("world_coords %v", world_coords)
+
+
 
                 ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
                 ray := Ray {
@@ -472,7 +488,7 @@ main :: proc() {
                     direction = hlsl.normalize(ray_start - viewport_camera.position)
                 }
 
-                character.collision.origin = ray.start
+                character.collision.origin = ray.start + ray.direction * 20.0
             }
 
             // Snap character to ground if close enough
