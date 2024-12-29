@@ -516,9 +516,11 @@ main :: proc() {
             if place_thing_screen_coords != {0, 0} {
                 tan_fovy := math.tan(viewport_camera.fov_radians / 2.0)
                 tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
+                screen_coords: [2]c.int
+                sdl2.GetMouseState(&screen_coords.x, &screen_coords.y)
                 clip_coords := hlsl.float4 {
-                    f32(place_thing_screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
-                    f32(place_thing_screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
+                    f32(screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
+                    f32(screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
                     1.0,
                     1.0
                 }
