@@ -19,7 +19,7 @@ Ray :: struct {
 
 Triangle :: struct {
     a, b, c: hlsl.float3,
-    normal: hlsl.float3,
+    //normal: hlsl.float3,
 }
 
 StaticTriangleCollision :: struct {
@@ -53,14 +53,14 @@ static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allo
         ac := c - a
 
         // Compute normal from cross product of edges
-        n := hlsl.normalize(hlsl.cross(ab, ac))
+        //n := hlsl.normalize(hlsl.cross(ab, ac))
 
         // Add new triangle to list
         append(&static_mesh.triangles, Triangle {
             a = a,
             b = b,
             c = c,
-            normal = n,
+            //normal = n,
         })
     }
 
@@ -245,13 +245,16 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     //qp := p - q
     qp := -ray.direction
 
+    // Compute normal
+    n := hlsl.cross(ab, ac)
+
     // Compute denominator
     // If <= 0.0, ray is parallel or points away
-    denom := hlsl.dot(qp, normal)
+    denom := hlsl.dot(qp, n)
     if denom <= 0.0 do return {}, false
 
     ap := ray.start - a
-    t := hlsl.dot(ap, normal)
+    t := hlsl.dot(ap, n)
     if t < 0.0 do return {}, false
 
     // Compute barycentric coordinates
@@ -268,8 +271,7 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     w *= ood
     u := 1.0 - v - w
 
-    //world_space_collision := a*u + b*v + c*w
-    world_space_collision := ray.start + t * ray.direction
+    world_space_collision := a*u + b*v + c*w
     return world_space_collision, true
 }
 

@@ -227,8 +227,8 @@ main :: proc() {
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
-    //main_scene_path : cstring = "data/models/artisans.glb"
-    main_scene_path : cstring = "data/models/plane.glb"
+    main_scene_path : cstring = "data/models/artisans.glb"
+    //main_scene_path : cstring = "data/models/plane.glb"
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
 
     // Get collision data out of main scene model
@@ -809,8 +809,9 @@ main :: proc() {
 
         // Draw test character
         for prim in character.mesh_data.primitives {
+            scale : f32 = 1.0
             ddata := DrawData {
-                world_from_model = uniform_scaling_matrix(0.2)
+                world_from_model = uniform_scaling_matrix(scale)
             }
             ddata.world_from_model[3][0] = character.collision.origin.x
             ddata.world_from_model[3][1] = character.collision.origin.y
