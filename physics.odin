@@ -139,6 +139,14 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
     return out_positions
 }
 
+
+
+
+
+
+
+
+
 // Implementation adapted from section 5.1.5 of Realtime Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
     dot :: hlsl.dot
@@ -235,10 +243,11 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     ab := b - a
     ac := c - a
     //qp := p - q
+    qp := -ray.direction
 
     // Compute denominator
-    // If <= 0.0, segment is parallel or points away
-    denom := hlsl.dot(ray.direction, normal)
+    // If <= 0.0, ray is parallel or points away
+    denom := hlsl.dot(qp, normal)
     if denom <= 0.0 do return {}, false
 
     ap := ray.start - a
@@ -246,7 +255,7 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     if t < 0.0 do return {}, false
 
     // Compute barycentric coordinates
-    e := hlsl.cross(ray.direction, ap)
+    e := hlsl.cross(qp, ap)
     v := hlsl.dot(ac, e)
     if v < 0.0 || v > denom do return {}, false
     w := -hlsl.dot(ab, e)
@@ -259,11 +268,30 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     w *= ood
     u := 1.0 - v - w
 
-    world_space_collision := a*u + b*v + c*w
+    //world_space_collision := a*u + b*v + c*w
+    world_space_collision := ray.start + t * ray.direction
     return world_space_collision, true
 }
 
-intersect_ray_triangles :: proc(ray: ^Ray, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
 
-    return {}
+// Returns closest intersection
+intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+    candidate_point: hlsl.float3
+    candidate_distance := math.INF_F32
+    found := false
+    for &tri in tris.triangles {
+        point: hlsl.float3
+        ok: bool
+        point, ok = intersect_ray_triangle(ray, &tri)
+        if ok {
+            d := hlsl.distance(ray.start, point)
+            if d < candidate_distance {
+                candidate_point = point
+                candidate_distance = d
+                found = true
+            }
+        }
+    }
+
+    return candidate_point, found
 }

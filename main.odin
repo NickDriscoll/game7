@@ -227,8 +227,8 @@ main :: proc() {
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
-    main_scene_path : cstring = "data/models/artisans.glb"
-    //main_scene_path : cstring = "data/models/plane.glb"
+    //main_scene_path : cstring = "data/models/artisans.glb"
+    main_scene_path : cstring = "data/models/plane.glb"
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
 
     // Get collision data out of main scene model
@@ -549,8 +549,11 @@ main :: proc() {
                     direction = hlsl.normalize(ray_start - viewport_camera.position)
                 }
 
+                collision_pt, ok := intersect_ray_triangles(&ray, &game_state.terrain_pieces[0].collision)
+
+                if ok do character.collision.origin = collision_pt
                 //character.collision.origin = ray.start
-                character.collision.origin = ray.start + ray.direction * 10.0
+                //character.collision.origin = ray.start + ray.direction * 10.0
             }
 
             // Snap character to ground if close enough
