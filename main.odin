@@ -532,33 +532,26 @@ main :: proc() {
                 }
                 world_coords := hlsl.inverse(camera_view_from_world(&viewport_camera)) * view_coords
 
-
-
-
-
-                // world_coords := world_from_clip * clip_coords
-                // log.debugf("screen_coords %v", screen_coords)
-                // log.debugf("clip_coords %v", clip_coords)
-                // log.debugf("world_coords %v", world_coords)
-
-
-
                 ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
                 ray := Ray {
                     start = ray_start,
                     direction = hlsl.normalize(ray_start - viewport_camera.position)
                 }
 
-                collision_pt, ok := intersect_ray_triangles(&ray, &game_state.terrain_pieces[0].collision)
+                collision_pt: hlsl.float3
+                closest_dist := math.INF_F32
+                for &piece in game_state.terrain_pieces {
+                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                    if ok {
+                        candidate_dist := hlsl.distance(collision_pt, viewport_camera.position)
+                        if candidate_dist < closest_dist {
+                            collision_pt = candidate
+                            closest_dist = candidate_dist
+                        }
+                    }
+                }
 
-                if ok do character.collision.origin = collision_pt
-                //character.collision.origin = ray.start
-                //character.collision.origin = ray.start + ray.direction * 10.0
-            }
-
-            // Snap character to ground if close enough
-            {
-
+                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
             }
             
             // switch character.state {
@@ -573,6 +566,11 @@ main :: proc() {
             //         character.collision.origin += timescale * last_frame_duration * character.velocity
             //     }
             // }
+
+            // Snap character to ground if close enough
+            {
+
+            }
         }
 
         if imgui_state.show_gui {
