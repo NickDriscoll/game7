@@ -107,11 +107,34 @@ main :: proc() {
     log.info("Initiating swag mode...")
 
     // Set up memory allocators
-    per_frame_arena: mem.Arena
-    {
+    when ODIN_DEBUG == true {
+        track: mem.Tracking_Allocator
+        mem.tracking_allocator_init(&track, context.allocator)
+        context.allocator = mem.tracking_allocator(&track)
+        
+        defer {
+            if len(track.allocation_map) > 0 {
+                fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+                for _, entry in track.allocation_map {
+                    fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+                }
+            }
+            if len(track.bad_free_array) > 0 {
+                fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+                for entry in track.bad_free_array {
+                    fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+                }
+            }
+            mem.tracking_allocator_destroy(&track)
+        }
+    } else {
         context.allocator = runtime.heap_allocator()
-
-        backing_memory, err := mem.alloc_bytes(TEMP_ARENA_SIZE)
+    }
+    per_frame_arena: mem.Arena
+    backing_memory: []byte
+    {
+        err: mem.Allocator_Error
+        backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
         if err != nil {
             log.error("Error allocating temporary memory backing buffer.")
         }
@@ -119,6 +142,7 @@ main :: proc() {
         mem.arena_init(&per_frame_arena, backing_memory)
         context.temp_allocator = mem.arena_allocator(&per_frame_arena)
     }
+    defer mem.free_bytes(backing_memory)
 
     // Load user configuration
     user_config, config_ok := load_user_config(USER_CONFIG_FILE)
@@ -132,6 +156,7 @@ main :: proc() {
             log.error("Failed to load freshly-generated default config file.")
         }
     }
+    defer delete_user_config(&user_config, context.allocator)
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -154,6 +179,7 @@ main :: proc() {
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
     vgd := vkw.init_vulkan(&init_params)
+    defer vkw.quit_vulkan(&vgd)
     
     // Make window 
     desktop_display_mode: sdl2.DisplayMode
@@ -221,6 +247,9 @@ main :: proc() {
     imgui_state := imgui_init(&vgd, resolution)
     defer imgui_cleanup(&vgd, &imgui_state)
     ini_savename_buffer: [2048]u8
+    if imgui_state.show_gui {
+        sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+    }
 
     // Main app structure storing the game's overall state
     game_state: GameState
@@ -337,6 +366,12 @@ main :: proc() {
                     case .MinimizeWindow: window_minimized = true
                     case .ToggleImgui: {
                         if verb.value do imgui_state.show_gui = !imgui_state.show_gui
+
+                        if imgui_state.show_gui {
+                            sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+                        } else {
+                            sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
+                        }
                     }
                     case .TranslateFreecamBack: {
                         if verb.value do viewport_camera.control_flags += {.MoveBackward}
@@ -703,6 +738,7 @@ main :: proc() {
                 imgui.End()
             }
 
+            // Misc window
             {
                 using viewport_camera
 
@@ -747,6 +783,7 @@ main :: proc() {
                 } 
             }
 
+            // Input remapping GUI
             if user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
 
             // if imgui.Begin("3D viewport") {
@@ -759,10 +796,8 @@ main :: proc() {
             // }
             // imgui.End()
 
+            // Imgui Demo
             if user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
-            sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
-        } else {
-            sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
         }
 
         // Draw terrain pieces
