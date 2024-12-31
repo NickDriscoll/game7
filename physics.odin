@@ -31,13 +31,15 @@ delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
 }
 
 static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
-    assert(len(positions) % 9 == 0)
+    FLOATS_PER_TRIANGLE :: 9
+
+    assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
 
     static_mesh: StaticTriangleCollision
-    static_mesh.triangles = make([dynamic]Triangle, 0, len(positions) / 9, allocator)
+    static_mesh.triangles = make([dynamic]Triangle, 0, len(positions) / FLOATS_PER_TRIANGLE, allocator)
 
     // For each implicit triangle
-    for i := 0; i < len(positions); i += 9 {
+    for i := 0; i < len(positions); i += FLOATS_PER_TRIANGLE {
         // Triangle vertices
         a4 := hlsl.float4{positions[i], positions[i + 1], positions[i + 2], 1.0}
         b4 := hlsl.float4{positions[i + 3], positions[i + 4], positions[i + 5], 1.0}
