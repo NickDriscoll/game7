@@ -31,6 +31,13 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     return cfg
 }
 
+delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.allocator) {
+    strings.intern_destroy(&_interner)
+    delete(flags)
+    delete(ints)
+    delete(floats)
+}
+
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
     save_file, err := create_write_file(filename)
     if err != nil {
