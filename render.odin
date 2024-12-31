@@ -395,8 +395,23 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     return render_state
 }
 
-delete_renderer :: proc(vgd: ^vkw.Graphics_Device, using r: ^RenderingState) {
+delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState) {
     vkw.delete_sync_info(&gfx_sync_info)
+    vkw.delete_buffer(gd, positions_buffer)
+    vkw.delete_buffer(gd, index_buffer)
+    vkw.delete_buffer(gd, uvs_buffer)
+    vkw.delete_buffer(gd, colors_buffer)
+    vkw.delete_buffer(gd, mesh_buffer)
+    vkw.delete_buffer(gd, material_buffer)
+    vkw.delete_buffer(gd, instance_buffer)
+    vkw.delete_buffer(gd, uniform_buffer)
+
+    delete(cpu_instances)
+    delete(gpu_instances)
+
+    hm.destroy(&cpu_materials)
+    hm.destroy(&cpu_meshes)
+    delete(gpu_meshes)    
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, screen_size: hlsl.uint2) {
