@@ -39,15 +39,15 @@ delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.all
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
+    sb: strings.Builder
+    strings.builder_init(&sb, allocator = context.temp_allocator)
+    defer strings.builder_destroy(&sb)
+
     save_file, err := create_write_file(filename)
     if err != nil {
         log.errorf("Error opening \"%v\" for saving: %v", filename, err)
     }
     defer os.close(save_file)
-
-    sb: strings.Builder
-    strings.builder_init(&sb, allocator = context.temp_allocator)
-    defer strings.builder_destroy(&sb)
 
     // Saving flags
     for key, val in config.flags {
