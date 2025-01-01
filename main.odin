@@ -554,6 +554,8 @@ main :: proc() {
 
         // Update player character
         {
+            using game_state
+
             GRAVITY_ACCELERATION :: -9.8        // m/s^2
             TERMINAL_VELOCITY :: -16.0           // m/s
 
@@ -596,7 +598,7 @@ main :: proc() {
                     }
                 }
 
-                if closest_dist < math.INF_F32 do game_state.character.collision.origin = collision_pt
+                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
             }
             
             // switch character.state {
@@ -856,6 +858,10 @@ main :: proc() {
             ddata := DrawData {
                 world_from_model = uniform_scaling_matrix(scale)
             }
+            ddata.world_from_model[3][0] = game_state.character.collision.origin.x
+            ddata.world_from_model[3][1] = game_state.character.collision.origin.y
+            ddata.world_from_model[3][2] = game_state.character.collision.origin.z
+
             draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
 
