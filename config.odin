@@ -8,7 +8,8 @@ import "core:strconv"
 import "core:strings"
 
 // Constants for user configuration keys
-
+EXCLUSIVE_FULLSCREEEN_KEY :: "exclusive_fullscreen"
+BORDERLESS_FULLSCREEN_KEY :: "borderless_fullscreen"
 
 UserConfiguration :: struct {
     flags: map[string]bool,
