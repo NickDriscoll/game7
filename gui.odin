@@ -10,6 +10,7 @@ import imgui "odin-imgui"
 import vkw "desktop_vulkan_wrapper"
 import hm "desktop_vulkan_wrapper/handlemap"
 
+// @TODO: This is probably waaaaay bigger than necessary
 MAX_IMGUI_VERTICES :: 64 * 1024 * 1024
 MAX_IMGUI_INDICES :: 16 * 1024 * 1024
 
