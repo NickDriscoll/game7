@@ -73,8 +73,9 @@ GameState :: struct {
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
 
-    show_closest_point: bool,
-    freecam_collision: bool
+    freecam_collision: bool,
+    borderless_fullscreen: bool,
+    exclusive_fullscreen: bool
 }
 
 delete_game :: proc(using g: ^GameState) {
@@ -246,6 +247,13 @@ main :: proc() {
         return
     }
 
+    // Main app structure storing the game's overall state
+    game_state: GameState
+    defer delete_game(&game_state)
+    game_state.freecam_collision = user_config.flags["freecam_collision"]
+    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
+    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
+
     // Init input system
     input_system := init_input_system()
     defer destroy_input_system(&input_system)
@@ -262,11 +270,6 @@ main :: proc() {
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
-
-    // Main app structure storing the game's overall state
-    game_state: GameState
-    defer delete_game(&game_state)
-    game_state.freecam_collision = user_config.flags["freecam_collision"]
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
@@ -666,15 +669,15 @@ main :: proc() {
                         sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
                     }
 
-                    if imgui.MenuItem("Borderless Fullscreen", selected = user_config.flags["borderless_fullscreen"]) {
-                        user_config.flags["borderless_fullscreen"] = !user_config.flags["borderless_fullscreen"]
-                        user_config.flags["exclusive_fullscreen"] = false
+                    if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
+                        game_state.borderless_fullscreen = !game_state.borderless_fullscreen
+                        game_state.exclusive_fullscreen = false
                         
                         user_config.ints["window_x"] = 0
                         user_config.ints["window_y"] = 0
 
                         xpos, ypos: c.int
-                        if user_config.flags["borderless_fullscreen"] {
+                        if game_state.borderless_fullscreen {
                             resolution = display_resolution
                         }
                         else {
@@ -687,23 +690,28 @@ main :: proc() {
                         io.DisplaySize.y = f32(resolution.y)
 
                         vgd.resize_window = true
-                        sdl2.SetWindowBordered(sdl_window, !user_config.flags["borderless_fullscreen"])
+                        sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
                         sdl2.SetWindowPosition(sdl_window, xpos, ypos)
                         sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
                         sdl2.SetWindowResizable(sdl_window, true)
+
+                        // Update config map
+                        user_config.flags[BORDERLESS_FULLSCREEN_KEY] = game_state.borderless_fullscreen
                     }
                     
-                    if imgui.MenuItem("Exclusive Fullscreen", selected = user_config.flags["exclusive_fullscreen"]) {
-                        user_config.flags["exclusive_fullscreen"] = !user_config.flags["exclusive_fullscreen"]
-                        user_config.flags["borderless_fullscreen"] = false
+                    if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
+                        game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
+                        game_state.borderless_fullscreen = false
                         
                         user_config.ints["window_x"] = 0
                         user_config.ints["window_y"] = 0
 
                         flags : sdl2.WindowFlags = nil
                         resolution = DEFAULT_RESOLUTION
-                        if user_config.flags["exclusive_fullscreen"] do flags += {.FULLSCREEN}
-                        if user_config.flags["exclusive_fullscreen"] do resolution = display_resolution
+                        if game_state.exclusive_fullscreen {
+                            flags += {.FULLSCREEN}
+                            resolution = display_resolution
+                        }
 
                         io.DisplaySize.x = f32(resolution.x)
                         io.DisplaySize.y = f32(resolution.y)
@@ -712,6 +720,9 @@ main :: proc() {
                         sdl2.SetWindowFullscreen(sdl_window, flags)
                         sdl2.SetWindowResizable(sdl_window, true)
                         vgd.resize_window = true
+
+                        // Update config map
+                        user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = game_state.exclusive_fullscreen
                     }
 
                     imgui.EndMenu()
@@ -767,7 +778,9 @@ main :: proc() {
                         imgui.Text("Camera pitch: %f", pitch)
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                         imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                        imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision)
+                        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                            user_config.flags["freecam_collision"] = game_state.freecam_collision
+                        }
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
                         imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
