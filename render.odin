@@ -566,6 +566,17 @@ add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Materi
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
 
+draw_ps1_mesh :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^RenderingState,
+    data: ^MeshData,
+    draw_data: ^DrawData
+) {
+    for prim in data.primitives {
+        draw_ps1_primitive(gd, r, prim.mesh, prim.material, draw_data)
+    }
+}
+
 // User code calls this to queue up draw calls
 draw_ps1_primitive :: proc(
     gd: ^vkw.Graphics_Device,

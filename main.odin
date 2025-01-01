@@ -837,7 +837,7 @@ main :: proc() {
         }
 
         // Draw loose props
-        for prop, i in game_state.props {
+        for &prop, i in game_state.props {
             zpos := prop.position.z
             transform := DrawData {
                 world_from_model = {
@@ -847,29 +847,16 @@ main :: proc() {
                     0.0, 0.0, 0.0, 1.0,
                 }
             }
-
-            // Render prop's primitives
-            for prim in prop.mesh_data.primitives {
-                draw_ps1_primitive(
-                    &vgd,
-                    &render_data,
-                    prim.mesh,
-                    prim.material,
-                    &transform
-                )
-            }
+            draw_ps1_mesh(&vgd, &render_data, &prop.mesh_data, &transform)
         }
 
         // Draw test character
-        for prim in game_state.character.mesh_data.primitives {
+        {
             scale : f32 = 1.0
             ddata := DrawData {
                 world_from_model = uniform_scaling_matrix(scale)
             }
-            ddata.world_from_model[3][0] = game_state.character.collision.origin.x
-            ddata.world_from_model[3][1] = game_state.character.collision.origin.y
-            ddata.world_from_model[3][2] = game_state.character.collision.origin.z
-            draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &ddata)
+            draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
 
         imgui.EndFrame()
