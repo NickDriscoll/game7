@@ -96,7 +96,19 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "freecam_yaw = 0.0\n")
 }
 
-load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
+load_user_config :: proc(filename: string) -> (UserConfiguration, bool) {
+    user_config, ok := raw_load_user_config(filename)
+    if !ok {
+        log.warn("Failed to load config file. Generating default config.")
+        save_default_user_config(filename)
+
+        user_config, ok = raw_load_user_config(filename)
+    }
+
+    return user_config, ok
+}
+
+raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
     file_text := os.read_entire_file(filename, allocator = context.temp_allocator) or_return
 
     u := init_user_config()

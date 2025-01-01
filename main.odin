@@ -156,16 +156,7 @@ main :: proc() {
 
     // Load user configuration
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
-    if !config_ok {
-        log.warn("Failed to load config file. Generating default config.")
-        save_default_user_config(USER_CONFIG_FILENAME)
-
-        ok2: bool
-        user_config, ok2 = load_user_config(USER_CONFIG_FILENAME)
-        if !ok2 {
-            log.error("Failed to load freshly-generated default config file.")
-        }
-    }
+    if !config_ok do log.error("Failed to load user config.")
     defer delete_user_config(&user_config, context.allocator)
 
     // Initialize SDL2
