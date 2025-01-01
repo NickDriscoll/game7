@@ -22,7 +22,7 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import hm "desktop_vulkan_wrapper/handlemap"
 
-USER_CONFIG_FILE :: "user.cfg"
+USER_CONFIG_FILENAME :: "user.cfg"
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
@@ -35,6 +35,8 @@ IDENTITY_MATRIX :: hlsl.float4x4 {
     0.0, 0.0, 1.0, 0.0,
     0.0, 0.0, 0.0, 1.0,
 }
+
+
 
 LooseProp :: struct {
     position: hlsl.float3,
@@ -66,8 +68,13 @@ TestCharacter :: struct {
 }
 
 GameState :: struct {
+    character: TestCharacter,
+    viewport_camera: Camera,
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
+
+    show_closest_point: bool,
+    freecam_collision: bool
 }
 
 delete_game :: proc(using g: ^GameState) {
@@ -106,8 +113,10 @@ main :: proc() {
     context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
 
-    // Set up memory allocators
+    // Set up global allocator
+    context.allocator = runtime.heap_allocator()
     when ODIN_DEBUG == true {
+        // Set up the tracking allocator if this is a debug build
         track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&track, context.allocator)
         context.allocator = mem.tracking_allocator(&track)
@@ -127,9 +136,9 @@ main :: proc() {
             }
             mem.tracking_allocator_destroy(&track)
         }
-    } else {
-        context.allocator = runtime.heap_allocator()
     }
+
+    // Set up per-frame temp allocator
     per_frame_arena: mem.Arena
     backing_memory: []byte
     {
@@ -145,13 +154,13 @@ main :: proc() {
     defer mem.free_bytes(backing_memory)
 
     // Load user configuration
-    user_config, config_ok := load_user_config(USER_CONFIG_FILE)
+    user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
     if !config_ok {
         log.warn("Failed to load config file. Generating default config.")
-        save_default_user_config(USER_CONFIG_FILE)
+        save_default_user_config(USER_CONFIG_FILENAME)
 
         ok2: bool
-        user_config, ok2 = load_user_config(USER_CONFIG_FILE)
+        user_config, ok2 = load_user_config(USER_CONFIG_FILENAME)
         if !ok2 {
             log.error("Failed to load freshly-generated default config file.")
         }
@@ -191,22 +200,25 @@ main :: proc() {
         u32(desktop_display_mode.h),
     }
 
+    // Determine window resolution
     resolution := DEFAULT_RESOLUTION
-    if user_config.flags["exclusive_fullscreen"] || user_config.flags["borderless_fullscreen"] do resolution = display_resolution
+    if user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] || user_config.flags[BORDERLESS_FULLSCREEN_KEY] do resolution = display_resolution
     if "window_width" in user_config.ints && "window_height" in user_config.ints {
         x := user_config.ints["window_width"]
         y := user_config.ints["window_height"]
         resolution = {u32(x), u32(y)}
     }
 
+    // Determine SDL window flags
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
-    if user_config.flags["exclusive_fullscreen"] {
+    if user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] {
         sdl_windowflags += {.FULLSCREEN}
     }
-    if user_config.flags["borderless_fullscreen"] {
+    if user_config.flags[BORDERLESS_FULLSCREEN_KEY] {
         sdl_windowflags += {.BORDERLESS}
     }
 
+    // Determine SDL window position
     window_x : i32 = sdl2.WINDOWPOS_CENTERED
     window_y : i32 = sdl2.WINDOWPOS_CENTERED
     if "window_x" in user_config.ints && "window_y" in user_config.ints {
@@ -254,6 +266,7 @@ main :: proc() {
     // Main app structure storing the game's overall state
     game_state: GameState
     defer delete_game(&game_state)
+    game_state.freecam_collision = user_config.flags["freecam_collision"]
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
@@ -287,6 +300,7 @@ main :: proc() {
         moon_mesh = load_gltf_mesh(&vgd, &render_data, path)
     }
     
+    // Add moon terrain piece
     {
         positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
         scale := uniform_scaling_matrix(300.0)
@@ -301,8 +315,19 @@ main :: proc() {
         })
     }
 
+    game_state.character = TestCharacter {
+        collision = {
+            origin = {0.0, 0.0, 30.0},
+            radius = 2.0
+        },
+        velocity = {},
+        state = .Falling,
+        facing = {0.0, 1.0, 0.0},
+        mesh_data = moon_mesh
+    }
+
     // Initialize main viewport camera
-    viewport_camera := Camera {
+    game_state.viewport_camera = Camera {
         position = {
             f32(user_config.floats["freecam_x"]),
             f32(user_config.floats["freecam_y"]),
@@ -316,28 +341,16 @@ main :: proc() {
         farplane = 1_000_000.0,
         control_flags = nil
     }
-    log.debug(viewport_camera)
+    log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
-
-    // Create test character
-    character := TestCharacter {
-        collision = {
-            origin = {0.0, 0.0, 30.0},
-            radius = 2.0
-        },
-        velocity = {},
-        state = .Falling,
-        facing = {0.0, 1.0, 0.0},
-        mesh_data = moon_mesh
-    }
 
     free_all(context.temp_allocator)
 
-    current_time := time.now()
+    current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := current_time
     window_minimized := false
     limit_cpu := false
-    timescale : f32 = 0.25
+    timescale : f32 = 1.0
     
     log.info("App initialization complete. Entering main loop")
 
@@ -377,36 +390,36 @@ main :: proc() {
                         }
                     }
                     case .TranslateFreecamBack: {
-                        if verb.value do viewport_camera.control_flags += {.MoveBackward}
-                        else do viewport_camera.control_flags -= {.MoveBackward}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveBackward}
+                        else do game_state.viewport_camera.control_flags -= {.MoveBackward}
                     }
                     case .TranslateFreecamForward: {
-                        if verb.value do viewport_camera.control_flags += {.MoveForward}
-                        else do viewport_camera.control_flags -= {.MoveForward}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveForward}
+                        else do game_state.viewport_camera.control_flags -= {.MoveForward}
                     }
                     case .TranslateFreecamLeft: {
-                        if verb.value do viewport_camera.control_flags += {.MoveLeft}
-                        else do viewport_camera.control_flags -= {.MoveLeft}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveLeft}
+                        else do game_state.viewport_camera.control_flags -= {.MoveLeft}
                     }
                     case .TranslateFreecamRight: {
-                        if verb.value do viewport_camera.control_flags += {.MoveRight}
-                        else do viewport_camera.control_flags -= {.MoveRight}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveRight}
+                        else do game_state.viewport_camera.control_flags -= {.MoveRight}
                     }
                     case .TranslateFreecamDown: {
-                        if verb.value do viewport_camera.control_flags += {.MoveDown}
-                        else do viewport_camera.control_flags -= {.MoveDown}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveDown}
+                        else do game_state.viewport_camera.control_flags -= {.MoveDown}
                     }
                     case .TranslateFreecamUp: {
-                        if verb.value do viewport_camera.control_flags += {.MoveUp}
-                        else do viewport_camera.control_flags -= {.MoveUp}
+                        if verb.value do game_state.viewport_camera.control_flags += {.MoveUp}
+                        else do game_state.viewport_camera.control_flags -= {.MoveUp}
                     }
                     case .Sprint: {
-                        if verb.value do viewport_camera.control_flags += {.Speed}
-                        else do viewport_camera.control_flags -= {.Speed}
+                        if verb.value do game_state.viewport_camera.control_flags += {.Speed}
+                        else do game_state.viewport_camera.control_flags -= {.Speed}
                     }
                     case .Crawl: {
-                        if verb.value do viewport_camera.control_flags += {.Slow}
-                        else do viewport_camera.control_flags -= {.Slow}
+                        if verb.value do game_state.viewport_camera.control_flags += {.Slow}
+                        else do game_state.viewport_camera.control_flags -= {.Slow}
                     }
                 }
             }
@@ -416,7 +429,7 @@ main :: proc() {
                     case .ToggleMouseLook: {
                         if verb.value == {0, 0} do continue
 
-                        mlook := !(.MouseLook in viewport_camera.control_flags)
+                        mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
                         
                         // Do nothing if Dear ImGUI wants mouse input
                         if mlook && io.WantCaptureMouse do continue
@@ -431,17 +444,17 @@ main :: proc() {
                         
                         // The ~ is "symmetric difference" for bit_sets
                         // Basically like XOR
-                        viewport_camera.control_flags ~= {.MouseLook}
+                        game_state.viewport_camera.control_flags ~= {.MouseLook}
                     }
                     case .MouseMotion: {
-                        if .MouseLook not_in viewport_camera.control_flags {
+                        if .MouseLook not_in game_state.viewport_camera.control_flags {
                             imgui.IO_AddMousePosEvent(io, f32(verb.value.x), f32(verb.value.y))
                         }
                             
                     }
                     case .MouseMotionRel: {
                         MOUSE_SENSITIVITY :: 0.001
-                        if .MouseLook in viewport_camera.control_flags {
+                        if .MouseLook in game_state.viewport_camera.control_flags {
                             camera_rotation += MOUSE_SENSITIVITY * {f32(verb.value.x), f32(verb.value.y)}
                             sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
                         }
@@ -488,7 +501,7 @@ main :: proc() {
 
         // Update camera based on user input
         {
-            using viewport_camera
+            using game_state.viewport_camera
 
             CAMERA_SPEED :: 10
             per_frame_speed := CAMERA_SPEED * last_frame_duration
@@ -496,12 +509,12 @@ main :: proc() {
             if .Speed in control_flags do camera_speed_mod *= camera_sprint_multiplier
             if .Slow in control_flags do camera_speed_mod *= camera_slow_multiplier
 
-            viewport_camera.yaw += camera_rotation.x
-            viewport_camera.pitch += camera_rotation.y
-            for viewport_camera.yaw < -2.0 * math.PI do viewport_camera.yaw += 2.0 * math.PI
-            for viewport_camera.yaw > 2.0 * math.PI do viewport_camera.yaw -= 2.0 * math.PI
-            if viewport_camera.pitch < -math.PI / 2.0 do viewport_camera.pitch = -math.PI / 2.0
-            if viewport_camera.pitch > math.PI / 2.0 do viewport_camera.pitch = math.PI / 2.0
+            game_state.viewport_camera.yaw += camera_rotation.x
+            game_state.viewport_camera.pitch += camera_rotation.y
+            for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
+            for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
+            if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
+            if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
 
             control_flags_dir: hlsl.float3
             if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
@@ -517,12 +530,12 @@ main :: proc() {
             }
 
             //Compute temporary camera matrix for orienting player inputted direction vector
-            world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
+            world_from_view := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera))
             camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
-            viewport_camera.position += (world_from_view * camera_direction4).xyz
+            game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
 
             // Collision test the camera's bounding sphere against the terrain
-            if user_config.flags["show_closest_point"] || user_config.flags["freecam_collision"] {
+            if game_state.freecam_collision {
                 camera_collision_point: hlsl.float3
                 closest_dist := math.INF_F32
                 for &piece in game_state.terrain_pieces {
@@ -534,7 +547,7 @@ main :: proc() {
                     }
                 }
 
-                if user_config.flags["freecam_collision"] {
+                if game_state.freecam_collision {
                     CAMERA_RADIUS :: 0.8
                     dist := hlsl.distance(camera_collision_point, position)
                     if dist < CAMERA_RADIUS {
@@ -552,7 +565,7 @@ main :: proc() {
 
             // TEST CODE PLZ REMOVE
             if place_thing_screen_coords != {0, 0} {
-                tan_fovy := math.tan(viewport_camera.fov_radians / 2.0)
+                tan_fovy := math.tan(game_state.viewport_camera.fov_radians / 2.0)
                 tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
                 screen_coords: [2]c.int
                 sdl2.GetMouseState(&screen_coords.x, &screen_coords.y)
@@ -563,17 +576,17 @@ main :: proc() {
                     1.0
                 }
                 view_coords := hlsl.float4 {
-                    clip_coords.x * viewport_camera.nearplane * tan_fovx,
-                    -clip_coords.y * viewport_camera.nearplane * tan_fovy,
-                    -viewport_camera.nearplane,
+                    clip_coords.x * game_state.viewport_camera.nearplane * tan_fovx,
+                    -clip_coords.y * game_state.viewport_camera.nearplane * tan_fovy,
+                    -game_state.viewport_camera.nearplane,
                     1.0
                 }
-                world_coords := hlsl.inverse(camera_view_from_world(&viewport_camera)) * view_coords
+                world_coords := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera)) * view_coords
 
                 ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
                 ray := Ray {
                     start = ray_start,
-                    direction = hlsl.normalize(ray_start - viewport_camera.position)
+                    direction = hlsl.normalize(ray_start - game_state.viewport_camera.position)
                 }
 
                 collision_pt: hlsl.float3
@@ -581,7 +594,7 @@ main :: proc() {
                 for &piece in game_state.terrain_pieces {
                     candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
                     if ok {
-                        candidate_dist := hlsl.distance(collision_pt, viewport_camera.position)
+                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
                         if candidate_dist < closest_dist {
                             collision_pt = candidate
                             closest_dist = candidate_dist
@@ -589,7 +602,7 @@ main :: proc() {
                     }
                 }
 
-                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
+                if closest_dist < math.INF_F32 do game_state.character.collision.origin = collision_pt
             }
             
             // switch character.state {
@@ -627,8 +640,8 @@ main :: proc() {
                         
                     }
                     if imgui.MenuItem("Save user config") {
-                        update_user_cfg_camera(&user_config, &viewport_camera)
-                        save_user_config(&user_config, USER_CONFIG_FILE)
+                        update_user_cfg_camera(&user_config, &game_state.viewport_camera)
+                        save_user_config(&user_config, USER_CONFIG_FILENAME)
                     }
                     if imgui.MenuItem("Exit") do do_main_loop = false
 
@@ -743,7 +756,7 @@ main :: proc() {
 
             // Misc window
             {
-                using viewport_camera
+                using game_state.viewport_camera
 
                 if user_config.flags["show_debug_menu"] {
                     if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
@@ -754,7 +767,7 @@ main :: proc() {
                         imgui.Text("Camera pitch: %f", pitch)
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                         imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                        imgui.Checkbox("Enable freecam collision", &user_config.flags["freecam_collision"])
+                        imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision)
                         imgui.Separator()
                         imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
                         imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
@@ -844,14 +857,14 @@ main :: proc() {
         }
 
         // Draw test character
-        for prim in character.mesh_data.primitives {
+        for prim in game_state.character.mesh_data.primitives {
             scale : f32 = 1.0
             ddata := DrawData {
                 world_from_model = uniform_scaling_matrix(scale)
             }
-            ddata.world_from_model[3][0] = character.collision.origin.x
-            ddata.world_from_model[3][1] = character.collision.origin.y
-            ddata.world_from_model[3][2] = character.collision.origin.z
+            ddata.world_from_model[3][0] = game_state.character.collision.origin.x
+            ddata.world_from_model[3][1] = game_state.character.collision.origin.y
+            ddata.world_from_model[3][2] = game_state.character.collision.origin.z
             draw_ps1_primitive(&vgd, &render_data, prim.mesh, prim.material, &ddata)
         }
 
@@ -866,7 +879,7 @@ main :: proc() {
             if vgd.resize_window {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
                 resize_framebuffers(&vgd, &render_data, resolution)
-                viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
+                game_state.viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
                 user_config.ints["window_width"] = i64(resolution.x)
                 user_config.ints["window_height"] = i64(resolution.y)
                 io.DisplaySize.x = f32(resolution.x)
@@ -921,7 +934,7 @@ main :: proc() {
             framebuffer.color_load_op = .CLEAR
 
             // Main render call
-            render(&vgd, gfx_cb_idx, &render_data, &viewport_camera, &framebuffer)
+            render(&vgd, gfx_cb_idx, &render_data, &game_state.viewport_camera, &framebuffer)
             
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
