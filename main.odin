@@ -342,7 +342,6 @@ main :: proc() {
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := current_time
-    window_minimized := false
     limit_cpu := false
     timescale : f32 = 1.0
     
@@ -358,133 +357,50 @@ main :: proc() {
 
         io := imgui.GetIO()
         io.DeltaTime = last_frame_duration
+        
         output_verbs := poll_sdl2_events(&input_system)
         io.KeyCtrl = input_system.ctrl_pressed
+
+        // Quit if user wants it
+        if output_verbs.bools[.Quit] do do_main_loop = false
         
         // Process the app verbs that the input system returned to the game
-        camera_rotation: hlsl.float2 = {0.0, 0.0}
-        camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
-        camera_speed_mod : f32 = 1.0
         @static camera_sprint_multiplier : f32 = 5.0
         @static camera_slow_multiplier : f32 = 1.0 / 5.0
-        @static place_thing_screen_coords: hlsl.uint2
+
+        // Tell Dear ImGUI about inputs
         {
-            for verb in output_verbs.bools {
-                #partial switch verb.type {
-                    case .Quit: do_main_loop = false
-                    case .FocusWindow: window_minimized = false
-                    case .MinimizeWindow: window_minimized = true
-                    case .ToggleImgui: {
-                        if verb.value do imgui_state.show_gui = !imgui_state.show_gui
-
-                        if imgui_state.show_gui {
-                            sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
-                        } else {
-                            sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
-                        }
-                    }
-                    case .TranslateFreecamBack: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveBackward}
-                        else do game_state.viewport_camera.control_flags -= {.MoveBackward}
-                    }
-                    case .TranslateFreecamForward: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveForward}
-                        else do game_state.viewport_camera.control_flags -= {.MoveForward}
-                    }
-                    case .TranslateFreecamLeft: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveLeft}
-                        else do game_state.viewport_camera.control_flags -= {.MoveLeft}
-                    }
-                    case .TranslateFreecamRight: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveRight}
-                        else do game_state.viewport_camera.control_flags -= {.MoveRight}
-                    }
-                    case .TranslateFreecamDown: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveDown}
-                        else do game_state.viewport_camera.control_flags -= {.MoveDown}
-                    }
-                    case .TranslateFreecamUp: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.MoveUp}
-                        else do game_state.viewport_camera.control_flags -= {.MoveUp}
-                    }
-                    case .Sprint: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.Speed}
-                        else do game_state.viewport_camera.control_flags -= {.Speed}
-                    }
-                    case .Crawl: {
-                        if verb.value do game_state.viewport_camera.control_flags += {.Slow}
-                        else do game_state.viewport_camera.control_flags -= {.Slow}
-                    }
+            if output_verbs.bools[.ToggleImgui] {
+                imgui_state.show_gui = !imgui_state.show_gui
+                if imgui_state.show_gui {
+                    sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+                } else {
+                    sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
                 }
             }
 
-            for verb in output_verbs.int2s {
-                #partial switch verb.type {
-                    case .ToggleMouseLook: {
-                        if verb.value == {0, 0} do continue
-
-                        mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
-                        
-                        // Do nothing if Dear ImGUI wants mouse input
-                        if mlook && io.WantCaptureMouse do continue
-
-                        sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
-                        if mlook {
-                            saved_mouse_coords.x = i32(verb.value.x)
-                            saved_mouse_coords.y = i32(verb.value.y)
-                        } else {
-                            sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
-                        }
-                        
-                        // The ~ is "symmetric difference" for bit_sets
-                        // Basically like XOR
-                        game_state.viewport_camera.control_flags ~= {.MouseLook}
-                    }
-                    case .MouseMotion: {
-                        if .MouseLook not_in game_state.viewport_camera.control_flags {
-                            imgui.IO_AddMousePosEvent(io, f32(verb.value.x), f32(verb.value.y))
-                        }
-                            
-                    }
-                    case .MouseMotionRel: {
-                        MOUSE_SENSITIVITY :: 0.001
-                        if .MouseLook in game_state.viewport_camera.control_flags {
-                            camera_rotation += MOUSE_SENSITIVITY * {f32(verb.value.x), f32(verb.value.y)}
-                            sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
-                        }
-                    }
-                    case .ResizeWindow: {
-                        resolution.x = u32(verb.value.x)
-                        resolution.y = u32(verb.value.y)
-                        vgd.resize_window = true
-                    }
-                    case .MoveWindow: {
-                        user_config.ints["window_x"] = i64(verb.value.x)
-                        user_config.ints["window_y"] = i64(verb.value.y)
-                    }
-                    case .PlaceThing: {
-                        place_thing_screen_coords = {u32(verb.value.x), u32(verb.value.y)}
-                    }
+            mlook_coords, ok := output_verbs.int2s[.ToggleMouseLook]
+            if ok {
+                if mlook_coords == {0, 0} do continue
+                mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
+                // Do nothing if Dear ImGUI wants mouse input
+                if mlook && io.WantCaptureMouse do continue
+                sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
+                if mlook {
+                    saved_mouse_coords.x = i32(mlook_coords.x)
+                    saved_mouse_coords.y = i32(mlook_coords.y)
+                } else {
+                    sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
                 }
+                // The ~ is "symmetric difference" for bit_sets
+                // Basically like XOR
+                game_state.viewport_camera.control_flags ~= {.MouseLook}
             }
 
-            for verb in output_verbs.floats {
-                #partial switch verb.type {
-                    case .RotateFreecamX: {
-                        camera_rotation.x += verb.value
-                    }
-                    case .RotateFreecamY: {
-                        camera_rotation.y += verb.value
-                    }
-                    case .TranslateFreecamX: {
-                        camera_direction.x += verb.value
-                    }
-                    case .TranslateFreecamY: {
-                        camera_direction.y += verb.value
-                    }
-                    case .Sprint: {
-                        camera_speed_mod += camera_sprint_multiplier * verb.value
-                    }
+            mmotion_coords, ok2 := output_verbs.int2s[.MouseMotion]
+            if ok2 {
+                if .MouseLook not_in game_state.viewport_camera.control_flags {
+                    imgui.IO_AddMousePosEvent(io, f32(mmotion_coords.x), f32(mmotion_coords.y))
                 }
             }
         }
@@ -496,6 +412,61 @@ main :: proc() {
         // Update camera based on user input
         {
             using game_state.viewport_camera
+
+            camera_rotation: hlsl.float2 = {0.0, 0.0}
+            camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+            camera_speed_mod : f32 = 1.0
+
+            // Input handling part
+            if .Sprint in output_verbs.bools {
+                if output_verbs.bools[.Sprint] do control_flags += {.Speed}
+                else do control_flags -= {.Speed}
+            }
+            if .Crawl in output_verbs.bools {
+                if output_verbs.bools[.Crawl] do control_flags += {.Slow}
+                else do control_flags -= {.Slow}
+            }
+
+            if .TranslateFreecamUp in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamUp] do control_flags += {.MoveUp}
+                else do control_flags -= {.MoveUp}
+            }
+            if .TranslateFreecamDown in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamDown] do control_flags += {.MoveDown}
+                else do control_flags -= {.MoveDown}
+            }
+            if .TranslateFreecamLeft in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamLeft] do control_flags += {.MoveLeft}
+                else do control_flags -= {.MoveLeft}
+            }
+            if .TranslateFreecamRight in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamRight] do control_flags += {.MoveRight}
+                else do control_flags -= {.MoveRight}
+            }
+            if .TranslateFreecamBack in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamBack] do control_flags += {.MoveBackward}
+                else do control_flags -= {.MoveBackward}
+            }
+            if .TranslateFreecamForward in output_verbs.bools {
+                if output_verbs.bools[.TranslateFreecamForward] do control_flags += {.MoveForward}
+                else do control_flags -= {.MoveForward}
+            }
+
+            relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+            if ok3 {
+                MOUSE_SENSITIVITY :: 0.002
+                if .MouseLook in game_state.viewport_camera.control_flags {
+                    camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
+                    sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                }
+            }
+
+            camera_rotation.x += output_verbs.floats[.RotateFreecamX]
+            camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+            camera_direction.x += output_verbs.floats[.TranslateFreecamX]
+            camera_direction.y += output_verbs.floats[.TranslateFreecamY]
+            camera_speed_mod += camera_sprint_multiplier * output_verbs.floats[.Sprint]
+
 
             CAMERA_SPEED :: 10
             per_frame_speed := CAMERA_SPEED * last_frame_duration
@@ -560,7 +531,8 @@ main :: proc() {
             TERMINAL_VELOCITY :: -16.0           // m/s
 
             // TEST CODE PLZ REMOVE
-            if place_thing_screen_coords != {0, 0} {
+            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
+            if ok2 && place_thing_screen_coords != {0, 0} {
                 tan_fovy := math.tan(game_state.viewport_camera.fov_radians / 2.0)
                 tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
                 screen_coords: [2]c.int
@@ -766,7 +738,6 @@ main :: proc() {
                     if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                         imgui.Text("Frame #%i", vgd.frame_count)
                         imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                        imgui.Text("Camera direction: (%f, %f, %f)", camera_direction.x, camera_direction.y, camera_direction.z)
                         imgui.Text("Camera yaw: %f", yaw)
                         imgui.Text("Camera pitch: %f", pitch)
                         imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
@@ -865,10 +836,28 @@ main :: proc() {
             draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
 
+        // Window update
+        {
+            new_size, ok := output_verbs.int2s[.ResizeWindow]
+            if ok {
+                resolution.x = u32(new_size.x)
+                resolution.y = u32(new_size.y)
+                vgd.resize_window = true
+            }
+
+            new_pos, ok2 := output_verbs.int2s[.MoveWindow]
+            if ok2 {
+                user_config.ints["window_x"] = i64(new_pos.x)
+                user_config.ints["window_y"] = i64(new_pos.y)
+            }
+
+
+        }
+
         imgui.EndFrame()
 
         // Render
-        if !window_minimized {
+        {
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
 

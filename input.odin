@@ -80,11 +80,11 @@ InputSystem :: struct {
 // Per-frame representation of what actions the
 // user wants to perform this frame
 OutputVerbs :: struct {
-    bools: [dynamic]AppVerb(bool),
-    ints: [dynamic]AppVerb(i64),
-    int2s: [dynamic]AppVerb([2]i64),
-    floats: [dynamic]AppVerb(f32),
-    float2s: [dynamic]AppVerb([2]f32),
+    bools: map[VerbType]bool,
+    ints: map[VerbType]i64,
+    int2s: map[VerbType][2]i64,
+    floats: map[VerbType]f32,
+    float2s: map[VerbType][2]f32,
 }
 
 init_input_system :: proc() -> InputSystem {
@@ -170,11 +170,12 @@ poll_sdl2_events :: proc(
 ) -> OutputVerbs {
     
     outputs: OutputVerbs
-    outputs.bools = make([dynamic]AppVerb(bool), 0, 16, allocator)
-    outputs.ints = make([dynamic]AppVerb(i64), 0, 16, allocator)
-    outputs.int2s = make([dynamic]AppVerb([2]i64), 0, 16, allocator)
-    outputs.floats = make([dynamic]AppVerb(f32), 0, 16, allocator)
-    outputs.float2s = make([dynamic]AppVerb([2]f32), 0, 16, allocator)
+    outputs.bools = make(map[VerbType]bool, 16, allocator)
+    outputs.ints = make(map[VerbType]i64, 16, allocator)
+    outputs.int2s = make(map[VerbType][2]i64, 16, allocator)
+    outputs.floats = make(map[VerbType]f32, 16, allocator)
+    outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
+    using outputs
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
@@ -183,39 +184,21 @@ poll_sdl2_events :: proc(
     for sdl2.PollEvent(&event) {
         #partial switch event.type {
             case .QUIT: {
-                append(&outputs.bools, AppVerb(bool) {
-                    type = .Quit,
-                    value = true
-                })
+                bools[.Quit] = true
             }
             case .WINDOWEVENT: {
                 #partial switch (event.window.event) {
                     case .RESIZED: {
-                        append(&outputs.int2s, AppVerb([2]i64) {
-                            type = .ResizeWindow,
-                            value = {
-                                i64(event.window.data1),
-                                i64(event.window.data2)
-                            }
-                        })
+                        int2s[.ResizeWindow] = { i64(event.window.data1), i64(event.window.data2) }
                     }
                     case .MOVED: {
-                        append(&outputs.int2s, AppVerb([2]i64) {
-                            type = .MoveWindow,
-                            value = {i64(event.window.data1), i64(event.window.data2)}
-                        })
+                        int2s[.MoveWindow] = {i64(event.window.data1), i64(event.window.data2)}
                     }
                     case .FOCUS_GAINED: {
-                        append(&outputs.bools, AppVerb(bool) {
-                            type = .FocusWindow,
-                            value = true
-                        })
+                        bools[.FocusWindow] = true
                     }
                     case .MINIMIZED: {
-                        append(&outputs.bools, AppVerb(bool) {
-                            type = .MinimizeWindow,
-                            value = true
-                        })
+                        bools[.MinimizeWindow] = true
                     }
                 }
             }
@@ -258,10 +241,7 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := key_mappings[sc]
                 if found {
-                    append(&outputs.bools, AppVerb(bool) {
-                        type = verbtype,
-                        value = true
-                    })
+                    bools[verbtype] = true
                 }
             }
             case .KEYUP: {
@@ -275,19 +255,13 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := key_mappings[event.key.keysym.scancode]
                 if found {
-                    append(&outputs.bools, AppVerb(bool) {
-                        type = verbtype,
-                        value = false
-                    })
+                    bools[verbtype] = false
                 }
             }
             case .MOUSEBUTTONDOWN: {
                 verbtype, found := mouse_mappings[event.button.button]
                 if found {
-                    append(&outputs.int2s, AppVerb([2]i64) {
-                        type = verbtype,
-                        value = {i64(event.button.x), i64(event.button.y)}
-                    }) 
+                    int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
 
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
@@ -295,22 +269,13 @@ poll_sdl2_events :: proc(
             case .MOUSEBUTTONUP: {
                 verbtype, found := mouse_mappings[event.button.button]
                 if found {
-                    append(&outputs.int2s, AppVerb([2]i64) {
-                        type = verbtype,
-                        value = {0, 0}
-                    }) 
+                    int2s[verbtype] = {0, 0}
                 }
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
             }
             case .MOUSEMOTION: {
-                append(&outputs.int2s, AppVerb([2]i64) {
-                    type = .MouseMotion,
-                    value = {i64(event.motion.x), i64(event.motion.y)}
-                })
-                append(&outputs.int2s, AppVerb([2]i64) {
-                    type = .MouseMotionRel,
-                    value = {i64(event.motion.xrel), i64(event.motion.yrel)}
-                })
+                int2s[.MouseMotion] = {i64(event.motion.x), i64(event.motion.y)}
+                int2s[.MouseMotionRel] = {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
@@ -357,19 +322,13 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
                 if found {
-                    append(&outputs.bools, AppVerb(bool) {
-                        type = verbtype,
-                        value = true
-                    })
+                    bools[verbtype] = true
                 }
             }
             case .CONTROLLERBUTTONUP: {
                 verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
                 if found {
-                    append(&outputs.bools, AppVerb(bool) {
-                        type = verbtype,
-                        value = false
-                    })
+                    bools[verbtype] = false
                 }
             }
             case: {
@@ -392,10 +351,7 @@ poll_sdl2_events :: proc(
             sensitivity, found2 := axis_sensitivities[ax]
             if found2 do val *= sensitivity
 
-            append(&outputs.floats, AppVerb(f32) {
-                type = verbtype,
-                value = val
-            })
+            floats[verbtype] = val
         }
     }
 
