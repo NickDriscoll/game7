@@ -394,7 +394,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         }
         indices := slice.sort_by_with_indices(verb_strings[:], proc(lhs, rhs: cstring) -> bool {
             return strings.compare(string(lhs), string(rhs)) == -1
-        })
+        }, allocator)
 
         for i in indices {
             key := keys[i]
