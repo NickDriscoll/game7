@@ -1,0 +1,184 @@
+package main
+
+import "core:math"
+import "core:math/linalg/hlsl"
+
+CameraFlags :: bit_set[enum {
+    MouseLook,
+    MoveForward,
+    MoveBackward,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    Speed,
+    Slow,
+}]
+
+Camera :: struct {
+    position: hlsl.float3,
+    yaw: f32,
+    pitch: f32,
+    fov_radians: f32,
+    aspect_ratio: f32,
+    nearplane: f32,
+    farplane: f32,
+    control_flags: CameraFlags,
+}
+
+camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
+    pitch := pitch_rotation_matrix(camera.pitch)
+    yaw := yaw_rotation_matrix(camera.yaw)
+    trans := translation_matrix(-camera.position)
+
+    // Change from right-handed Z-Up to left-handed Y-Up
+    c_mat := hlsl.float4x4 {
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, -1.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+
+    return c_mat * pitch * yaw * trans
+}
+
+// Returns a projection matrix with reversed near and far values for reverse-Z
+camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
+
+    // Change from left-handed Y-Up to Y-down, Z-forward
+    c_matrix := hlsl.float4x4 {
+        1.0, 0.0, 0.0, 0.0,
+        0.0, -1.0, 0.0, 0.0,
+        0.0, 0.0, -1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+
+    tan_fovy := math.tan(camera.fov_radians / 2.0)
+    near := camera.nearplane
+    far := camera.farplane
+    proj_matrix := hlsl.float4x4 {
+        1.0 / (tan_fovy * camera.aspect_ratio), 0.0, 0.0, 0.0,
+        0.0, 1.0 / tan_fovy, 0.0, 0.0,
+        0.0, 0.0, near / (near - far), (near * far) / (far - near),
+        0.0, 0.0, 1.0, 0.0,
+    }
+
+    return proj_matrix * c_matrix
+}
+
+lookat_view_from_world :: proc() -> hlsl.float4x4 {
+    
+
+    return {}
+}
+
+freecam_update :: proc(game_state: ^GameState, using c: ^Camera, output_verbs: ^OutputVerbs) {
+    camera_rotation: hlsl.float2 = {0.0, 0.0}
+    camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+    camera_speed_mod : f32 = 1.0
+
+    // Input handling part
+    if .Sprint in output_verbs.bools {
+        if output_verbs.bools[.Sprint] do control_flags += {.Speed}
+        else do control_flags -= {.Speed}
+    }
+    if .Crawl in output_verbs.bools {
+        if output_verbs.bools[.Crawl] do control_flags += {.Slow}
+        else do control_flags -= {.Slow}
+    }
+
+    if .TranslateFreecamUp in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamUp] do control_flags += {.MoveUp}
+        else do control_flags -= {.MoveUp}
+    }
+    if .TranslateFreecamDown in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamDown] do control_flags += {.MoveDown}
+        else do control_flags -= {.MoveDown}
+    }
+    if .TranslateFreecamLeft in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamLeft] do control_flags += {.MoveLeft}
+        else do control_flags -= {.MoveLeft}
+    }
+    if .TranslateFreecamRight in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamRight] do control_flags += {.MoveRight}
+        else do control_flags -= {.MoveRight}
+    }
+    if .TranslateFreecamBack in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamBack] do control_flags += {.MoveBackward}
+        else do control_flags -= {.MoveBackward}
+    }
+    if .TranslateFreecamForward in output_verbs.bools {
+        if output_verbs.bools[.TranslateFreecamForward] do control_flags += {.MoveForward}
+        else do control_flags -= {.MoveForward}
+    }
+
+    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    if ok3 {
+        MOUSE_SENSITIVITY :: 0.002
+        if .MouseLook in game_state.viewport_camera.control_flags {
+            camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
+            //sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+        }
+    }
+
+    camera_rotation.x += output_verbs.floats[.RotateFreecamX]
+    camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+    camera_direction.x += output_verbs.floats[.TranslateFreecamX]
+    camera_direction.y += output_verbs.floats[.TranslateFreecamY]
+    camera_speed_mod += camera_sprint_multiplier * output_verbs.floats[.Sprint]
+
+
+    CAMERA_SPEED :: 10
+    per_frame_speed := CAMERA_SPEED * last_frame_duration
+
+    if .Speed in control_flags do camera_speed_mod *= camera_sprint_multiplier
+    if .Slow in control_flags do camera_speed_mod *= camera_slow_multiplier
+
+    game_state.viewport_camera.yaw += camera_rotation.x
+    game_state.viewport_camera.pitch += camera_rotation.y
+    for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
+    for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
+    if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
+    if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
+
+    control_flags_dir: hlsl.float3
+    if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
+    if .MoveDown in control_flags do control_flags_dir += {0.0, -1.0, 0.0}
+    if .MoveLeft in control_flags do control_flags_dir += {-1.0, 0.0, 0.0}
+    if .MoveRight in control_flags do control_flags_dir += {1.0, 0.0, 0.0}
+    if .MoveBackward in control_flags do control_flags_dir += {0.0, 0.0, 1.0}
+    if .MoveForward in control_flags do control_flags_dir += {0.0, 0.0, -1.0}
+    if control_flags_dir != {0.0, 0.0, 0.0} do camera_direction += hlsl.normalize(control_flags_dir)
+
+    if camera_direction != {0.0, 0.0, 0.0} {
+        camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
+    }
+
+    //Compute temporary camera matrix for orienting player inputted direction vector
+    world_from_view := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera))
+    camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
+    game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
+
+    // Collision test the camera's bounding sphere against the terrain
+    if game_state.freecam_collision {
+        camera_collision_point: hlsl.float3
+        closest_dist := math.INF_F32
+        for &piece in game_state.terrain_pieces {
+            candidate := closest_pt_triangles(position, &piece.collision)
+            candidate_dist := hlsl.distance(candidate, position)
+            if candidate_dist < closest_dist {
+                camera_collision_point = candidate
+                closest_dist = candidate_dist
+            }
+        }
+
+        if game_state.freecam_collision {
+            CAMERA_RADIUS :: 0.8
+            dist := hlsl.distance(camera_collision_point, position)
+            if dist < CAMERA_RADIUS {
+                diff := CAMERA_RADIUS - dist
+                position += diff * hlsl.normalize(position - camera_collision_point)
+            }
+        }
+    }
+}
