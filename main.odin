@@ -428,18 +428,54 @@ main :: proc() {
             TERMINAL_VELOCITY :: -16.0           // m/s
 
             // TEST CODE PLZ REMOVE
-            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            if ok2 && place_thing_screen_coords != {0, 0} {
-                ray := get_view_ray(
-                    &game_state,
-                    {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
-                    resolution
-                )
+            // place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
+            // if ok2 && place_thing_screen_coords != {0, 0} {
+            //     ray := get_view_ray(
+            //         &game_state,
+            //         {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
+            //         resolution
+            //     )
 
+            //     collision_pt: hlsl.float3
+            //     closest_dist := math.INF_F32
+            //     for &piece in game_state.terrain_pieces {
+            //         candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+            //         if ok {
+            //             candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+            //             if candidate_dist < closest_dist {
+            //                 collision_pt = candidate
+            //                 closest_dist = candidate_dist
+            //             }
+            //         }
+            //     }
+
+            //     if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
+            // }
+            
+            switch character.state {
+                case .Grounded: {
+
+                }
+                case .Falling: {
+                    character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+                    if character.velocity.z < TERMINAL_VELOCITY {
+                        character.velocity.z = TERMINAL_VELOCITY
+                    }
+                    character.collision.origin += timescale * last_frame_duration * character.velocity
+                }
+            }
+
+            // Snap character to ground if close enough
+            {
+                test_segment := Segment {
+                    start = character.collision.origin,
+                    end = character.collision.origin - {0.0, 0.0, 0.5}
+                }
+                
                 collision_pt: hlsl.float3
                 closest_dist := math.INF_F32
                 for &piece in game_state.terrain_pieces {
-                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                    candidate, ok := intersect_segment_triangles(&test_segment, &piece.collision)
                     if ok {
                         candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
                         if candidate_dist < closest_dist {
@@ -449,28 +485,13 @@ main :: proc() {
                     }
                 }
 
-                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
-            }
-            
-            // switch character.state {
-            //     case .Grounded: {
-
-            //     }
-            //     case .Falling: {
-            //         character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
-            //         if character.velocity.z < TERMINAL_VELOCITY {
-            //             character.velocity.z = TERMINAL_VELOCITY
-            //         }
-            //         character.collision.origin += timescale * last_frame_duration * character.velocity
-            //     }
-            // }
-
-            // Snap character to ground if close enough
-            {
-
+                if closest_dist < math.INF_F32 {
+                    
+                }
             }
         }
 
+        // All Dear ImGUI frontend calls happen here
         if imgui_state.show_gui {
             // React to main menu bar interaction
             switch main_menu_bar(&imgui_state, &game_state, &user_config) {
