@@ -72,7 +72,14 @@ lookat_view_from_world :: proc() -> hlsl.float4x4 {
     return {}
 }
 
-freecam_update :: proc(game_state: ^GameState, using c: ^Camera, output_verbs: ^OutputVerbs) {
+freecam_update :: proc(
+    game_state: ^GameState,
+    output_verbs: ^OutputVerbs,
+    dt: f32,
+    speed_multiplier: f32,
+    slow_multiplier: f32,
+) {
+    using game_state.viewport_camera
     camera_rotation: hlsl.float2 = {0.0, 0.0}
     camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
     camera_speed_mod : f32 = 1.0
@@ -125,14 +132,15 @@ freecam_update :: proc(game_state: ^GameState, using c: ^Camera, output_verbs: ^
     camera_rotation.y += output_verbs.floats[.RotateFreecamY]
     camera_direction.x += output_verbs.floats[.TranslateFreecamX]
     camera_direction.y += output_verbs.floats[.TranslateFreecamY]
-    camera_speed_mod += camera_sprint_multiplier * output_verbs.floats[.Sprint]
+    camera_speed_mod += speed_multiplier * output_verbs.floats[.Sprint]
+    //camera_speed_mod += slow_multiplier * output_verbs.floats[.Crawl]
 
 
     CAMERA_SPEED :: 10
-    per_frame_speed := CAMERA_SPEED * last_frame_duration
+    per_frame_speed := CAMERA_SPEED * dt
 
-    if .Speed in control_flags do camera_speed_mod *= camera_sprint_multiplier
-    if .Slow in control_flags do camera_speed_mod *= camera_slow_multiplier
+    if .Speed in control_flags do camera_speed_mod *= speed_multiplier
+    if .Slow in control_flags do camera_speed_mod *= slow_multiplier
 
     game_state.viewport_camera.yaw += camera_rotation.x
     game_state.viewport_camera.pitch += camera_rotation.y
