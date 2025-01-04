@@ -430,29 +430,11 @@ main :: proc() {
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
             if ok2 && place_thing_screen_coords != {0, 0} {
-                tan_fovy := math.tan(game_state.viewport_camera.fov_radians / 2.0)
-                tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
-                screen_coords: [2]c.int
-                sdl2.GetMouseState(&screen_coords.x, &screen_coords.y)
-                clip_coords := hlsl.float4 {
-                    f32(screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
-                    f32(screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
-                    1.0,
-                    1.0
-                }
-                view_coords := hlsl.float4 {
-                    clip_coords.x * game_state.viewport_camera.nearplane * tan_fovx,
-                    -clip_coords.y * game_state.viewport_camera.nearplane * tan_fovy,
-                    -game_state.viewport_camera.nearplane,
-                    1.0
-                }
-                world_coords := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera)) * view_coords
-
-                ray_start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
-                ray := Ray {
-                    start = ray_start,
-                    direction = hlsl.normalize(ray_start - game_state.viewport_camera.position)
-                }
+                ray := get_view_ray(
+                    &game_state,
+                    {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
+                    resolution
+                )
 
                 collision_pt: hlsl.float3
                 closest_dist := math.INF_F32
