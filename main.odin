@@ -405,7 +405,7 @@ main :: proc() {
             }
         }
         
-        imgui.NewFrame()
+        begin_gui(&imgui_state)
 
         // Update
 
@@ -593,142 +593,120 @@ main :: proc() {
         }
 
         if imgui_state.show_gui {
-            if imgui.BeginMainMenuBar() {
-                if imgui.BeginMenu("File") {
-                    if imgui.MenuItem("New") {
+            main_menu_bar(&imgui_state, &game_state, &user_config)
+            // if imgui.BeginMainMenuBar() {
+            //     if imgui.BeginMenu("File") {
+            //         if imgui.MenuItem("New") {
                         
-                    }
-                    if imgui.MenuItem("Load") {
+            //         }
+            //         if imgui.MenuItem("Load") {
                         
-                    }
-                    if imgui.MenuItem("Save") {
+            //         }
+            //         if imgui.MenuItem("Save") {
                         
-                    }
-                    if imgui.MenuItem("Save As") {
+            //         }
+            //         if imgui.MenuItem("Save As") {
                         
-                    }
-                    if imgui.MenuItem("Save user config") {
-                        update_user_cfg_camera(&user_config, &game_state.viewport_camera)
-                        save_user_config(&user_config, USER_CONFIG_FILENAME)
-                    }
-                    if imgui.MenuItem("Exit") do do_main_loop = false
+            //         }
+            //         if imgui.MenuItem("Save user config") {
+            //             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
+            //             save_user_config(&user_config, USER_CONFIG_FILENAME)
+            //         }
+            //         if imgui.MenuItem("Exit") do do_main_loop = false
 
-                    imgui.EndMenu()
-                }
+            //         imgui.EndMenu()
+            //     }
 
-                if imgui.BeginMenu("Edit") {
+            //     if imgui.BeginMenu("Edit") {
 
                     
-                    imgui.EndMenu()
-                }
+            //         imgui.EndMenu()
+            //     }
 
-                if imgui.BeginMenu("Config") {
-                    if imgui.MenuItem("Input", "porque?") do user_config.flags["input_config"] = !user_config.flags["input_config"]
+            //     if imgui.BeginMenu("Config") {
+            //         if imgui.MenuItem("Input", "porque?") do user_config.flags["input_config"] = !user_config.flags["input_config"]
 
-                    imgui.EndMenu()
-                }
+            //         imgui.EndMenu()
+            //     }
 
-                if imgui.BeginMenu("Window") {
-                    if imgui.MenuItem("Always On Top", selected = bool(user_config.flags["always_on_top"])) {
-                        user_config.flags["always_on_top"] = !user_config.flags["always_on_top"]
-                        sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
-                    }
+            //     if imgui.BeginMenu("Window") {
+            //         if imgui.MenuItem("Always On Top", selected = bool(user_config.flags["always_on_top"])) {
+            //             user_config.flags["always_on_top"] = !user_config.flags["always_on_top"]
+            //             sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
+            //         }
 
-                    if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
-                        game_state.borderless_fullscreen = !game_state.borderless_fullscreen
-                        game_state.exclusive_fullscreen = false
+            //         if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
+            //             game_state.borderless_fullscreen = !game_state.borderless_fullscreen
+            //             game_state.exclusive_fullscreen = false
                         
-                        user_config.ints["window_x"] = 0
-                        user_config.ints["window_y"] = 0
+            //             user_config.ints["window_x"] = 0
+            //             user_config.ints["window_y"] = 0
 
-                        xpos, ypos: c.int
-                        if game_state.borderless_fullscreen {
-                            resolution = display_resolution
-                        }
-                        else {
-                            resolution = DEFAULT_RESOLUTION
-                            xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                            ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
-                        }
+            //             xpos, ypos: c.int
+            //             if game_state.borderless_fullscreen {
+            //                 resolution = display_resolution
+            //             }
+            //             else {
+            //                 resolution = DEFAULT_RESOLUTION
+            //                 xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+            //                 ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+            //             }
 
-                        io.DisplaySize.x = f32(resolution.x)
-                        io.DisplaySize.y = f32(resolution.y)
+            //             io.DisplaySize.x = f32(resolution.x)
+            //             io.DisplaySize.y = f32(resolution.y)
 
-                        vgd.resize_window = true
-                        sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
-                        sdl2.SetWindowPosition(sdl_window, xpos, ypos)
-                        sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                        sdl2.SetWindowResizable(sdl_window, true)
+            //             vgd.resize_window = true
+            //             sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
+            //             sdl2.SetWindowPosition(sdl_window, xpos, ypos)
+            //             sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+            //             sdl2.SetWindowResizable(sdl_window, true)
 
-                        // Update config map
-                        user_config.flags[BORDERLESS_FULLSCREEN_KEY] = game_state.borderless_fullscreen
-                    }
+            //             // Update config map
+            //             user_config.flags[BORDERLESS_FULLSCREEN_KEY] = game_state.borderless_fullscreen
+            //         }
                     
-                    if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
-                        game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
-                        game_state.borderless_fullscreen = false
+            //         if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
+            //             game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
+            //             game_state.borderless_fullscreen = false
                         
-                        user_config.ints["window_x"] = 0
-                        user_config.ints["window_y"] = 0
+            //             user_config.ints["window_x"] = 0
+            //             user_config.ints["window_y"] = 0
 
-                        flags : sdl2.WindowFlags = nil
-                        resolution = DEFAULT_RESOLUTION
-                        if game_state.exclusive_fullscreen {
-                            flags += {.FULLSCREEN}
-                            resolution = display_resolution
-                        }
+            //             flags : sdl2.WindowFlags = nil
+            //             resolution = DEFAULT_RESOLUTION
+            //             if game_state.exclusive_fullscreen {
+            //                 flags += {.FULLSCREEN}
+            //                 resolution = display_resolution
+            //             }
 
-                        io.DisplaySize.x = f32(resolution.x)
-                        io.DisplaySize.y = f32(resolution.y)
+            //             io.DisplaySize.x = f32(resolution.x)
+            //             io.DisplaySize.y = f32(resolution.y)
 
-                        sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                        sdl2.SetWindowFullscreen(sdl_window, flags)
-                        sdl2.SetWindowResizable(sdl_window, true)
-                        vgd.resize_window = true
+            //             sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+            //             sdl2.SetWindowFullscreen(sdl_window, flags)
+            //             sdl2.SetWindowResizable(sdl_window, true)
+            //             vgd.resize_window = true
 
-                        // Update config map
-                        user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = game_state.exclusive_fullscreen
-                    }
+            //             // Update config map
+            //             user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = game_state.exclusive_fullscreen
+            //         }
 
-                    imgui.EndMenu()
-                }
+            //         imgui.EndMenu()
+            //     }
 
-                if imgui.BeginMenu("Debug") {
-                    if imgui.MenuItem("Show Dear ImGUI demo window", selected = user_config.flags["show_imgui_demo"]) {
-                        user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
-                    }
-                    if imgui.MenuItem("Show debug window", selected = user_config.flags["show_debug_menu"]) {
-                        user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
-                    }
+            //     if imgui.BeginMenu("Debug") {
+            //         if imgui.MenuItem("Show Dear ImGUI demo window", selected = user_config.flags["show_imgui_demo"]) {
+            //             user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
+            //         }
+            //         if imgui.MenuItem("Show debug window", selected = user_config.flags["show_debug_menu"]) {
+            //             user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
+            //         }
 
-                    imgui.EndMenu()
-                }
+            //         imgui.EndMenu()
+            //     }
                 
-                imgui.EndMainMenuBar()
-            }
-
-            // Make viewport-sized dockspace
-            {
-                dock_window_flags := imgui.WindowFlags {
-                    .NoTitleBar,
-                    .NoMove,
-                    .NoResize,
-                    .NoBackground,
-                    .NoMouseInputs
-                }
-                window_viewport := imgui.GetWindowViewport()
-                imgui.SetNextWindowPos(window_viewport.WorkPos)
-                imgui.SetNextWindowSize(window_viewport.WorkSize)
-                if imgui.Begin("Main dock window", flags = dock_window_flags) {
-                    id := imgui.GetID("Main dockspace")
-                    flags := imgui.DockNodeFlags {
-                        .NoDockingOverCentralNode,
-                        .PassthruCentralNode,
-                    }
-                    imgui.DockSpaceOverViewport(id, window_viewport, flags = flags)
-                }
-                imgui.End()
-            }
+            //     imgui.EndMainMenuBar()
+            // }
 
             // Misc window
             {
@@ -853,8 +831,6 @@ main :: proc() {
 
 
         }
-
-        imgui.EndFrame()
 
         // Render
         {

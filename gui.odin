@@ -163,6 +163,125 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     return imgui_state
 }
 
+begin_gui :: proc(using state: ^ImguiState) {
+    imgui.NewFrame()
+
+    // Make viewport-sized dockspace
+    {
+        dock_window_flags := imgui.WindowFlags {
+            .NoTitleBar,
+            .NoMove,
+            .NoResize,
+            .NoBackground,
+            .NoMouseInputs
+        }
+        window_viewport := imgui.GetWindowViewport()
+        imgui.SetNextWindowPos(window_viewport.WorkPos)
+        imgui.SetNextWindowSize(window_viewport.WorkSize)
+        if imgui.Begin("Main dock window", flags = dock_window_flags) {
+            id := imgui.GetID("Main dockspace")
+            flags := imgui.DockNodeFlags {
+                .NoDockingOverCentralNode,
+                .PassthruCentralNode,
+            }
+            imgui.DockSpaceOverViewport(id, window_viewport, flags = flags)
+        }
+        imgui.End()
+    }
+}
+
+MainMenuBarVerb :: enum {
+    None,
+    Exit,
+    ToggleAlwaysOnTop,
+    ToggleBorderlessFullscreen,
+    ToggleExclusiveFullscreen,
+    ToggleDebugMenu,
+    ToggleDemo,
+}
+
+main_menu_bar :: proc(
+    using state: ^ImguiState,
+    game_state: ^GameState,
+    user_config: ^UserConfiguration
+) -> MainMenuBarVerb {
+    retval := MainMenuBarVerb.None
+
+    io := imgui.GetIO()
+
+    if imgui.BeginMainMenuBar() {
+        if imgui.BeginMenu("File") {
+            if imgui.MenuItem("New") {
+                
+            }
+            if imgui.MenuItem("Load") {
+                
+            }
+            if imgui.MenuItem("Save") {
+                
+            }
+            if imgui.MenuItem("Save As") {
+                
+            }
+            if imgui.MenuItem("Save user config") {
+                update_user_cfg_camera(user_config, &game_state.viewport_camera)
+                save_user_config(user_config, USER_CONFIG_FILENAME)
+            }
+            if imgui.MenuItem("Exit") do retval = .Exit
+
+            imgui.EndMenu()
+        }
+
+        if imgui.BeginMenu("Edit") {
+
+            
+            imgui.EndMenu()
+        }
+
+        if imgui.BeginMenu("Config") {
+            if imgui.MenuItem("Input", "porque?") do user_config.flags["input_config"] = !user_config.flags["input_config"]
+
+            imgui.EndMenu()
+        }
+
+        if imgui.BeginMenu("Window") {
+            if imgui.MenuItem("Always On Top", selected = bool(user_config.flags["always_on_top"])) {
+                user_config.flags["always_on_top"] = !user_config.flags["always_on_top"]
+                retval = .ToggleAlwaysOnTop
+            }
+
+            if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
+                // Update config map
+                user_config.flags[BORDERLESS_FULLSCREEN_KEY] = game_state.borderless_fullscreen
+                retval = .ToggleBorderlessFullscreen
+            }
+            
+            if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
+                // Update config map
+                user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = game_state.exclusive_fullscreen
+                retval = .ToggleExclusiveFullscreen
+            }
+
+            imgui.EndMenu()
+        }
+
+        if imgui.BeginMenu("Debug") {
+            if imgui.MenuItem("Show Dear ImGUI demo window", selected = user_config.flags["show_imgui_demo"]) {
+                user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
+            }
+            if imgui.MenuItem("Show debug window", selected = user_config.flags["show_debug_menu"]) {
+                user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
+            }
+
+            imgui.EndMenu()
+        }
+        
+        imgui.EndMainMenuBar()
+    }
+
+    return retval
+}
+
 // Once-per-frame call to update imgui vtx/idx/uniform buffers
 // and record imgui draw commands into current frame's command buffer
 render_imgui :: proc(
@@ -170,6 +289,8 @@ render_imgui :: proc(
     gfx_cb_idx: vkw.CommandBuffer_Index,
     imgui_state: ^ImguiState,
 ) {
+    imgui.EndFrame()
+
     // Update uniform buffer
     
     io := imgui.GetIO()
