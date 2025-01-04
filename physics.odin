@@ -17,9 +17,13 @@ Ray :: struct {
     direction: hlsl.float3,
 }
 
+Segment :: struct {
+    start: hlsl.float3,
+    end: hlsl.float3,
+}
+
 Triangle :: struct {
     a, b, c: hlsl.float3,
-    //normal: hlsl.float3,
 }
 
 StaticTriangleCollision :: struct {
@@ -62,7 +66,6 @@ static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allo
             a = a,
             b = b,
             c = c,
-            //normal = n,
         })
     }
 
@@ -277,6 +280,42 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     return world_space_collision, true
 }
 
+// Implementation adapted from section 5.3.6 of Realtime Collision Detection
+intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float3, bool) {
+    ab := b - a
+    ac := c - a
+    qp := segment.start - segment.end
+
+    // Compute normal
+    n := hlsl.cross(ab, ac)
+
+    // Compute denominator
+    // If <= 0.0, ray is parallel or points away
+    denom := hlsl.dot(qp, n)
+    if denom <= 0.0 do return {}, false
+
+    ap := segment.start - a
+    t := hlsl.dot(ap, n)
+    if t < 0.0 || t > 1.0 do return {}, false
+
+    // Compute barycentric coordinates
+    e := hlsl.cross(qp, ap)
+    v := hlsl.dot(ac, e)
+    if v < 0.0 || v > denom do return {}, false
+    w := -hlsl.dot(ab, e)
+    if w < 0.0 || v + w > denom do return {}, false
+
+    // Ray does intersect
+    ood := 1.0 / denom
+    t *= ood
+    v *= ood
+    w *= ood
+    u := 1.0 - v - w
+
+    world_space_collision := a*u + b*v + c*w
+    return world_space_collision, true
+}
+
 
 // Returns closest intersection
 intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
@@ -289,6 +328,27 @@ intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (h
         point, ok = intersect_ray_triangle(ray, &tri)
         if ok {
             d := hlsl.distance(ray.start, point)
+            if d < candidate_distance {
+                candidate_point = point
+                candidate_distance = d
+                found = true
+            }
+        }
+    }
+
+    return candidate_point, found
+}
+
+intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+    candidate_point: hlsl.float3
+    candidate_distance := math.INF_F32
+    found := false
+    for &tri in tris.triangles {
+        point: hlsl.float3
+        ok: bool
+        point, ok = intersect_segment_triangle(segment, &tri)
+        if ok {
+            d := hlsl.distance(segment.start, point)
             if d < candidate_distance {
                 candidate_point = point
                 candidate_distance = d
