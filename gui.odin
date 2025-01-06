@@ -293,6 +293,7 @@ render_imgui :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     imgui_state: ^ImguiState,
+    framebuffer: ^vkw.Framebuffer
 ) {
     imgui.EndFrame()
 
@@ -326,6 +327,8 @@ render_imgui :: proc(
         draw_data.TotalIdxCount,
         allocator = context.temp_allocator,
     )
+
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
     imgui_vertex_buffer, ok := vkw.get_buffer(gd, imgui_state.vertex_buffer)
     if !ok {
@@ -404,6 +407,7 @@ render_imgui :: proc(
     vkw.sync_write_buffer(gd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
     vkw.sync_write_buffer(gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
     
+    vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 }
 
 imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
