@@ -652,15 +652,10 @@ main :: proc() {
                 user_config.ints["window_x"] = i64(new_pos.x)
                 user_config.ints["window_y"] = i64(new_pos.y)
             }
-
-
         }
 
         // Render
         {
-            // Increment timeline semaphore upon command buffer completion
-            vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
-
             // Resize swapchain if necessary
             if vgd.resize_window {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
@@ -675,6 +670,9 @@ main :: proc() {
             }
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
+            
+            // Increment timeline semaphore upon command buffer completion
+            vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -724,9 +722,7 @@ main :: proc() {
             
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
-            vkw.cmd_begin_render_pass(&vgd, gfx_cb_idx, &framebuffer)
-            render_imgui(&vgd, gfx_cb_idx, &imgui_state)
-            vkw.cmd_end_render_pass(&vgd, gfx_cb_idx)
+            render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
     
             // Memory barrier between rendering to swapchain image and swapchain present
             vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
