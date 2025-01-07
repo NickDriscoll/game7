@@ -268,11 +268,14 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Debug") {
-            if imgui.MenuItem("Show Dear ImGUI demo window", selected = user_config.flags["show_imgui_demo"]) {
-                user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
+            if imgui.MenuItem("Memory tracker", selected = user_config.flags["show_memory_tracker"]) {
+                user_config.flags["show_memory_tracker"] = !user_config.flags["show_memory_tracker"]
             }
-            if imgui.MenuItem("Show debug window", selected = user_config.flags["show_debug_menu"]) {
+            if imgui.MenuItem("Debug panel", selected = user_config.flags["show_debug_menu"]) {
                 user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
+            }
+            if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags["show_imgui_demo"]) {
+                user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
             }
 
             imgui.EndMenu()
@@ -410,6 +413,7 @@ imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
     vkw.delete_buffer(vgd, uniform_buffer)
 }
 
+// Utility funcs
 
 // Translated from imgui_demo.cpp
 HelpMarker :: proc(desc: cstring) {
@@ -421,8 +425,6 @@ HelpMarker :: proc(desc: cstring) {
         imgui.EndTooltip()
     }
 }
-
-// Utility funcs
 
 SDL2ToImGuiKey :: proc(keycode: sdl2.Scancode) -> imgui.Key {
     #partial switch (keycode)

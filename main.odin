@@ -359,7 +359,6 @@ main :: proc() {
         io.DeltaTime = last_frame_duration
         
         output_verbs := poll_sdl2_events(&input_system)
-        io.KeyCtrl = input_system.ctrl_pressed
 
         // Quit if user wants it
         if output_verbs.bools[.Quit] do do_main_loop = false
@@ -543,49 +542,74 @@ main :: proc() {
             }
 
             // Misc window
-            {
-                using game_state.viewport_camera
 
-                if user_config.flags["show_debug_menu"] {
-                    if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
-                        imgui.Text("Frame #%i", vgd.frame_count)
-                        imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                        imgui.Text("Camera yaw: %f", yaw)
-                        imgui.Text("Camera pitch: %f", pitch)
-                        imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
-                        imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                            user_config.flags["freecam_collision"] = game_state.freecam_collision
-                        }
-                        imgui.Separator()
-                        imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
-                        imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
-                        imgui.SameLine()
-                        if imgui.Button("Reset") do timescale = 1.0
-                        
-                        imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
-                        
-                        imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
-                        imgui.SameLine()
-                        HelpMarker(
-                            "Enabling this setting forces the main thread " +
-                            "to sleep for 100 milliseconds at the end of the main loop, " +
-                            "effectively capping the framerate to 10 FPS"
-                        )
-                        
-                        imgui.Separator()
-    
-                        ini_cstring := cstring(&ini_savename_buffer[0])
-                        imgui.Text("Save current configuration of Dear ImGUI windows")
-                        imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
-                        if imgui.Button("Save current GUI configuration") {
-                            imgui.SaveIniSettingsToDisk(ini_cstring)
-                            log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                            ini_savename_buffer = {}
-                        }
+            if user_config.flags["show_debug_menu"] {
+                using game_state.viewport_camera
+                if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
+                    imgui.Text("Frame #%i", vgd.frame_count)
+                    imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                    imgui.Text("Camera yaw: %f", yaw)
+                    imgui.Text("Camera pitch: %f", pitch)
+                    imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
+                    imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
+                    if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                        user_config.flags["freecam_collision"] = game_state.freecam_collision
                     }
-                    imgui.End()
-                } 
+                    imgui.Separator()
+                    imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                    imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
+                    imgui.SameLine()
+                    if imgui.Button("Reset") do timescale = 1.0
+                    
+                    //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
+                    
+                    imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                    imgui.SameLine()
+                    HelpMarker(
+                        "Enabling this setting forces the main thread " +
+                        "to sleep for 100 milliseconds at the end of the main loop, " +
+                        "effectively capping the framerate to 10 FPS"
+                    )
+                    
+                    imgui.Separator()
+
+                    ini_cstring := cstring(&ini_savename_buffer[0])
+                    imgui.Text("Save current configuration of Dear ImGUI windows")
+                    imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
+                    if imgui.Button("Save current GUI configuration") {
+                        imgui.SaveIniSettingsToDisk(ini_cstring)
+                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                        ini_savename_buffer = {}
+                    }
+                }
+                imgui.End()
+            }
+
+            if user_config.flags["show_memory_tracker"] {
+                if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
+                    when ODIN_DEBUG == true {
+                        sb: strings.Builder
+                        strings.builder_init(&sb, context.temp_allocator)
+                        defer strings.builder_destroy(&sb)
+
+                        total_alloc_size := 0
+                        for _, al in track.allocation_map {
+                            total_alloc_size += al.size
+                        }
+    
+                        imgui.Text("Tracking_Allocator for context.allocator:")
+                        imgui.Text("Current number of allocations: %i", len(track.allocation_map))
+                        imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
+                        for ptr, al in track.allocation_map {
+                            t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
+                            imgui.Text(t)
+                            strings.builder_reset(&sb)
+                        }
+                    } else {
+                        imgui.Text("No tracking allocators in Release builds.")
+                    }
+                }
+                imgui.End()
             }
 
             // Input remapping GUI
