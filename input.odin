@@ -71,8 +71,6 @@ InputSystem :: struct {
     input_being_remapped: RemapInput,
     currently_remapping: bool,
 
-    ctrl_pressed: bool,
-
     controller_one: ^sdl2.GameController,
 
 }
@@ -232,9 +230,6 @@ poll_sdl2_events :: proc(
                 }
 
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
-                if sc == .LCTRL || sc == .RCTRL {
-                    ctrl_pressed = true
-                }
 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
@@ -246,9 +241,6 @@ poll_sdl2_events :: proc(
             }
             case .KEYUP: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
-                if event.key.keysym.scancode == .LCTRL || event.key.keysym.scancode == .RCTRL {
-                    ctrl_pressed = false
-                }
                 
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
@@ -336,6 +328,16 @@ poll_sdl2_events :: proc(
             }
         }
     }
+
+    
+    // Set imgui mod keys
+    io.KeyCtrl = imgui.IsKeyDown(.LeftCtrl) || imgui.IsKeyDown(.RightCtrl)
+    io.KeyShift = imgui.IsKeyDown(.LeftShift) || imgui.IsKeyDown(.RightShift)
+    io.KeyAlt = imgui.IsKeyDown(.LeftAlt) || imgui.IsKeyDown(.RightAlt)
+
+    // imgui_io.key_ctrl = imgui_io.keys_down[Key::LeftControl as usize] || imgui_io.keys_down[Key::RightControl as usize];
+    // imgui_io.key_shift = imgui_io.keys_down[Key::LeftShift as usize] || imgui_io.keys_down[Key::RightShift as usize];
+    // imgui_io.key_alt = imgui_io.keys_down[Key::LeftAlt as usize] || imgui_io.keys_down[Key::RightAlt as usize];    
 
     // Poll controller axes and emit appropriate verbs
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
