@@ -354,6 +354,9 @@ main :: proc() {
         nanosecond_dt := time.diff(previous_time, current_time)
         last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
+        
+        // Start a new Dear ImGUI frame
+        begin_gui(&imgui_state)
 
         io := imgui.GetIO()
         io.DeltaTime = last_frame_duration
@@ -379,34 +382,33 @@ main :: proc() {
             }
 
             mlook_coords, ok := output_verbs.int2s[.ToggleMouseLook]
-            if ok {
-                if mlook_coords == {0, 0} do continue
+            if ok && mlook_coords != {0, 0} {
                 mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
                 // Do nothing if Dear ImGUI wants mouse input
-                if mlook && io.WantCaptureMouse do continue
-                sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
-                if mlook {
-                    saved_mouse_coords.x = i32(mlook_coords.x)
-                    saved_mouse_coords.y = i32(mlook_coords.y)
-                } else {
-                    sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                //if mlook && io.WantCaptureMouse do continue
+                if !(mlook && io.WantCaptureMouse) {
+                    sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
+                    if mlook {
+                        saved_mouse_coords.x = i32(mlook_coords.x)
+                        saved_mouse_coords.y = i32(mlook_coords.y)
+                    } else {
+                        sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                    }
+                    // The ~ is "symmetric difference" for bit_sets
+                    // Basically like XOR
+                    game_state.viewport_camera.control_flags ~= {.MouseLook}
                 }
-                // The ~ is "symmetric difference" for bit_sets
-                // Basically like XOR
-                game_state.viewport_camera.control_flags ~= {.MouseLook}
             }
 
-            mmotion_coords, ok2 := output_verbs.int2s[.MouseMotion]
+            motion_coords, ok2 := output_verbs.int2s[.MouseMotion]
             if ok2 {
                 if .MouseLook not_in game_state.viewport_camera.control_flags {
-                    imgui.IO_AddMousePosEvent(io, f32(mmotion_coords.x), f32(mmotion_coords.y))
+                    imgui.IO_AddMousePosEvent(io, f32(motion_coords.x), f32(motion_coords.y))
                 } else {
                     sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
                 }
             }
         }
-        
-        begin_gui(&imgui_state)
 
         // Update
 
