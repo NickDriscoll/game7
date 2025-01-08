@@ -310,6 +310,8 @@ render_imgui :: proc(
     u_slice := slice.from_ptr(&uniforms, 1)
     vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice)
 
+    // This ends the current imgui frame until
+    // the next call to imgui.NewFrame()
     imgui.Render()
     
     draw_data := imgui.GetDrawData()
