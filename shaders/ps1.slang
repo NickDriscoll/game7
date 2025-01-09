@@ -14,6 +14,7 @@ cbuffer push_constants {
     uint sampler_idx;
 }
 
+// @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
 
 [shader("vertex")]
