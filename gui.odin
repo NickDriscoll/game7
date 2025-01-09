@@ -203,6 +203,7 @@ main_menu_bar :: proc(
     user_config: ^UserConfiguration
 ) -> MainMenuBarVerb {
     retval := MainMenuBarVerb.None
+    if !show_gui do return retval
 
     io := imgui.GetIO()
 
