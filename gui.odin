@@ -252,7 +252,7 @@ main_menu_bar :: proc(
                 // Update config map
                 user_config.ints["window_x"] = 0
                 user_config.ints["window_y"] = 0
-                user_config.flags[BORDERLESS_FULLSCREEN_KEY] = game_state.borderless_fullscreen
+                user_config.flags[BORDERLESS_FULLSCREEN_KEY] = !game_state.borderless_fullscreen
                 retval = .ToggleBorderlessFullscreen
             }
             
@@ -260,7 +260,7 @@ main_menu_bar :: proc(
                 // Update config map
                 user_config.ints["window_x"] = 0
                 user_config.ints["window_y"] = 0
-                user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = game_state.exclusive_fullscreen
+                user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = !game_state.exclusive_fullscreen
                 retval = .ToggleExclusiveFullscreen
             }
 
