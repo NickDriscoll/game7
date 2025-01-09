@@ -250,16 +250,12 @@ main_menu_bar :: proc(
 
             if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
                 // Update config map
-                user_config.ints["window_x"] = 0
-                user_config.ints["window_y"] = 0
                 user_config.flags[BORDERLESS_FULLSCREEN_KEY] = !game_state.borderless_fullscreen
                 retval = .ToggleBorderlessFullscreen
             }
             
             if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
                 // Update config map
-                user_config.ints["window_x"] = 0
-                user_config.ints["window_y"] = 0
                 user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = !game_state.exclusive_fullscreen
                 retval = .ToggleExclusiveFullscreen
             }

@@ -342,6 +342,8 @@ main :: proc() {
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
 
+    // Setup may have used temp allocation, 
+    // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
@@ -365,9 +367,8 @@ main :: proc() {
             user_config_last_saved = current_time
         }
         
-        // Start a new Dear ImGUI frame
+        // Start a new Dear ImGUI frame and get an io reference
         begin_gui(&imgui_state)
-
         io := imgui.GetIO()
         io.DeltaTime = last_frame_duration
         
@@ -514,16 +515,15 @@ main :: proc() {
                 xpos, ypos: c.int
                 if game_state.borderless_fullscreen {
                     resolution = display_resolution
-                }
-                else {
+                } else {
                     resolution = DEFAULT_RESOLUTION
                     xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
                     ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
-                user_config.ints["window_x"] = i64(resolution.x)
-                user_config.ints["window_y"] = i64(resolution.y)
+                user_config.ints["window_x"] = i64(xpos)
+                user_config.ints["window_y"] = i64(ypos)
 
                 sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
                 sdl2.SetWindowPosition(sdl_window, xpos, ypos)
@@ -535,16 +535,21 @@ main :: proc() {
             case .ToggleExclusiveFullscreen: {
                 game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
                 game_state.borderless_fullscreen = false
+                xpos, ypos: c.int
                 flags : sdl2.WindowFlags = nil
                 resolution = DEFAULT_RESOLUTION
                 if game_state.exclusive_fullscreen {
                     flags += {.FULLSCREEN}
                     resolution = display_resolution
+                } else {
+                    resolution = DEFAULT_RESOLUTION
+                    xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                    ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
-                user_config.ints["window_x"] = i64(resolution.x)
-                user_config.ints["window_y"] = i64(resolution.y)
+                user_config.ints["window_x"] = i64(xpos)
+                user_config.ints["window_y"] = i64(ypos)
 
                 sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
                 sdl2.SetWindowFullscreen(sdl_window, flags)
