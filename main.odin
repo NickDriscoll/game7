@@ -36,7 +36,7 @@ IDENTITY_MATRIX :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
-
+// @TODO: Window grab bag struct? Just for figuring out what to do?
 
 LooseProp :: struct {
     position: hlsl.float3,
@@ -72,6 +72,7 @@ GameState :: struct {
     viewport_camera: Camera,
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
+    timescale: f32,
 
     freecam_collision: bool,
     borderless_fullscreen: bool,
@@ -155,9 +156,11 @@ main :: proc() {
     defer mem.free_bytes(backing_memory)
 
     // Load user configuration
+    user_config_last_saved := time.now()
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
     if !config_ok do log.error("Failed to load user config.")
     defer delete_user_config(&user_config, context.allocator)
+    user_config_autosave := user_config.flags["config_autosave"]
 
     // Initialize SDL2
     sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
@@ -244,6 +247,7 @@ main :: proc() {
     game_state.freecam_collision = user_config.flags["freecam_collision"]
     game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
     game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
+    game_state.timescale = 0.1
 
     // Init input system
     input_system := init_input_system()
@@ -343,7 +347,6 @@ main :: proc() {
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := current_time
     limit_cpu := false
-    timescale : f32 = 1.0
     
     log.info("App initialization complete. Entering main loop")
 
@@ -354,6 +357,13 @@ main :: proc() {
         nanosecond_dt := time.diff(previous_time, current_time)
         last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
+
+        // Save user configuration every second or so
+        if user_config_autosave && time.diff(user_config_last_saved, current_time) < 1_000_000_000 {
+            update_user_cfg_camera(&user_config, &game_state.viewport_camera)
+            save_user_config(&user_config, USER_CONFIG_FILENAME)
+            user_config_last_saved = current_time
+        }
         
         // Start a new Dear ImGUI frame
         begin_gui(&imgui_state)
@@ -429,29 +439,29 @@ main :: proc() {
             TERMINAL_VELOCITY :: -16.0           // m/s
 
             // TEST CODE PLZ REMOVE
-            // place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            // if ok2 && place_thing_screen_coords != {0, 0} {
-            //     ray := get_view_ray(
-            //         &game_state,
-            //         {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
-            //         resolution
-            //     )
+            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
+            if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+                ray := get_view_ray(
+                    &game_state,
+                    {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
+                    resolution
+                )
 
-            //     collision_pt: hlsl.float3
-            //     closest_dist := math.INF_F32
-            //     for &piece in game_state.terrain_pieces {
-            //         candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-            //         if ok {
-            //             candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-            //             if candidate_dist < closest_dist {
-            //                 collision_pt = candidate
-            //                 closest_dist = candidate_dist
-            //             }
-            //         }
-            //     }
+                collision_pt: hlsl.float3
+                closest_dist := math.INF_F32
+                for &piece in game_state.terrain_pieces {
+                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                    if ok {
+                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+                        if candidate_dist < closest_dist {
+                            collision_pt = candidate
+                            closest_dist = candidate_dist
+                        }
+                    }
+                }
 
-            //     if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
-            // }
+                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
+            }
             
             switch character.state {
                 case .Grounded: {
@@ -492,134 +502,140 @@ main :: proc() {
             }
         }
 
-        // All Dear ImGUI frontend calls happen here
-        if imgui_state.show_gui {
-            // React to main menu bar interaction
-            switch main_menu_bar(&imgui_state, &game_state, &user_config) {
-                case .Exit: do_main_loop = false
-                case .ToggleAlwaysOnTop: {
-                    sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
+        // React to main menu bar interaction
+        switch main_menu_bar(&imgui_state, &game_state, &user_config) {
+            case .Exit: do_main_loop = false
+            case .ToggleAlwaysOnTop: {
+                sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
+            }
+            case .ToggleBorderlessFullscreen: {
+                game_state.borderless_fullscreen = !game_state.borderless_fullscreen
+                game_state.exclusive_fullscreen = false
+                xpos, ypos: c.int
+                if game_state.borderless_fullscreen {
+                    resolution = display_resolution
                 }
-                case .ToggleBorderlessFullscreen: {
-                    game_state.borderless_fullscreen = !game_state.borderless_fullscreen
-                    game_state.exclusive_fullscreen = false
-                    xpos, ypos: c.int
-                    if game_state.borderless_fullscreen {
-                        resolution = display_resolution
-                    }
-                    else {
-                        resolution = DEFAULT_RESOLUTION
-                        xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                        ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
-                    }
-                    io.DisplaySize.x = f32(resolution.x)
-                    io.DisplaySize.y = f32(resolution.y)
-
-                    sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
-                    sdl2.SetWindowPosition(sdl_window, xpos, ypos)
-                    sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                    sdl2.SetWindowResizable(sdl_window, true)
-                    
-                    vgd.resize_window = true
-                }
-                case .ToggleExclusiveFullscreen: {
-                    game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
-                    game_state.borderless_fullscreen = false
-                    flags : sdl2.WindowFlags = nil
+                else {
                     resolution = DEFAULT_RESOLUTION
-                    if game_state.exclusive_fullscreen {
-                        flags += {.FULLSCREEN}
-                        resolution = display_resolution
-                    }
-                    io.DisplaySize.x = f32(resolution.x)
-                    io.DisplaySize.y = f32(resolution.y)
-
-                    sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                    sdl2.SetWindowFullscreen(sdl_window, flags)
-                    sdl2.SetWindowResizable(sdl_window, true)
-
-                    vgd.resize_window = true
+                    xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                    ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                 }
-                case .None: {}
+                io.DisplaySize.x = f32(resolution.x)
+                io.DisplaySize.y = f32(resolution.y)
+                user_config.ints["window_x"] = i64(resolution.x)
+                user_config.ints["window_y"] = i64(resolution.y)
+
+                sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
+                sdl2.SetWindowPosition(sdl_window, xpos, ypos)
+                sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+                sdl2.SetWindowResizable(sdl_window, !game_state.borderless_fullscreen)
+                
+                vgd.resize_window = true
             }
-
-            // Misc window
-
-            if user_config.flags["show_debug_menu"] {
-                using game_state.viewport_camera
-                if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
-                    imgui.Text("Frame #%i", vgd.frame_count)
-                    imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                    imgui.Text("Camera yaw: %f", yaw)
-                    imgui.Text("Camera pitch: %f", pitch)
-                    imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
-                    imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                    if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                        user_config.flags["freecam_collision"] = game_state.freecam_collision
-                    }
-                    imgui.Separator()
-                    imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
-                    imgui.SliderFloat("Timescale", &timescale, 0.0, 2.0)
-                    imgui.SameLine()
-                    if imgui.Button("Reset") do timescale = 1.0
-                    
-                    //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
-                    
-                    imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
-                    imgui.SameLine()
-                    HelpMarker(
-                        "Enabling this setting forces the main thread " +
-                        "to sleep for 100 milliseconds at the end of the main loop, " +
-                        "effectively capping the framerate to 10 FPS"
-                    )
-                    
-                    imgui.Separator()
-
-                    ini_cstring := cstring(&ini_savename_buffer[0])
-                    imgui.Text("Save current configuration of Dear ImGUI windows")
-                    imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
-                    if imgui.Button("Save current GUI configuration") {
-                        imgui.SaveIniSettingsToDisk(ini_cstring)
-                        log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                        ini_savename_buffer = {}
-                    }
+            case .ToggleExclusiveFullscreen: {
+                game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
+                game_state.borderless_fullscreen = false
+                flags : sdl2.WindowFlags = nil
+                resolution = DEFAULT_RESOLUTION
+                if game_state.exclusive_fullscreen {
+                    flags += {.FULLSCREEN}
+                    resolution = display_resolution
                 }
-                imgui.End()
+                io.DisplaySize.x = f32(resolution.x)
+                io.DisplaySize.y = f32(resolution.y)
+                user_config.ints["window_x"] = i64(resolution.x)
+                user_config.ints["window_y"] = i64(resolution.y)
+
+                sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+                sdl2.SetWindowFullscreen(sdl_window, flags)
+                sdl2.SetWindowResizable(sdl_window, !game_state.exclusive_fullscreen)
+
+                vgd.resize_window = true
             }
-
-            if user_config.flags["show_memory_tracker"] {
-                if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
-                    when ODIN_DEBUG == true {
-                        sb: strings.Builder
-                        strings.builder_init(&sb, context.temp_allocator)
-                        defer strings.builder_destroy(&sb)
-
-                        total_alloc_size := 0
-                        for _, al in track.allocation_map {
-                            total_alloc_size += al.size
-                        }
-    
-                        imgui.Text("Tracking_Allocator for context.allocator:")
-                        imgui.Text("Current number of allocations: %i", len(track.allocation_map))
-                        imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
-                        for ptr, al in track.allocation_map {
-                            t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
-                            imgui.Text(t)
-                            strings.builder_reset(&sb)
-                        }
-                    } else {
-                        imgui.Text("No tracking allocators in Release builds.")
-                    }
-                }
-                imgui.End()
-            }
-
-            // Input remapping GUI
-            if user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
-
-            // Imgui Demo
-            if user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
+            case .None: {}
         }
+
+        if imgui_state.show_gui && user_config.flags["show_memory_tracker"] {
+            if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
+                when ODIN_DEBUG == true {
+                    sb: strings.Builder
+                    strings.builder_init(&sb, context.temp_allocator)
+                    defer strings.builder_destroy(&sb)
+
+                    total_alloc_size := 0
+                    for _, al in track.allocation_map {
+                        total_alloc_size += al.size
+                    }
+
+                    imgui.Text("Tracking_Allocator for context.allocator:")
+                    imgui.Text("Current number of allocations: %i", len(track.allocation_map))
+                    imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
+                    for ptr, al in track.allocation_map {
+                        t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
+                        imgui.Text(t)
+                        strings.builder_reset(&sb)
+                    }
+                } else {
+                    imgui.Text("No tracking allocators in Release builds.")
+                }
+            }
+            imgui.End()
+        }
+        
+        //
+        if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
+            using game_state.viewport_camera
+            if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
+                imgui.Text("Frame #%i", vgd.frame_count)
+                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                imgui.Text("Camera yaw: %f", yaw)
+                imgui.Text("Camera pitch: %f", pitch)
+                imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
+                imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
+                if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                    user_config.flags["freecam_collision"] = game_state.freecam_collision
+                }
+                imgui.Separator()
+                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
+                imgui.SameLine()
+                if imgui.Button("Reset") do game_state.timescale = 1.0
+                
+                //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
+                
+                imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                imgui.SameLine()
+                HelpMarker(
+                    "Enabling this setting forces the main thread " +
+                    "to sleep for 100 milliseconds at the end of the main loop, " +
+                    "effectively capping the framerate to 10 FPS"
+                )
+                
+                imgui.Separator()
+
+                ini_cstring := cstring(&ini_savename_buffer[0])
+                imgui.Text("Save current configuration of Dear ImGUI windows")
+                imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
+                if imgui.Button("Save current GUI configuration") {
+                    imgui.SaveIniSettingsToDisk(ini_cstring)
+                    log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                    ini_savename_buffer = {}
+                }
+                imgui.Separator()
+
+                if imgui.Checkbox("Automatically save user config periodically", &user_config_autosave) {
+                    user_config.flags["config_autosave"] = user_config_autosave
+                }
+            }
+            imgui.End()
+        }
+
+        // Input remapping GUI
+        if imgui_state.show_gui && user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
+
+        // Imgui Demo
+        if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
+        
 
         // Draw terrain pieces
         for piece in game_state.terrain_pieces {
