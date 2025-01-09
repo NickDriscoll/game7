@@ -7,8 +7,8 @@ import "core:os/os2"
 import "core:strings"
 
 // Shader naming convention:
-// "shaders/<name>.<stage>.slang" will become "data/shaders/<name>.<stage>.spv"
-// i.e. "shaders/test.vert.slang" -> "shaders/test.frag.spv"
+// Compiling shader stage <stage> of a file "shaders/<name>.slang" will yield "data/shaders/<name>.<stage>.spv"
+// i.e. Compiling frag shader of "test" would be "shaders/test.slang" -> "shaders/test.frag.spv"
 // Stages are one of {vert, frag, comp}
 // Shader entry point should be named "<stage>_main"
 
