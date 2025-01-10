@@ -243,6 +243,12 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     return closest_point
 }
 
+// @TODO: Implement this
+pt_in_triangle :: proc(p: ^hlsl.float3, tri: ^Triangle) -> bool {
+
+    return false
+}
+
 // Implementation adapted from section 5.3.6 of Realtime Collision Detection
 intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3, bool) {
     ab := b - a
@@ -358,4 +364,26 @@ intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleColl
     }
 
     return candidate_point, found
+}
+
+// Implementation adapted from section 5.5.6 of Realtime Collision Detection
+dynamic_sphere_vs_triangle :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (hlsl.float3, bool) {
+
+    // The point on the sphere that will first intersect
+    // the triangle's plane is D
+    d := s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+
+    // Compute P, the point where D will touch the plane
+    p, ok := intersect_segment_triangle(motion_interval, tri)
+    if !ok {
+        // Motion interval wasn't long enough
+        return {}, false
+    }
+
+    // If p is in the triangle, it's our point of interest
+    if pt_in_triangle(&p, tri) do return p, true
+
+    // Otherwise, get point Q: the closest point to P on the triangle
+
+    return {}, false
 }
