@@ -266,8 +266,10 @@ poll_sdl2_events :: proc(
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
             }
             case .MOUSEMOTION: {
-                int2s[.MouseMotion] = {i64(event.motion.x), i64(event.motion.y)}
-                int2s[.MouseMotionRel] = {i64(event.motion.xrel), i64(event.motion.yrel)}
+                old_motion := int2s[.MouseMotion]
+                old_relmotion := int2s[.MouseMotionRel]
+                int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
+                int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))

@@ -145,7 +145,7 @@ freecam_update :: proc(
 
     relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
     if ok3 {
-        MOUSE_SENSITIVITY :: 0.002
+        MOUSE_SENSITIVITY :: 0.001
         if .MouseLook in game_state.viewport_camera.control_flags {
             camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
             //sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
