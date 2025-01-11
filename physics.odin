@@ -358,7 +358,9 @@ intersect_segment_sphere_t :: proc(seg: ^Segment, s: ^Sphere) -> (f32, bool) {
         start = seg.start,
         direction = hlsl.normalize(seg.end - seg.start)
     }
-    return intersect_ray_sphere_t(&r, s)
+    t, ok := intersect_ray_sphere_t(&r, s)
+    ok = ok && t < 1.0
+    return t, ok
 }
 intersect_ray_sphere :: proc(r: ^Ray, s: ^Sphere) -> (hlsl.float3, bool) {
     t, ok := intersect_ray_sphere_t(r, s)

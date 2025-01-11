@@ -268,8 +268,8 @@ main :: proc() {
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
-    main_scene_path : cstring = "data/models/artisans.glb"
-    //main_scene_path : cstring = "data/models/plane.glb"
+    //main_scene_path : cstring = "data/models/artisans.glb"
+    main_scene_path : cstring = "data/models/plane.glb"
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
     defer gltf_delete(&main_scene_mesh)
 
