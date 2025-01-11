@@ -22,6 +22,12 @@ Segment :: struct {
     end: hlsl.float3,
 }
 
+// Point-normal form of plane
+// Plane :: struct {
+//     p: hlsl.float3,
+//     normal: hlsl.float3
+// }
+
 Triangle :: struct {
     a, b, c: hlsl.float3,
 }
@@ -246,7 +252,7 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
 // @TODO: Implement this
 pt_in_triangle :: proc(p: ^hlsl.float3, tri: ^Triangle) -> bool {
 
-    return false
+    return true
 }
 
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
@@ -286,8 +292,26 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     return world_space_collision, true
 }
 
+intersect_segment_triplane_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, bool) {
+    ab := b - a
+    ac := c - a
+    qp := segment.start - segment.end
+
+    // Compute normal
+    n := hlsl.cross(ab, ac)
+
+    // Compute denominator
+    // If <= 0.0, ray is parallel or points away
+    denom := hlsl.dot(qp, n)
+    if denom <= 0.0 do return {}, false
+
+    ap := segment.start - a
+    t := hlsl.dot(ap, n) / denom
+    return t, t >= 0.0 && t <= 1.0
+}
+
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
-intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float, bool) {
+intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, bool) {
     ab := b - a
     ac := c - a
     qp := segment.start - segment.end
@@ -415,15 +439,20 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
 
     // The point on the sphere that will first intersect
     // the triangle's plane is D
-    d := s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+    d := s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
 
-    // Compute P, the point where D will touch the plane
-    t, ok := intersect_segment_triangle_t(motion_interval, tri)
+    // Compute P, the point where D will touch tri's supporting plane
+    //t, ok := intersect_segment_triangle_t(motion_interval, tri)
+    d_segment := Segment {
+        start = d,
+        end = d + (motion_interval.end - motion_interval.start)
+    }
+    t, ok := intersect_segment_triplane_t(&d_segment, tri)
     if !ok {
         // Motion interval wasn't long enough
         return {}, false
     }
-    p := t * (motion_interval.end - motion_interval.start)
+    p := d + t * (motion_interval.end - motion_interval.start)
 
     // If p is in the triangle, it's our point of interest
     if pt_in_triangle(&p, tri) do return t, true
@@ -452,6 +481,20 @@ dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision
 }
 
 dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (hlsl.float3, bool) {
-    t, ok := dynamic_sphere_vs_triangles_t(s, tris, motion_interval)
-    return t * (motion_interval.end - motion_interval.start), ok
+    candidate_t := math.INF_F32
+    d: hlsl.float3
+    t: f32
+    found := false
+    for &tri in tris.triangles {
+        ok: bool
+        t, ok = dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
+        if ok {
+            if t < candidate_t do candidate_t = t
+            // The point on the sphere that will first intersect
+            // the triangle's plane is D
+            d = s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+            found = true
+        }
+    }
+    return d + t * (motion_interval.end - motion_interval.start), found
 }
