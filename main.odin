@@ -437,7 +437,7 @@ main :: proc() {
             using game_state
 
             GRAVITY_ACCELERATION :: -9.8        // m/s^2
-            TERMINAL_VELOCITY :: -16.0           // m/s
+            TERMINAL_VELOCITY :: -128.0           // m/s
 
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
