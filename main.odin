@@ -411,14 +411,14 @@ main :: proc() {
                 }
             }
 
-            motion_coords, ok2 := output_verbs.int2s[.MouseMotion]
-            if ok2 {
-                if .MouseLook not_in game_state.viewport_camera.control_flags {
-                    imgui.IO_AddMousePosEvent(io, f32(motion_coords.x), f32(motion_coords.y))
-                } else {
-                    sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
-                }
+            if .MouseLook not_in game_state.viewport_camera.control_flags {
+                x, y: c.int
+                sdl2.GetMouseState(&x, &y)
+                imgui.IO_AddMousePosEvent(io, f32(x), f32(y))
+            } else {
+                sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
             }
+            
         }
 
         // Update
