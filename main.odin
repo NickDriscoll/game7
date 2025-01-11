@@ -436,8 +436,8 @@ main :: proc() {
         {
             using game_state
 
-            GRAVITY_ACCELERATION :: -9.8        // m/s^2
-            TERMINAL_VELOCITY :: -128.0           // m/s
+            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}        // m/s^2
+            TERMINAL_VELOCITY :: -128.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
@@ -461,7 +461,11 @@ main :: proc() {
                     }
                 }
 
-                if closest_dist < math.INF_F32 do character.collision.origin = collision_pt
+                if closest_dist < math.INF_F32 {
+                    character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
+                    character.velocity = {}
+                    character.state = .Falling
+                }
             }
             
             switch character.state {
@@ -469,38 +473,61 @@ main :: proc() {
 
                 }
                 case .Falling: {
-                    character.velocity.z += timescale * last_frame_duration * GRAVITY_ACCELERATION
+                    // Update velocity, clamping downward speed if necessary
+                    character.velocity += timescale * last_frame_duration * GRAVITY_ACCELERATION
                     if character.velocity.z < TERMINAL_VELOCITY {
                         character.velocity.z = TERMINAL_VELOCITY
                     }
-                    character.collision.origin += timescale * last_frame_duration * character.velocity
+
+                    // Compute motion interval, then do collision test against triangles
+                    endpoint := character.collision.origin + timescale * last_frame_duration * character.velocity
+                    interval := Segment {
+                        start = character.collision.origin,
+                        end = endpoint
+                    }
+                    candidate_t := math.INF_F32
+                    for &piece in game_state.terrain_pieces {
+                        t, ok := dynamic_sphere_vs_triangles_t(&character.collision, &piece.collision, &interval)
+                        if ok {
+                            if t < candidate_t do candidate_t = t
+                        }
+                    }
+                    if candidate_t < math.INF_F32 {
+                        // Hit terrain
+                        character.collision.origin += candidate_t * (interval.end - interval.start)
+                        character.velocity = {}
+                        character.state = .Grounded
+                    } else {
+                        // Didn't hit anything, falling.
+                        character.collision.origin += timescale * last_frame_duration * character.velocity
+                    }
                 }
             }
 
             // Snap character to ground if close enough
-            {
-                test_segment := Segment {
-                    start = character.collision.origin,
-                    end = character.collision.origin - {0.0, 0.0, 0.5}
-                }
+            // {
+            //     test_segment := Segment {
+            //         start = character.collision.origin,
+            //         end = character.collision.origin - {0.0, 0.0, 0.5}
+            //     }
                 
-                collision_pt: hlsl.float3
-                closest_dist := math.INF_F32
-                for &piece in game_state.terrain_pieces {
-                    candidate, ok := intersect_segment_triangles(&test_segment, &piece.collision)
-                    if ok {
-                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-                        if candidate_dist < closest_dist {
-                            collision_pt = candidate
-                            closest_dist = candidate_dist
-                        }
-                    }
-                }
+            //     collision_pt: hlsl.float3
+            //     closest_dist := math.INF_F32
+            //     for &piece in game_state.terrain_pieces {
+            //         candidate, ok := intersect_segment_triangles(&test_segment, &piece.collision)
+            //         if ok {
+            //             candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+            //             if candidate_dist < closest_dist {
+            //                 collision_pt = candidate
+            //                 closest_dist = candidate_dist
+            //             }
+            //         }
+            //     }
 
-                if closest_dist < math.INF_F32 {
+            //     if closest_dist < math.INF_F32 {
                     
-                }
-            }
+            //     }
+            // }
         }
 
         // React to main menu bar interaction
