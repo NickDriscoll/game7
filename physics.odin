@@ -152,7 +152,7 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 
 
 
-// Implementation adapted from section 5.1.5 of Realtime Collision Detection
+// Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
     dot :: hlsl.dot
 
@@ -249,7 +249,7 @@ pt_in_triangle :: proc(p: ^hlsl.float3, tri: ^Triangle) -> bool {
     return false
 }
 
-// Implementation adapted from section 5.3.6 of Realtime Collision Detection
+// Implementation adapted from section 5.3.6 of Real-Time Collision Detection
 intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3, bool) {
     ab := b - a
     ac := c - a
@@ -286,8 +286,8 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     return world_space_collision, true
 }
 
-// Implementation adapted from section 5.3.6 of Realtime Collision Detection
-intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float3, bool) {
+// Implementation adapted from section 5.3.6 of Real-Time Collision Detection
+intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float, bool) {
     ab := b - a
     ac := c - a
     qp := segment.start - segment.end
@@ -314,14 +314,45 @@ intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (
     // Ray does intersect
     ood := 1.0 / denom
     t *= ood
-    v *= ood
-    w *= ood
-    u := 1.0 - v - w
+    // v *= ood
+    // w *= ood
+    // u := 1.0 - v - w
 
-    world_space_collision := a*u + b*v + c*w
+    return t, true
+}
+intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float3, bool) {
+    t, ok := intersect_segment_triangle_t(segment, tri)
+    world_space_collision := t * (segment.end - segment.start)
     return world_space_collision, true
 }
 
+// Implementation adapted from section 5.3.2 of Real-Time Collision Detection
+intersect_ray_sphere :: proc(r: ^Ray, s: ^Sphere) -> (hlsl.float3, bool) {
+    m := r.start - s.origin
+    b := hlsl.dot(m, r.direction)
+    c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
+    
+    // Exit if r's origin is outside s (c > 0) and r is pointing away from s (b > 0.0)
+    if c > 0.0 && b > 0.0 do return {}, false
+
+    // discr < 0.0 means the ray missed
+    discr := b * b - c
+    if discr < 0.0 do return {}, false
+
+    // Compute smallest t-value of intersection
+    sqrt_discr := math.sqrt(discr)
+    t := -b - sqrt_discr
+
+    // THIS BEHAVIOR DIVERGES FROM THE BOOK
+    // The book implements a test with a solid sphere,
+    // and as such clamps t to 0.0 when t < 0.0
+    // This, however, is a hollow sphere, so we try the 
+    // second t-value and try again
+    if t < 0.0 do t = -b + sqrt_discr
+    if t < 0.0 do return {}, false
+
+    return r.start + t * r.direction, true
+}
 
 // Returns closest intersection
 intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
@@ -366,7 +397,7 @@ intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleColl
     return candidate_point, found
 }
 
-// Implementation adapted from section 5.5.6 of Realtime Collision Detection
+// Implementation adapted from section 5.5.6 of Real-Time Collision Detection
 dynamic_sphere_vs_triangle :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (hlsl.float3, bool) {
 
     // The point on the sphere that will first intersect
@@ -374,16 +405,25 @@ dynamic_sphere_vs_triangle :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: 
     d := s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
 
     // Compute P, the point where D will touch the plane
-    p, ok := intersect_segment_triangle(motion_interval, tri)
+    t, ok := intersect_segment_triangle_t(motion_interval, tri)
     if !ok {
         // Motion interval wasn't long enough
         return {}, false
     }
+    p := t * (motion_interval.end - motion_interval.start)
 
     // If p is in the triangle, it's our point of interest
     if pt_in_triangle(&p, tri) do return p, true
 
     // Otherwise, get point Q: the closest point to P on the triangle
+    q := closest_pt_triangle(p, tri)
+
+    // Cast a ray from Q to the sphere to determine 
+    q_ray := Ray {
+        start = q,
+        direction = motion_interval.start - motion_interval.end
+    }
+    intersect_ray_sphere(&q_ray, s)
 
     return {}, false
 }
