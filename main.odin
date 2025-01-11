@@ -247,7 +247,7 @@ main :: proc() {
     game_state.freecam_collision = user_config.flags["freecam_collision"]
     game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
     game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
-    game_state.timescale = 0.1
+    game_state.timescale = 1.0
 
     // Init input system
     input_system := init_input_system()
@@ -277,10 +277,11 @@ main :: proc() {
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
         defer delete(positions)
-        collision := static_triangle_mesh(positions[:], IDENTITY_MATRIX)
+        mmat := uniform_scaling_matrix(5.0)
+        collision := static_triangle_mesh(positions[:], mmat)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
-            model_matrix = IDENTITY_MATRIX,
+            model_matrix = mmat,
             mesh_data = main_scene_mesh,
         })
     }
@@ -299,24 +300,24 @@ main :: proc() {
     }
     
     // Add moon terrain piece
-    {
-        positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
-        scale := uniform_scaling_matrix(300.0)
-        rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
-        trans := translation_matrix({350.0, 400.0, 500.0})
-        mat := trans * rot * scale
-        collision := static_triangle_mesh(positions[:], mat)
-        append(&game_state.terrain_pieces, TerrainPiece {
-            collision = collision,
-            model_matrix = mat,
-            mesh_data = moon_mesh
-        })
-    }
+    // {
+    //     positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
+    //     scale := uniform_scaling_matrix(300.0)
+    //     rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
+    //     trans := translation_matrix({350.0, 400.0, 500.0})
+    //     mat := trans * rot * scale
+    //     collision := static_triangle_mesh(positions[:], mat)
+    //     append(&game_state.terrain_pieces, TerrainPiece {
+    //         collision = collision,
+    //         model_matrix = mat,
+    //         mesh_data = moon_mesh
+    //     })
+    // }
 
     game_state.character = TestCharacter {
         collision = {
-            origin = {0.0, 0.0, 30.0},
-            radius = 2.0
+            origin = {-5.0, -5.0, 30.0},
+            radius = 0.8
         },
         velocity = {},
         state = .Falling,
@@ -422,6 +423,68 @@ main :: proc() {
         }
 
         // Update
+        
+        // Misc imgui window for testing
+        @static last_raycast_coords: [2]i64
+        want_refire_raycast := false
+        if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
+            using game_state.viewport_camera
+            if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
+                imgui.Text("Frame #%i", vgd.frame_count)
+                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
+                imgui.Text("Camera yaw: %f", yaw)
+                imgui.Text("Camera pitch: %f", pitch)
+                imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
+                imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
+                if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                    user_config.flags["freecam_collision"] = game_state.freecam_collision
+                }
+                imgui.Separator()
+
+                {
+                    using game_state.character.collision
+                    imgui.Text("Player collider position: (%f, %f, %f)", origin.x, origin.y, origin.z)
+                    imgui.Text("Last raycast coords: (%i, %i)", last_raycast_coords.x, last_raycast_coords.y)
+                    if imgui.Button("Refire last raycast") {
+                        output_verbs.int2s[.PlaceThing] = last_raycast_coords
+                        want_refire_raycast = true
+                    }
+                    imgui.Separator()
+                }
+
+                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
+                imgui.SameLine()
+                if imgui.Button("Reset") do game_state.timescale = 1.0
+                
+                //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
+                
+                imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                imgui.SameLine()
+                HelpMarker(
+                    "Enabling this setting forces the main thread " +
+                    "to sleep for 100 milliseconds at the end of the main loop, " +
+                    "effectively capping the framerate to 10 FPS"
+                )
+                
+                imgui.Separator()
+
+                ini_cstring := cstring(&ini_savename_buffer[0])
+                imgui.Text("Save current configuration of Dear ImGUI windows")
+                imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
+                if imgui.Button("Save current GUI configuration") {
+                    imgui.SaveIniSettingsToDisk(ini_cstring)
+                    log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                    ini_savename_buffer = {}
+                }
+                imgui.Separator()
+
+                if imgui.Checkbox("Automatically save user config periodically", &user_config_autosave) {
+                    user_config.flags["config_autosave"] = user_config_autosave
+                }
+            }
+            imgui.End()
+        }
 
         // Update camera
         freecam_update(
@@ -437,13 +500,14 @@ main :: proc() {
             using game_state
 
             GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}        // m/s^2
-            TERMINAL_VELOCITY :: -128.0                                  // m/s
+            TERMINAL_VELOCITY :: -10000.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+            if want_refire_raycast || !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+                last_raycast_coords = place_thing_screen_coords
                 ray := get_view_ray(
-                    &game_state,
+                    &game_state.viewport_camera,
                     {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
                     resolution
                 )
@@ -462,7 +526,7 @@ main :: proc() {
                 }
 
                 if closest_dist < math.INF_F32 {
-                    character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
+                    character.collision.origin = collision_pt + {-3.0, 0.0, 300.0}
                     character.velocity = {}
                     character.state = .Falling
                 }
@@ -609,54 +673,6 @@ main :: proc() {
                     }
                 } else {
                     imgui.Text("No tracking allocators in Release builds.")
-                }
-            }
-            imgui.End()
-        }
-        
-        //
-        if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
-            using game_state.viewport_camera
-            if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
-                imgui.Text("Frame #%i", vgd.frame_count)
-                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                imgui.Text("Camera yaw: %f", yaw)
-                imgui.Text("Camera pitch: %f", pitch)
-                imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
-                imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                    user_config.flags["freecam_collision"] = game_state.freecam_collision
-                }
-                imgui.Separator()
-                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
-                imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
-                imgui.SameLine()
-                if imgui.Button("Reset") do game_state.timescale = 1.0
-                
-                //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
-                
-                imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
-                imgui.SameLine()
-                HelpMarker(
-                    "Enabling this setting forces the main thread " +
-                    "to sleep for 100 milliseconds at the end of the main loop, " +
-                    "effectively capping the framerate to 10 FPS"
-                )
-                
-                imgui.Separator()
-
-                ini_cstring := cstring(&ini_savename_buffer[0])
-                imgui.Text("Save current configuration of Dear ImGUI windows")
-                imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer))
-                if imgui.Button("Save current GUI configuration") {
-                    imgui.SaveIniSettingsToDisk(ini_cstring)
-                    log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                    ini_savename_buffer = {}
-                }
-                imgui.Separator()
-
-                if imgui.Checkbox("Automatically save user config periodically", &user_config_autosave) {
-                    user_config.flags["config_autosave"] = user_config_autosave
                 }
             }
             imgui.End()
