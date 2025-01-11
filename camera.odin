@@ -72,8 +72,8 @@ lookat_view_from_world :: proc() -> hlsl.float4x4 {
     return {}
 }
 
-get_view_ray :: proc(game_state: ^GameState, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
-    tan_fovy := math.tan(game_state.viewport_camera.fov_radians / 2.0)
+get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+    tan_fovy := math.tan(fov_radians / 2.0)
     tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
     clip_coords := hlsl.float4 {
         f32(screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
@@ -82,17 +82,17 @@ get_view_ray :: proc(game_state: ^GameState, screen_coords: hlsl.uint2, resoluti
         1.0
     }
     view_coords := hlsl.float4 {
-        clip_coords.x * game_state.viewport_camera.nearplane * tan_fovx,
-        -clip_coords.y * game_state.viewport_camera.nearplane * tan_fovy,
-        -game_state.viewport_camera.nearplane,
+        clip_coords.x * nearplane * tan_fovx,
+        -clip_coords.y * nearplane * tan_fovy,
+        -nearplane,
         1.0
     }
-    world_coords := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera)) * view_coords
+    world_coords := hlsl.inverse(camera_view_from_world(camera)) * view_coords
 
     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
     return Ray {
         start = start,
-        direction = hlsl.normalize(start - game_state.viewport_camera.position)
+        direction = hlsl.normalize(start - position)
     }
 }
 
