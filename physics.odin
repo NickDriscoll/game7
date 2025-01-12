@@ -249,10 +249,30 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     return closest_point
 }
 
-// @TODO: Implement this
-pt_in_triangle :: proc(p: ^hlsl.float3, tri: ^Triangle) -> bool {
+// Implementation adapted from section 3.4 of Real-Time Collision Detection
+// Returns v and w of point's barycentril coords with regards to tri.
+// Implictly, u = 1.0 - v - w
+pt_barycentric :: proc(point: hlsl.float3, tri: ^Triangle) -> (f32, f32) {
+    v0 := tri.b - tri.a
+    v1 := tri.c - tri.a
+    v2 := point - tri.a
 
-    return true
+    d00 := hlsl.dot(v0, v0)
+    d01 := hlsl.dot(v0, v1)
+    d11 := hlsl.dot(v1, v1)
+    d20 := hlsl.dot(v2, v0)
+    d21 := hlsl.dot(v2, v1)
+
+    denom := d00 * d11 - d01 * d01
+    v := (d11 * d20 - d01 * d21) / denom
+    w := (d00 * d21 - d01 * d20) / denom
+    return v, w
+}
+
+// Returns true if p is in tri
+pt_in_triangle :: proc(p: hlsl.float3, tri: ^Triangle) -> bool {
+    v, w := pt_barycentric(p, tri)
+    return 0.0 <= v && v <= 1.0 && 0.0 <= w && w <= 1.0 && v + w <= 1.0
 }
 
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
@@ -448,14 +468,12 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
         end = d + (motion_interval.end - motion_interval.start)
     }
     t, ok := intersect_segment_triplane_t(&d_segment, tri)
-    if !ok {
-        // Motion interval wasn't long enough
-        return {}, false
-    }
+    // If motion interval wasn't long enough
+    if !ok do return {}, false
     p := d + t * (motion_interval.end - motion_interval.start)
 
     // If p is in the triangle, it's our point of interest
-    if pt_in_triangle(&p, tri) do return t, true
+    if pt_in_triangle(p, tri) do return t, true
 
     // Otherwise, get point Q: the closest point to P on the triangle
     q := closest_pt_triangle(p, tri)
@@ -465,7 +483,8 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
         start = q,
         end = q + (motion_interval.start - motion_interval.end)
     }
-    return intersect_segment_sphere_t(&q_segment, s)
+    q_t, ok2 := intersect_segment_sphere_t(&q_segment, s)
+    return q_t, ok2
 }
 dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (f32, bool) {
     candidate_t := math.INF_F32

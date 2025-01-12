@@ -500,7 +500,7 @@ main :: proc() {
             using game_state
 
             GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}        // m/s^2
-            TERMINAL_VELOCITY :: -10000.0                                  // m/s
+            TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
@@ -526,12 +526,13 @@ main :: proc() {
                 }
 
                 if closest_dist < math.INF_F32 {
-                    character.collision.origin = collision_pt + {-3.0, 0.0, 300.0}
+                    character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
                     character.velocity = {}
                     character.state = .Falling
                 }
             }
             
+            // Main player character state machine
             switch character.state {
                 case .Grounded: {
 
@@ -549,21 +550,21 @@ main :: proc() {
                         start = character.collision.origin,
                         end = endpoint
                     }
-                    candidate_t := math.INF_F32
+                    closest_t := math.INF_F32
                     for &piece in game_state.terrain_pieces {
                         t, ok := dynamic_sphere_vs_triangles_t(&character.collision, &piece.collision, &interval)
                         if ok {
-                            if t < candidate_t do candidate_t = t
+                            if t < closest_t do closest_t = t
                         }
                     }
-                    if candidate_t < math.INF_F32 {
+                    if closest_t < math.INF_F32 {
                         // Hit terrain
-                        character.collision.origin += candidate_t * (interval.end - interval.start)
+                        character.collision.origin += closest_t * (interval.end - interval.start)
                         character.velocity = {}
                         character.state = .Grounded
                     } else {
                         // Didn't hit anything, falling.
-                        character.collision.origin += timescale * last_frame_duration * character.velocity
+                        character.collision.origin = endpoint
                     }
                 }
             }
