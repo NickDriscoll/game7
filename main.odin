@@ -425,7 +425,7 @@ main :: proc() {
         // Update
         
         // Misc imgui window for testing
-        @static last_raycast_coords: [2]i64
+        @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
             using game_state.viewport_camera
@@ -444,9 +444,8 @@ main :: proc() {
                 {
                     using game_state.character.collision
                     imgui.Text("Player collider position: (%f, %f, %f)", origin.x, origin.y, origin.z)
-                    imgui.Text("Last raycast coords: (%i, %i)", last_raycast_coords.x, last_raycast_coords.y)
+                    imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
-                        output_verbs.int2s[.PlaceThing] = last_raycast_coords
                         want_refire_raycast = true
                     }
                     imgui.Separator()
@@ -499,13 +498,17 @@ main :: proc() {
         {
             using game_state
 
-            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}        // m/s^2
+            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}           // m/s^2
             TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            if want_refire_raycast || !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
-                last_raycast_coords = place_thing_screen_coords
+            if want_refire_raycast {
+                collision_pt := last_raycast_hit
+                character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
+                character.velocity = {}
+                character.state = .Falling
+            } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
                 ray := get_view_ray(
                     &game_state.viewport_camera,
                     {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
@@ -529,6 +532,7 @@ main :: proc() {
                     character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
                     character.velocity = {}
                     character.state = .Falling
+                    last_raycast_hit = collision_pt
                 }
             }
             
