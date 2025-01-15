@@ -268,8 +268,8 @@ main :: proc() {
 
     //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
     //main_scene_path : cstring = "data/models/town_square.glb"
-    //main_scene_path : cstring = "data/models/artisans.glb"
-    main_scene_path : cstring = "data/models/plane.glb"
+    main_scene_path : cstring = "data/models/artisans.glb"
+    //main_scene_path : cstring = "data/models/plane.glb"
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
     defer gltf_delete(&main_scene_mesh)
 
@@ -277,7 +277,7 @@ main :: proc() {
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
         defer delete(positions)
-        mmat := uniform_scaling_matrix(5.0)
+        mmat := uniform_scaling_matrix(1.0)
         collision := static_triangle_mesh(positions[:], mmat)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
@@ -478,7 +478,7 @@ main :: proc() {
                 }
                 imgui.Separator()
 
-                if imgui.Checkbox("Automatically save user config periodically", &user_config_autosave) {
+                if imgui.Checkbox("Periodically save user config", &user_config_autosave) {
                     user_config.flags["config_autosave"] = user_config_autosave
                 }
             }

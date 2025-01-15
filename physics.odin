@@ -398,13 +398,14 @@ intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
     return t, true
 }
 intersect_segment_sphere_t :: proc(seg: ^Segment, s: ^Sphere) -> (f32, bool) {
+    seg_vec := seg.end - seg.start
+    seg_len := hlsl.length(seg_vec)
     r := Ray {
         start = seg.start,
-        direction = hlsl.normalize(seg.end - seg.start)
+        direction = seg_vec / seg_len
     }
     t, ok := intersect_ray_sphere_t(&r, s)
-    ok = ok && t < 1.0
-    return t, ok
+    return t / seg_len, ok
 }
 intersect_ray_sphere :: proc(r: ^Ray, s: ^Sphere) -> (hlsl.float3, bool) {
     t, ok := intersect_ray_sphere_t(r, s)
@@ -478,6 +479,10 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
     // Otherwise, get point Q: the closest point to P on the triangle
     q := closest_pt_triangle(p, tri)
 
+
+    // @TODO: The following raycast will cause the sphere to unnaturally
+    // snap down to the triangle when q_t > t
+    
     // Cast a ray from Q to the sphere to determine possible intersection
     q_segment := Segment {
         start = q,
