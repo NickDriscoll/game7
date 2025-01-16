@@ -503,50 +503,50 @@ main :: proc() {
             TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
-            // place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            // if want_refire_raycast {
-            //     collision_pt := last_raycast_hit
-            //     character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
-            //     character.velocity = {}
-            //     character.state = .Falling
-            // } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
-            //     ray := get_view_ray(
-            //         &game_state.viewport_camera,
-            //         {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
-            //         resolution
-            //     )
+            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
+            if want_refire_raycast {
+                collision_pt := last_raycast_hit
+                character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
+                character.velocity = {}
+                character.state = .Falling
+            } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+                ray := get_view_ray(
+                    &game_state.viewport_camera,
+                    {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
+                    resolution
+                )
 
-            //     collision_pt: hlsl.float3
-            //     closest_dist := math.INF_F32
-            //     for &piece in game_state.terrain_pieces {
-            //         candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-            //         if ok {
-            //             candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-            //             if candidate_dist < closest_dist {
-            //                 collision_pt = candidate
-            //                 closest_dist = candidate_dist
-            //             }
-            //         }
-            //     }
+                collision_pt: hlsl.float3
+                closest_dist := math.INF_F32
+                for &piece in game_state.terrain_pieces {
+                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                    if ok {
+                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+                        if candidate_dist < closest_dist {
+                            collision_pt = candidate
+                            closest_dist = candidate_dist
+                        }
+                    }
+                }
 
-            //     if closest_dist < math.INF_F32 {
-            //         character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
-            //         character.velocity = {}
-            //         character.state = .Falling
-            //         last_raycast_hit = collision_pt
-            //     }
-            // }
+                if closest_dist < math.INF_F32 {
+                    character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
+                    character.velocity = {}
+                    character.state = .Falling
+                    last_raycast_hit = collision_pt
+                }
+            }
 
             // Set current xy velocity to whatever user input is
             {
-                xv, xok := output_verbs.floats[.PlayerTranslateX]
-                yv, yok := output_verbs.floats[.PlayerTranslateY]
+                xv := output_verbs.floats[.PlayerTranslateX]
+                yv := output_verbs.floats[.PlayerTranslateY]
 
                 // Input vector is in view space, so we transform to world space
+                world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
+                world_v := world_from_view * hlsl.float4{xv, yv, 0.0, 0.0}
                 
-                
-                if xok do character.velocity.x = PLAYER_SPEED * xv
-                if yok do character.velocity.y = PLAYER_SPEED * yv
+                character.velocity.xy = PLAYER_SPEED * world_v.xy
             }
             
             motion_endpoint := character.collision.origin + timescale * last_frame_duration * character.velocity
