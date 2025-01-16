@@ -155,7 +155,10 @@ freecam_update :: proc(
     camera_rotation.x += output_verbs.floats[.RotateFreecamX]
     camera_rotation.y += output_verbs.floats[.RotateFreecamY]
     camera_direction.x += output_verbs.floats[.TranslateFreecamX]
-    camera_direction.y += output_verbs.floats[.TranslateFreecamY]
+
+    // Not a sign error. In view-space, -Z is forward
+    camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
+
     camera_speed_mod += speed_multiplier * output_verbs.floats[.Sprint]
     //camera_speed_mod += slow_multiplier * output_verbs.floats[.Crawl]
 
