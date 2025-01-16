@@ -43,14 +43,14 @@ VerbType :: enum {
     Sprint,
     Crawl,
 
-    PlaceThing
+    PlaceThing,
+
+    PlayerJump,
+    PlayerTranslateX,
+    PlayerTranslateY
 }
 
-AppVerb :: struct($ValueType: typeid) {
-    type: VerbType,
-    value: ValueType
-}
-
+// @TODO: This would be problematic if any of the enum values here are identical
 RemapInput :: struct #raw_union {
     key: sdl2.Scancode,
     button: sdl2.GameControllerButton,
@@ -72,17 +72,6 @@ InputSystem :: struct {
     currently_remapping: bool,
 
     controller_one: ^sdl2.GameController,
-
-}
-
-// Per-frame representation of what actions the
-// user wants to perform this frame
-OutputVerbs :: struct {
-    bools: map[VerbType]bool,
-    ints: map[VerbType]i64,
-    int2s: map[VerbType][2]i64,
-    floats: map[VerbType]f32,
-    float2s: map[VerbType][2]f32,
 }
 
 init_input_system :: proc() -> InputSystem {
@@ -121,14 +110,17 @@ init_input_system :: proc() -> InputSystem {
     key_mappings[.E] = .TranslateFreecamUp
     key_mappings[.LSHIFT] = .Sprint
     key_mappings[.LCTRL] = .Crawl
+    key_mappings[.SPACE] = .PlayerJump
 
     // Hardcoded default mouse mappings
     mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
     // Hardcoded axis mappings
-    axis_mappings[.LEFTX] = .TranslateFreecamX
-    axis_mappings[.LEFTY] = .TranslateFreecamY
+    // axis_mappings[.LEFTX] = .TranslateFreecamX
+    // axis_mappings[.LEFTY] = .TranslateFreecamY
+    axis_mappings[.LEFTX] = .PlayerTranslateX
+    axis_mappings[.LEFTY] = .PlayerTranslateY
     axis_mappings[.RIGHTX] = .RotateFreecamX
     axis_mappings[.RIGHTY] = .RotateFreecamY
     axis_mappings[.TRIGGERRIGHT] = .Sprint
@@ -138,6 +130,7 @@ init_input_system :: proc() -> InputSystem {
     axis_sensitivities[.RIGHTY] = 0.02
 
     // Hardcoded button mappings
+    button_mappings[.A] = .PlayerJump
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
@@ -159,6 +152,20 @@ destroy_input_system :: proc(using s: ^InputSystem) {
     delete(axis_mappings)
     delete(axis_sensitivities)
     if controller_one != nil do sdl2.GameControllerClose(controller_one)
+}
+
+default_axis_mappings :: proc(using s: ^InputSystem) {
+
+}
+
+// Per-frame representation of what actions the
+// user wants to perform this frame
+OutputVerbs :: struct {
+    bools: map[VerbType]bool,
+    ints: map[VerbType]i64,
+    int2s: map[VerbType][2]i64,
+    floats: map[VerbType]f32,
+    float2s: map[VerbType][2]f32,
 }
 
 // Main once-per-frame input proc
