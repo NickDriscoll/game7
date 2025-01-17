@@ -332,8 +332,9 @@ main :: proc() {
             f32(user_config.floats["freecam_y"]),
             f32(user_config.floats["freecam_z"])
         },
-        yaw = f32(user_config.floats["freecam_yaw"]),
-        pitch = f32(user_config.floats["freecam_pitch"]),
+        facing = {0.0, 1.0, 0.0},
+        // yaw = f32(user_config.floats["freecam_yaw"]),
+        // pitch = f32(user_config.floats["freecam_pitch"]),
         fov_radians = f32(user_config.floats["camera_fov"]),
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
@@ -432,8 +433,8 @@ main :: proc() {
             if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                imgui.Text("Camera yaw: %f", yaw)
-                imgui.Text("Camera pitch: %f", pitch)
+                // imgui.Text("Camera yaw: %f", yaw)
+                // imgui.Text("Camera pitch: %f", pitch)
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
@@ -486,13 +487,22 @@ main :: proc() {
         }
 
         // Update camera
-        freecam_update(
-            &game_state,
-            &output_verbs,
-            last_frame_duration,
-            camera_sprint_multiplier,
-            camera_slow_multiplier
-        )
+        // freecam_update(
+        //     &game_state,
+        //     &output_verbs,
+        //     last_frame_duration,
+        //     camera_sprint_multiplier,
+        //     camera_slow_multiplier
+        // )
+        // render_data.cpu_uniforms.clip_from_world =
+        //     camera_projection_from_view(&game_state.viewport_camera) *
+        //     camera_view_from_world(&game_state.viewport_camera)
+        
+        game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 2.0, 4.0}
+        render_data.cpu_uniforms.clip_from_world =
+            camera_projection_from_view(&game_state.viewport_camera) *
+            lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
+                
 
         // Update player character
         {
