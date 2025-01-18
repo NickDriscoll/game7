@@ -18,8 +18,6 @@ CameraFlags :: bit_set[enum {
 Camera :: struct {
     position: hlsl.float3,
     facing: hlsl.float3,
-    // yaw: f32,
-    // pitch: f32,
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
@@ -28,12 +26,10 @@ Camera :: struct {
 }
 
 camera_view_from_world :: proc(camera: ^Camera, up := hlsl.float3 {0.0, 0.0, 1.0}) -> hlsl.float4x4 {
-    // pitch := pitch_rotation_matrix(camera.pitch)
-    // yaw := yaw_rotation_matrix(camera.yaw)
     trans := translation_matrix(-camera.position)
 
     right := hlsl.cross(up, camera.facing)
-    local_up := hlsl.cross(right, camera.facing)
+    local_up := hlsl.cross(camera.facing, right)
     look := hlsl.float4x4 {
         right.x, right.y, right.z, 0.0,
         local_up.x, local_up.y, local_up.z, 0.0,
@@ -50,7 +46,7 @@ camera_view_from_world :: proc(camera: ^Camera, up := hlsl.float3 {0.0, 0.0, 1.0
     }
 
     //return c_mat * pitch * yaw * trans
-    return c_mat * look * trans
+    return look * trans
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
@@ -175,7 +171,6 @@ freecam_update :: proc(
         MOUSE_SENSITIVITY :: 0.001
         if .MouseLook in game_state.viewport_camera.control_flags {
             camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-            //sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
         }
     }
 
@@ -202,6 +197,14 @@ freecam_update :: proc(
     // for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
     // if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
     // if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
+
+    // Do mouselook
+    yaw_rotation := camera_rotation.x / (2.0 * math.PI)
+    pitch_rotation := camera_rotation.y / (2.0 * math.PI)
+    yaw_mat := yaw_rotation_matrix(-yaw_rotation)
+    pitch_mat := pitch_rotation_matrix(pitch_rotation)
+    facing4 := pitch_mat * yaw_mat * hlsl.float4{facing.x, facing.y, facing.z, 0.0}
+    facing = hlsl.normalize(facing4).xyz
 
     control_flags_dir: hlsl.float3
     if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
