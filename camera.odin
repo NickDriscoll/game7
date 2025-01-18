@@ -17,7 +17,8 @@ CameraFlags :: bit_set[enum {
 
 Camera :: struct {
     position: hlsl.float3,
-    facing: hlsl.float3,
+    yaw: f32,
+    pitch: f32,
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
@@ -25,17 +26,10 @@ Camera :: struct {
     control_flags: CameraFlags,
 }
 
-camera_view_from_world :: proc(camera: ^Camera, up := hlsl.float3 {0.0, 0.0, 1.0}) -> hlsl.float4x4 {
+camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
+    pitch := pitch_rotation_matrix(camera.pitch)
+    yaw := yaw_rotation_matrix(camera.yaw)
     trans := translation_matrix(-camera.position)
-
-    right := hlsl.cross(up, camera.facing)
-    local_up := hlsl.cross(camera.facing, right)
-    look := hlsl.float4x4 {
-        right.x, right.y, right.z, 0.0,
-        local_up.x, local_up.y, local_up.z, 0.0,
-        camera.facing.x, camera.facing.y, camera.facing.z, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    }
 
     // Change from right-handed Z-Up to left-handed Y-Up
     c_mat := hlsl.float4x4 {
@@ -45,8 +39,7 @@ camera_view_from_world :: proc(camera: ^Camera, up := hlsl.float3 {0.0, 0.0, 1.0
         0.0, 0.0, 0.0, 1.0,
     }
 
-    //return c_mat * pitch * yaw * trans
-    return look * trans
+    return c_mat * pitch * yaw * trans
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
@@ -73,25 +66,10 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
     return proj_matrix * c_matrix
 }
 
-lookat_view_from_world :: proc(
-    using camera: ^Camera,
-    target: hlsl.float3,
-    up := hlsl.float3 {0.0, 0.0, 1.0}
-) -> hlsl.float4x4 {
-    focus_vector := hlsl.normalize(position - target)
-
-    right := hlsl.normalize(hlsl.cross(up, focus_vector))
-    local_up := hlsl.cross(focus_vector, right)
-
-    look := hlsl.float4x4 {
-        right.x, right.y, right.z, 0.0,
-        local_up.x, local_up.y, local_up.z, 0.0,
-        focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    }
-    trans := translation_matrix(-position)
+lookat_view_from_world :: proc() -> hlsl.float4x4 {
     
-    return look * trans
+
+    return {}
 }
 
 get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
@@ -111,7 +89,7 @@ get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolutio
     }
     world_coords := hlsl.inverse(camera_view_from_world(camera)) * view_coords
 
-    start : hlsl.float3 = world_coords.xyz
+    start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
     return Ray {
         start = start,
         direction = hlsl.normalize(start - position)
@@ -165,7 +143,6 @@ freecam_update :: proc(
         else do control_flags -= {.MoveForward}
     }
 
-    // Mouse look
     relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
     if ok3 {
         MOUSE_SENSITIVITY :: 0.001
@@ -191,20 +168,12 @@ freecam_update :: proc(
     if .Speed in control_flags do camera_speed_mod *= speed_multiplier
     if .Slow in control_flags do camera_speed_mod *= slow_multiplier
 
-    // game_state.viewport_camera.yaw += camera_rotation.x
-    // game_state.viewport_camera.pitch += camera_rotation.y
-    // for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
-    // for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
-    // if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
-    // if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
-
-    // Do mouselook
-    yaw_rotation := camera_rotation.x / (2.0 * math.PI)
-    pitch_rotation := camera_rotation.y / (2.0 * math.PI)
-    yaw_mat := yaw_rotation_matrix(-yaw_rotation)
-    pitch_mat := pitch_rotation_matrix(pitch_rotation)
-    facing4 := pitch_mat * yaw_mat * hlsl.float4{facing.x, facing.y, facing.z, 0.0}
-    facing = hlsl.normalize(facing4).xyz
+    game_state.viewport_camera.yaw += camera_rotation.x
+    game_state.viewport_camera.pitch += camera_rotation.y
+    for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
+    for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
+    if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
+    if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
 
     control_flags_dir: hlsl.float3
     if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
