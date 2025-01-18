@@ -332,9 +332,8 @@ main :: proc() {
             f32(user_config.floats["freecam_y"]),
             f32(user_config.floats["freecam_z"])
         },
-        facing = {0.0, 1.0, 0.0},
-        // yaw = f32(user_config.floats["freecam_yaw"]),
-        // pitch = f32(user_config.floats["freecam_pitch"]),
+        yaw = f32(user_config.floats["freecam_yaw"]),
+        pitch = f32(user_config.floats["freecam_pitch"]),
         fov_radians = f32(user_config.floats["camera_fov"]),
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
@@ -433,7 +432,8 @@ main :: proc() {
             if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                imgui.Text("Camera facing vector: (%f, %f, %f)", facing.x, facing.y, facing.z)
+                imgui.Text("Camera yaw: %f", yaw)
+                imgui.Text("Camera pitch: %f", pitch)
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
