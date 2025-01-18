@@ -433,8 +433,7 @@ main :: proc() {
             if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                // imgui.Text("Camera yaw: %f", yaw)
-                // imgui.Text("Camera pitch: %f", pitch)
+                imgui.Text("Camera facing vector: (%f, %f, %f)", facing.x, facing.y, facing.z)
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
@@ -487,21 +486,21 @@ main :: proc() {
         }
 
         // Update camera
-        // freecam_update(
-        //     &game_state,
-        //     &output_verbs,
-        //     last_frame_duration,
-        //     camera_sprint_multiplier,
-        //     camera_slow_multiplier
-        // )
-        // render_data.cpu_uniforms.clip_from_world =
-        //     camera_projection_from_view(&game_state.viewport_camera) *
-        //     camera_view_from_world(&game_state.viewport_camera)
-        
-        game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 2.0, 4.0}
+        freecam_update(
+            &game_state,
+            &output_verbs,
+            last_frame_duration,
+            camera_sprint_multiplier,
+            camera_slow_multiplier
+        )
         render_data.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
-            lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
+            camera_view_from_world(&game_state.viewport_camera)
+        
+        // game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 4.0, 16.0}
+        // render_data.cpu_uniforms.clip_from_world =
+        //     camera_projection_from_view(&game_state.viewport_camera) *
+        //     lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
                 
 
         // Update player character
