@@ -701,11 +701,6 @@ render :: proc(
 
     // Update uniforms buffer
     {
-                
-        cpu_uniforms.clip_from_world =
-            camera_projection_from_view(viewport_camera) *
-            camera_view_from_world(viewport_camera)
-
         io := imgui.GetIO()
         cpu_uniforms.clip_from_screen = {
             2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
