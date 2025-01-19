@@ -29,7 +29,12 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 TEMP_ARENA_SIZE :: 64 * 1024            //Guessing 64KB necessary size for per-frame allocations
 
-IDENTITY_MATRIX :: hlsl.float4x4 {
+IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0
+}
+IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     1.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0,
     0.0, 0.0, 1.0, 0.0,
@@ -554,6 +559,9 @@ main :: proc() {
                 // Input vector is in view space, so we transform to world space
                 world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
                 world_v := world_from_view * hlsl.float4{xv, yv, 0.0, 0.0}
+
+                character.facing = hlsl.normalize(world_v).xyz
+                rot := rotate_a_onto_b({0.0, 1.0, 0.0}, character.facing)
                 
                 character.velocity.xy = PLAYER_SPEED * world_v.xy
             }
@@ -697,19 +705,11 @@ main :: proc() {
         
 
         // Draw terrain pieces
-        for piece in game_state.terrain_pieces {
+        for &piece in game_state.terrain_pieces {
             tform := DrawData {
                 world_from_model = piece.model_matrix
             }
-            for prim in piece.mesh_data.primitives {
-                draw_ps1_primitive(
-                    &vgd,
-                    &render_data,
-                    prim.mesh,
-                    prim.material,
-                    &tform
-                )
-            }
+            draw_ps1_mesh(&vgd, &render_data, &piece.mesh_data, &tform)
         }
 
         // Draw loose props
@@ -728,6 +728,8 @@ main :: proc() {
 
         // Draw test character
         {
+
+
             scale : f32 = 1.0
             ddata := DrawData {
                 world_from_model = uniform_scaling_matrix(scale)
