@@ -363,7 +363,7 @@ main :: proc() {
         // Time
         current_time = time.now()
         nanosecond_dt := time.diff(previous_time, current_time)
-        last_frame_duration := f32(nanosecond_dt / 1000) / 1_000_000
+        last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
         previous_time = current_time
 
         // Save user configuration every second or so
@@ -376,7 +376,7 @@ main :: proc() {
         // Start a new Dear ImGUI frame and get an io reference
         begin_gui(&imgui_state)
         io := imgui.GetIO()
-        io.DeltaTime = last_frame_duration
+        io.DeltaTime = last_frame_dt
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -431,6 +431,7 @@ main :: proc() {
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
+        @static follow_cam := true
         want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
             using game_state.viewport_camera
@@ -441,6 +442,7 @@ main :: proc() {
                 imgui.Text("Camera pitch: %f", pitch)
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
+                imgui.Checkbox("Follow cam", &follow_cam)
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
                 }
@@ -491,22 +493,23 @@ main :: proc() {
         }
 
         // Update camera
-        freecam_update(
-            &game_state,
-            &output_verbs,
-            last_frame_duration,
-            camera_sprint_multiplier,
-            camera_slow_multiplier
-        )
-        render_data.cpu_uniforms.clip_from_world =
-            camera_projection_from_view(&game_state.viewport_camera) *
-            camera_view_from_world(&game_state.viewport_camera)
-        
-        // game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 4.0, 16.0}
-        // render_data.cpu_uniforms.clip_from_world =
-        //     camera_projection_from_view(&game_state.viewport_camera) *
-        //     lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
-                
+        if follow_cam {
+            game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 4.0, 16.0}
+            render_data.cpu_uniforms.clip_from_world =
+                camera_projection_from_view(&game_state.viewport_camera) *
+                lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
+        } else {
+             freecam_update(
+                 &game_state,
+                 &output_verbs,
+                 last_frame_dt,
+                 camera_sprint_multiplier,
+                 camera_slow_multiplier
+             )
+             render_data.cpu_uniforms.clip_from_world =
+                 camera_projection_from_view(&game_state.viewport_camera) *
+                 camera_view_from_world(&game_state.viewport_camera)
+        }
 
         // Update player character
         {
@@ -520,7 +523,7 @@ main :: proc() {
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
             if want_refire_raycast {
                 collision_pt := last_raycast_hit
-                character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
+                character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
                 character.velocity = {}
                 character.state = .Falling
             } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
@@ -544,7 +547,7 @@ main :: proc() {
                 }
 
                 if closest_dist < math.INF_F32 {
-                    character.collision.origin = collision_pt + {-3.0, 0.0, 3.0}
+                    character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
                     character.velocity = {}
                     character.state = .Falling
                     last_raycast_hit = collision_pt
@@ -566,7 +569,7 @@ main :: proc() {
                 character.velocity.xy = PLAYER_SPEED * world_v.xy
             }
             
-            motion_endpoint := character.collision.origin + timescale * last_frame_duration * character.velocity
+            motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
             
             // Main player character state machine
             switch character.state {
@@ -575,11 +578,11 @@ main :: proc() {
                         character.velocity += {0.0, 0.0, 7.5}
                         character.state = .Falling
                     }
-                    character.collision.origin += timescale * last_frame_duration * character.velocity
+                    character.collision.origin += timescale * last_frame_dt * character.velocity
                 }
                 case .Falling: {
                     // Apply gravity to velocity, clamping downward speed if necessary
-                    character.velocity += timescale * last_frame_duration * GRAVITY_ACCELERATION
+                    character.velocity += timescale * last_frame_dt * GRAVITY_ACCELERATION
                     if character.velocity.z < TERMINAL_VELOCITY {
                         character.velocity.z = TERMINAL_VELOCITY
                     }

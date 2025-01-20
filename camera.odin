@@ -65,11 +65,29 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
 
     return proj_matrix * c_matrix
 }
+lookat_view_from_world :: proc(
+    using camera: ^Camera,
+    target: hlsl.float3,
+    up := hlsl.float3 {0.0, 0.0, 1.0}
+) -> hlsl.float4x4 {
+    focus_vector := hlsl.normalize(position - target)
 
-lookat_view_from_world :: proc() -> hlsl.float4x4 {
-    
+    right := hlsl.normalize(hlsl.cross(up, focus_vector))
+    local_up := hlsl.cross(focus_vector, right)
 
-    return {}
+    look := hlsl.float4x4 {
+        right.x, right.y, right.z, 0.0,
+        local_up.x, local_up.y, local_up.z, 0.0,
+        focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    }
+    trans := translation_matrix(-position)
+
+    // Extract yaw and pitch from look matrix
+    pitch = math.asin(focus_vector.z)
+    yaw = math.atan2(focus_vector.y, focus_vector.x) + (math.PI / 2.0)
+
+    return look * trans
 }
 
 get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
