@@ -442,7 +442,12 @@ main :: proc() {
                 imgui.Text("Camera pitch: %f", pitch)
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                imgui.Checkbox("Follow cam", &follow_cam)
+                
+                if imgui.Checkbox("Follow cam", &follow_cam) {
+                    game_state.viewport_camera.pitch = 0.0
+                    game_state.viewport_camera.yaw = 0.0
+                }
+
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
                 }
@@ -494,7 +499,33 @@ main :: proc() {
 
         // Update camera
         if follow_cam {
-            game_state.viewport_camera.position = game_state.character.collision.origin + {0.0, 4.0, 16.0}
+            HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
+            FOLLOW_DISTANCE :: 5.0            
+
+            camera_rotation: hlsl.float2 = {0.0, 0.0}
+            camera_rotation.x += output_verbs.floats[.RotateFreecamX]
+            camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+
+            relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+            if ok3 {
+                MOUSE_SENSITIVITY :: 0.001
+                if .MouseLook in game_state.viewport_camera.control_flags {
+                    camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
+                }
+            }
+
+            game_state.viewport_camera.yaw += camera_rotation.x
+            game_state.viewport_camera.pitch += camera_rotation.y
+            for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
+            for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
+            if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
+            if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
+            
+            pitchmat := pitch_rotation_matrix(game_state.viewport_camera.pitch)
+            yawmat := yaw_rotation_matrix(game_state.viewport_camera.yaw)
+            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(pitchmat * hlsl.normalize(yawmat * HEMISPHERE_START_POS))
+
+            game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
             render_data.cpu_uniforms.clip_from_world =
                 camera_projection_from_view(&game_state.viewport_camera) *
                 lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
