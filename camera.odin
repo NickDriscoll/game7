@@ -17,8 +17,11 @@ CameraFlags :: bit_set[enum {
 
 Camera :: struct {
     position: hlsl.float3,
+
+    // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
     yaw: f32,
     pitch: f32,
+
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
@@ -83,11 +86,14 @@ lookat_view_from_world :: proc(
     }
     trans := translation_matrix(-position)
 
-    // Extract yaw and pitch from look matrix
+    return look * trans
+}
+
+pitch_yaw_from_lookat :: proc(pos: hlsl.float3, target: hlsl.float3) -> (yaw, pitch: f32) {
+    focus_vector := hlsl.normalize(pos - target)
     pitch = math.asin(focus_vector.z)
     yaw = math.atan2(focus_vector.y, focus_vector.x) + (math.PI / 2.0)
-
-    return look * trans
+    return yaw, pitch
 }
 
 get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
