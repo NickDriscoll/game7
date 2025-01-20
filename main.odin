@@ -521,9 +521,9 @@ main :: proc() {
             if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
             if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
             
-            pitchmat := pitch_rotation_matrix(game_state.viewport_camera.pitch)
+            pitchmat := roll_rotation_matrix(game_state.viewport_camera.pitch)
             yawmat := yaw_rotation_matrix(game_state.viewport_camera.yaw)
-            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(pitchmat * hlsl.normalize(yawmat * HEMISPHERE_START_POS))
+            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
             game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
             render_data.cpu_uniforms.clip_from_world =
