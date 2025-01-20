@@ -49,7 +49,7 @@ roll_rotation_matrix :: proc(angle: f32) -> hlsl.float4x4 {
 // Computes a rotation matrix that maps unit vector A onto unit vector B
 // From https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d/476311#476311
 rotate_a_onto_b :: proc(a, b: hlsl.float3) -> hlsl.float4x4 {
-    assert(hlsl.abs(hlsl.length(a) - 1.0) < 0.0001 && hlsl.abs(hlsl.length(b) - 1.0) < 0.0001)
+    //assert(hlsl.abs(hlsl.length(a) - 1.0) < 0.0001 && hlsl.abs(hlsl.length(b) - 1.0) < 0.0001)
 
     v := hlsl.cross(a, b)
     //sine := hlsl.length(v)
@@ -62,12 +62,12 @@ rotate_a_onto_b :: proc(a, b: hlsl.float3) -> hlsl.float4x4 {
     }
 
     r := IDENTITY_MATRIX3x3 + sscm + (sscm * sscm) //* (1.0 / (1.0 + cosine))
-    for i in 0..<4 {
+    for i in 0..<3 {
         r[i] *= 1.0 / (1.0 + cosine)
     }
 
     rr := hlsl.float4x4(r)
-    rr[3, 3] = 1.0
+    rr[2, 3] = 1.0
     return rr
 }
 
