@@ -271,10 +271,9 @@ main :: proc() {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
 
-    //main_scene_path : cstring = "data/models/sentinel_beach.glb"  // Not working
-    //main_scene_path : cstring = "data/models/town_square.glb"
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
+
     main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
     defer gltf_delete(&main_scene_mesh)
 
@@ -496,58 +495,16 @@ main :: proc() {
             }
             imgui.End()
         }
-
-        // Update camera
-        if follow_cam {
-            HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
-            FOLLOW_DISTANCE :: 5.0            
-
-            camera_rotation: hlsl.float2 = {0.0, 0.0}
-            camera_rotation.x += output_verbs.floats[.RotateFreecamX]
-            camera_rotation.y += output_verbs.floats[.RotateFreecamY]
-
-            relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-            if ok3 {
-                MOUSE_SENSITIVITY :: 0.001
-                if .MouseLook in game_state.viewport_camera.control_flags {
-                    camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-                }
-            }
-
-            game_state.viewport_camera.yaw += camera_rotation.x
-            game_state.viewport_camera.pitch += camera_rotation.y
-            for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
-            for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
-            if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
-            if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
-            
-            pitchmat := roll_rotation_matrix(game_state.viewport_camera.pitch)
-            yawmat := yaw_rotation_matrix(game_state.viewport_camera.yaw)
-            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
-
-            game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
-            render_data.cpu_uniforms.clip_from_world =
-                camera_projection_from_view(&game_state.viewport_camera) *
-                lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
-        } else {
-             freecam_update(
-                 &game_state,
-                 &output_verbs,
-                 last_frame_dt,
-                 camera_sprint_multiplier,
-                 camera_slow_multiplier
-             )
-             render_data.cpu_uniforms.clip_from_world =
-                 camera_projection_from_view(&game_state.viewport_camera) *
-                 camera_view_from_world(&game_state.viewport_camera)
-        }
+        
+        @static current_view_from_world: hlsl.float4x4
 
         // Update player character
         {
             using game_state
 
-            PLAYER_SPEED :: 5.0                                             // m/s
-            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, -9.8}           // m/s^2
+            PLAYER_SPEED :: 10.0                                             // m/s
+            PLAYER_JUMP_VELOCITY :: 15.0
+            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
             TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
             // TEST CODE PLZ REMOVE
@@ -587,17 +544,16 @@ main :: proc() {
 
             // Set current xy velocity to whatever user input is
             {
+                // X and Z bc view space is x-right, y-up, z-back
                 xv := output_verbs.floats[.PlayerTranslateX]
-                yv := output_verbs.floats[.PlayerTranslateY]
+                zv := output_verbs.floats[.PlayerTranslateY]
 
                 // Input vector is in view space, so we transform to world space
-                world_from_view := hlsl.inverse(camera_view_from_world(&viewport_camera))
-                world_v := world_from_view * hlsl.float4{xv, yv, 0.0, 0.0}
-
-                character.facing = hlsl.normalize(world_v).xyz
-                rot := rotate_a_onto_b({0.0, 1.0, 0.0}, character.facing)
-                
+                world_v := hlsl.float4 {-zv, xv, 0.0, 0.0}
+                world_v = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_v
+            
                 character.velocity.xy = PLAYER_SPEED * world_v.xy
+                character.facing = world_v.xyz
             }
             
             motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
@@ -606,10 +562,20 @@ main :: proc() {
             switch character.state {
                 case .Grounded: {
                     if output_verbs.bools[.PlayerJump] {
-                        character.velocity += {0.0, 0.0, 7.5}
+                        character.velocity += {0.0, 0.0, PLAYER_JUMP_VELOCITY}
                         character.state = .Falling
                     }
                     character.collision.origin += timescale * last_frame_dt * character.velocity
+
+                    //Check if we need to bump ourselves up or down
+                    tolerance_segment := Segment {
+                        start = character.collision.origin + {0.0, 0.0, 15.0},
+                        end = character.collision.origin + {0.0, 0.0, -15.0}
+                    }
+                    tolerance_point, ok := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
+                    if ok {
+                        character.collision.origin = tolerance_point
+                    }
                 }
                 case .Falling: {
                     // Apply gravity to velocity, clamping downward speed if necessary
@@ -645,6 +611,53 @@ main :: proc() {
                     }
                 }
             }
+        }
+
+        // Update camera
+        if follow_cam {
+            HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
+            FOLLOW_DISTANCE :: 5.0            
+
+            camera_rotation: hlsl.float2 = {0.0, 0.0}
+            camera_rotation.x += output_verbs.floats[.RotateFreecamX]
+            camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+
+            relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+            if ok3 {
+                MOUSE_SENSITIVITY :: 0.001
+                if .MouseLook in game_state.viewport_camera.control_flags {
+                    camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
+                }
+            }
+
+            game_state.viewport_camera.yaw += camera_rotation.x
+            game_state.viewport_camera.pitch += camera_rotation.y
+            for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
+            for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
+            if game_state.viewport_camera.pitch <= -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
+            if game_state.viewport_camera.pitch >= math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
+            
+            pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
+            yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
+            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
+
+            game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
+            current_view_from_world = lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
+            render_data.cpu_uniforms.clip_from_world =
+                camera_projection_from_view(&game_state.viewport_camera) *
+                current_view_from_world
+        } else {
+             freecam_update(
+                 &game_state,
+                 &output_verbs,
+                 last_frame_dt,
+                 camera_sprint_multiplier,
+                 camera_slow_multiplier
+             )
+             current_view_from_world = camera_view_from_world(&game_state.viewport_camera)
+             render_data.cpu_uniforms.clip_from_world =
+                 camera_projection_from_view(&game_state.viewport_camera) *
+                 current_view_from_world
         }
 
         // React to main menu bar interaction
