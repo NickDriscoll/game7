@@ -332,37 +332,47 @@ intersect_segment_triplane_t :: proc(segment: ^Segment, using tri: ^Triangle) ->
 
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
 intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, bool) {
-    ab := b - a
-    ac := c - a
-    qp := segment.start - segment.end
 
-    // Compute normal
-    n := hlsl.cross(ab, ac)
+    // @TODO: Figure out why this method is broken
 
-    // Compute denominator
-    // If <= 0.0, ray is parallel or points away
-    denom := hlsl.dot(qp, n)
-    if denom <= 0.0 do return {}, false
+    // ab := b - a
+    // ac := c - a
+    // qp := segment.start - segment.end
 
-    ap := segment.start - a
-    t := hlsl.dot(ap, n)
-    if t < 0.0 || t > 1.0 do return {}, false
+    // // Compute normal
+    // n := hlsl.cross(ab, ac)
+    // n = hlsl.normalize(n)
 
-    // Compute barycentric coordinates
-    e := hlsl.cross(qp, ap)
-    v := hlsl.dot(ac, e)
-    if v < 0.0 || v > denom do return {}, false
-    w := -hlsl.dot(ab, e)
-    if w < 0.0 || v + w > denom do return {}, false
+    // // Compute denominator
+    // // If <= 0.0, ray is parallel or points away
+    // denom := hlsl.dot(qp, n)
+    // if denom <= 0.0 do return {}, false
 
-    // Ray does intersect
-    ood := 1.0 / denom
-    t *= ood
+    // ap := hlsl.normalize(segment.start - a)
+    // t := hlsl.dot(ap, n)
+    // if t < 0.0 || t > 1.0 do return {}, false
+
+    // // Compute barycentric coordinates
+    // e := hlsl.cross(qp, ap)
+    // v := hlsl.dot(ac, e)
+    // if v < 0.0 || v > denom do return {}, false
+    // w := -hlsl.dot(ab, e)
+    // if w < 0.0 || v + w > denom do return {}, false
+
+    // // Ray does intersect
+    // ood := 1.0 / denom
+    // t *= ood
     // v *= ood
     // w *= ood
     // u := 1.0 - v - w
 
-    return t, true
+    t, ok := intersect_segment_triplane_t(segment, tri)
+    if ok {
+        candidate_pt := segment.start + t * (segment.end - segment.start)
+        ok = pt_in_triangle(candidate_pt, tri)
+    }
+
+    return t, ok
 }
 intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float3, bool) {
     t, ok := intersect_segment_triangle_t(segment, tri)
@@ -434,25 +444,38 @@ intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (h
     return candidate_point, found
 }
 
-intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
-    candidate_point: hlsl.float3
-    candidate_distance := math.INF_F32
-    found := false
+intersect_segment_triangles_t :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (f32, bool) {
+    candidate_t := math.INF_F32
     for &tri in tris.triangles {
-        point: hlsl.float3
-        ok: bool
-        point, ok = intersect_segment_triangle(segment, &tri)
+        t, ok := intersect_segment_triangle_t(segment, &tri)
         if ok {
-            d := hlsl.distance(segment.start, point)
-            if d < candidate_distance {
-                candidate_point = point
-                candidate_distance = d
-                found = true
+            if t < candidate_t {
+                candidate_t = t
             }
         }
     }
 
-    return candidate_point, found
+    return candidate_t, candidate_t < math.INF_F32
+}
+
+intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+    t, found := intersect_segment_triangles_t(segment, tris)
+
+    return (segment.start + t * (segment.end - segment.start)), found
+}
+
+intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (hlsl.float3, bool) {
+    cand_t := math.INF_F32
+    for &piece in terrain {
+        t, ok := intersect_segment_triangles_t(segment, &piece.collision)
+        if ok {
+            if t < cand_t {
+                cand_t = t
+            }
+        }
+    }
+
+    return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
 // Implementation adapted from section 5.5.6 of Real-Time Collision Detection
