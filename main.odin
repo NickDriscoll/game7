@@ -41,6 +41,8 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
+CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
+
 // @TODO: Window grab bag struct? Just for figuring out what to do?
 
 LooseProp :: struct {
@@ -320,7 +322,7 @@ main :: proc() {
 
     game_state.character = TestCharacter {
         collision = {
-            origin = {-19.0, 45.0, 30.0},
+            origin = CHARACTER_START_POS,
             radius = 0.8
         },
         velocity = {},
@@ -401,7 +403,6 @@ main :: proc() {
             if ok && mlook_coords != {0, 0} {
                 mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
                 // Do nothing if Dear ImGUI wants mouse input
-                //if mlook && io.WantCaptureMouse do continue
                 if !(mlook && io.WantCaptureMouse) {
                     sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
                     if mlook {
@@ -455,6 +456,9 @@ main :: proc() {
                 {
                     using game_state.character.collision
                     imgui.Text("Player collider position: (%f, %f, %f)", origin.x, origin.y, origin.z)
+                    if imgui.Button("Reset player") {
+                        origin = CHARACTER_START_POS
+                    }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
                         want_refire_raycast = true
@@ -542,6 +546,10 @@ main :: proc() {
                 }
             }
 
+            if output_verbs.bools[.PlayerReset] {
+                character.collision.origin = CHARACTER_START_POS
+            }
+
             // Set current xy velocity to whatever user input is
             {
                 // X and Z bc view space is x-right, y-up, z-back
@@ -553,7 +561,10 @@ main :: proc() {
                 world_v = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_v
             
                 character.velocity.xy = PLAYER_SPEED * world_v.xy
-                character.facing = world_v.xyz
+
+                if xv != 0.0 || zv != 0.0 {
+                    character.facing = -hlsl.normalize(world_v).xyz
+                }
             }
             
             motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
@@ -569,12 +580,14 @@ main :: proc() {
 
                     //Check if we need to bump ourselves up or down
                     tolerance_segment := Segment {
-                        start = character.collision.origin + {0.0, 0.0, 15.0},
-                        end = character.collision.origin + {0.0, 0.0, -15.0}
+                        start = character.collision.origin + {0.0, 0.0, 0.0},
+                        end = character.collision.origin + {0.0, 0.0, -character.collision.radius - 0.01}
                     }
                     tolerance_point, ok := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
                     if ok {
-                        character.collision.origin = tolerance_point
+                        character.collision.origin = tolerance_point + {0.0, 0.0, character.collision.radius}
+                    } else {
+                        character.state = .Falling
                     }
                 }
                 case .Falling: {
@@ -717,32 +730,32 @@ main :: proc() {
             case .None: {}
         }
 
-        if imgui_state.show_gui && user_config.flags["show_memory_tracker"] {
-            if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
-                when ODIN_DEBUG == true {
-                    sb: strings.Builder
-                    strings.builder_init(&sb, context.temp_allocator)
-                    defer strings.builder_destroy(&sb)
+        // if imgui_state.show_gui && user_config.flags["show_memory_tracker"] {
+        //     if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
+        //         when ODIN_DEBUG == true {
+        //             sb: strings.Builder
+        //             strings.builder_init(&sb, context.temp_allocator)
+        //             defer strings.builder_destroy(&sb)
 
-                    total_alloc_size := 0
-                    for _, al in track.allocation_map {
-                        total_alloc_size += al.size
-                    }
+        //             total_alloc_size := 0
+        //             for _, al in track.allocation_map {
+        //                 total_alloc_size += al.size
+        //             }
 
-                    imgui.Text("Tracking_Allocator for context.allocator:")
-                    imgui.Text("Current number of allocations: %i", len(track.allocation_map))
-                    imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
-                    for ptr, al in track.allocation_map {
-                        t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
-                        imgui.Text(t)
-                        strings.builder_reset(&sb)
-                    }
-                } else {
-                    imgui.Text("No tracking allocators in Release builds.")
-                }
-            }
-            imgui.End()
-        }
+        //             imgui.Text("Tracking_Allocator for context.allocator:")
+        //             imgui.Text("Current number of allocations: %i", len(track.allocation_map))
+        //             imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
+        //             for ptr, al in track.allocation_map {
+        //                 t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
+        //                 imgui.Text(t)
+        //                 strings.builder_reset(&sb)
+        //             }
+        //         } else {
+        //             imgui.Text("No tracking allocators in Release builds.")
+        //         }
+        //     }
+        //     imgui.End()
+        // }
 
         // Input remapping GUI
         if imgui_state.show_gui && user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
@@ -775,11 +788,21 @@ main :: proc() {
 
         // Draw test character
         {
+            using game_state
 
+            y := character.facing
+            z := hlsl.float3 {0.0, 0.0, 1.0}
+            x := hlsl.cross(z, y)
+            rotate_mat := hlsl.float4x4 {
+                x[0], y[0], z[0], 0.0,
+                x[1], y[1], z[1], 0.0,
+                x[2], y[2], z[2], 0.0,
+                0.0, 0.0, 0.0, 1.0,
+            }
 
             scale : f32 = 1.0
             ddata := DrawData {
-                world_from_model = uniform_scaling_matrix(scale)
+                world_from_model = uniform_scaling_matrix(scale) * rotate_mat
             }
             ddata.world_from_model[3][0] = game_state.character.collision.origin.x
             ddata.world_from_model[3][1] = game_state.character.collision.origin.y
