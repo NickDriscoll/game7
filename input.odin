@@ -46,6 +46,7 @@ VerbType :: enum {
     PlaceThing,
 
     PlayerJump,
+    PlayerReset,
     PlayerTranslateX,
     PlayerTranslateY
 }
@@ -131,6 +132,7 @@ init_input_system :: proc() -> InputSystem {
 
     // Hardcoded button mappings
     button_mappings[.A] = .PlayerJump
+    button_mappings[.Y] = .PlayerReset
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
