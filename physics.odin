@@ -478,12 +478,22 @@ intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) ->
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
+intersect_segment_terrain_normal :: proc() {
+    
+}
+
+// Returns the point on the sphere that is closest to the triangle
+// assuming the sphere is in front of the triangle
+closest_pt_sphere_triplane :: proc(s: ^Sphere, tri: ^Triangle) -> hlsl.float3 {
+    return s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+}
+
 // Implementation adapted from section 5.5.6 of Real-Time Collision Detection
 dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (f32, bool) {
 
     // The point on the sphere that will first intersect
     // the triangle's plane is D
-    d := s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+    d := closest_pt_sphere_triplane(s, tri)
 
     // Compute P, the point where D will touch tri's supporting plane
     //t, ok := intersect_segment_triangle_t(motion_interval, tri)
