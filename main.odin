@@ -454,10 +454,11 @@ main :: proc() {
                 imgui.Separator()
 
                 {
-                    using game_state.character.collision
-                    imgui.Text("Player collider position: (%f, %f, %f)", origin.x, origin.y, origin.z)
+                    using game_state.character
+                    imgui.Text("Player collider position: (%f, %f, %f)", collision.origin.x, collision.origin.y, collision.origin.z)
+                    imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     if imgui.Button("Reset player") {
-                        origin = CHARACTER_START_POS
+                        collision.origin = CHARACTER_START_POS
                     }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
@@ -566,6 +567,22 @@ main :: proc() {
                     character.facing = -hlsl.normalize(world_v).xyz
                 }
             }
+
+            //Check if we need to bump ourselves up or down
+            if character.velocity.z <= 0.0 {
+                tolerance_segment := Segment {
+                    start = character.collision.origin + {0.0, 0.0, 0.0},
+                    end = character.collision.origin + {0.0, 0.0, -character.collision.radius - 0.1}
+                }
+                tolerance_point, okt := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
+                if okt {
+                    character.collision.origin = tolerance_point + {0.0, 0.0, character.collision.radius}
+                    character.velocity.z = 0.0
+                    character.state = .Grounded
+                } else {
+                    character.state = .Falling
+                }
+            }
             
             motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
             
@@ -577,18 +594,6 @@ main :: proc() {
                         character.state = .Falling
                     }
                     character.collision.origin += timescale * last_frame_dt * character.velocity
-
-                    //Check if we need to bump ourselves up or down
-                    tolerance_segment := Segment {
-                        start = character.collision.origin + {0.0, 0.0, 0.0},
-                        end = character.collision.origin + {0.0, 0.0, -character.collision.radius - 0.01}
-                    }
-                    tolerance_point, ok := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
-                    if ok {
-                        character.collision.origin = tolerance_point + {0.0, 0.0, character.collision.radius}
-                    } else {
-                        character.state = .Falling
-                    }
                 }
                 case .Falling: {
                     // Apply gravity to velocity, clamping downward speed if necessary
