@@ -306,19 +306,19 @@ main :: proc() {
     }
     
     // Add moon terrain piece
-    // {
-    //     positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
-    //     scale := uniform_scaling_matrix(300.0)
-    //     rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
-    //     trans := translation_matrix({350.0, 400.0, 500.0})
-    //     mat := trans * rot * scale
-    //     collision := static_triangle_mesh(positions[:], mat)
-    //     append(&game_state.terrain_pieces, TerrainPiece {
-    //         collision = collision,
-    //         model_matrix = mat,
-    //         mesh_data = moon_mesh
-    //     })
-    // }
+    {
+        positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
+        scale := uniform_scaling_matrix(300.0)
+        rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
+        trans := translation_matrix({350.0, 400.0, 500.0})
+        mat := trans * rot * scale
+        collision := static_triangle_mesh(positions[:], mat)
+        append(&game_state.terrain_pieces, TerrainPiece {
+            collision = collision,
+            model_matrix = mat,
+            mesh_data = moon_mesh
+        })
+    }
 
     game_state.character = TestCharacter {
         collision = {
