@@ -71,6 +71,8 @@ TestCharacter :: struct {
     state: CharacterState,
     velocity: hlsl.float3,
     facing: hlsl.float3,
+    move_speed: f32,
+    jump_speed: f32,
     mesh_data: MeshData,
 }
 
@@ -328,6 +330,8 @@ main :: proc() {
         velocity = {},
         state = .Falling,
         facing = {0.0, 1.0, 0.0},
+        move_speed = 10.0,
+        jump_speed = 15.0,
         mesh_data = moon_mesh
     }
 
@@ -344,6 +348,7 @@ main :: proc() {
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
         farplane = 1_000_000.0,
+        follow_distance = 5.0,
         control_flags = nil
     }
     log.debug(game_state.viewport_camera)
@@ -447,6 +452,7 @@ main :: proc() {
                     game_state.viewport_camera.pitch = 0.0
                     game_state.viewport_camera.yaw = 0.0
                 }
+                imgui.SliderFloat("Camera follow distance", &follow_distance, 1.0, 20.0)
 
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
@@ -457,6 +463,8 @@ main :: proc() {
                     using game_state.character
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.origin.x, collision.origin.y, collision.origin.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
+                    imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     if imgui.Button("Reset player") {
                         collision.origin = CHARACTER_START_POS
                     }
@@ -507,8 +515,6 @@ main :: proc() {
         {
             using game_state
 
-            PLAYER_SPEED :: 10.0                                             // m/s
-            PLAYER_JUMP_VELOCITY :: 15.0
             GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
             TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
@@ -561,7 +567,7 @@ main :: proc() {
                 world_v := hlsl.float4 {-zv, xv, 0.0, 0.0}
                 world_v = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_v
             
-                character.velocity.xy = PLAYER_SPEED * world_v.xy
+                character.velocity.xy = character.move_speed * world_v.xy
 
                 if xv != 0.0 || zv != 0.0 {
                     character.facing = -hlsl.normalize(world_v).xyz
@@ -590,7 +596,7 @@ main :: proc() {
             switch character.state {
                 case .Grounded: {
                     if output_verbs.bools[.PlayerJump] {
-                        character.velocity += {0.0, 0.0, PLAYER_JUMP_VELOCITY}
+                        character.velocity += {0.0, 0.0, character.jump_speed}
                         character.state = .Falling
                     }
                     character.collision.origin += timescale * last_frame_dt * character.velocity
@@ -602,6 +608,12 @@ main :: proc() {
                         character.velocity.z = TERMINAL_VELOCITY
                     }
 
+                    // Check if player canceled jump early
+                    not_canceled, ok := output_verbs.bools[.PlayerJump]
+                    if ok && !not_canceled && character.velocity.z > 0.0 {
+                        character.velocity.z *= 0.1
+                    }
+
                     // Compute motion interval
                     interval := Segment {
                         start = character.collision.origin,
@@ -611,8 +623,8 @@ main :: proc() {
                     // Then do collision test against triangles
                     closest_t := math.INF_F32
                     for &piece in game_state.terrain_pieces {
-                        t, ok := dynamic_sphere_vs_triangles_t(&character.collision, &piece.collision, &interval)
-                        if ok {
+                        t, ok3 := dynamic_sphere_vs_triangles_t(&character.collision, &piece.collision, &interval)
+                        if ok3 {
                             if t < closest_t do closest_t = t
                         }
                     }
@@ -634,7 +646,6 @@ main :: proc() {
         // Update camera
         if follow_cam {
             HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
-            FOLLOW_DISTANCE :: 5.0            
 
             camera_rotation: hlsl.float2 = {0.0, 0.0}
             camera_rotation.x += output_verbs.floats[.RotateFreecamX]
@@ -657,7 +668,7 @@ main :: proc() {
             
             pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
             yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-            pos_offset := FOLLOW_DISTANCE * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
+            pos_offset := game_state.viewport_camera.follow_distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
             game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
             current_view_from_world = lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
