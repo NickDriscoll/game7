@@ -350,7 +350,8 @@ poll_sdl2_events :: proc(
         ax := sdl2.GameControllerAxis(i)
 
         verbtype, found := axis_mappings[ax]
-        if found {val := axis_to_f32(controller_one, ax)
+        if found {
+            val := axis_to_f32(controller_one, ax)
             if val == 0.0 do continue
             abval := math.abs(val)
             if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
@@ -372,9 +373,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
     strings.builder_init(&sb, allocator)
     defer strings.builder_destroy(&sb)
 
-    KEY_REBIND_TEXT :: " --- PRESS KEY TO REBIND --- "
-    BUTTON_REBIND_TEXT :: " --- PRESS BUTTON TO REBIND --- "
-    AXIS_REBIND_TEXT :: " --- PUSH AXIS TO REBIND --- "
+    KEY_REBIND_TEXT :: " --- PUSH ANY KEY TO REBIND --- "
+    BUTTON_REBIND_TEXT :: " --- PUSH ANY BUTTON TO REBIND --- "
+    AXIS_REBIND_TEXT :: " --- PUSH ANY AXIS TO REBIND --- "
 
     build_cstring :: proc(x: $T, sb: ^strings.Builder, allocator: runtime.Allocator) -> cstring {
         t_str := fmt.sbprintf(sb, "%v", x)
