@@ -26,6 +26,7 @@ Camera :: struct {
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
+    follow_distance: f32,
     control_flags: CameraFlags,
 }
 
