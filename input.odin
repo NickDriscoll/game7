@@ -48,7 +48,11 @@ VerbType :: enum {
     PlayerJump,
     PlayerReset,
     PlayerTranslateX,
-    PlayerTranslateY
+    PlayerTranslateY,
+    PlayerTranslateLeft,
+    PlayerTranslateRight,
+    PlayerTranslateBack,
+    PlayerTranslateForward,
 }
 
 // @TODO: This would be problematic if any of the enum values here are identical
@@ -158,6 +162,10 @@ destroy_input_system :: proc(using s: ^InputSystem) {
 
 default_axis_mappings :: proc(using s: ^InputSystem) {
 
+}
+
+replace_keybindings :: proc(using s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
+    key_mappings = new_keybindings^
 }
 
 // Per-frame representation of what actions the
@@ -281,6 +289,7 @@ poll_sdl2_events :: proc(
                 int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
+                log.info(event.wheel.which)
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
             }
             case .CONTROLLERDEVICEADDED: {
