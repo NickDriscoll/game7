@@ -66,18 +66,26 @@ CharacterState :: enum {
     Falling
 }
 
-TestCharacter :: struct {
+CharacterFlags :: bit_set[enum {
+    MovingLeft,
+    MovingRight,
+    MovingBack,
+    MovingForward,
+}]
+
+Character :: struct {
     collision: Sphere,
     state: CharacterState,
     velocity: hlsl.float3,
     facing: hlsl.float3,
     move_speed: f32,
     jump_speed: f32,
+    control_flags: CharacterFlags,
     mesh_data: MeshData,
 }
 
 GameState :: struct {
-    character: TestCharacter,
+    character: Character,
     viewport_camera: Camera,
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
@@ -95,6 +103,8 @@ delete_game :: proc(using g: ^GameState) {
 }
 
 main :: proc() {
+    current_time := time.now()          // Time in nanoseconds since UNIX epoch
+
     // Parse command-line arguments
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
@@ -126,7 +136,7 @@ main :: proc() {
 
     // Set up global allocator
     context.allocator = runtime.heap_allocator()
-    when ODIN_DEBUG == true {
+    when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&track, context.allocator)
@@ -322,7 +332,7 @@ main :: proc() {
         })
     }
 
-    game_state.character = TestCharacter {
+    game_state.character = Character {
         collision = {
             origin = CHARACTER_START_POS,
             radius = 0.8
@@ -354,11 +364,44 @@ main :: proc() {
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
 
+    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
+    defer delete(freecam_key_mappings)
+    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
+    defer delete(character_key_mappings)
+    {
+        freecam_key_mappings[.ESCAPE] = .ToggleImgui
+        freecam_key_mappings[.W] = .TranslateFreecamForward
+        freecam_key_mappings[.S] = .TranslateFreecamBack
+        freecam_key_mappings[.A] = .TranslateFreecamLeft
+        freecam_key_mappings[.D] = .TranslateFreecamRight
+        freecam_key_mappings[.Q] = .TranslateFreecamDown
+        freecam_key_mappings[.E] = .TranslateFreecamUp
+        freecam_key_mappings[.LSHIFT] = .Sprint
+        freecam_key_mappings[.LCTRL] = .Crawl
+        freecam_key_mappings[.SPACE] = .PlayerJump
+        
+        character_key_mappings[.ESCAPE] = .ToggleImgui
+        character_key_mappings[.W] = .PlayerTranslateForward
+        character_key_mappings[.S] = .PlayerTranslateBack
+        character_key_mappings[.A] = .PlayerTranslateLeft
+        character_key_mappings[.D] = .PlayerTranslateRight
+        character_key_mappings[.Q] = .TranslateFreecamDown
+        character_key_mappings[.E] = .TranslateFreecamUp
+        character_key_mappings[.LSHIFT] = .Sprint
+        character_key_mappings[.LCTRL] = .Crawl
+        character_key_mappings[.SPACE] = .PlayerJump
+
+        if .Follow in game_state.viewport_camera.control_flags {
+            replace_keybindings(&input_system, &character_key_mappings)
+        } else {
+            replace_keybindings(&input_system, &freecam_key_mappings)
+        }
+    }
+
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
 
-    current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := current_time
     limit_cpu := false
     
@@ -452,6 +495,11 @@ main :: proc() {
                     pitch = 0.0
                     yaw = 0.0
                     control_flags ~= {.Follow}
+                    if .Follow in control_flags {
+                        replace_keybindings(&input_system, &character_key_mappings)
+                    } else {
+                        replace_keybindings(&input_system, &freecam_key_mappings)
+                    }
                 }
                 imgui.SliderFloat("Camera follow distance", &follow_distance, 1.0, 20.0)
 
@@ -563,10 +611,51 @@ main :: proc() {
                 // X and Z bc view space is x-right, y-up, z-back
                 xv := output_verbs.floats[.PlayerTranslateX]
                 zv := output_verbs.floats[.PlayerTranslateY]
+                {
+                    r, ok := output_verbs.bools[.PlayerTranslateLeft]
+                    if ok {
+                        if r {
+                            character.control_flags += {.MovingLeft}
+                        } else {
+                            character.control_flags -= {.MovingLeft}
+                        }
+                    }
+                    r, ok = output_verbs.bools[.PlayerTranslateRight]
+                    if ok {
+                        if r {
+                            character.control_flags += {.MovingRight}
+                        } else {
+                            character.control_flags -= {.MovingRight}
+                        }
+                    }
+                    r, ok = output_verbs.bools[.PlayerTranslateBack]
+                    if ok {
+                        if r {
+                            character.control_flags += {.MovingBack}
+                        } else {
+                            character.control_flags -= {.MovingBack}
+                        }
+                    }
+                    r, ok = output_verbs.bools[.PlayerTranslateForward]
+                    if ok {
+                        if r {
+                            character.control_flags += {.MovingForward}
+                        } else {
+                            character.control_flags -= {.MovingForward}
+                        }
+                    }
+                }
+                if .MovingLeft in character.control_flags do xv += -1.0
+                if .MovingRight in character.control_flags do xv += 1.0
+                if .MovingBack in character.control_flags do zv += -1.0
+                if .MovingForward in character.control_flags do zv += 1.0
 
                 // Input vector is in view space, so we transform to world space
                 world_v := hlsl.float4 {-zv, xv, 0.0, 0.0}
                 world_v = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_v
+                if hlsl.length(world_v) > 1.0 {
+                    world_v = hlsl.normalize(world_v)
+                }
             
                 character.velocity.xy = character.move_speed * world_v.xy
 
