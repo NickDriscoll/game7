@@ -349,7 +349,7 @@ main :: proc() {
         nearplane = 0.1,
         farplane = 1_000_000.0,
         follow_distance = 5.0,
-        control_flags = nil
+        control_flags = {.Follow}
     }
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
@@ -436,7 +436,6 @@ main :: proc() {
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
-        @static follow_cam := true
         want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
             using game_state.viewport_camera
@@ -448,9 +447,11 @@ main :: proc() {
                 imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
                 imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
                 
+                follow_cam := .Follow in control_flags
                 if imgui.Checkbox("Follow cam", &follow_cam) {
-                    game_state.viewport_camera.pitch = 0.0
-                    game_state.viewport_camera.yaw = 0.0
+                    pitch = 0.0
+                    yaw = 0.0
+                    control_flags ~= {.Follow}
                 }
                 imgui.SliderFloat("Camera follow distance", &follow_distance, 1.0, 20.0)
 
@@ -643,51 +644,11 @@ main :: proc() {
             }
         }
 
-        // Update camera
-        if follow_cam {
-            HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
-
-            camera_rotation: hlsl.float2 = {0.0, 0.0}
-            camera_rotation.x += output_verbs.floats[.RotateFreecamX]
-            camera_rotation.y += output_verbs.floats[.RotateFreecamY]
-
-            relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-            if ok3 {
-                MOUSE_SENSITIVITY :: 0.001
-                if .MouseLook in game_state.viewport_camera.control_flags {
-                    camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-                }
-            }
-
-            game_state.viewport_camera.yaw += camera_rotation.x
-            game_state.viewport_camera.pitch += camera_rotation.y
-            for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
-            for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
-            if game_state.viewport_camera.pitch <= -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
-            if game_state.viewport_camera.pitch >= math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
-            
-            pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
-            yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-            pos_offset := game_state.viewport_camera.follow_distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
-
-            game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
-            current_view_from_world = lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
-            render_data.cpu_uniforms.clip_from_world =
-                camera_projection_from_view(&game_state.viewport_camera) *
-                current_view_from_world
-        } else {
-             freecam_update(
-                 &game_state,
-                 &output_verbs,
-                 last_frame_dt,
-                 camera_sprint_multiplier,
-                 camera_slow_multiplier
-             )
-             current_view_from_world = camera_view_from_world(&game_state.viewport_camera)
-             render_data.cpu_uniforms.clip_from_world =
-                 camera_projection_from_view(&game_state.viewport_camera) *
-                 current_view_from_world
-        }
+        // Camera update
+        current_view_from_world = camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
+        render_data.cpu_uniforms.clip_from_world =
+            camera_projection_from_view(&game_state.viewport_camera) *
+            current_view_from_world
 
         // React to main menu bar interaction
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
