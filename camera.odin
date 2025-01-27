@@ -143,7 +143,7 @@ camera_update :: proc(
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
-        game_state.viewport_camera.target.position = game_state.character.collision.origin
+        game_state.viewport_camera.target.position = game_state.camera_follow_point
 
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         camera_rotation.x += output_verbs.floats[.RotateFreecamX] * dt
@@ -168,7 +168,7 @@ camera_update :: proc(
         yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
         pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
-        game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
+        game_state.viewport_camera.position = game_state.camera_follow_point + pos_offset.xyz
 
         return lookat_view_from_world(&game_state.viewport_camera)
     } else {

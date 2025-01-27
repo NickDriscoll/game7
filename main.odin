@@ -89,6 +89,7 @@ GameState :: struct {
     viewport_camera: Camera,
     props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
+    camera_follow_point: hlsl.float3,
     timescale: f32,
 
     freecam_collision: bool,
@@ -359,6 +360,8 @@ main :: proc() {
     }
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
+
+    game_state.camera_follow_point = game_state.character.collision.origin
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
     defer delete(freecam_key_mappings)
@@ -735,6 +738,13 @@ main :: proc() {
                     }
                 }
             }
+
+            // Camera follow point chases player
+            target_pt := character.collision.origin + 0.4 * {character.velocity.x, character.velocity.y, 0.0}
+            
+            // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
+            speed : f32 = 3.0
+            game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-speed * last_frame_dt))
         }
 
         // Camera update
