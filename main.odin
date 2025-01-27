@@ -103,8 +103,6 @@ delete_game :: proc(using g: ^GameState) {
 }
 
 main :: proc() {
-    current_time := time.now()          // Time in nanoseconds since UNIX epoch
-
     // Parse command-line arguments
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
@@ -268,10 +266,6 @@ main :: proc() {
     game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
     game_state.timescale = 1.0
 
-    // Init input system
-    input_system := init_input_system()
-    defer destroy_input_system(&input_system)
-
     // Initialize the renderer
     render_data := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &render_data)
@@ -358,7 +352,9 @@ main :: proc() {
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
         farplane = 1_000_000.0,
-        follow_distance = 5.0,
+        target = {
+            distance = 5.0
+        },
         control_flags = {.Follow}
     }
     log.debug(game_state.viewport_camera)
@@ -390,19 +386,23 @@ main :: proc() {
         character_key_mappings[.LSHIFT] = .Sprint
         character_key_mappings[.LCTRL] = .Crawl
         character_key_mappings[.SPACE] = .PlayerJump
+    }
 
-        if .Follow in game_state.viewport_camera.control_flags {
-            replace_keybindings(&input_system, &character_key_mappings)
-        } else {
-            replace_keybindings(&input_system, &freecam_key_mappings)
-        }
+    // Init input system
+    input_system: InputSystem
+    defer destroy_input_system(&input_system)
+    if .Follow in game_state.viewport_camera.control_flags {
+        input_system = init_input_system(&character_key_mappings)
+    } else {
+        input_system = init_input_system(&freecam_key_mappings)
     }
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
 
-    previous_time := current_time
+    current_time := time.now()          // Time in nanoseconds since UNIX epoch
+    previous_time := time.time_add(current_time, time.Duration(-1)) //current_time - time.Time{_nsec = 1}
     limit_cpu := false
     
     log.info("App initialization complete. Entering main loop")
@@ -476,6 +476,8 @@ main :: proc() {
         }
 
         // Update
+
+        @static cpu_limiter_ms : c.int = 100
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
@@ -501,7 +503,7 @@ main :: proc() {
                         replace_keybindings(&input_system, &freecam_key_mappings)
                     }
                 }
-                imgui.SliderFloat("Camera follow distance", &follow_distance, 1.0, 20.0)
+                imgui.SliderFloat("Camera follow distance", &target.distance, 1.0, 20.0)
 
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
@@ -538,6 +540,7 @@ main :: proc() {
                     "to sleep for 100 milliseconds at the end of the main loop, " +
                     "effectively capping the framerate to 10 FPS"
                 )
+                imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 100, 1000)
                 
                 imgui.Separator()
 
@@ -604,6 +607,7 @@ main :: proc() {
 
             if output_verbs.bools[.PlayerReset] {
                 character.collision.origin = CHARACTER_START_POS
+                character.velocity = {}
             }
 
             // Set current xy velocity to whatever user input is
@@ -998,7 +1002,7 @@ main :: proc() {
 
         // CPU limiter
         // 100 mil nanoseconds == 100 milliseconds
-        if limit_cpu do time.sleep(time.Duration(1_000_000 * 100))
+        if limit_cpu do time.sleep(time.Duration(1_000_000 * cpu_limiter_ms))
     }
 
     log.info("Returning from main()")

@@ -63,11 +63,12 @@ RemapInput :: struct #raw_union {
 }
 
 InputSystem :: struct {
-    key_mappings: map[sdl2.Scancode]VerbType,
+    // For the purposes of simple remapping, user code is expected to maintain
+    // these maps for the same lifetime as the input system
 
+    key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
-
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
@@ -79,12 +80,7 @@ InputSystem :: struct {
     controller_one: ^sdl2.GameController,
 }
 
-init_input_system :: proc() -> InputSystem {
-    key_mappings, err := make(map[sdl2.Scancode]VerbType, 64)
-    if err != nil {
-        log.errorf("Error making key map: %v", err)
-    }
-
+init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> InputSystem {
     mouse_mappings, err2 := make(map[u8]VerbType, 64)
     if err2 != nil {
         log.errorf("Error making mouse map: %v", err2)
@@ -105,18 +101,6 @@ init_input_system :: proc() -> InputSystem {
         log.errorf("Error making button map: %v", err2)
     }
 
-    // Hardcoded default keybindings
-    key_mappings[.ESCAPE] = .ToggleImgui
-    key_mappings[.W] = .TranslateFreecamForward
-    key_mappings[.S] = .TranslateFreecamBack
-    key_mappings[.A] = .TranslateFreecamLeft
-    key_mappings[.D] = .TranslateFreecamRight
-    key_mappings[.Q] = .TranslateFreecamDown
-    key_mappings[.E] = .TranslateFreecamUp
-    key_mappings[.LSHIFT] = .Sprint
-    key_mappings[.LCTRL] = .Crawl
-    key_mappings[.SPACE] = .PlayerJump
-
     // Hardcoded default mouse mappings
     mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
@@ -131,8 +115,8 @@ init_input_system :: proc() -> InputSystem {
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
     // Axis sensitivities
-    axis_sensitivities[.RIGHTX] = 0.02
-    axis_sensitivities[.RIGHTY] = 0.02
+    axis_sensitivities[.RIGHTX] = 5.0
+    axis_sensitivities[.RIGHTY] = 5.0
 
     // Hardcoded button mappings
     button_mappings[.A] = .PlayerJump
@@ -141,7 +125,7 @@ init_input_system :: proc() -> InputSystem {
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
     return InputSystem {
-        key_mappings = key_mappings,
+        key_mappings = init_key_bindings,
         mouse_mappings = mouse_mappings,
         button_mappings = button_mappings,
         axis_mappings = axis_mappings,
@@ -152,7 +136,6 @@ init_input_system :: proc() -> InputSystem {
 }
 
 destroy_input_system :: proc(using s: ^InputSystem) {
-    delete(key_mappings)
     delete(mouse_mappings)
     delete(button_mappings)
     delete(axis_mappings)
@@ -165,7 +148,7 @@ default_axis_mappings :: proc(using s: ^InputSystem) {
 }
 
 replace_keybindings :: proc(using s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
-    key_mappings = new_keybindings^
+    key_mappings = new_keybindings
 }
 
 // Per-frame representation of what actions the
@@ -239,7 +222,7 @@ poll_sdl2_events :: proc(
                         }
 
                         key_mappings[sc] = verb
-                        delete_key(&key_mappings, input_being_remapped.key)
+                        delete_key(key_mappings, input_being_remapped.key)
                         input_being_remapped.key = nil
                         currently_remapping = false
                         continue
@@ -463,7 +446,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
             display_sorted_table(
                 s,
-                &key_mappings,
+                key_mappings,
                 largest_button_width,
                 &input_being_remapped.key,
                 KEY_REBIND_TEXT,
@@ -514,7 +497,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
             ss := strings.clone_to_cstring(slider_id, allocator)
             strings.builder_reset(&sb)
-            imgui.SliderFloat(ss, &sensitivity, 0.0, 0.1)
+            imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
             
             i += 1
         }
