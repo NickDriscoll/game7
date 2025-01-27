@@ -3,6 +3,11 @@ package main
 import "core:math"
 import "core:math/linalg/hlsl"
 
+CameraTarget :: struct {
+    position: hlsl.float3,
+    distance: f32,
+}
+
 CameraFlags :: bit_set[enum {
     MouseLook,
     MoveForward,
@@ -27,7 +32,7 @@ Camera :: struct {
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
-    follow_distance: f32,
+    target: CameraTarget,
     control_flags: CameraFlags,
 }
 
@@ -72,10 +77,9 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
 }
 lookat_view_from_world :: proc(
     using camera: ^Camera,
-    target: hlsl.float3,
     up := hlsl.float3 {0.0, 0.0, 1.0}
 ) -> hlsl.float4x4 {
-    focus_vector := hlsl.normalize(position - target)
+    focus_vector := hlsl.normalize(position - target.position)
 
     right := hlsl.normalize(hlsl.cross(up, focus_vector))
     local_up := hlsl.cross(focus_vector, right)
@@ -113,7 +117,13 @@ get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolutio
         -nearplane,
         1.0
     }
-    world_coords := hlsl.inverse(camera_view_from_world(camera)) * view_coords
+
+    world_coords: hlsl.float4
+    if .Follow in control_flags {
+        world_coords = hlsl.inverse(lookat_view_from_world(camera)) * view_coords
+    } else {
+        world_coords = hlsl.inverse(camera_view_from_world(camera)) * view_coords
+    }
 
     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
     return Ray {
@@ -133,9 +143,11 @@ camera_update :: proc(
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
+        game_state.viewport_camera.target.position = game_state.character.collision.origin
+
         camera_rotation: hlsl.float2 = {0.0, 0.0}
-        camera_rotation.x += output_verbs.floats[.RotateFreecamX]
-        camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+        camera_rotation.x += output_verbs.floats[.RotateFreecamX] * dt
+        camera_rotation.y += output_verbs.floats[.RotateFreecamY] * dt
 
         relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
         if ok3 {
@@ -154,11 +166,11 @@ camera_update :: proc(
         
         pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
         yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-        pos_offset := game_state.viewport_camera.follow_distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
+        pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
         game_state.viewport_camera.position = game_state.character.collision.origin + pos_offset.xyz
 
-        return lookat_view_from_world(&game_state.viewport_camera, game_state.character.collision.origin)
+        return lookat_view_from_world(&game_state.viewport_camera)
     } else {
         camera_rotation: hlsl.float2 = {0.0, 0.0}
         camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
