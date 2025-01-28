@@ -515,26 +515,107 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
 
     // @TODO: The following raycast will cause the sphere to unnaturally
     // snap down to the triangle when q_t > t
-    
+
     // Cast a ray from Q to the sphere to determine possible intersection
     q_segment := Segment {
         start = q,
         end = q + (motion_interval.start - motion_interval.end)
     }
     q_t, ok2 := intersect_segment_sphere_t(&q_segment, s)
-    return q_t, ok2
+    return q_t, ok2 && q_t <= t
+}
+dynamic_sphere_vs_triangle_t_with_normal :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
+
+    // The point on the sphere that will first intersect
+    // the triangle's plane is D
+    d := closest_pt_sphere_triplane(s, tri)
+
+    // Compute P, the point where D will touch tri's supporting plane
+    //t, ok := intersect_segment_triangle_t(motion_interval, tri)
+    d_segment := Segment {
+        start = d,
+        end = d + (motion_interval.end - motion_interval.start)
+    }
+    t, ok := intersect_segment_triplane_t(&d_segment, tri)
+    // If motion interval wasn't long enough
+    if !ok do return {}, {}, false
+    p := d + t * (motion_interval.end - motion_interval.start)
+
+    // If p is in the triangle, it's our point of interest
+    if pt_in_triangle(p, tri) {
+        n := hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+        return t, n, true
+    }
+
+    // Otherwise, get point Q: the closest point to P on the triangle
+    q := closest_pt_triangle(p, tri)
+
+
+    // @TODO: The following raycast will cause the sphere to unnaturally
+    // snap down to the triangle when q_t > t
+
+    // Cast a ray from Q to the sphere to determine possible intersection
+    q_segment := Segment {
+        start = q,
+        end = q + (motion_interval.start - motion_interval.end)
+    }
+    q_t, ok2 := intersect_segment_sphere_t(&q_segment, s)
+    n := hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+    return q_t, n, ok2 && q_t <= t
 }
 dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (f32, bool) {
     candidate_t := math.INF_F32
-    found := false
     for &tri in tris.triangles {
         t, ok := dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
         if ok {
             if t < candidate_t do candidate_t = t
-            found = true
         }
     }
-    return candidate_t, found
+    return candidate_t, candidate_t < math.INF_F32
+}
+dynamic_sphere_vs_triangles_t_with_normal :: proc(
+    s: ^Sphere,
+    tris: ^StaticTriangleCollision,
+    motion_interval: ^Segment
+) -> (f32, hlsl.float3, bool) {
+    candidate_t := math.INF_F32
+    current_n := hlsl.float3 {}
+    for &tri in tris.triangles {
+        t, n, ok := dynamic_sphere_vs_triangle_t_with_normal(s, &tri, motion_interval)
+        if ok {
+            if t < candidate_t {
+                candidate_t = t
+                current_n = n
+            }
+        }
+    }
+    return candidate_t, current_n, candidate_t < math.INF_F32
+}
+
+dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: ^[dynamic]TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
+    closest_t := math.INF_F32
+    for &piece in terrain {
+        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
+        if ok3 {
+            if t < closest_t do closest_t = t
+        }
+    }
+    return closest_t, closest_t < math.INF_F32
+}
+
+dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: ^[dynamic]TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
+    closest_t := math.INF_F32
+    current_n := hlsl.float3 {}
+    for &piece in terrain {
+        t, n, ok3 := dynamic_sphere_vs_triangles_t_with_normal(s, &piece.collision, motion_interval)
+        if ok3 {
+            if t < closest_t {
+                closest_t = t
+                current_n = n
+            }
+        }
+    }
+    return closest_t, current_n, closest_t < math.INF_F32
 }
 
 dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (hlsl.float3, bool) {
