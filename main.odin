@@ -481,6 +481,7 @@ main :: proc() {
         // Update
 
         @static cpu_limiter_ms : c.int = 100
+        @static smoothing_speed : f32 = 3.0
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
@@ -507,6 +508,7 @@ main :: proc() {
                     }
                 }
                 imgui.SliderFloat("Camera follow distance", &target.distance, 1.0, 20.0)
+                imgui.SliderFloat("Camera smoothing speed", &smoothing_speed, 0.1, 5.0)
 
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
@@ -687,7 +689,12 @@ main :: proc() {
                 }
             }
             
+            // Compute motion interval
             motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
+            motion_interval := Segment {
+                start = character.collision.origin,
+                end = motion_endpoint
+            }
             
             // Main player character state machine
             switch character.state {
@@ -696,7 +703,24 @@ main :: proc() {
                         character.velocity += {0.0, 0.0, character.jump_speed}
                         character.state = .Falling
                     }
-                    character.collision.origin += timescale * last_frame_dt * character.velocity
+
+                    // Sweep motion to find possible collision
+                    closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(
+                        &character.collision,
+                        &game_state.terrain_pieces,
+                        &motion_interval
+                    )
+                    if hit {
+                        //remaining_t := 1.0 - closest_t
+                        angle := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
+                        if angle < 0.5 {
+
+                        } else {
+                            character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
+                        }
+                    } else {
+                        character.collision.origin += timescale * last_frame_dt * character.velocity
+                    }
                 }
                 case .Falling: {
                     // Apply gravity to velocity, clamping downward speed if necessary
@@ -711,25 +735,13 @@ main :: proc() {
                         character.velocity.z *= 0.1
                     }
 
-                    // Compute motion interval
-                    interval := Segment {
-                        start = character.collision.origin,
-                        end = motion_endpoint
-                    }
-
                     // Then do collision test against triangles
-                    closest_t := math.INF_F32
-                    for &piece in game_state.terrain_pieces {
-                        t, ok3 := dynamic_sphere_vs_triangles_t(&character.collision, &piece.collision, &interval)
-                        if ok3 {
-                            if t < closest_t do closest_t = t
-                        }
-                    }
+                    closest_t, hit := dynamic_sphere_vs_terrain_t(&character.collision, &game_state.terrain_pieces, &motion_interval)
 
-                    // If closest t is less than infinity, we hit something
-                    if closest_t < math.INF_F32 {
+                    // Respond
+                    if hit {
                         // Hit terrain
-                        character.collision.origin += closest_t * (interval.end - interval.start)
+                        character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
                         character.velocity = {}
                         character.state = .Grounded
                     } else {
@@ -743,8 +755,7 @@ main :: proc() {
             target_pt := character.collision.origin + 0.4 * {character.velocity.x, character.velocity.y, 0.0}
             
             // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
-            speed : f32 = 3.0
-            game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-speed * last_frame_dt))
+            game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-smoothing_speed * last_frame_dt))
         }
 
         // Camera update
