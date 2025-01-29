@@ -8,7 +8,7 @@ import "core:mem"
 import "vendor:cgltf"
 
 Sphere :: struct {
-    origin: hlsl.float3,
+    position: hlsl.float3,
     radius: f32,
 }
 
@@ -219,6 +219,73 @@ closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hl
     candidate := a + ab * v + ac * w
     return candidate
 }
+closest_pt_triangle_with_normal :: proc(point: hlsl.float3, using triangle: ^Triangle) -> (hlsl.float3, hlsl.float3) {
+    dot :: hlsl.dot
+
+    // Check if point is in vertex region outside A
+    ab := b - a
+    ac := c - a
+    ap := point - a
+    d1 := dot(ab, ap)
+    d2 := dot(ac, ap)
+    if d1 <= 0 && d2 <= 0 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        return a, n
+    }
+
+    // Check if the point is in vertex region outside B
+    bp := point - b
+    d3 := dot(ab, bp)
+    d4 := dot(ac, bp)
+    if d3 >= 0 && d4 <= d3 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        return b, n
+    }
+
+    // Check if P in edge region of AB
+    vc := d1*d4 - d3*d2
+    if vc <= 0 && d1 >= 0 && d3 <= 0 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        w := d1 / (d1 - d3)
+        candidate_point := a + w * ab
+        return candidate_point, n
+    }
+
+    // Check if P in vertex region outside C
+    cp := point - c
+    d5 := dot(ab, cp)
+    d6 := dot(ac, cp)
+    if d6 >= 0 && d5 <= d6 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        return c, n
+    }
+
+    // Check if P in edge region AC
+    vb := d5*d2 - d1*d6
+    if vb <= 0 && d2 >= 0 && d6 <= 0 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        w := d2 / (d2 - d6)
+        candidate_point := a + w * ac
+        return candidate_point, n
+    }
+
+    // Check if P is in edge region of BC
+    va := d3*d6 - d5*d4
+    if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+        n := hlsl.normalize(hlsl.cross(ab, ac))
+        w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        candidate_point := b + w * (c - b)
+        return candidate_point, n
+    }
+
+    n := hlsl.normalize(hlsl.cross(ab, ac))
+    // P inside face region. Compute Q through its barycentric coordinates (u,v,w)
+    denom := 1.0 / (va + vb + vc)
+    v := vb * denom
+    w := vc * denom
+    candidate := a + ab * v + ac * w
+    return candidate, n
+}
 
 // This proc returns the first collision detected
 closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
@@ -247,6 +314,68 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     }
 
     return closest_point
+}
+closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, hlsl.float3) {
+
+    // Helper proc to check if a closest point is
+    // the closest one we've found so far
+    check_closest_candidate :: proc(
+        test_point: hlsl.float3,
+        candidate: hlsl.float3,
+        current_closest: ^hlsl.float3,
+        shortest_dist: ^f32,
+    ) {
+        dist := hlsl.distance(test_point, candidate)
+        if dist < shortest_dist^ {
+            current_closest^ = candidate
+            shortest_dist^ = dist
+        }
+    }
+
+    // Test each triangle until the closest point
+    closest_point: hlsl.float3
+    cn: hlsl.float3
+    shortest_distance := math.INF_F32
+    for &triangle in triangles {
+        candidate, n := closest_pt_triangle_with_normal(point, &triangle)
+        dist := hlsl.distance(point, candidate)
+        if dist < shortest_distance {
+            closest_point = candidate
+            shortest_distance = dist
+            cn = n
+        }
+    }
+
+    return closest_point, cn
+}
+
+closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.float3 {
+    candidate: hlsl.float3
+    closest_dist := math.INF_F32
+    for &piece in terrain {
+        p := closest_pt_triangles(point, &piece.collision)
+        d := hlsl.distance(point, p)
+        if d < closest_dist {
+            candidate = p
+            closest_dist = d
+        }
+    }
+    return candidate
+}
+closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> (hlsl.float3, hlsl.float3) {
+    candidate: hlsl.float3
+    cn: hlsl.float3
+    closest_dist := math.INF_F32
+    for &piece in terrain {
+        p, n := closest_pt_triangles_with_normal(point, &piece.collision)
+        d := hlsl.distance(point, p)
+        if d < closest_dist {
+            candidate = p
+            closest_dist = d
+            cn = n
+        }
+    }
+    return candidate, cn
 }
 
 // Implementation adapted from section 3.4 of Real-Time Collision Detection
@@ -382,7 +511,7 @@ intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (
 
 // Implementation adapted from section 5.3.2 of Real-Time Collision Detection
 intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
-    m := r.start - s.origin
+    m := r.start - s.position
     b := hlsl.dot(m, r.direction)
     c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
     
@@ -485,7 +614,7 @@ intersect_segment_terrain_normal :: proc() {
 // Returns the point on the sphere that is closest to the triangle
 // assuming the sphere is in front of the triangle
 closest_pt_sphere_triplane :: proc(s: ^Sphere, tri: ^Triangle) -> hlsl.float3 {
-    return s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+    return s.position + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
 }
 
 // Implementation adapted from section 5.5.6 of Real-Time Collision Detection
@@ -592,7 +721,7 @@ dynamic_sphere_vs_triangles_t_with_normal :: proc(
     return candidate_t, current_n, candidate_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: ^[dynamic]TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
     closest_t := math.INF_F32
     for &piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
@@ -603,7 +732,7 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: ^[dynamic]TerrainPiece,
     return closest_t, closest_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: ^[dynamic]TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
+dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
     closest_t := math.INF_F32
     current_n := hlsl.float3 {}
     for &piece in terrain {
@@ -630,7 +759,7 @@ dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, 
             if t < candidate_t do candidate_t = t
             // The point on the sphere that will first intersect
             // the triangle's plane is D
-            d = s.origin + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
+            d = s.position + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
             found = true
         }
     }
