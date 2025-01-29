@@ -329,7 +329,7 @@ main :: proc() {
 
     game_state.character = Character {
         collision = {
-            origin = CHARACTER_START_POS,
+            position = CHARACTER_START_POS,
             radius = 0.8
         },
         velocity = {},
@@ -361,7 +361,7 @@ main :: proc() {
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
 
-    game_state.camera_follow_point = game_state.character.collision.origin
+    game_state.camera_follow_point = game_state.character.collision.position
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
     defer delete(freecam_key_mappings)
@@ -517,12 +517,12 @@ main :: proc() {
 
                 {
                     using game_state.character
-                    imgui.Text("Player collider position: (%f, %f, %f)", collision.origin.x, collision.origin.y, collision.origin.z)
+                    imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     if imgui.Button("Reset player") {
-                        collision.origin = CHARACTER_START_POS
+                        collision.position = CHARACTER_START_POS
                     }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
@@ -545,7 +545,7 @@ main :: proc() {
                     "to sleep for 100 milliseconds at the end of the main loop, " +
                     "effectively capping the framerate to 10 FPS"
                 )
-                imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 100, 1000)
+                imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 10, 1000)
                 
                 imgui.Separator()
 
@@ -579,7 +579,7 @@ main :: proc() {
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
             if want_refire_raycast {
                 collision_pt := last_raycast_hit
-                character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
+                character.collision.position = collision_pt + {0.0, 0.0, 3.0}
                 character.velocity = {}
                 character.state = .Falling
             } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
@@ -603,7 +603,7 @@ main :: proc() {
                 }
 
                 if closest_dist < math.INF_F32 {
-                    character.collision.origin = collision_pt + {0.0, 0.0, 3.0}
+                    character.collision.position = collision_pt + {0.0, 0.0, 3.0}
                     character.velocity = {}
                     character.state = .Falling
                     last_raycast_hit = collision_pt
@@ -611,7 +611,7 @@ main :: proc() {
             }
 
             if output_verbs.bools[.PlayerReset] {
-                character.collision.origin = CHARACTER_START_POS
+                character.collision.position = CHARACTER_START_POS
                 character.velocity = {}
             }
 
@@ -676,12 +676,12 @@ main :: proc() {
             //Check if we need to bump ourselves up or down
             if character.velocity.z <= 0.0 {
                 tolerance_segment := Segment {
-                    start = character.collision.origin + {0.0, 0.0, 0.0},
-                    end = character.collision.origin + {0.0, 0.0, -character.collision.radius - 0.1}
+                    start = character.collision.position + {0.0, 0.0, 0.0},
+                    end = character.collision.position + {0.0, 0.0, -character.collision.radius - 0.1}
                 }
                 tolerance_point, okt := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
                 if okt {
-                    character.collision.origin = tolerance_point + {0.0, 0.0, character.collision.radius}
+                    character.collision.position = tolerance_point + {0.0, 0.0, character.collision.radius}
                     character.velocity.z = 0.0
                     character.state = .Grounded
                 } else {
@@ -690,9 +690,9 @@ main :: proc() {
             }
             
             // Compute motion interval
-            motion_endpoint := character.collision.origin + timescale * last_frame_dt * character.velocity
+            motion_endpoint := character.collision.position + timescale * last_frame_dt * character.velocity
             motion_interval := Segment {
-                start = character.collision.origin,
+                start = character.collision.position,
                 end = motion_endpoint
             }
             
@@ -705,21 +705,31 @@ main :: proc() {
                     }
 
                     // Sweep motion to find possible collision
-                    closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(
-                        &character.collision,
-                        &game_state.terrain_pieces,
-                        &motion_interval
-                    )
-                    if hit {
-                        //remaining_t := 1.0 - closest_t
-                        angle := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
-                        if angle < 0.5 {
+                    // closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(
+                    //     &character.collision,
+                    //     &game_state.terrain_pieces,
+                    //     &motion_interval
+                    // )
+                    // if hit {
+                    //     //remaining_t := 1.0 - closest_t
+                    //     angle := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
+                    //     if angle < 0.5 {
+
+                    //     } else {
+                    //         character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
+                    //     }
+                    // } else {
+                    //     character.collision.origin += timescale * last_frame_dt * character.velocity
+                    // }
+
+                    // Stupid way
+                    p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+                    if hlsl.distance(p, character.collision.position) < character.collision.radius {
+                        if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
 
                         } else {
-                            character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
+                            
                         }
-                    } else {
-                        character.collision.origin += timescale * last_frame_dt * character.velocity
                     }
                 }
                 case .Falling: {
@@ -736,23 +746,23 @@ main :: proc() {
                     }
 
                     // Then do collision test against triangles
-                    closest_t, hit := dynamic_sphere_vs_terrain_t(&character.collision, &game_state.terrain_pieces, &motion_interval)
+                    closest_t, hit := dynamic_sphere_vs_terrain_t(&character.collision, game_state.terrain_pieces[:], &motion_interval)
 
                     // Respond
                     if hit {
                         // Hit terrain
-                        character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
+                        character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
                         character.velocity = {}
                         character.state = .Grounded
                     } else {
                         // Didn't hit anything, falling.
-                        character.collision.origin = motion_endpoint
+                        character.collision.position = motion_endpoint
                     }
                 }
             }
 
             // Camera follow point chases player
-            target_pt := character.collision.origin + 0.4 * {character.velocity.x, character.velocity.y, 0.0}
+            target_pt := character.collision.position + 0.4 * {character.velocity.x, character.velocity.y, 0.0}
             
             // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
             game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-smoothing_speed * last_frame_dt))
@@ -895,9 +905,9 @@ main :: proc() {
             ddata := DrawData {
                 world_from_model = uniform_scaling_matrix(scale) * rotate_mat
             }
-            ddata.world_from_model[3][0] = game_state.character.collision.origin.x
-            ddata.world_from_model[3][1] = game_state.character.collision.origin.y
-            ddata.world_from_model[3][2] = game_state.character.collision.origin.z
+            ddata.world_from_model[3][0] = game_state.character.collision.position.x
+            ddata.world_from_model[3][1] = game_state.character.collision.position.y
+            ddata.world_from_model[3][2] = game_state.character.collision.position.z
 
             draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
