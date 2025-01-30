@@ -572,14 +572,11 @@ main :: proc() {
         {
             using game_state
 
-            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
-            TERMINAL_VELOCITY :: -100000.0                                  // m/s
-
             // TEST CODE PLZ REMOVE
             place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
             if want_refire_raycast {
                 collision_pt := last_raycast_hit
-                character.collision.position = collision_pt + {0.0, 0.0, 3.0}
+                character.collision.position = collision_pt + {0.0, 0.0, character.collision.radius}
                 character.velocity = {}
                 character.state = .Falling
             } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
@@ -603,7 +600,7 @@ main :: proc() {
                 }
 
                 if closest_dist < math.INF_F32 {
-                    character.collision.position = collision_pt + {0.0, 0.0, 3.0}
+                    character.collision.position = collision_pt + {0.0, 0.0, character.collision.radius}
                     character.velocity = {}
                     character.state = .Falling
                     last_raycast_hit = collision_pt
@@ -615,7 +612,10 @@ main :: proc() {
                 character.velocity = {}
             }
 
-            // Set current xy velocity to whatever user input is
+            GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
+            TERMINAL_VELOCITY :: -100000.0                                  // m/s
+
+            // Set current xy velocity (and character facing) to whatever user input is
             {
                 // X and Z bc view space is x-right, y-up, z-back
                 xv := output_verbs.floats[.PlayerTranslateX]
@@ -724,12 +724,17 @@ main :: proc() {
 
                     // Stupid way
                     p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
-                    if hlsl.distance(p, character.collision.position) < character.collision.radius {
+                    dist := hlsl.distance(p, character.collision.position)
+                    if dist < character.collision.radius {
+                        remaining_dist := character.collision.radius - dist
                         if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-
+                            character.collision.position = motion_endpoint + remaining_dist * n
                         } else {
+                            character.collision.position = motion_endpoint
                             
                         }
+                    } else {
+                        character.collision.position = motion_endpoint
                     }
                 }
                 case .Falling: {
