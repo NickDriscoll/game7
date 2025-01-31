@@ -140,14 +140,15 @@ camera_update :: proc(
     slow_multiplier: f32,
 ) -> hlsl.float4x4 {
     using game_state.viewport_camera
+
+    camera_rotation: [2]f32 = {0.0, 0.0}
+
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
         game_state.viewport_camera.target.position = game_state.camera_follow_point
 
-        camera_rotation: hlsl.float2 = {0.0, 0.0}
-        camera_rotation.x += output_verbs.floats[.RotateFreecamX] * dt
-        camera_rotation.y += output_verbs.floats[.RotateFreecamY] * dt
+        camera_rotation += output_verbs.float2s[.RotateCamera] * dt
 
         relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
         if ok3 {
@@ -172,7 +173,6 @@ camera_update :: proc(
 
         return lookat_view_from_world(&game_state.viewport_camera)
     } else {
-        camera_rotation: hlsl.float2 = {0.0, 0.0}
         camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
         camera_speed_mod : f32 = 1.0
     
@@ -219,8 +219,7 @@ camera_update :: proc(
             }
         }
     
-        camera_rotation.x += output_verbs.floats[.RotateFreecamX]
-        camera_rotation.y += output_verbs.floats[.RotateFreecamY]
+        camera_rotation += output_verbs.float2s[.RotateCamera]
         camera_direction.x += output_verbs.floats[.TranslateFreecamX]
     
         // Not a sign error. In view-space, -Z is forward

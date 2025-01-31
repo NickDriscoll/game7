@@ -508,7 +508,7 @@ main :: proc() {
                     }
                 }
                 imgui.SliderFloat("Camera follow distance", &target.distance, 1.0, 20.0)
-                imgui.SliderFloat("Camera smoothing speed", &smoothing_speed, 0.1, 5.0)
+                imgui.SliderFloat("Camera smoothing speed", &smoothing_speed, 0.1, 50.0)
 
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
@@ -517,8 +517,17 @@ main :: proc() {
 
                 {
                     using game_state.character
+
+                    sb: strings.Builder
+                    strings.builder_init(&sb, context.temp_allocator)
+                    defer strings.builder_destroy(&sb)
+
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
+                    fmt.sbprintf(&sb, "Player state: %v", state)
+                    state_str := strings.to_cstring(&sb)
+                    strings.builder_reset(&sb)
+                    imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     if imgui.Button("Reset player") {
@@ -618,8 +627,9 @@ main :: proc() {
             // Set current xy velocity (and character facing) to whatever user input is
             {
                 // X and Z bc view space is x-right, y-up, z-back
-                xv := output_verbs.floats[.PlayerTranslateX]
-                zv := output_verbs.floats[.PlayerTranslateY]
+                v := output_verbs.float2s[.PlayerTranslate]
+                xv := v.x
+                zv := v.y
                 {
                     r, ok := output_verbs.bools[.PlayerTranslateLeft]
                     if ok {
@@ -751,14 +761,16 @@ main :: proc() {
                     }
 
                     // Then do collision test against triangles
-                    closest_t, hit := dynamic_sphere_vs_terrain_t(&character.collision, game_state.terrain_pieces[:], &motion_interval)
+                    closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(&character.collision, game_state.terrain_pieces[:], &motion_interval)
 
                     // Respond
                     if hit {
                         // Hit terrain
                         character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
-                        character.velocity = {}
-                        character.state = .Grounded
+                        if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                            character.velocity = {}
+                            character.state = .Grounded
+                        }
                     } else {
                         // Didn't hit anything, falling.
                         character.collision.position = motion_endpoint
@@ -767,7 +779,7 @@ main :: proc() {
             }
 
             // Camera follow point chases player
-            target_pt := character.collision.position + 0.4 * {character.velocity.x, character.velocity.y, 0.0}
+            target_pt := character.collision.position - 0.01 * {character.velocity.x, character.velocity.y, 0.0}
             
             // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
             game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-smoothing_speed * last_frame_dt))

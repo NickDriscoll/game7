@@ -5,6 +5,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:math/linalg/hlsl"
 import "core:slice"
 import "core:strings"
 
@@ -37,8 +38,7 @@ VerbType :: enum {
 
     TranslateFreecamX,
     TranslateFreecamY,
-    RotateFreecamX,
-    RotateFreecamY,
+    RotateCamera,
 
     Sprint,
     Crawl,
@@ -47,12 +47,18 @@ VerbType :: enum {
 
     PlayerJump,
     PlayerReset,
-    PlayerTranslateX,
-    PlayerTranslateY,
+    // PlayerTranslateX,
+    // PlayerTranslateY,
+    PlayerTranslate,
     PlayerTranslateLeft,
     PlayerTranslateRight,
     PlayerTranslateBack,
     PlayerTranslateForward,
+}
+
+ControllerStickAxis :: enum {
+    Left,
+    Right
 }
 
 // @TODO: This would be problematic if any of the enum values here are identical
@@ -65,14 +71,17 @@ RemapInput :: struct #raw_union {
 InputSystem :: struct {
     // For the purposes of simple remapping, user code is expected to maintain
     // these maps for the same lifetime as the input system
-
     key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
+    stick_mappings: map[ControllerStickAxis]VerbType,
+
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
+    deadzone_sticks: bit_set[ControllerStickAxis],
     axis_sensitivities: map[sdl2.GameControllerAxis]f32,
+    stick_sensitivities: map[ControllerStickAxis]f32,
 
     input_being_remapped: RemapInput,
     currently_remapping: bool,
@@ -96,9 +105,19 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
         log.errorf("Error making button map: %v", err2)
     }
 
+    stick_mappings, err6 := make(map[ControllerStickAxis]VerbType, 64)
+    if err6 != nil {
+        log.errorf("Error making stick map: %v", err2)
+    }
+
     axis_sensitivities, err5 := make(map[sdl2.GameControllerAxis]f32, 8)
     if err5 != nil {
-        log.errorf("Error making button map: %v", err2)
+        log.errorf("Error making axis sensitivity map: %v", err2)
+    }
+
+    stick_sensitivities, err7 := make(map[ControllerStickAxis]f32, 8)
+    if err7 != nil {
+        log.errorf("Error making stick sensitivity map: %v", err2)
     }
 
     // Hardcoded default mouse mappings
@@ -108,15 +127,19 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     // Hardcoded axis mappings
     // axis_mappings[.LEFTX] = .TranslateFreecamX
     // axis_mappings[.LEFTY] = .TranslateFreecamY
-    axis_mappings[.LEFTX] = .PlayerTranslateX
-    axis_mappings[.LEFTY] = .PlayerTranslateY
-    axis_mappings[.RIGHTX] = .RotateFreecamX
-    axis_mappings[.RIGHTY] = .RotateFreecamY
+    // axis_mappings[.LEFTX] = .PlayerTranslateX
+    // axis_mappings[.LEFTY] = .PlayerTranslateY
+    // axis_mappings[.RIGHTX] = .RotateFreecamX
+    // axis_mappings[.RIGHTY] = .RotateFreecamY
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
     // Axis sensitivities
     axis_sensitivities[.RIGHTX] = 5.0
     axis_sensitivities[.RIGHTY] = 5.0
+
+    // Stick sensitivities
+    //stick_sensitivities[.Left] = 5.0
+    stick_sensitivities[.Right] = 5.0
 
     // Hardcoded button mappings
     button_mappings[.A] = .PlayerJump
@@ -124,14 +147,20 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
+    stick_mappings[.Left] = .PlayerTranslate
+    stick_mappings[.Right] = .RotateCamera
+
     return InputSystem {
         key_mappings = init_key_bindings,
         mouse_mappings = mouse_mappings,
         button_mappings = button_mappings,
         axis_mappings = axis_mappings,
+        stick_mappings = stick_mappings,
         reverse_axes = {.LEFTY},
         deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
-        axis_sensitivities = axis_sensitivities
+        deadzone_sticks = {.Left,.Right},
+        axis_sensitivities = axis_sensitivities,
+        stick_sensitivities = stick_sensitivities,
     }
 }
 
@@ -338,6 +367,39 @@ poll_sdl2_events :: proc(
     io.KeyAlt = imgui.IsKeyDown(.LeftAlt) || imgui.IsKeyDown(.RightAlt)
 
     // Poll controller axes and emit appropriate verbs
+    {
+        stick := ControllerStickAxis.Left
+        verbtype, found := stick_mappings[stick]
+        if found {
+            x := axis_to_f32(controller_one, .LEFTX)
+            y := axis_to_f32(controller_one, .LEFTY)
+            if .LEFTX in reverse_axes do x = -x
+            if .LEFTY in reverse_axes do y = -y
+            dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
+            if stick not_in deadzone_sticks || dist > AXIS_DEADZONE {
+                sensitivity, found2 := stick_sensitivities[.Left]
+                if !found2 do sensitivity = 1.0
+                float2s[verbtype] = sensitivity * [2]f32{x, y}
+            }
+        }
+    }
+    {
+        stick := ControllerStickAxis.Right
+        verbtype, found := stick_mappings[stick]
+        if found {
+            x := axis_to_f32(controller_one, .RIGHTX)
+            y := axis_to_f32(controller_one, .RIGHTY)
+            if .RIGHTX in reverse_axes do x = -x
+            if .RIGHTY in reverse_axes do y = -y
+            dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
+            if stick not_in deadzone_sticks || dist > AXIS_DEADZONE {
+                sensitivity, found2 := stick_sensitivities[.Right]
+                if !found2 do sensitivity = 1.0
+                float2s[verbtype] = sensitivity * [2]f32{x, y}
+            }   
+        }
+    }
+
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
 
