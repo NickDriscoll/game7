@@ -169,6 +169,8 @@ destroy_input_system :: proc(using s: ^InputSystem) {
     delete(button_mappings)
     delete(axis_mappings)
     delete(axis_sensitivities)
+    delete(stick_mappings)
+    delete(stick_sensitivities)
     if controller_one != nil do sdl2.GameControllerClose(controller_one)
 }
 
