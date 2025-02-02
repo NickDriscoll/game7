@@ -532,6 +532,7 @@ main :: proc() {
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     if imgui.Button("Reset player") {
                         collision.position = CHARACTER_START_POS
+                        velocity = {}
                     }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
@@ -689,11 +690,14 @@ main :: proc() {
                     start = character.collision.position + {0.0, 0.0, 0.0},
                     end = character.collision.position + {0.0, 0.0, -character.collision.radius - 0.1}
                 }
-                tolerance_point, okt := intersect_segment_terrain(&tolerance_segment, game_state.terrain_pieces[:])
+                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                 if okt {
                     character.collision.position = tolerance_point + {0.0, 0.0, character.collision.radius}
-                    character.velocity.z = 0.0
-                    character.state = .Grounded
+                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                        character.velocity.z = 0.0
+                        character.state = .Grounded
+                    }
                 } else {
                     character.state = .Falling
                 }
@@ -761,12 +765,17 @@ main :: proc() {
                     }
 
                     // Then do collision test against triangles
-                    closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(&character.collision, game_state.terrain_pieces[:], &motion_interval)
+                    //closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(&character.collision, game_state.terrain_pieces[:], &motion_interval)
+                    closest_pt, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+                    d := hlsl.distance(character.collision.position, closest_pt)
+                    hit := d < character.collision.radius
 
                     // Respond
                     if hit {
                         // Hit terrain
-                        character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
+                        //character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
+                        remaining_d := character.collision.radius - d
+                        character.collision.position = motion_endpoint + remaining_d * n
                         if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
                             character.velocity = {}
                             character.state = .Grounded
