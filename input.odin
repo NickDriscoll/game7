@@ -133,10 +133,6 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     // axis_mappings[.RIGHTY] = .RotateFreecamY
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
-    // Axis sensitivities
-    axis_sensitivities[.RIGHTX] = 5.0
-    axis_sensitivities[.RIGHTY] = 5.0
-
     // Stick sensitivities
     //stick_sensitivities[.Left] = 5.0
     stick_sensitivities[.Right] = 5.0
@@ -556,6 +552,20 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         i := 0
         for axis, &sensitivity in axis_sensitivities {
             as := build_cstring(axis, &sb, allocator)
+            imgui.Text("%s ", as)
+            imgui.SameLine()
+            slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
+            ss := strings.clone_to_cstring(slider_id, allocator)
+            strings.builder_reset(&sb)
+            imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
+            
+            i += 1
+        }
+
+        imgui.Text("Stick sensitivities")
+        imgui.Separator()
+        for stick, &sensitivity in stick_sensitivities {
+            as := build_cstring(stick, &sb, allocator)
             imgui.Text("%s ", as)
             imgui.SameLine()
             slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
