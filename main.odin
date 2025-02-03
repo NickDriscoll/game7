@@ -353,6 +353,7 @@ main :: proc() {
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1,
         farplane = 1_000_000.0,
+        collision_radius = 0.8,
         target = {
             distance = 5.0
         },
@@ -433,7 +434,7 @@ main :: proc() {
         output_verbs := poll_sdl2_events(&input_system)
 
         // Quit if user wants it
-        if output_verbs.bools[.Quit] do do_main_loop = false
+        do_main_loop = !output_verbs.bools[.Quit]
         
         // Process the app verbs that the input system returned to the game
         @static camera_sprint_multiplier : f32 = 5.0
@@ -481,7 +482,7 @@ main :: proc() {
         // Update
 
         @static cpu_limiter_ms : c.int = 100
-        @static smoothing_speed : f32 = 3.0
+        @static smoothing_speed : f32 = 6.0
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
@@ -684,59 +685,42 @@ main :: proc() {
                 }
             }
 
-            //Check if we need to bump ourselves up or down
-            if character.velocity.z <= 0.0 {
-                tolerance_segment := Segment {
-                    start = character.collision.position + {0.0, 0.0, 0.0},
-                    end = character.collision.position + {0.0, 0.0, -character.collision.radius - 0.1}
-                }
-                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                if okt {
-                    character.collision.position = tolerance_point + {0.0, 0.0, character.collision.radius}
-                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        character.velocity.z = 0.0
-                        character.state = .Grounded
-                    }
-                } else {
-                    character.state = .Falling
-                }
-            }
-            
-            // Compute motion interval
-            motion_endpoint := character.collision.position + timescale * last_frame_dt * character.velocity
-            motion_interval := Segment {
-                start = character.collision.position,
-                end = motion_endpoint
-            }
-            
             // Main player character state machine
             switch character.state {
                 case .Grounded: {
+                    //Check if we need to bump ourselves up or down
+                    if character.velocity.z <= 0.0 {
+                        tolerance_segment := Segment {
+                            start = character.collision.position + {0.0, 0.0, 0.0},
+                            end = character.collision.position + {0.0, 0.0, -character.collision.radius - 0.1}
+                        }
+                        tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                        tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
+                        if okt {
+                            character.collision.position = tolerance_point + {0.0, 0.0, character.collision.radius}
+                            if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                                character.velocity.z = 0.0
+                                character.state = .Grounded
+                            }
+                        } else {
+                            character.state = .Falling
+                        }
+                    }
+
+                    // Handle jump command
                     if output_verbs.bools[.PlayerJump] {
                         character.velocity += {0.0, 0.0, character.jump_speed}
                         character.state = .Falling
                     }
 
-                    // Sweep motion to find possible collision
-                    // closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(
-                    //     &character.collision,
-                    //     &game_state.terrain_pieces,
-                    //     &motion_interval
-                    // )
-                    // if hit {
-                    //     //remaining_t := 1.0 - closest_t
-                    //     angle := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
-                    //     if angle < 0.5 {
+                    // Compute motion interval
+                    motion_endpoint := character.collision.position + timescale * last_frame_dt * character.velocity
+                    motion_interval := Segment {
+                        start = character.collision.position,
+                        end = motion_endpoint
+                    }
 
-                    //     } else {
-                    //         character.collision.origin += closest_t * (motion_interval.end - motion_interval.start)
-                    //     }
-                    // } else {
-                    //     character.collision.origin += timescale * last_frame_dt * character.velocity
-                    // }
-
-                    // Stupid way
+                    // Push out of ground
                     p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
                     dist := hlsl.distance(p, character.collision.position)
                     if dist < character.collision.radius {
@@ -757,6 +741,13 @@ main :: proc() {
                     if character.velocity.z < TERMINAL_VELOCITY {
                         character.velocity.z = TERMINAL_VELOCITY
                     }
+            
+                    // Compute motion interval
+                    motion_endpoint := character.collision.position + timescale * last_frame_dt * character.velocity
+                    motion_interval := Segment {
+                        start = character.collision.position,
+                        end = motion_endpoint
+                    }
 
                     // Check if player canceled jump early
                     not_canceled, ok := output_verbs.bools[.PlayerJump]
@@ -776,9 +767,12 @@ main :: proc() {
                         //character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
                         remaining_d := character.collision.radius - d
                         character.collision.position = motion_endpoint + remaining_d * n
-                        if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                        n_dot := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
+                        if n_dot >= 0.5 && character.velocity.z < 0.0 {
                             character.velocity = {}
                             character.state = .Grounded
+                        } else if n_dot < -0.1 && character.velocity.z > 0.0 {
+                            character.velocity.z = 0.0
                         }
                     } else {
                         // Didn't hit anything, falling.
@@ -788,7 +782,8 @@ main :: proc() {
             }
 
             // Camera follow point chases player
-            target_pt := character.collision.position - 0.01 * {character.velocity.x, character.velocity.y, 0.0}
+            target_pt := character.collision.position
+            //target_pt := character.collision.position - 0.01 * {character.velocity.x, character.velocity.y, 0.0}
             
             // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
             game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-smoothing_speed * last_frame_dt))
