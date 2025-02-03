@@ -32,6 +32,7 @@ Camera :: struct {
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
+    collision_radius: f32,
     target: CameraTarget,
     control_flags: CameraFlags,
 }
@@ -169,7 +170,22 @@ camera_update :: proc(
         yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
         pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
-        game_state.viewport_camera.position = game_state.camera_follow_point + pos_offset.xyz
+        desired_position := game_state.camera_follow_point + pos_offset.xyz
+        dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
+        interval := Segment {
+            start = game_state.camera_follow_point,
+            end = desired_position
+        }
+        s := Sphere {
+            position = game_state.camera_follow_point,
+            radius = collision_radius
+        }
+        hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.terrain_pieces[:], &interval)
+        if hit {
+            desired_position = interval.start + hit_t * (interval.end - interval.start)
+        }
+
+        game_state.viewport_camera.position = desired_position
 
         return lookat_view_from_world(&game_state.viewport_camera)
     } else {
@@ -274,10 +290,9 @@ camera_update :: proc(
             }
     
             if game_state.freecam_collision {
-                CAMERA_RADIUS :: 0.8
                 dist := hlsl.distance(camera_collision_point, position)
-                if dist < CAMERA_RADIUS {
-                    diff := CAMERA_RADIUS - dist
+                if dist < game_state.viewport_camera.collision_radius {
+                    diff := game_state.viewport_camera.collision_radius - dist
                     position += diff * hlsl.normalize(position - camera_collision_point)
                 }
             }
