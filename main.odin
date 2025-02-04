@@ -430,6 +430,13 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
+        render_data.cpu_uniforms.clip_from_screen = {
+            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        }
+        render_data.cpu_uniforms.time = f32(vgd.frame_count) / 144
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -787,6 +794,27 @@ main :: proc() {
             
             // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
             game_state.camera_follow_point += (target_pt - game_state.camera_follow_point) * (1.0 - math.exp(-smoothing_speed * last_frame_dt))
+            
+            // Submit character draw
+            y := character.facing
+            z := hlsl.float3 {0.0, 0.0, 1.0}
+            x := hlsl.cross(z, y)
+            rotate_mat := hlsl.float4x4 {
+                x[0], y[0], z[0], 0.0,
+                x[1], y[1], z[1], 0.0,
+                x[2], y[2], z[2], 0.0,
+                0.0, 0.0, 0.0, 1.0,
+            }
+
+            scale : f32 = 1.0
+            ddata := DrawData {
+                world_from_model = uniform_scaling_matrix(scale) * rotate_mat
+            }
+            ddata.world_from_model[3][0] = game_state.character.collision.position.x
+            ddata.world_from_model[3][1] = game_state.character.collision.position.y
+            ddata.world_from_model[3][2] = game_state.character.collision.position.z
+
+            draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
 
         // Camera update
@@ -906,31 +934,6 @@ main :: proc() {
                 }
             }
             draw_ps1_mesh(&vgd, &render_data, &prop.mesh_data, &transform)
-        }
-
-        // Draw test character
-        {
-            using game_state
-
-            y := character.facing
-            z := hlsl.float3 {0.0, 0.0, 1.0}
-            x := hlsl.cross(z, y)
-            rotate_mat := hlsl.float4x4 {
-                x[0], y[0], z[0], 0.0,
-                x[1], y[1], z[1], 0.0,
-                x[2], y[2], z[2], 0.0,
-                0.0, 0.0, 0.0, 1.0,
-            }
-
-            scale : f32 = 1.0
-            ddata := DrawData {
-                world_from_model = uniform_scaling_matrix(scale) * rotate_mat
-            }
-            ddata.world_from_model[3][0] = game_state.character.collision.position.x
-            ddata.world_from_model[3][1] = game_state.character.collision.position.y
-            ddata.world_from_model[3][2] = game_state.character.collision.position.z
-
-            draw_ps1_mesh(&vgd, &render_data, &game_state.character.mesh_data, &ddata)
         }
 
         // Window update
