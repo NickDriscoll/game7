@@ -159,7 +159,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     render_state: RenderingState
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
-    //main_color_attachment_formats : []vk.Format = {vk.Format.B8G8R8A8_SRGB}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
 
     swapchain_format := vk.Format.B8G8R8A8_SRGB
@@ -241,6 +240,23 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         }
         render_state.uniform_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
+    }
+
+    // Initialize the buffer pointers in the uniforms struct
+    {
+        mesh_buffer, _ := vkw.get_buffer(gd, render_state.mesh_buffer)
+        material_buffer, _ := vkw.get_buffer(gd, render_state.material_buffer)
+        instance_buffer, _ := vkw.get_buffer(gd, render_state.instance_buffer)
+        position_buffer, _ := vkw.get_buffer(gd, render_state.positions_buffer)
+        uv_buffer, _ := vkw.get_buffer(gd, render_state.uvs_buffer)
+        color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
+    
+        render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
+        render_state.cpu_uniforms.material_ptr = material_buffer.address
+        render_state.cpu_uniforms.instance_ptr = instance_buffer.address
+        render_state.cpu_uniforms.position_ptr = position_buffer.address
+        render_state.cpu_uniforms.uv_ptr = uv_buffer.address
+        render_state.cpu_uniforms.color_ptr = color_buffer.address
     }
 
     // Create main rendertarget
@@ -701,29 +717,6 @@ render :: proc(
 
     // Update uniforms buffer
     {
-        io := imgui.GetIO()
-        cpu_uniforms.clip_from_screen = {
-            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0
-        }
-        cpu_uniforms.time = f32(gd.frame_count) / 144
-
-        mesh_buffer, _ := vkw.get_buffer(gd, mesh_buffer)
-        material_buffer, _ := vkw.get_buffer(gd, material_buffer)
-        instance_buffer, _ := vkw.get_buffer(gd, instance_buffer)
-        position_buffer, _ := vkw.get_buffer(gd, positions_buffer)
-        uv_buffer, _ := vkw.get_buffer(gd, uvs_buffer)
-        color_buffer, _ := vkw.get_buffer(gd, colors_buffer)
-
-        cpu_uniforms.mesh_ptr = mesh_buffer.address
-        cpu_uniforms.material_ptr = material_buffer.address
-        cpu_uniforms.instance_ptr = instance_buffer.address
-        cpu_uniforms.position_ptr = position_buffer.address
-        cpu_uniforms.uv_ptr = uv_buffer.address
-        cpu_uniforms.color_ptr = color_buffer.address
-
         in_slice := slice.from_ptr(&cpu_uniforms, 1)
         if !vkw.sync_write_buffer(gd, uniform_buffer, in_slice) {
             log.error("Failed to write uniform buffer data")
@@ -733,8 +726,11 @@ render :: proc(
     // Clear dirty flags after checking them
     dirty_flags = {}
     
+    // Bind global index buffer and descriptor set
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
     vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
+
+    // PS1 simple unlit pipeline
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
 
     // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
@@ -760,6 +756,7 @@ render :: proc(
         }
     })
 
+    // Begin renderpass into main internal rendertarget
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
 
     res := main_framebuffer.resolution
@@ -922,7 +919,6 @@ load_gltf_mesh :: proc(
         if !ok {
             log.error("Error loading image from glb")
         }
-        //append(&loaded_glb_images, handle)
         loaded_glb_images[i] = handle
     }
     
@@ -940,7 +936,6 @@ load_gltf_mesh :: proc(
         resize(&index_data, indices_count)
         index_ptr := get_accessor_ptr(primitive.indices, u16)
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
-        //log.debugf("index data: %v", index_data)
     
         // Get vertex data
         position_data: [dynamic]hlsl.float4
@@ -966,8 +961,6 @@ load_gltf_mesh :: proc(
                         pos := position_ptr[i]
                         position_data[i] = {pos.x, pos.y, pos.z, 1.0}
                     }
-    
-                    //log.debugf("Position data: %v", position_data)
                 }
                 case .color: {
                     resize(&color_data, attrib.data.count)
@@ -980,8 +973,6 @@ load_gltf_mesh :: proc(
                         col := color_ptr[i]
                         color_data[i] = {col.x, col.y, col.z, 1.0}
                     }
-                    
-                    //log.debugf("Color data: %v", color_data)
                 }
                 case .texcoord: {
                     resize(&uv_data, attrib.data.count)
