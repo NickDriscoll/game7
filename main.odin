@@ -1007,13 +1007,8 @@ main :: proc() {
                     }
                 }
             })
-    
-            framebuffer: vkw.Framebuffer
-            framebuffer.color_images[0] = swapchain_image_handle
-            framebuffer.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
-            framebuffer.resolution.x = u32(resolution.x)
-            framebuffer.resolution.y = u32(resolution.y)
-            framebuffer.color_load_op = .CLEAR
+
+            framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
 
             // Main render call
             render(&vgd, gfx_cb_idx, &render_data, &game_state.viewport_camera, &framebuffer)
