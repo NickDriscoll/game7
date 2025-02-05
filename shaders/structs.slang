@@ -1,6 +1,6 @@
 
 
-struct MeshData {
+struct StaticMeshData {
     uint position_offset;
     uint uv_offset;
     uint color_offset;
@@ -28,7 +28,7 @@ struct UniformData {
 
     float4x4 clip_from_screen;
 
-    MeshData *mesh_data;
+    StaticMeshData *mesh_data;
     InstanceData *i_data;
 
     MaterialData *mat_data;
