@@ -489,6 +489,17 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, 
     }
 }
 
+swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, resolution: [2]u32) -> vkw.Framebuffer {
+    fb: vkw.Framebuffer
+    fb.color_images[0] = gd.swapchain_images[swapchain_idx]
+    fb.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
+    fb.resolution.x = resolution.x
+    fb.resolution.y = resolution.y
+    fb.color_load_op = .CLEAR
+
+    return fb
+}
+
 create_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^RenderingState,
