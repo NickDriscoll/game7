@@ -547,34 +547,32 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             )
         }
 
-        imgui.Text("Axis sensitivities")
-        imgui.Separator()
-        i := 0
-        for axis, &sensitivity in axis_sensitivities {
-            as := build_cstring(axis, &sb, allocator)
-            imgui.Text("%s ", as)
-            imgui.SameLine()
-            slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
-            ss := strings.clone_to_cstring(slider_id, allocator)
-            strings.builder_reset(&sb)
-            imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
-            
-            i += 1
+        sensitivity_sliders :: proc(
+            label: cstring,
+            sensitivities: ^map[$KeyType]f32,
+            sb: ^strings.Builder,
+            discriminator: ^u32,
+            allocator: runtime.Allocator
+        ) {
+            if len(sensitivities) == 0 do return
+            imgui.Text(label)
+            imgui.Separator()
+            for axis, &sensitivity in sensitivities {
+                as := build_cstring(axis, sb, allocator)
+                imgui.Text("%s ", as)
+                imgui.SameLine()
+                slider_id := fmt.sbprintf(sb, "Sensitivity###%v", discriminator^)
+                ss := strings.clone_to_cstring(slider_id, allocator)
+                strings.builder_reset(sb)
+                imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
+                
+                discriminator^ += 1
+            }
         }
 
-        imgui.Text("Stick sensitivities")
-        imgui.Separator()
-        for stick, &sensitivity in stick_sensitivities {
-            as := build_cstring(stick, &sb, allocator)
-            imgui.Text("%s ", as)
-            imgui.SameLine()
-            slider_id := fmt.sbprintf(&sb, "Sensitivity###%v", i)
-            ss := strings.clone_to_cstring(slider_id, allocator)
-            strings.builder_reset(&sb)
-            imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
-            
-            i += 1
-        }
+        i : u32 = 0
+        sensitivity_sliders("Axis sensitivities", &axis_sensitivities, &sb, &i, allocator)
+        sensitivity_sliders("Stick sensitivities", &stick_sensitivities, &sb, &i, allocator)
     }
     imgui.End()
 }
