@@ -85,6 +85,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         usage = {.STORAGE_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
+        name = "ImGUI vertex buffer",
     }
     imgui_state.vertex_buffer = vkw.create_buffer(gd, &buffer_info)
 
@@ -94,6 +95,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
         usage = {.INDEX_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
+        name = "ImGUI index buffer",
     }
     imgui_state.index_buffer = vkw.create_buffer(gd, &buffer_info)
 
@@ -104,6 +106,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
+            name = "ImGUI uniform buffer",
         }
         imgui_state.uniform_buffer = vkw.create_buffer(gd, &info)
     }
