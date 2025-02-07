@@ -180,6 +180,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             usage = {.INDEX_BUFFER, .TRANSFER_DST},
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL},
+            name = "Global index buffer",
         }
         render_state.index_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
@@ -193,26 +194,32 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             required_flags = {.DEVICE_LOCAL},
         }
 
+        info.name = "Global vertex positions buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         render_state.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global vertex UVs buffer"
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
         render_state.uvs_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uvs_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global vertex colors buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         render_state.colors_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global mesh data buffer"
         info.size = size_of(GPUMeshData) * MAX_GLOBAL_MESHES
         render_state.mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.mesh_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global material buffer"
         info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
         render_state.material_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global instance buffer"
         info.size = size_of(GPUInstanceData) * MAX_GLOBAL_INSTANCES
         render_state.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
@@ -225,6 +232,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
+            name = "Indirect draw buffer"
         }
         render_state.draw_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
@@ -237,6 +245,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
+            name = "Global uniforms buffer"
         }
         render_state.uniform_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
