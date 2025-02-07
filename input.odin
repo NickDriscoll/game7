@@ -39,6 +39,7 @@ VerbType :: enum {
     TranslateFreecamX,
     TranslateFreecamY,
     RotateCamera,
+    CameraFollowDistance,
 
     Sprint,
     Crawl,
@@ -74,6 +75,7 @@ InputSystem :: struct {
     key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
+    wheel_mappings: map[u32]VerbType,
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
     stick_mappings: map[ControllerStickAxis]VerbType,
 
@@ -110,6 +112,11 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
         log.errorf("Error making stick map: %v", err2)
     }
 
+    wheel_mappings, err8 := make(map[u32]VerbType, 64)
+    if err8 != nil {
+        log.errorf("Error making wheel map: %v", err2)
+    }
+
     axis_sensitivities, err5 := make(map[sdl2.GameControllerAxis]f32, 8)
     if err5 != nil {
         log.errorf("Error making axis sensitivity map: %v", err2)
@@ -124,17 +131,13 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
+    // 0 bc there's just one mouse wheel... right?
+    wheel_mappings[0] = .CameraFollowDistance
+
     // Hardcoded axis mappings
-    // axis_mappings[.LEFTX] = .TranslateFreecamX
-    // axis_mappings[.LEFTY] = .TranslateFreecamY
-    // axis_mappings[.LEFTX] = .PlayerTranslateX
-    // axis_mappings[.LEFTY] = .PlayerTranslateY
-    // axis_mappings[.RIGHTX] = .RotateFreecamX
-    // axis_mappings[.RIGHTY] = .RotateFreecamY
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
     // Stick sensitivities
-    //stick_sensitivities[.Left] = 5.0
     stick_sensitivities[.Right] = 5.0
 
     // Hardcoded button mappings
@@ -150,6 +153,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
         key_mappings = init_key_bindings,
         mouse_mappings = mouse_mappings,
         button_mappings = button_mappings,
+        wheel_mappings = wheel_mappings,
         axis_mappings = axis_mappings,
         stick_mappings = stick_mappings,
         reverse_axes = {.LEFTY},
@@ -163,15 +167,12 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
 destroy_input_system :: proc(using s: ^InputSystem) {
     delete(mouse_mappings)
     delete(button_mappings)
+    delete(wheel_mappings)
     delete(axis_mappings)
     delete(axis_sensitivities)
     delete(stick_mappings)
     delete(stick_sensitivities)
     if controller_one != nil do sdl2.GameControllerClose(controller_one)
-}
-
-default_axis_mappings :: proc(using s: ^InputSystem) {
-
 }
 
 replace_keybindings :: proc(using s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
@@ -299,7 +300,12 @@ poll_sdl2_events :: proc(
                 int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
-                log.info(event.wheel.which)
+                log.debugf("Scrolled %v", event.wheel.y)
+                verbtype, found := wheel_mappings[event.wheel.which]
+                if found {
+                    old := floats[verbtype]
+                    floats[verbtype] = old + f32(event.wheel.y)
+                }
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
             }
             case .CONTROLLERDEVICEADDED: {
