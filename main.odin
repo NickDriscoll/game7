@@ -355,7 +355,7 @@ main :: proc() {
         farplane = 1_000_000.0,
         collision_radius = 0.8,
         target = {
-            distance = 5.0
+            distance = 8.0
         },
         control_flags = {.Follow}
     }

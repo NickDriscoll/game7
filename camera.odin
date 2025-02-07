@@ -147,6 +147,9 @@ camera_update :: proc(
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
+        target.distance -= output_verbs.floats[.CameraFollowDistance]
+        target.distance = math.clamp(target.distance, 1.0, 100.0)
+
         game_state.viewport_camera.target.position = game_state.camera_follow_point
 
         camera_rotation += output_verbs.float2s[.RotateCamera] * dt
