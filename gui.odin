@@ -102,9 +102,9 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     // Create uniform buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(ImguiUniforms),
+            size = size_of(ImguiUniforms) * FRAMES_IN_FLIGHT,
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = nil,
+            alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "ImGUI uniform buffer",
         }
@@ -295,6 +295,7 @@ render_imgui :: proc(
     framebuffer: ^vkw.Framebuffer
 ) {
     imgui.EndFrame()
+    frame_idx := gd.frame_count % FRAMES_IN_FLIGHT
 
     // Update uniform buffer
     
@@ -307,7 +308,7 @@ render_imgui :: proc(
         0.0, 0.0, 0.0, 1.0,
     }
     u_slice := slice.from_ptr(&uniforms, 1)
-    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice)
+    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice, u32(frame_idx))
 
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
@@ -347,7 +348,6 @@ render_imgui :: proc(
     // Compute a fixed vertex/index offset based on frame index
     // so that the CPU doesn't overwrite vertex data for a frame currently
     // being worked on
-    frame_idx := gd.frame_count % FRAMES_IN_FLIGHT
     global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES / FRAMES_IN_FLIGHT)
     global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES / FRAMES_IN_FLIGHT)
     local_vtx_offset : u32 = 0
@@ -384,8 +384,9 @@ render_imgui :: proc(
                 font_idx = tex_handle.index,
                 sampler = .Point,
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
-                uniform_data = uniform_buf.address,
+                uniform_data = uniform_buf.address + vk.DeviceAddress(frame_idx * size_of(ImguiUniforms)),
                 vertex_data = imgui_vertex_buffer.address,
+                //vertex_data = imgui_vertex_buffer.address + vk.DeviceAddress(global_vtx_offset),
             })
 
             vkw.cmd_draw_indexed(
