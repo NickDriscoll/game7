@@ -81,7 +81,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
-        size = MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
+        size = FRAMES_IN_FLIGHT * MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
         usage = {.STORAGE_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
@@ -91,7 +91,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
 
     // Allocate imgui index buffer
     buffer_info = vkw.Buffer_Info {
-        size = MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
+        size = FRAMES_IN_FLIGHT * MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
         usage = {.INDEX_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
@@ -348,8 +348,8 @@ render_imgui :: proc(
     // Compute a fixed vertex/index offset based on frame index
     // so that the CPU doesn't overwrite vertex data for a frame currently
     // being worked on
-    global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES / FRAMES_IN_FLIGHT)
-    global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES / FRAMES_IN_FLIGHT)
+    global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES)
+    global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES)
     local_vtx_offset : u32 = 0
     local_idx_offset : u32 = 0
 
@@ -386,7 +386,6 @@ render_imgui :: proc(
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
                 uniform_data = uniform_buf.address + vk.DeviceAddress(frame_idx * size_of(ImguiUniforms)),
                 vertex_data = imgui_vertex_buffer.address,
-                //vertex_data = imgui_vertex_buffer.address + vk.DeviceAddress(global_vtx_offset),
             })
 
             vkw.cmd_draw_indexed(
