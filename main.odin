@@ -406,7 +406,7 @@ main :: proc() {
     free_all(context.temp_allocator)
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
-    previous_time := time.time_add(current_time, time.Duration(-1)) //current_time - time.Time{_nsec = 1}
+    previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
     limit_cpu := false
     
     log.info("App initialization complete. Entering main loop")
