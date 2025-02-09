@@ -2,12 +2,14 @@
 
 struct StaticMeshData {
     uint position_offset;
+    uint face_normals_offset;
     uint uv_offset;
     uint color_offset;
 }
 
 struct InstanceData {
     float4x4 world_from_model;
+    float4x4 normal_matrix;
     uint mesh_idx;
     uint material_idx;
     uint2 _pad0;
@@ -33,9 +35,11 @@ struct UniformData {
 
     MaterialData *mat_data;
     float4 *position_data;
+    float4 *face_normals_data;
     
     float2 *uv_data;
     float4 *color_data;
+    uint _pad0;
     
     // Periodic time value
     float time;

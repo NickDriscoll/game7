@@ -364,6 +364,7 @@ main :: proc() {
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     game_state.camera_follow_point = game_state.character.collision.position
+    game_state.camera_follow_speed = 6.0
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
     defer delete(freecam_key_mappings)
@@ -490,7 +491,6 @@ main :: proc() {
         // Update
 
         @static cpu_limiter_ms : c.int = 100
-        @static smoothing_speed : f32 = 6.0
         
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
@@ -517,7 +517,7 @@ main :: proc() {
                     }
                 }
                 imgui.SliderFloat("Camera follow distance", &target.distance, 1.0, 20.0)
-                imgui.SliderFloat("Camera smoothing speed", &smoothing_speed, 0.1, 50.0)
+                imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
 
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision

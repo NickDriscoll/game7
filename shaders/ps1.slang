@@ -14,6 +14,8 @@ cbuffer push_constants {
     uint sampler_idx;
 }
 
+static const float3 SUNLIGHT = normalize(float3(1.0, 1.0, 1.0));
+
 // @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
 
@@ -49,6 +51,11 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
+    StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
+    float4 face_normal = mul(inst.normal_matrix, u_data.face_normals_data[primitive_id + mesh.face_normals_offset]);
+
+    float diffuse_contribution = max(0.15, dot(normalize(face_normal.xyz), SUNLIGHT));
+
     float4 vtx_color = input.color;
 
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
@@ -56,5 +63,5 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
 
-    return vtx_color * color_sample * material.base_color;
+    return float4(diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb, 1.0);
 }
