@@ -32,8 +32,10 @@ UniformBufferData :: struct {
     instance_ptr: vk.DeviceAddress,
     material_ptr: vk.DeviceAddress,
     position_ptr: vk.DeviceAddress,
+    face_normal_ptr: vk.DeviceAddress,
     uv_ptr: vk.DeviceAddress,
     color_ptr: vk.DeviceAddress,
+    _pad0: u32,
     time: f32,
     distortion_strength: f32,
 }
@@ -57,6 +59,7 @@ CPUMeshData :: struct {
 
 GPUMeshData :: struct {
     position_offset: u32,
+    face_normals_offset: u32,
     uv_offset: u32,
     color_offset: u32,
 }
@@ -81,7 +84,7 @@ InstanceData :: struct {
 
 GPUInstanceData :: struct {
     world_from_model: hlsl.float4x4,
-    // normal_matrix: hlsl.float4x4, // cofactor matrix of above
+    normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
     material_idx: u32,
     _pad0: hlsl.uint2,
@@ -120,6 +123,9 @@ RenderingState :: struct {
 
     colors_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex colors
     colors_head: u32,
+
+    triangle_normals_buffer: vkw.Buffer_Handle,
+    triangle_normals_head: u32,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
@@ -209,6 +215,10 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.colors_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global triangle normals buffer"
+        info.size = size_of(hlsl.float4) * MAX_GLOBAL_INDICES
+        render_state.triangle_normals_buffer = vkw.create_buffer(gd, &info)
+
         info.name = "Global mesh data buffer"
         info.size = size_of(GPUMeshData) * MAX_GLOBAL_MESHES
         render_state.mesh_buffer = vkw.create_buffer(gd, &info)
@@ -257,6 +267,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         material_buffer, _ := vkw.get_buffer(gd, render_state.material_buffer)
         instance_buffer, _ := vkw.get_buffer(gd, render_state.instance_buffer)
         position_buffer, _ := vkw.get_buffer(gd, render_state.positions_buffer)
+        face_normals_buffer, _ := vkw.get_buffer(gd, render_state.triangle_normals_buffer)
         uv_buffer, _ := vkw.get_buffer(gd, render_state.uvs_buffer)
         color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
     
@@ -264,6 +275,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.cpu_uniforms.material_ptr = material_buffer.address
         render_state.cpu_uniforms.instance_ptr = instance_buffer.address
         render_state.cpu_uniforms.position_ptr = position_buffer.address
+        render_state.cpu_uniforms.face_normal_ptr = face_normals_buffer.address
         render_state.cpu_uniforms.uv_ptr = uv_buffer.address
         render_state.cpu_uniforms.color_ptr = color_buffer.address
     }
@@ -559,6 +571,23 @@ create_mesh :: proc(
     return handle
 }
 
+add_face_normals :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^RenderingState,
+    handle: Mesh_Handle,
+    normals: []hlsl.float4
+) -> bool {
+    normals_start := triangle_normals_head
+    normals_len := u32(len(normals))
+
+    triangle_normals_head += normals_len
+
+    gpu_mesh := &gpu_meshes[handle.index]
+    gpu_mesh.face_normals_offset = normals_start
+
+    return vkw.sync_write_buffer(gd, triangle_normals_buffer, normals, normals_start)
+}
+
 add_vertex_colors :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^RenderingState,
@@ -675,6 +704,7 @@ render :: proc(
         for inst in cpu_instances {
             g_inst := GPUInstanceData {
                 world_from_model = inst.world_from_model,
+                normal_matrix = hlsl.cofactor(inst.world_from_model),
                 mesh_idx = inst.mesh_handle.index,
                 material_idx = inst.material_handle.index
             }
@@ -1005,10 +1035,28 @@ load_gltf_mesh :: proc(
                 }
             }
         }
+
+        // Compute triangle face normals
+        face_normals := make([dynamic]hlsl.float4, indices_count / 3, context.temp_allocator)
+        defer delete(face_normals)
+        for j := 0; j < len(index_data); j += 3 {
+            i0 := index_data[j]
+            i1 := index_data[j + 1]
+            i2 := index_data[j + 2]
+
+            a : hlsl.float3 = position_data[i0].xyz
+            b : hlsl.float3 = position_data[i1].xyz
+            c : hlsl.float3 = position_data[i2].xyz
+            n := hlsl.normalize(hlsl.cross(b - a, c - a))
+
+            out_idx := j / 3
+            face_normals[out_idx] = {n.x, n.y, n.z, 0.0}
+        }
     
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
         mesh_handle := create_mesh(gd, render_data, position_data[:], index_data[:])
+        add_face_normals(gd, render_data, mesh_handle, face_normals[:])
         if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
         if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
 
