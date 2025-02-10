@@ -340,7 +340,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
 
         raster_state := vkw.default_rasterization_state()
-        raster_state.cull_mode = nil
 
         pipeline_infos := make([dynamic]vkw.Graphics_Pipeline_Info, context.temp_allocator)
 
