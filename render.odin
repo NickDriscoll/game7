@@ -159,6 +159,10 @@ RenderingState :: struct {
 
     // Main render target
     main_framebuffer: vkw.Framebuffer,
+
+    // Main viewport dimensions
+    // Updated every frame with respect to the ImGUI dockspace's central node
+    viewport_dimensions: [4]f32,
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
@@ -669,7 +673,7 @@ render :: proc(
     gfx_cb_idx: vkw.CommandBuffer_Index,
     using r: ^RenderingState,
     viewport_camera: ^Camera,
-    framebuffer: ^vkw.Framebuffer
+    framebuffer: ^vkw.Framebuffer,
 ) {
     // Sync CPU and GPU buffers
 
@@ -810,10 +814,10 @@ render :: proc(
 
     res := main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        x = 0.0,
-        y = 0.0,
-        width = f32(res.x),
-        height = f32(res.y),
+        x = viewport_dimensions[0],
+        y = viewport_dimensions[1],
+        width = viewport_dimensions[2],
+        height = viewport_dimensions[3],
         minDepth = 0.0,
         maxDepth = 1.0
     }})
@@ -872,6 +876,15 @@ render :: proc(
             }
         }
     )
+
+    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+        x = 0.0,
+        y = 0.0,
+        width = f32(res.x),
+        height = f32(res.y),
+        minDepth = 0.0,
+        maxDepth = 1.0
+    }})
     
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, postfx_pipeline)

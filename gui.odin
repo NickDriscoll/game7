@@ -33,6 +33,7 @@ ImguiState :: struct {
     uniform_buffer: vkw.Buffer_Handle,
     pipeline: vkw.Pipeline_Handle,
     show_gui: bool,
+    dockspace_id: u32,
 }
 
 imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiState {
@@ -181,12 +182,12 @@ begin_gui :: proc(using state: ^ImguiState) {
         imgui.SetNextWindowPos(window_viewport.WorkPos)
         imgui.SetNextWindowSize(window_viewport.WorkSize)
         if imgui.Begin("Main dock window", flags = dock_window_flags) {
-            id := imgui.GetID("Main dockspace")
+            dockspace_id = imgui.GetID("Main dockspace")
             flags := imgui.DockNodeFlags {
                 .NoDockingOverCentralNode,
                 .PassthruCentralNode,
             }
-            imgui.DockSpaceOverViewport(id, window_viewport, flags = flags)
+            imgui.DockSpaceOverViewport(dockspace_id, window_viewport, flags = flags)
         }
         imgui.End()
     }
