@@ -42,11 +42,11 @@ This project allows you to compile ImGui backends alongside imgui itself, which 
 Bindings have been written for a subset of the backends provided by ImGui
  - You can see if a backend is supported by checking the `backends` table in `build.py`.
  - If a backend is supported it means that:
-	- Bindings have been written to `imgui_impl.odin`
-	- It has been successfully compiled in the latest revision, for both supported branches.
+	- Bindings have been written in `imgui_impl_xyz/`
+	- It has been successfully compiled and run in one of the `examples/`
  - Some backends have external dependencies. These will automatically be cloned into `backend_deps` if necessary.
  - You can enable a backend by adding it to `wanted_backends`
- - You can enable backends not officially supported. (If it works, please MR!)
+ - You can enable backends not officially supported.
 
 ### `compile_debug`
 If set to true, will compile with debug flags
@@ -87,13 +87,9 @@ It seems likely to me that SDL3, and maybe Android will exist in vendor in the f
 The Dear ImGui commits which have been tested against are listed in `build.py`.
 You can mess with these all you want and see if it works.
 
-When updating, a new commit should be chosen for `master` which is right before `master` was merged into `docking`. The `docking` commit should be the following merge commit.
-Additionally, when updating, all backends in `imgui_impl.odin` should be checked for new commits, and updated where necessary.
-
-## Coming soon
- - Respect defines from `imconfig.h`
- - Generate functions to restore overloads from `imgui.h` C++ header.
- - Helper file to work with ImGui in a way that is more Odin-ey
+To update:
+ - Use next `docking` tag in `build.py` (eg. if current tag is `v1.91.1-docking`, then take `v1.91.2-docking`)
+ - Go over all `imgui_impl_xyz` files, check if they have changes on dear imgui, then update the "last update" comment.
 
 ## Help wanted!
 
@@ -103,4 +99,4 @@ Additionally, when updating, all backends in `imgui_impl.odin` should be checked
 	- Vulkan - This is implicitly tested against my own private project, but it would be good to have an example.
 	- Win32 - This should be quite easy, I just haven't had the time.
 	- DX12 - I'm not a DX12 expert, and this is one of the more complicated examples.
-	- All apple examples
+	- The remaining Apple examples

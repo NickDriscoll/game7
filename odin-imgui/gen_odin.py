@@ -19,6 +19,8 @@ from os import path
 # @(link_name) Should be avoided where possible to reduce noise
 # Investigate whether Ex functions can be removed in favor of actually respecting default args and proc groups
 
+g_has_imgui_internal_and_is_not_in_imgui_internal = False
+
 # HELPERS
 def nice_stack(start: int = 0):
 	i = start + 1
@@ -90,8 +92,22 @@ def try_eval(string: str):
 
 	return str_to_int(string)
 
+# returns [chomped string, ok]
+def _chomp(prefix: str, string: str) -> [str, bool]:
+	if string.startswith(prefix):
+		return [string.removeprefix(prefix), True]
+	return [string, False]
+
+# returns [chomped string, found string, ok]
+def _chomp_until(until: str, string: str) -> [str, str, bool]:
+	pos = string.find(until)
+	if pos == -1:
+		return [string, "", False]
+
+	return [string[pos:], string[:pos+len(until)-1], True]
+
 _disallowed_identifiers = [
-	"in", # Odin keyword
+	"in", "context", # Odin keywords
 	"c", # Shadows import "core:c"
 ]
 
@@ -162,7 +178,7 @@ _type_aliases = {
 
 	"size_t": "c.size_t",
 
-	"va_list": "libc.va_list",
+	"FILE": "libc.FILE"
 }
 
 _pointer_aliases = {
@@ -185,7 +201,7 @@ def peek_named_type(type_desc) -> str:
 def parse_type(type_dict, in_function=False) -> str:
 	if "type_details" in type_dict:
 		details = type_dict["type_details"]
-		assert(details["flavour"] == "function_pointer")
+		assert details["flavour"] == "function_pointer"
 
 		return function_to_string(details)
 
@@ -257,11 +273,13 @@ def get_array_count(type_desc) -> str:
 	if bounds_value in _imgui_bounds_value_overrides:
 		return _imgui_bounds_value_overrides[bounds_value]
 
+	if bounds_value in processed_defines: return define_strip_prefix(bounds_value)
+
 	enum_value = try_convert_enum_literal(bounds_value)
 	if enum_value != None:
 		return enum_value
 
-	print(f'Couldn\'t parse array bounds "{bounds_value}"')
+	die(f'Couldn\'t parse array bounds "{bounds_value}"')
 
 	return None
 
@@ -307,32 +325,36 @@ def convert_imvec_value(value: str, components: int) -> str:
 	return "{" + ", ".join(values) + "}"
 
 def make_value_odiney(value: str, type_hint: str = None) -> str:
-	if value.endswith("f"): return value.removesuffix("f")
+	if value == "IM_COL32(255, 0, 0, 255)": return "u32(0xff0000ff)" # joyous world
 	if value in _odin_value_aliases: return _odin_value_aliases[value]
 	if type_hint == "Vec2": return convert_imvec_value(value, 2)
 	if type_hint == "Vec4": return convert_imvec_value(value, 4)
+	# TODO: This is almost certainly not the right place to do this
+	if strip_imgui_branding(value) != value: return strip_imgui_branding(value)
+	if value.endswith("f"): return value.removesuffix("f")
 
 	if value == "0" and not type_is_int(type_hint): return "{}"
 
 	return value
 
 # HEADER
-def write_header(file: typing.IO):
-	write_line(file, """package imgui
+def write_global_header(file: typing.IO):
+	write_line(file, "package imgui")
 
+def write_import_header(file: typing.IO):
+	write_line(file, """
 import "core:c"
+import "core:c/libc"
+_ :: libc
 
+when ODIN_OS == .Linux || ODIN_OS == .Darwin { @(require) foreign import stdcpp { "system:c++" } }
 when      ODIN_OS == .Windows { when ODIN_ARCH == .amd64 { foreign import lib "imgui_windows_x64.lib" } else { foreign import lib "imgui_windows_arm64.lib" } }
 else when ODIN_OS == .Linux   { when ODIN_ARCH == .amd64 { foreign import lib "imgui_linux_x64.a" }     else { foreign import lib "imgui_linux_arm64.a" } }
-else when ODIN_OS == .Darwin  {
-	when ODIN_ARCH == .amd64 {
-		foreign import lib { "imgui_darwin_x64.a", "system:c++" }
-	} else {
-		foreign import lib { "imgui_darwin_arm64.a", "system:c++" }
-	}
-}
+else when ODIN_OS == .Darwin  { when ODIN_ARCH == .amd64 { foreign import lib "imgui_darwin_x64.a" }    else { foreign import lib "imgui_darwin_arm64.a" } }
+""")
 
-CHECKVERSION :: proc() {
+def write_main_file_header(file: typing.IO):
+	write_line(file, """CHECKVERSION :: proc() {
 	DebugCheckVersionAndDataLayout(VERSION, size_of(IO), size_of(Style), size_of(Vec2), size_of(Vec4), size_of(DrawVert), size_of(DrawIdx))
 }""")
 
@@ -397,7 +419,7 @@ def write_aligned_fields(file: typing.IO, aligned_fields, indent = 0):
 # To add something to this list, it needs to be defined 100% of the time.
 # This for now means that we cannot emit defines such as IMGUI_HAS_VIEWPORT
 # They should also not be ambiguous like IM_COL32_R_SHIFT obviously.
-_emitted_defines = [
+_defines_to_emit = [
 	"IMGUI_VERSION",
 	"IMGUI_VERSION_NUM",
 	"IMGUI_PAYLOAD_TYPE_COLOR_3F",
@@ -405,12 +427,13 @@ _emitted_defines = [
 	"IM_UNICODE_CODEPOINT_INVALID",
 	"IM_UNICODE_CODEPOINT_MAX",
 	"IM_DRAWLIST_TEX_LINES_WIDTH_MAX",
+	"IM_DRAWLIST_ARCFAST_TABLE_SIZE",
 ]
 
 # Defines which are allowed to be defined in imconfig.h
 _allowed_user_defines = [
 	# A bug in dear_imgui struct fields causes these two defines to behave incorrectly
-	# "IMGUI_DISABLE_OBSOLETE_FUNCTIONS",
+	"IMGUI_DISABLE_OBSOLETE_FUNCTIONS",
 	# "IMGUI_DISABLE_OBSOLETE_KEYIO",
 	"IMGUI_USE_WCHAR32",
 ]
@@ -427,11 +450,27 @@ _allowed_ifdef = [
 	"ImTextureID", # Concrete type overridden by user. Hard to deal with in Odin, so for now should not be set up by user
 	"ImDrawIdx", # Concrete type overridden by user. Hard to deal with in Odin, so for now should not be set up by user
 	"ImDrawCallback", # Concrete type overridden by user. Hard to deal with in Odin, so for now should not be set up by user
+	# TODO: These were enabled to make imgui_internal.h to work, without thinking very hard about whether this was a good idea
+	"IMGUI_ENABLE_TEST_ENGINE",
+	"IMGUI_HAS_DOCK",
+	"IMGUI_DISABLE_FILE_FUNCTIONS",
+	"IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS",
+	"IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS",
+	"IMGUI_ENABLE_SSE",
+	"IM_DRAWLIST_ARCFAST_TABLE_SIZE",
+	"IMGUI_ENABLE_STB_TRUETYPE",
+	"IMGUI_ENABLE_FREETYPE",
 ]
+
+_define_overrides = {
+	"IMGUI_ENABLE_SSE": False,
+}
 
 # Defines to process whatsoever
 _defines_to_process = []
-for define in (_emitted_defines + _allowed_user_defines + _allowed_ifdef):
+for define in (_defines_to_emit + _allowed_user_defines + _allowed_ifdef):
+	if not define in _defines_to_process: _defines_to_process.append(define)
+for define in _define_overrides.keys():
 	if not define in _defines_to_process: _defines_to_process.append(define)
 
 # Evaluated define and value
@@ -446,33 +485,23 @@ def _ifdef(define: str) -> bool:
 def condition_ifdef(condition_str) -> bool:
 	return _ifdef(condition_str)
 
-# returns [chomped string, ok]
-def _chomp(prefix: str, string: str) -> [str, bool]:
-	if string.startswith(prefix):
-		return [string.removeprefix(prefix), True]
-	return [string, False]
-
-# returns [chomped string, found string, ok]
-def _chomp_until(until: str, string: str) -> [str, str, bool]:
-	pos = string.find(until)
-	if pos == -1:
-		return [string, "", False]
-
-	return [string[pos:], string[:pos+len(until)-1], True]
-
 def condition_if(expression_str) -> bool:
 	# This is hardcoded for the path where we have [optional !, defined(, some_def, ), optional &&] and repeat
-	while len(expression_str) > 0:
-		[expression_str, invert] = _chomp("!", expression_str)
-		[expression_str, ok] = _chomp("defined(", expression_str)
-		assert ok
-		[expression_str, found_str, ok] = _chomp_until(")", expression_str)
-		assert ok
-		[expression_str, ok] = _chomp(")", expression_str)
-		assert ok
-		if _ifdef(found_str) == invert: return False
-		[expression_str, ok] = _chomp("&&", expression_str)
-		if ok: assert len(expression_str) > 0
+	try:
+		while len(expression_str) > 0:
+			[expression_str, invert] = _chomp("!", expression_str)
+			[expression_str, ok] = _chomp("defined(", expression_str)
+			assert ok
+			[expression_str, found_str, ok] = _chomp_until(")", expression_str)
+			assert ok
+			[expression_str, ok] = _chomp(")", expression_str)
+			assert ok
+			if _ifdef(found_str) == invert: return False
+			[expression_str, ok] = _chomp("&&", expression_str)
+			if ok: assert len(expression_str) > 0
+	except:
+		die(f"Failed to parse expression_str: '{expression_str}'")
+		return False
 
 def passes_conditionals(thing_with_conditionals) -> bool:
 	if not "conditionals" in thing_with_conditionals: return True
@@ -505,23 +534,32 @@ def define_strip_prefix(name: str) -> str:
 
 	return name
 
-def parse_and_write_defines(file: typing.IO, defines):
+def ingest_and_write_defines(file: typing.IO, defines):
 	write_section(file, "Defines")
 	aligned = []
 
 	for define in defines:
-		if not define["name"] in _defines_to_process: continue
-		is_user_define = not define["source_location"]["filename"].endswith("imgui.h")
-		if not passes_conditionals(define): continue
+		define_name = define["name"]
+		if not define_name in _defines_to_process: continue
 
-		if is_user_define:
-			if not define["name"] in _allowed_user_defines: die("Disallowed user define '" + define["name"] + "'")
+		if define_name in _define_overrides:
+			processed_defines[define_name] = _define_overrides[define_name]
+		else:
+			is_user_define = define["source_location"]["filename"].endswith("imconfig.h")
+			if not passes_conditionals(define):
+				assert not is_user_define # Why you ifdef-ing in imconfig....
+				continue
 
-		if define["name"] in processed_defines: die("Define '" + define["name"] + "' already defined! This is almost certainly not correct")
-		processed_defines[define["name"]] = define.get("content", "")
+			if is_user_define and not define_name in _allowed_user_defines:
+				die("Disallowed user define '" + define_name + "'")
 
-		if define["name"] in _emitted_defines:
-			append_aligned_field(aligned, [define_strip_prefix(define["name"]), f' :: {define.get("content", "true")}'], define)
+			if define_name in processed_defines:
+				die("Define '" + define_name + "' already defined! This is almost certainly not correct")
+			else:
+				processed_defines[define_name] = define.get("content", "")
+
+		if define_name in _defines_to_emit:
+			append_aligned_field(aligned, [define_strip_prefix(define_name), f' :: {define.get("content", "true")}'], define)
 
 	write_aligned_fields(file, aligned)
 
@@ -575,7 +613,6 @@ def enum_parse_flag_combination(value: str, expected_prefix: str) -> typing.List
 	return combined_enums
 
 def write_enum_as_flags(file, enum, enum_field_prefix, name):
-
 	aligned_enums = []
 	aligned_flags = []
 
@@ -644,37 +681,36 @@ def write_enum_as_constants(file, enum, enum_field_prefix, name):
 	write_aligned_fields(file, aligned)
 	write_line(file)
 
-def write_enum(file: typing.IO, enum, enum_field_prefix: str, name: str, stop_after: str):
-	write_line(file, f'{name} :: enum c.int {{')
+def write_enum(file: typing.IO, enum, enum_field_prefix: str, name: str):
+	write_line_with_comments(file, f'{name} :: enum c.int {{', enum)
 
-	stop_comment = ""
+	prev_value = -1 # This is a hack as we elide value expressions if our value == prev_value + 1
+
+	aligned = []
 
 	for element in enum["elements"]:
 		if not passes_conditionals(element): continue
 
-		field_base_name = element["name"]
-		# SEE: _imgui_enum_stop_after
-		if field_base_name == stop_after:
-			stop_comment = "// "
-			write_line(file, "\t// Some of the next enum values are self referential, which currently causes issues")
-			write_line(file, "\t// Search for this in the generator for more info.")
+		assert isinstance(element["value"], int)
+		value_is_implicit = element["value"] == prev_value + 1
 
+		field_base_name = element["name"]
 		field_name = enum_parse_field_name(field_base_name, enum_field_prefix)
 		field_name = make_identifier_valid(field_name)
 
-		if "value_expression" in element:
-			base_value = element["value_expression"]
-			value = enum_parse_value(base_value, name, enum_field_prefix)
-			write_line(file, f'\t{stop_comment}{field_name} = {value},')
+		if value_is_implicit:
+			append_aligned_field(aligned, [f'{field_name},'], element)
 		else:
-			write_line(file, f'\t{stop_comment}{field_name},')
+			append_aligned_field(aligned, [f'{field_name} = {element["value"]},'], element)
 
+		prev_value = element["value"]
+
+	write_aligned_fields(file, aligned, 1)
 	write_line(file, "}")
 	write_line(file)
 
 _imgui_enum_as_constants = [
-	# These flags use the lower four bits to encode button index, and the rest
-	# other flags.
+	# This flag type is initialized from `1` in default args. Which we can't do in Odin
 	"ImGuiPopupFlags_",
 	# These initialize elements with elements with elements... or whatever.
 	# This can be solved by figuring out which of the elements are an actual bitmask
@@ -682,22 +718,26 @@ _imgui_enum_as_constants = [
 	"ImDrawFlags_",
 	"ImGuiHoveredFlags_",
 	# This one is special, because it doesn't actually define a single flag of its own...
-	# It's also deprecated
-	"ImDrawCornerFlags_",
+	# It's also deprecated TODO: seems to be fixed!
+	# "ImDrawCornerFlags_",
+	# These are made constants as one of their fields are used as default args in procs
+	"ImGuiNavHighlightFlags_",
+	"ImGuiTypingSelectFlags_",
 ]
 
 _imgui_enum_skip = [
 	# This is both deprecated, and also depends on weirdly scoped enums in `Key`
-	"ImGuiModFlags_",
+	"ImGuiModFlags_", # TODO: seems to be fixed!
+	# These are skipped only to get an MVP version of imgui_internal.h up..
+	"ImGuiDockNodeFlagsPrivate_",
+	"ImGuiHoveredFlagsPrivate_",
+	"ImGuiButtonFlagsPrivate_",
+	"ImGuiInputFlagsPrivate_",
+	"ImGuiDataTypePrivate_",
+	"ImGuiItemFlagsPrivate_",
+	"ImGuiTreeNodeFlagsPrivate_",
+	"ImGuiTabItemFlagsPrivate_",
 ]
-
-# Odin can't do self referential enums. Where this is the case, we need to remove
-# both the self referential enums, as well as the following enum elements
-# (as they may depend on the previous element value)
-_imgui_enum_stop_after = {
-	"ImGuiKey": "ImGuiKey_NamedKey_BEGIN",
-	"ImGuiCol_": "ImGuiCol_TabActive",
-}
 
 def write_enums(file: typing.IO, enums):
 	write_section(file, "Enums")
@@ -719,10 +759,7 @@ def write_enums(file: typing.IO, enums):
 			else:
 				write_enum_as_flags(file, enum, enum_field_prefix, name)
 		else:
-			stop_after = None
-			if entire_name in _imgui_enum_stop_after:
-				stop_after = _imgui_enum_stop_after[entire_name]
-			write_enum(file, enum, enum_field_prefix, name, stop_after)
+			write_enum(file, enum, enum_field_prefix, name)
 
 # STRUCTS
 
@@ -732,20 +769,38 @@ _imgui_struct_override = {
 	"ImVec4": "Vec4 :: [4]f32",
 }
 
+# Struct fields which are the same identifier as a type.
+# TODO[TS]: This can be fixed properly, by stringifying all the field types,
+# then checking that our field name is not in that list.
 _imgui_struct_field_name_override = {
-	# We have a field called `ID` of type `ID`. In Odin, field names can not
-	# have the same identifier as a type in the same struct.
-	# TODO[TS]: This can be fixed properly, by stringifying all the field types,
-	# then checking that our field name is not in that list.
-	"ID": "_ID",
+	"ID",
+	"Rect",
+	"Window",
+	"DrawData",
+	"Font",
+	"PlatformImeData",
+	"DebugLogFlags",
+	"LayoutType",
+	"DrawList",
+	"DockNode",
 }
+
+# These structs are defined properly if imgui_internal is included, but are
+# always present in imgui.h as empty structs.
+_imgui_struct_skip_if_not_imgui_internal = [
+	"ImDrawListSharedData",
+	"ImFontBuilderIO",
+	"ImGuiContext",
+]
 
 def write_structs(file: typing.IO, structs):
 	write_section(file, "Structs")
 	for struct in structs:
-		if not passes_conditionals(struct): continue
-
 		entire_name = struct["name"]
+		if g_has_imgui_internal_and_is_not_in_imgui_internal and entire_name in _imgui_struct_skip_if_not_imgui_internal:
+			continue
+
+		if not passes_conditionals(struct): continue
 
 		if entire_name in _imgui_struct_override:
 			write_line(file, _imgui_struct_override[entire_name])
@@ -757,10 +812,11 @@ def write_structs(file: typing.IO, structs):
 		field_components = []
 		for field in struct["fields"]:
 			if not passes_conditionals(field): continue
-
-			adjusted_name = apply_override(field["name"], _imgui_struct_field_name_override)
+			name = field["name"]
+			if name in _imgui_struct_field_name_override:
+				name = name + "_"
 			field_type = parse_type(field["type"])
-			append_aligned_field(field_components, [f'{adjusted_name}: ', f'{field_type},'], field)
+			append_aligned_field(field_components, [f'{name}: ', f'{field_type},'], field)
 
 		write_aligned_fields(file, field_components, 1)
 
@@ -779,7 +835,12 @@ def function_to_string(function, as_type=True) -> str:
 
 		argument_type = "no type yet :)"
 		argument_is_varargs = argument["is_varargs"]
-		argument_name = argument["name"]
+		argument_name = "no name yet :("
+		if "name" in argument:
+			argument_name = argument["name"]
+		else:
+			# We live in a joyous world where arguments don't need to have names
+			argument_name = "arg_" + str(argument_idx)
 
 		if argument_is_varargs:
 			argument_name = "#c_vararg args"
@@ -828,15 +889,6 @@ _imgui_functions_skip = [
 
 _imgui_function_prefixes = ["ImGui_", "ImGui", "Im"]
 
-# Functions which have a corresponding default argument helper. Functions in this
-# list will all end in Ex, which should be stripped.
-_imgui_extended_arg_funcs = []
-
-def find_default_arg_funcs(functions):
-	for function in functions:
-		if function["is_default_argument_helper"]:
-			_imgui_extended_arg_funcs.append(function["name"] + "Ex")
-
 def function_has_default_args(function) -> bool:
 	for argument in function["arguments"]:
 		if "default_value" in argument:
@@ -848,8 +900,6 @@ def write_functions(file: typing.IO, functions):
 	write_section(file, "Functions")
 	write_line(file, "foreign lib {")
 
-	find_default_arg_funcs(functions)
-
 	aligned = []
 
 	for function in functions:
@@ -858,12 +908,8 @@ def write_functions(file: typing.IO, functions):
 		if entire_name in _imgui_functions_skip: continue
 		if not passes_conditionals(function): continue
 		if function_uses_va_list(function): continue
-		if function["is_default_argument_helper"]: continue
 
 		[_prefix, remainder] = strip_list(entire_name, _imgui_function_prefixes)
-
-		if entire_name in _imgui_extended_arg_funcs:
-			remainder = strip_suffix("Ex", remainder)
 
 		aligned_components = []
 
@@ -898,6 +944,16 @@ _imgui_allowed_typedefs = [
 	"ImGuiMemAllocFunc",
 	"ImGuiMemFreeFunc",
 	"ImGuiSelectionUserData",
+
+	# imgui_internal.h
+	"ImGuiTableColumnIdx",
+	"ImGuiTableDrawChannelIdx",
+	"ImGuiKeyRoutingIndex",
+	"ImBitArrayPtr",
+	"ImPoolIdx",
+	"ImGuiContextHookCallback",
+	"ImFileHandle",
+	"ImGuiErrorLogCallback",
 ]
 
 _imgui_typedef_overrides = {
@@ -931,22 +987,50 @@ def main():
 
 	parser = argparse.ArgumentParser()
 
-	parser.add_argument("imgui_json", default="imgui.json")
-	parser.add_argument("destination_file", default="imgui.odin")
+	parser.add_argument("--imgui", required=True, help="The dear_bindings json file for imgui.h")
+	parser.add_argument("--imconfig", required=True, help="The dear_bindings json file for imconfig.h")
+	parser.add_argument("--imgui_internal", help="The dear_bindings json file for imgui_internal.h")
 
 	args = parser.parse_args()
 
-	info = json.load(open(args.imgui_json, "r"))
-	file = open(args.destination_file, "w+")
+	has_imgui_internal = bool(args.imgui_internal)
 
-	# Write the things
-	write_header(file)
-	parse_and_write_defines(file, info["defines"])
-	write_enums(file, info["enums"])
-	write_structs(file, info["structs"])
-	write_functions(file, info["functions"])
-	write_typedefs(file, info["typedefs"])
+	global g_has_imgui_internal_and_is_not_in_imgui_internal
+	g_has_imgui_internal_and_is_not_in_imgui_internal = has_imgui_internal
 
-	# for k, v in processed_defines.items(): print(k, v)
+	# Read imconfig. Should be only defines
+	imconfig_info = json.load(open(args.imconfig))
+	imconfig_file = open("imconfig.odin", "w+")
+	write_global_header(imconfig_file)
+	ingest_and_write_defines(imconfig_file, imconfig_info["defines"])
+	assert len(imconfig_info["enums"]) == 0
+	assert len(imconfig_info["structs"]) == 0
+	assert len(imconfig_info["functions"]) == 0
+	assert len(imconfig_info["typedefs"]) == 0
+
+	# Read main imgui file
+	imgui_info = json.load(open(args.imgui))
+	imgui_file = open("imgui.odin", "w+")
+	write_global_header(imgui_file)
+	write_import_header(imgui_file)
+	write_main_file_header(imgui_file)
+	ingest_and_write_defines(imgui_file, imgui_info["defines"])
+	write_enums(imgui_file, imgui_info["enums"])
+	write_structs(imgui_file, imgui_info["structs"])
+	write_functions(imgui_file, imgui_info["functions"])
+	write_typedefs(imgui_file, imgui_info["typedefs"])
+
+	# Read imgui_internal file, if present.
+	if has_imgui_internal:
+		g_has_imgui_internal_and_is_not_in_imgui_internal = False
+		imgui_internal_info = json.load(open(args.imgui_internal))
+		imgui_internal_file = open("imgui_internal.odin", "w+")
+		write_global_header(imgui_internal_file)
+		write_import_header(imgui_internal_file)
+		ingest_and_write_defines(imgui_internal_file, imgui_internal_info["defines"])
+		write_enums(imgui_internal_file, imgui_internal_info["enums"])
+		write_structs(imgui_internal_file, imgui_internal_info["structs"])
+		write_functions(imgui_internal_file, imgui_internal_info["functions"])
+		write_typedefs(imgui_internal_file, imgui_internal_info["typedefs"])
 
 if __name__ == "__main__": main()

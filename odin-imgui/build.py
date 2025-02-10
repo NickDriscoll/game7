@@ -6,6 +6,7 @@ from glob import glob
 import typing
 import sys
 import platform
+import random
 
 # TODO:
 # - Make this file never show it's call stack. Call stacks should mean that a child script failed.
@@ -17,10 +18,10 @@ import platform
 # Note that the backend files and examples may also have to be updated, if you use these.
 git_heads = {
 	"imgui": "v1.91.1-docking",
-	"dear_bindings": "89a02bb",
+	"dear_bindings": "81c906b",
 }
 
-# Note - tested with Odin version `dev-2024-11`
+# Note - tested with Odin version `dev-2025-01`
 
 # @CONFIGURE: Elements must be keys into below table
 #wanted_backends = ["vulkan", "sdl2", "opengl3", "sdlrenderer2", "glfw", "dx11", "dx12", "win32", "osx", "metal", "wgpu"]
@@ -62,6 +63,9 @@ backend_deps = {
 # @CONFIGURE:
 compile_debug = False
 
+# @CONFIGURE:
+build_imgui_internal = True
+
 platform_win32_like = platform.system() == "Windows"
 platform_unix_like = platform.system() == "Linux" or platform.system() == "Darwin"
 
@@ -81,7 +85,13 @@ def exec(cmd: typing.List[str], what: str) -> str:
 	if len(what) > max_what_len:
 		what = what[:max_what_len - 2] + ".."
 	print(what + (" " * (max_what_len - len(what))) + "> " + " ".join(cmd))
-	return subprocess.check_output(cmd).decode().strip()
+	try: subprocess.check_output(cmd)
+	except subprocess.CalledProcessError as uh_oh:
+		print("=" * 80)
+		print("FAILED")
+		print("=" * 80)
+		print(uh_oh.output.decode())
+		exit(1)
 
 def exec_vcvars(cmd: typing.List[str], what):
 	max_what_len = 40
@@ -111,7 +121,7 @@ def platform_select(the_options):
 	assertx(False, f"Couldn't find active platform ({our_platform}) in the above options!")
 
 def pp(the_path: str) -> str:
-	""" Given a path with '/' as a delimiter, returns an appropriate sys.platform path """
+	""" Get Platform Path. Given a path with '/' as a delimiter, returns an appropriate sys.platform path """
 	return path.join(*the_path.split("/"))
 
 def map_to_folder(files: typing.List[str], folder: str) -> typing.List[str]:
@@ -127,7 +137,7 @@ def ensure_checked_out_with_commit(dir: str, repo: str, wanted_commit: str):
 	if not path.exists(dir):
 		exec(["git", "clone", repo, dir], f"Cloning {dir}")
 
-	exec(["git", "-c", "advice.detachedHead=false", "-C", dir, "checkout", wanted_commit], f"Checking out {dir}")
+	exec(["git", "-c", "advice.detachedHead=false", "-C", dir, "checkout", "-f", wanted_commit], f"Checking out {dir}")
 
 def get_platform_imgui_lib_name() -> str:
 	""" Returns imgui binary name for system/processor """
@@ -193,18 +203,29 @@ def main():
 	shutil.rmtree(path="temp", ignore_errors=True)
 	os.mkdir("temp")
 
-	# Generate bindings for active ImGui commit
-	exec([sys.executable, pp("dear_bindings/dear_bindings.py"), "-o", pp("temp/c_imgui"), pp("imgui/imgui.h")], "Running dear_bindings")
+	# Generate Odin bindings
+	exec([sys.executable, pp("dear_bindings/dear_bindings.py"), "-o", pp("temp/c_imgui"), "--nogeneratedefaultargfunctions", "--imconfig-path", pp("imconfig.h"), pp("imgui/imgui.h")], "Running dear_bindings: ImGui")
+	if build_imgui_internal:
+		exec([sys.executable, pp("dear_bindings/dear_bindings.py"), "-o", pp("temp/c_imgui_internal"), "--include", pp("imgui/imgui.h"), "--nogeneratedefaultargfunctions", "--imconfig-path", pp("imconfig.h"), pp("imgui/imgui_internal.h")], "Running dear_bindings: ImGui Internal")
+
 	# Generate odin bindings from dear_bindings json file
-	exec([sys.executable, pp("gen_odin.py"), path.join("temp", "c_imgui.json"), "imgui.odin"], "Running odin-imgui")
+	if build_imgui_internal:
+		exec([sys.executable, pp("gen_odin.py"), "--imgui", pp("temp/c_imgui.json"), "--imconfig", pp("temp/c_imgui_imconfig.json"), "--imgui_internal", pp("temp/c_imgui_internal.json")], "Running odin-imgui")
+	else:
+		exec([sys.executable, pp("gen_odin.py"), "--imgui", pp("temp/c_imgui.json"), "--imconfig", pp("temp/c_imgui_imconfig.json")], "Running odin-imgui")
 
 	# Find and copy imgui sources to temp folder
 	_imgui_headers = glob_copy("imgui", "*.h", "temp")
 	imgui_sources = glob_copy("imgui", "*.cpp", "temp")
 
+	# We copied `imconfig.h` from imgui, but we have our own. Overwrite the previous one.
+	shutil.copy(pp("imconfig.h"), pp("temp/imconfig.h"))
+
 	# Gather sources, defines, includes etc
 	all_sources = imgui_sources
 	all_sources += ["c_imgui.cpp"]
+	if build_imgui_internal:
+		all_sources.append("c_imgui_internal.cpp")
 
 	# Basic flags
 	compile_flags = platform_select({
@@ -259,7 +280,7 @@ def main():
 		elif platform_unix_like: compile_flags += ["-I" + path.join("..", "backend_deps", include_path)]
 
 	all_objects = []
-	if platform_win32_like:  all_objects += map(lambda file: file.removesuffix(".cpp") + ".obj", all_sources)
+	if platform_win32_like: all_objects += map(lambda file: file.removesuffix(".cpp") + ".obj", all_sources)
 	elif platform_unix_like:
 		for file in all_sources:
 			if file.endswith(".cpp"): all_objects.append(file.removesuffix(".cpp") + ".o")
@@ -279,12 +300,13 @@ def main():
 	if platform_win32_like:  exec(["lib", "/OUT:" + dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
 	elif platform_unix_like: exec(["ar", "rcs", dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
 
-	expected_files = ["imgui.odin", "impl_enabled.odin", dest_binary]
+	expected_files = ["imgui.odin", "impl_enabled.odin", dest_binary] # TODO: imconfig, internal
 
 	for file in expected_files:
 		assertx(path.isfile(file), f"Missing file '{file}' in build folder! Something went wrong..")
 
 	print("Looks like everything went ok!")
+	if random.random() < 0.01: print("But looks may deceive..")
 
 if __name__ == "__main__":
 	main()
