@@ -633,6 +633,13 @@ main :: proc() {
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
 
+        docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
+        render_data.viewport_dimensions[0] = docknode.Pos.x
+        render_data.viewport_dimensions[1] = docknode.Pos.y
+        render_data.viewport_dimensions[2] = docknode.Size.x
+        render_data.viewport_dimensions[3] = docknode.Size.y
+        game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+
         // React to main menu bar interaction
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
