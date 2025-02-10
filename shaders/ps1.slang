@@ -14,7 +14,7 @@ cbuffer push_constants {
     uint sampler_idx;
 }
 
-static const float3 SUNLIGHT = normalize(float3(1.0, 1.0, 1.0));
+static const float3 SUNLIGHT = normalize(float3(-1.0, 1.0, 1.0));
 
 // @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
