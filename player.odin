@@ -180,7 +180,7 @@ player_update :: proc(using game_state: ^GameState, output_verbs: ^OutputVerbs, 
 player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, render_data: ^RenderingState) {
     y := character.facing
     z := hlsl.float3 {0.0, 0.0, 1.0}
-    x := hlsl.cross(z, y)
+    x := hlsl.cross(y, z)
     rotate_mat := hlsl.float4x4 {
         x[0], y[0], z[0], 0.0,
         x[1], y[1], z[1], 0.0,
