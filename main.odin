@@ -490,6 +490,13 @@ main :: proc() {
 
         // Update
 
+        docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
+        render_data.viewport_dimensions[0] = docknode.Pos.x
+        render_data.viewport_dimensions[1] = docknode.Pos.y
+        render_data.viewport_dimensions[2] = docknode.Size.x
+        render_data.viewport_dimensions[3] = docknode.Size.y
+        game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+
         @static cpu_limiter_ms : c.int = 100
         
         // Misc imgui window for testing
@@ -596,10 +603,14 @@ main :: proc() {
                 game_state.character.velocity = {}
                 game_state.character.state = .Falling
             } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+                viewport_coords := hlsl.uint2 {
+                    u32(place_thing_screen_coords.x) - u32(render_data.viewport_dimensions[0]),
+                    u32(place_thing_screen_coords.y) - u32(render_data.viewport_dimensions[1]),
+                }
                 ray := get_view_ray(
                     &game_state.viewport_camera,
-                    {u32(place_thing_screen_coords.x), u32(place_thing_screen_coords.y)},
-                    resolution
+                    viewport_coords,
+                    {u32(render_data.viewport_dimensions[2]), u32(render_data.viewport_dimensions[3])}
                 )
     
                 collision_pt: hlsl.float3
@@ -632,13 +643,6 @@ main :: proc() {
         render_data.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
-
-        docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
-        render_data.viewport_dimensions[0] = docknode.Pos.x
-        render_data.viewport_dimensions[1] = docknode.Pos.y
-        render_data.viewport_dimensions[2] = docknode.Size.x
-        render_data.viewport_dimensions[3] = docknode.Size.y
-        game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
 
         // React to main menu bar interaction
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
