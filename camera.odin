@@ -103,15 +103,17 @@ pitch_yaw_from_lookat :: proc(pos: hlsl.float3, target: hlsl.float3) -> (yaw, pi
     return yaw, pitch
 }
 
-get_view_ray :: proc(using camera: ^Camera, screen_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+get_view_ray :: proc(using camera: ^Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
     tan_fovy := math.tan(fov_radians / 2.0)
     tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
     clip_coords := hlsl.float4 {
-        f32(screen_coords.x) * 2.0 / f32(resolution.x) - 1.0,
-        f32(screen_coords.y) * 2.0 / f32(resolution.y) - 1.0,
+        f32(click_coords.x) * 2.0 / f32(resolution.x) - 1.0,
+        f32(click_coords.y) * 2.0 / f32(resolution.y) - 1.0,
         1.0,
         1.0
     }
+
+    
     view_coords := hlsl.float4 {
         clip_coords.x * nearplane * tan_fovx,
         -clip_coords.y * nearplane * tan_fovy,
