@@ -35,9 +35,11 @@ UniformBufferData :: struct {
     face_normal_ptr: vk.DeviceAddress,
     uv_ptr: vk.DeviceAddress,
     color_ptr: vk.DeviceAddress,
-    _pad0: u32,
+    joint_id_ptr: vk.DeviceAddress,
+    joint_weight_ptr: vk.DeviceAddress,
     time: f32,
     distortion_strength: f32,
+    _pad0: f32,
 }
 
 Ps1PushConstants :: struct {
@@ -123,6 +125,12 @@ RenderingState :: struct {
 
     colors_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex colors
     colors_head: u32,
+
+    joint_ids_buffer: vkw.Buffer_Handle,
+    joint_ids_head: u32,
+
+    joint_weights_buffer: vkw.Buffer_Handle,
+    joint_weights_head: u32,
 
     triangle_normals_buffer: vkw.Buffer_Handle,
     triangle_normals_head: u32,
@@ -219,6 +227,16 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.colors_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global joint ids buffer"
+        info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
+        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.joint_ids_buffer", f32(info.size) / 1024 / 1024)
+
+        info.name = "Global joint weights buffer"
+        info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
+        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
+
         info.name = "Global triangle normals buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_INDICES
         render_state.triangle_normals_buffer = vkw.create_buffer(gd, &info)
@@ -274,6 +292,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         face_normals_buffer, _ := vkw.get_buffer(gd, render_state.triangle_normals_buffer)
         uv_buffer, _ := vkw.get_buffer(gd, render_state.uvs_buffer)
         color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
+        joint_ids_buffer, _ := vkw.get_buffer(gd, render_state.joint_ids_buffer)
+        joint_weights_buffer, _ := vkw.get_buffer(gd, render_state.joint_weights_buffer)
     
         render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
         render_state.cpu_uniforms.material_ptr = material_buffer.address
@@ -282,6 +302,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.cpu_uniforms.face_normal_ptr = face_normals_buffer.address
         render_state.cpu_uniforms.uv_ptr = uv_buffer.address
         render_state.cpu_uniforms.color_ptr = color_buffer.address
+        render_state.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
+        render_state.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
     }
 
     // Create main rendertarget
@@ -983,8 +1005,15 @@ load_gltf_mesh :: proc(
         }
         loaded_glb_images[i] = handle
     }
+
+    // Load all skins
+    for glb_skin, i in gltf_data.skins {
+        s := glb_skin
+        joint_nodes := s.joints
+        t := joint_nodes[0].has_matrix
+    }
     
-    // For now just loading the first mesh we see
+    // @TODO: Don't just load the first mesh you see
     mesh := gltf_data.meshes[0]
 
     draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)

@@ -328,6 +328,12 @@ main :: proc() {
         })
     }
 
+    // Load animated test glTF model
+    {
+        path : cstring = "data/models/RiggedSimple.glb"
+        mesh := load_gltf_mesh(&vgd, &render_data, path, context.temp_allocator)
+    }
+
     game_state.character = Character {
         collision = {
             position = CHARACTER_START_POS,
