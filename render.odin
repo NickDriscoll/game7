@@ -100,11 +100,6 @@ GPUBufferDirtyFlags :: bit_set[enum{
     Draw,
 }]
 
-DrawPrimitive :: struct {
-    mesh: Mesh_Handle,
-    material: Material_Handle,
-}
-
 RenderTarget :: struct {
 
 }
@@ -659,7 +654,7 @@ add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Materi
 draw_ps1_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^RenderingState,
-    data: ^MeshData,
+    data: ^ModelData,
     draw_data: ^DrawData
 ) {
     for prim in data.primitives {
@@ -926,20 +921,25 @@ render :: proc(
 
 
 
-MeshData :: struct {
+DrawPrimitive :: struct {
+    mesh: Mesh_Handle,
+    material: Material_Handle,
+}
+
+ModelData :: struct {
     primitives: [dynamic]DrawPrimitive
 }
 
-gltf_delete :: proc(using d: ^MeshData)  {
+gltf_delete :: proc(using d: ^ModelData)  {
     delete(primitives)
 }
 
-load_gltf_mesh :: proc(
+load_gltf_model :: proc(
     gd: ^vkw.Graphics_Device,
     render_data: ^RenderingState,
     path: cstring,
     allocator := context.allocator
-) -> MeshData {
+) -> ModelData {
 
 
     get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
@@ -1006,15 +1006,18 @@ load_gltf_mesh :: proc(
         loaded_glb_images[i] = handle
     }
 
-    // Load all skins
-    for glb_skin, i in gltf_data.skins {
-        s := glb_skin
-        joint_nodes := s.joints
-        t := joint_nodes[0].has_matrix
-    }
-    
     // @TODO: Don't just load the first mesh you see
     mesh := gltf_data.meshes[0]
+
+    // Load all skins
+    if len(gltf_data.skins) > 0 {
+        assert(len(gltf_data.skins) == 1)
+        glb_skin := gltf_data.skins[0]
+        w := mesh
+        for joint_node in glb_skin.joints {
+            //joint_node.
+        }
+    }
 
     draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)
 
@@ -1130,7 +1133,7 @@ load_gltf_mesh :: proc(
         }
     }
 
-    return MeshData {
+    return ModelData {
         primitives = draw_primitives
     }
 }
