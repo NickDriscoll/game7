@@ -48,13 +48,13 @@ CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 LooseProp :: struct {
     position: hlsl.float3,
     scale: f32,
-    mesh_data: MeshData,
+    mesh_data: ModelData,
 }
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     model_matrix: hlsl.float4x4,
-    mesh_data: MeshData,
+    mesh_data: ModelData,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -81,7 +81,7 @@ Character :: struct {
     move_speed: f32,
     jump_speed: f32,
     control_flags: CharacterFlags,
-    mesh_data: MeshData,
+    mesh_data: ModelData,
 }
 
 GameState :: struct {
@@ -284,7 +284,7 @@ main :: proc() {
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
 
-    main_scene_mesh := load_gltf_mesh(&vgd, &render_data, main_scene_path)
+    main_scene_mesh := load_gltf_model(&vgd, &render_data, main_scene_path)
     defer gltf_delete(&main_scene_mesh)
 
     // Get collision data out of main scene model
@@ -301,16 +301,16 @@ main :: proc() {
     }
 
     // Load test glTF model
-    spyro_mesh: MeshData
-    moon_mesh: MeshData
+    spyro_mesh: ModelData
+    moon_mesh: ModelData
     defer gltf_delete(&spyro_mesh)
     defer gltf_delete(&moon_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
-        spyro_mesh = load_gltf_mesh(&vgd, &render_data, path)
+        spyro_mesh = load_gltf_model(&vgd, &render_data, path)
         path = "data/models/majoras_moon.glb"
-        moon_mesh = load_gltf_mesh(&vgd, &render_data, path)
+        moon_mesh = load_gltf_model(&vgd, &render_data, path)
     }
     
     // Add moon terrain piece
@@ -331,7 +331,7 @@ main :: proc() {
     // Load animated test glTF model
     {
         path : cstring = "data/models/RiggedSimple.glb"
-        mesh := load_gltf_mesh(&vgd, &render_data, path, context.temp_allocator)
+        mesh := load_gltf_model(&vgd, &render_data, path, context.temp_allocator)
     }
 
     game_state.character = Character {
