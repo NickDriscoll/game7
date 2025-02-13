@@ -53,17 +53,30 @@ PostFxPushConstants :: struct {
     uniforms_address: vk.DeviceAddress,
 }
 
-CPUMeshData :: struct {
+CPUStaticMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    gpu_data: GPUMeshData,
+    gpu_data: GPUStaticMeshData,
 }
 
-GPUMeshData :: struct {
+CPUSkinnedMeshData :: struct {
+    indices_start: u32,
+    indices_len: u32,
+    gpu_data: GPUSkinnedMeshData,
+}
+
+GPUStaticMeshData :: struct {
     position_offset: u32,
     face_normals_offset: u32,
     uv_offset: u32,
     color_offset: u32,
+}
+
+GPUSkinnedMeshData :: struct {
+    static_data: GPUStaticMeshData,
+    joint_ids_offset: u32,
+    joint_weights_offset: u32,
+    //_pad0: hlsl.uint2,
 }
 
 MaterialData :: struct {
@@ -78,9 +91,9 @@ DrawData :: struct {
     world_from_model: hlsl.float4x4,
 }
 
-InstanceData :: struct {
+StaticInstanceData :: struct {
     world_from_model: hlsl.float4x4,
-    mesh_handle: Mesh_Handle,
+    mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
 }
 
@@ -100,14 +113,11 @@ GPUBufferDirtyFlags :: bit_set[enum{
     Draw,
 }]
 
-RenderTarget :: struct {
-
-}
-
-Mesh_Handle :: distinct hm.Handle
+Static_Mesh_Handle :: distinct hm.Handle
+Skinned_Mesh_Handle :: distinct hm.Handle
 Material_Handle :: distinct hm.Handle
 
-RenderingState :: struct {
+Renderer :: struct {
     positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
     positions_head: u32,
 
@@ -132,15 +142,22 @@ RenderingState :: struct {
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
-    mesh_buffer: vkw.Buffer_Handle,
-    cpu_meshes: hm.Handle_Map(CPUMeshData),
-    gpu_meshes: [dynamic]GPUMeshData,
+    static_mesh_buffer: vkw.Buffer_Handle,
+    cpu_static_meshes: hm.Handle_Map(CPUStaticMeshData),
+    gpu_static_meshes: [dynamic]GPUStaticMeshData,
+
+    // Separate global mesh buffer for skinned meshes
+    skinned_mesh_buffer: vkw.Buffer_Handle,
+    cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMeshData),
+    gpu_skinned_meshes: [dynamic]GPUSkinnedMeshData,
+
+    // Animation data
     
-    
+
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(MaterialData),
     
-    cpu_instances: [dynamic]InstanceData,
+    cpu_instances: [dynamic]StaticInstanceData,
     gpu_instances: [dynamic]GPUInstanceData,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
@@ -168,8 +185,8 @@ RenderingState :: struct {
     viewport_dimensions: [4]f32,
 }
 
-init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> RenderingState {
-    render_state: RenderingState
+init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
+    render_state: Renderer
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
@@ -199,7 +216,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
     }
 
-    // Create storage buffers
+    // Create device-local storage buffers
     {
         info := vkw.Buffer_Info {
             usage = {.STORAGE_BUFFER,.TRANSFER_DST},
@@ -236,10 +253,15 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_INDICES
         render_state.triangle_normals_buffer = vkw.create_buffer(gd, &info)
 
-        info.name = "Global mesh data buffer"
-        info.size = size_of(GPUMeshData) * MAX_GLOBAL_MESHES
-        render_state.mesh_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.mesh_buffer", f32(info.size) / 1024 / 1024)
+        info.name = "Global static mesh data buffer"
+        info.size = size_of(GPUStaticMeshData) * MAX_GLOBAL_MESHES
+        render_state.static_mesh_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
+
+        info.name = "Global skinned mesh data buffer"
+        info.size = size_of(GPUSkinnedMeshData) * MAX_GLOBAL_MESHES
+        render_state.skinned_mesh_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.skinned_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
         info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
@@ -280,7 +302,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
     // Initialize the buffer pointers in the uniforms struct
     {
-        mesh_buffer, _ := vkw.get_buffer(gd, render_state.mesh_buffer)
+        mesh_buffer, _ := vkw.get_buffer(gd, render_state.static_mesh_buffer)
         material_buffer, _ := vkw.get_buffer(gd, render_state.material_buffer)
         instance_buffer, _ := vkw.get_buffer(gd, render_state.instance_buffer)
         position_buffer, _ := vkw.get_buffer(gd, render_state.positions_buffer)
@@ -452,13 +474,13 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     return render_state
 }
 
-delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState) {
+delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     vkw.delete_sync_info(&gfx_sync_info)
     vkw.delete_buffer(gd, positions_buffer)
     vkw.delete_buffer(gd, index_buffer)
     vkw.delete_buffer(gd, uvs_buffer)
     vkw.delete_buffer(gd, colors_buffer)
-    vkw.delete_buffer(gd, mesh_buffer)
+    vkw.delete_buffer(gd, static_mesh_buffer)
     vkw.delete_buffer(gd, material_buffer)
     vkw.delete_buffer(gd, instance_buffer)
     vkw.delete_buffer(gd, uniform_buffer)
@@ -467,11 +489,11 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState) {
     delete(gpu_instances)
 
     hm.destroy(&cpu_materials)
-    hm.destroy(&cpu_meshes)
-    delete(gpu_meshes)    
+    hm.destroy(&cpu_static_meshes)
+    delete(gpu_static_meshes)    
 }
 
-resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^RenderingState, screen_size: hlsl.uint2) {
+resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, main_framebuffer.color_images[0])
     vkw.delete_image(gd, main_framebuffer.depth_image)
     
@@ -541,12 +563,12 @@ swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, reso
     return fb
 }
 
-create_mesh :: proc(
+create_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
+    using r: ^Renderer,
     positions: []hlsl.float4,
     indices: []u16
-) -> Mesh_Handle {
+) -> Static_Mesh_Handle {
     
     position_start: u32
     {
@@ -573,18 +595,70 @@ create_mesh :: proc(
         vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
     }
 
-    mesh := CPUMeshData {
+    mesh := CPUStaticMeshData {
         indices_start = indices_start,
         indices_len = indices_len,
     }
-    handle := Mesh_Handle(hm.insert(&cpu_meshes, mesh))
+    handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, mesh))
 
-    gpu_mesh := GPUMeshData {
+    gpu_mesh := GPUStaticMeshData {
         position_offset = position_start,
         uv_offset = NULL_OFFSET,
         color_offset = NULL_OFFSET
     }
-    append(&gpu_meshes, gpu_mesh)
+    append(&gpu_static_meshes, gpu_mesh)
+
+    dirty_flags += {.Mesh}
+
+    return handle
+}
+
+create_skinned_mesh :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^Renderer,
+    positions: []hlsl.float4,
+    indices: []u16
+) -> Skinned_Mesh_Handle {
+    
+    position_start: u32
+    {
+        positions_len := u32(len(positions))
+        assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
+        assert(positions_len > 0)
+    
+        position_start = positions_head
+        positions_head += positions_len
+    
+        vkw.sync_write_buffer(gd, positions_buffer, positions, position_start)
+    }
+
+    indices_start: u32
+    indices_len: u32
+    {
+        indices_len = u32(len(indices))
+        assert(indices_head + indices_len < MAX_GLOBAL_INDICES)
+        assert(indices_len > 0)
+
+        indices_start = indices_head
+        indices_head += indices_len
+
+        vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
+    }
+
+    mesh := CPUSkinnedMeshData {
+        indices_start = indices_start,
+        indices_len = indices_len,
+    }
+    handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
+
+    gpu_mesh := GPUSkinnedMeshData {
+        static_data = {
+            position_offset = position_start,
+            uv_offset = NULL_OFFSET,
+            color_offset = NULL_OFFSET
+        }
+    }
+    append(&gpu_skinned_meshes, gpu_mesh)
 
     dirty_flags += {.Mesh}
 
@@ -593,8 +667,8 @@ create_mesh :: proc(
 
 add_face_normals :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
-    handle: Mesh_Handle,
+    using r: ^Renderer,
+    handle: $HandleType,
     normals: []hlsl.float4
 ) -> bool {
     normals_start := triangle_normals_head
@@ -602,59 +676,133 @@ add_face_normals :: proc(
 
     triangle_normals_head += normals_len
 
-    gpu_mesh := &gpu_meshes[handle.index]
-    gpu_mesh.face_normals_offset = normals_start
+    when HandleType == Static_Mesh_Handle {
+        gpu_mesh := &gpu_static_meshes[handle.index]
+        gpu_mesh.face_normals_offset = normals_start
+    } else when HandleType == Skinned_Mesh_Handle {
+        gpu_mesh := &gpu_skinned_meshes[handle.index]
+        gpu_mesh.static_data.face_normals_offset = normals_start
+    } else {
+        panic("Invalid arg type")
+    }
 
     return vkw.sync_write_buffer(gd, triangle_normals_buffer, normals, normals_start)
 }
 
 add_vertex_colors :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
-    handle: Mesh_Handle,
+    using r: ^Renderer,
+    handle: $HandleType,
     colors: []hlsl.float4
 ) -> bool {
     color_start := colors_head
     colors_len := u32(len(colors))
-    assert(colors_head + colors_len < MAX_GLOBAL_VERTICES)
     assert(colors_len > 0)
+    assert(colors_head + colors_len < MAX_GLOBAL_VERTICES)
 
     colors_head += colors_len
 
-    gpu_mesh := &gpu_meshes[handle.index]
-    gpu_mesh.color_offset = color_start
+    when HandleType == Static_Mesh_Handle {
+        gpu_mesh := &gpu_static_meshes[handle.index]
+        gpu_mesh.color_offset = color_start
+    } else when HandleType == Skinned_Mesh_Handle {
+        gpu_mesh := &gpu_skinned_meshes[handle.index]
+        gpu_mesh.static_data.color_offset = color_start
+    } else {
+        panic("Invalid arg type")
+    }
 
     return vkw.sync_write_buffer(gd, colors_buffer, colors, color_start)
 }
 
 add_vertex_uvs :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
-    handle: Mesh_Handle,
+    using r: ^Renderer,
+    handle: $HandleType,
     uvs: []hlsl.float2
 ) -> bool {
     uv_start := uvs_head
     uvs_len := u32(len(uvs))
-    assert(uvs_head + uvs_len < MAX_GLOBAL_VERTICES)
     assert(uvs_len > 0)
+    assert(uvs_head + uvs_len < MAX_GLOBAL_VERTICES)
 
     uvs_head += uvs_len
 
-    gpu_mesh := &gpu_meshes[handle.index]
-    gpu_mesh.uv_offset = uv_start
+    when HandleType == Static_Mesh_Handle {
+        gpu_mesh := &gpu_static_meshes[handle.index]
+        gpu_mesh.uv_offset = uv_start
+    } else when HandleType == Skinned_Mesh_Handle {
+        gpu_mesh := &gpu_skinned_meshes[handle.index]
+        gpu_mesh.static_data.uv_offset = uv_start
+    } else {
+        panic("Invalid arg type")
+    }
 
     return vkw.sync_write_buffer(gd, uvs_buffer, uvs, uv_start)
 }
 
-add_material :: proc(using r: ^RenderingState, new_mat: ^MaterialData) -> Material_Handle {
+
+add_vertex_joint_ids :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^Renderer,
+    handle: $HandleType,
+    ids: []hlsl.uint4
+) -> bool {
+    ids_start := joint_ids_head
+    ids_len := u32(len(ids))
+    assert(ids_len > 0)
+    assert(ids_start + ids_len < MAX_GLOBAL_VERTICES)
+
+    joint_ids_head += ids_len
+
+    when HandleType == Static_Mesh_Handle {
+        gpu_mesh := &gpu_static_meshes[handle.index]
+        gpu_mesh.joint_ids_offset = ids_start
+    } else when HandleType == Skinned_Mesh_Handle {
+        gpu_mesh := &gpu_skinned_meshes[handle.index]
+        gpu_mesh.static_data.joint_ids_offset = ids_start
+    } else {
+        panic("Invalid arg type")
+    }
+
+    return vkw.sync_write_buffer(gd, joint_ids_buffer, ids, ids_start)
+}
+
+add_vertex_joint_weights :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^Renderer,
+    handle: $HandleType,
+    weights: []hlsl.float4
+) -> bool {
+    weights_start := joint_weights_head
+    weights_len := u32(len(weights))
+    assert(weights_len > 0)
+    assert(weights_start + weights_len < MAX_GLOBAL_VERTICES)
+
+    joint_weights_head += weights_len
+
+    when HandleType == Static_Mesh_Handle {
+        gpu_mesh := &gpu_static_meshes[handle.index]
+        gpu_mesh.joint_weights_offset = weights_start
+    } else when HandleType == Skinned_Mesh_Handle {
+        gpu_mesh := &gpu_skinned_meshes[handle.index]
+        gpu_mesh.static_data.joint_weights_offset = weights_start
+    } else {
+        panic("Invalid arg type")
+    }
+
+    return vkw.sync_write_buffer(gd, joint_ids_buffer, weights, weights_start)
+}
+
+add_material :: proc(using r: ^Renderer, new_mat: ^MaterialData) -> Material_Handle {
     dirty_flags += {.Material}
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
 
 draw_ps1_mesh :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
-    data: ^ModelData,
+    using r: ^Renderer,
+    data: ^StaticModelData,
     draw_data: ^DrawData
 ) {
     for prim in data.primitives {
@@ -665,15 +813,15 @@ draw_ps1_mesh :: proc(
 // User code calls this to queue up draw calls
 draw_ps1_primitive :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^RenderingState,
-    mesh_handle: Mesh_Handle,
+    using r: ^Renderer,
+    mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
     draw_data: ^DrawData
 ) -> bool {
     dirty_flags += {.Instance,.Draw}
 
     // Append instance representing this primitive
-    new_inst := InstanceData {
+    new_inst := StaticInstanceData {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         material_handle = material_handle
@@ -688,7 +836,7 @@ draw_ps1_primitive :: proc(
 render :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
-    using r: ^RenderingState,
+    using r: ^Renderer,
     viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
@@ -696,7 +844,7 @@ render :: proc(
 
     // Mesh buffer
     if .Mesh in dirty_flags {
-        vkw.sync_write_buffer(gd, mesh_buffer, gpu_meshes[:])
+        vkw.sync_write_buffer(gd, static_mesh_buffer, gpu_static_meshes[:])
     }
 
     // Material buffer
@@ -712,7 +860,7 @@ render :: proc(
 
         
         // Sort instances by mesh handle
-        slice.sort_by(cpu_instances[:], proc(i, j: InstanceData) -> bool {
+        slice.sort_by(cpu_instances[:], proc(i, j: StaticInstanceData) -> bool {
             return i.mesh_handle.index < j.mesh_handle.index
         })
 
@@ -720,7 +868,7 @@ render :: proc(
         // mesh_idx, construct the draw stream with appropriate instancing
         current_inst_count := 0
         inst_offset := 0
-        current_mesh_handle: Mesh_Handle
+        current_mesh_handle: Static_Mesh_Handle
         for inst in cpu_instances {
             g_inst := GPUInstanceData {
                 world_from_model = inst.world_from_model,
@@ -739,7 +887,7 @@ render :: proc(
                 if current_mesh_handle != inst.mesh_handle {
                     // First instance of next mesh handle case
 
-                    mesh_data, ok := hm.get(&cpu_meshes, hm.Handle(current_mesh_handle))
+                    mesh_data, ok := hm.get(&cpu_static_meshes, hm.Handle(current_mesh_handle))
                     if !ok {
                         log.error("Couldn't get CPU mesh during draw command building")
                     }
@@ -765,7 +913,7 @@ render :: proc(
         }
 
         // Final draw call
-        mesh_data, ok := hm.get(&cpu_meshes, hm.Handle(current_mesh_handle))
+        mesh_data, ok := hm.get(&cpu_static_meshes, hm.Handle(current_mesh_handle))
         if !ok {
             log.error("Couldn't get CPU mesh during draw command building")
         }
@@ -922,26 +1070,225 @@ render :: proc(
 
 
 DrawPrimitive :: struct {
-    mesh: Mesh_Handle,
+    mesh: Static_Mesh_Handle,
     material: Material_Handle,
 }
 
-ModelData :: struct {
+StaticModelData :: struct {
     primitives: [dynamic]DrawPrimitive
 }
 
-gltf_delete :: proc(using d: ^ModelData)  {
+gltf_delete :: proc(using d: ^StaticModelData)  {
     delete(primitives)
 }
 
-load_gltf_model :: proc(
+load_gltf_static_model :: proc(
     gd: ^vkw.Graphics_Device,
-    render_data: ^RenderingState,
+    render_data: ^Renderer,
     path: cstring,
     allocator := context.allocator
-) -> ModelData {
+) -> StaticModelData {
+    get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
+        base_ptr := buffer_view.buffer.data
+        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+        return cast([^]T)offset_ptr
+    }
+
+    get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
+        base_ptr := buffer.data
+        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
+        return cast([^]T)offset_ptr
+    }
+
+    
+    
+    gltf_data, res := cgltf.parse_file({}, path)
+    if res != .success {
+        log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+    }
+    defer cgltf.free(gltf_data)
+    
+    // Load buffers
+    res = cgltf.load_buffers({}, gltf_data, path)
+    if res != .success {
+        log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
+    }
+    
+    loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), context.temp_allocator)
+    defer delete(loaded_glb_images)
+
+    // Load all textures
+    for glb_texture, i in gltf_data.textures {
+        glb_image := glb_texture.image_
+        data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
+        log.debugf("Image mime type: %v", glb_image.mime_type)
+
+        channels : i32 = 4
+        width, height: i32
+        raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
+
+        image_create_info := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = .R8G8B8A8_SRGB,
+            extent = {
+                width = u32(width),
+                height = u32(height),
+                depth = 1
+            },
+            supports_mipmaps = false,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED,.TRANSFER_DST},
+            alloc_flags = nil,
+            name = glb_image.name
+        }
+        image_slice := slice.from_ptr(raw_image_ptr, int(width * height * channels))
+        handle, ok := vkw.sync_create_image_with_data(gd, &image_create_info, image_slice)
+        if !ok {
+            log.error("Error loading image from glb")
+        }
+        loaded_glb_images[i] = handle
+    }
+
+    // @TODO: Don't just load the first mesh you see
+    mesh := gltf_data.meshes[0]
+
+    draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)
+
+    for primitive, i in mesh.primitives {
+        // Get indices
+        index_data: [dynamic]u16
+        defer delete(index_data)
+        indices_count := primitive.indices.count
+        indices_bytes := indices_count * size_of(u16)
+        resize(&index_data, indices_count)
+        index_ptr := get_accessor_ptr(primitive.indices, u16)
+        mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+    
+        // Get vertex data
+        position_data: [dynamic]hlsl.float4
+        defer delete(position_data)
+        color_data: [dynamic]hlsl.float4
+        defer delete(color_data)
+        uv_data: [dynamic]hlsl.float2
+        defer delete(uv_data)
+        joint_ids: [dynamic]hlsl.uint4
+        defer delete(joint_ids)
+        joint_weights: [dynamic]hlsl.float4
+        defer delete(joint_weights)
+    
+        for attrib in primitive.attributes {
+            #partial switch (attrib.type) {
+                case .position: {
+                    resize(&position_data, attrib.data.count)
+                    log.debugf("Position data type: %v", attrib.data.type)
+                    log.debugf("Position count: %v", attrib.data.count)
+                    position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                    position_bytes := attrib.data.count * size_of(hlsl.float3)
+    
+                    // Build up positions buffer
+                    // We have to append a 1.0 to all positions
+                    // in line with homogenous coordinates
+                    for i in 0..<attrib.data.count {
+                        pos := position_ptr[i]
+                        position_data[i] = {pos.x, pos.y, pos.z, 1.0}
+                    }
+                }
+                case .color: {
+                    resize(&color_data, attrib.data.count)
+                    log.debugf("Color data type: %v", attrib.data.type)
+                    log.debugf("Color count: %v", attrib.data.count)
+                    color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+                    color_bytes := attrib.data.count * size_of(hlsl.float3)
+    
+                    for i in 0..<attrib.data.count {
+                        col := color_ptr[i]
+                        color_data[i] = {col.x, col.y, col.z, 1.0}
+                    }
+                }
+                case .texcoord: {
+                    resize(&uv_data, attrib.data.count)
+                    log.debugf("UV data type: %v", attrib.data.type)
+                    log.debugf("UV count: %v", attrib.data.count)
+                    uv_ptr := get_accessor_ptr(attrib.data, hlsl.float2)
+                    uv_bytes := attrib.data.count * size_of(hlsl.float2)
+    
+                    mem.copy(&uv_data[0], uv_ptr, int(uv_bytes))
+                }
+            }
+        }
+
+        // Compute triangle face normals
+        face_normals := make([dynamic]hlsl.float4, indices_count / 3, context.temp_allocator)
+        defer delete(face_normals)
+        for j := 0; j < len(index_data); j += 3 {
+            i0 := index_data[j]
+            i1 := index_data[j + 1]
+            i2 := index_data[j + 2]
+
+            a : hlsl.float3 = position_data[i0].xyz
+            b : hlsl.float3 = position_data[i1].xyz
+            c : hlsl.float3 = position_data[i2].xyz
+            n := hlsl.normalize(hlsl.cross(b - a, c - a))
+
+            out_idx := j / 3
+            face_normals[out_idx] = {n.x, n.y, n.z, 0.0}
+        }
+    
+        // Now that we have the mesh data in CPU-side buffers,
+        // it's time to upload them
+        mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
+        add_face_normals(gd, render_data, mesh_handle, face_normals[:])
+        if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+        if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
 
 
+        // Now get material data
+        loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
+        defer delete(loaded_glb_materials)
+        glb_material := primitive.material
+
+        bindless_image_idx := vkw.Image_Handle {
+            index = NULL_OFFSET
+        }
+        if glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+            tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
+            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
+            log.debugf("Texture index is %v", color_tex_idx)
+            bindless_image_idx = loaded_glb_images[color_tex_idx]
+        }
+        
+        material := MaterialData {
+            color_texture = bindless_image_idx.index,
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
+            base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+        }
+        material_handle := add_material(render_data, &material)
+
+        draw_primitives[i] = DrawPrimitive {
+            mesh = mesh_handle,
+            material = material_handle
+        }
+    }
+
+    return StaticModelData {
+        primitives = draw_primitives
+    }
+}
+
+SkinnedModelData :: struct {
+    static_data: StaticModelData,
+
+}
+
+load_gltf_skinned_model :: proc(
+    gd: ^vkw.Graphics_Device,
+    render_data: ^Renderer,
+    path: cstring,
+    allocator := context.allocator
+) -> SkinnedModelData {
     get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
         base_ptr := buffer_view.buffer.data
         offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
@@ -1038,6 +1385,10 @@ load_gltf_model :: proc(
         defer delete(color_data)
         uv_data: [dynamic]hlsl.float2
         defer delete(uv_data)
+        joint_ids: [dynamic]hlsl.uint4
+        defer delete(joint_ids)
+        joint_weights: [dynamic]hlsl.float4
+        defer delete(joint_weights)
     
         for attrib in primitive.attributes {
             #partial switch (attrib.type) {
@@ -1077,6 +1428,20 @@ load_gltf_model :: proc(
     
                     mem.copy(&uv_data[0], uv_ptr, int(uv_bytes))
                 }
+                case .joints: {
+                    resize(&joint_ids, attrib.data.count)
+                    joints_ptr := get_accessor_ptr(attrib.data, hlsl.uint4)
+                    joints_bytes := attrib.data.count * size_of(hlsl.uint4)
+
+                    mem.copy(&joint_ids[0], joints_ptr, int(joints_bytes))
+                }
+                case .weights: {
+                    resize(&joint_weights, attrib.data.count)
+                    weights_ptr := get_accessor_ptr(attrib.data, hlsl.float4)
+                    weights_bytes := attrib.data.count * size_of(hlsl.float4)
+
+                    mem.copy(&joint_weights[0], weights_ptr, int(weights_bytes))
+                }
             }
         }
 
@@ -1099,10 +1464,12 @@ load_gltf_model :: proc(
     
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
-        mesh_handle := create_mesh(gd, render_data, position_data[:], index_data[:])
-        add_face_normals(gd, render_data, mesh_handle, face_normals[:])
-        if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-        if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+        mesh_handle := create_skinned_mesh(gd, render_data, position_data[:], index_data[:])
+        // add_face_normals(gd, render_data, mesh_handle, face_normals[:])
+        // if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+        // if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+        // if len(joint_ids) > 0 do add_vertex_joint_ids(gd, render_data, mesh_handle, joint_ids[:])
+        // if len(joint_weights) > 0 do add_vertex_joint_weights(gd, render_data, mesh_handle, joint_weights[:])
 
 
         // Now get material data
@@ -1127,13 +1494,15 @@ load_gltf_model :: proc(
         }
         material_handle := add_material(render_data, &material)
 
-        draw_primitives[i] = DrawPrimitive {
-            mesh = mesh_handle,
-            material = material_handle
-        }
+        // draw_primitives[i] = DrawPrimitive {
+        //     mesh = mesh_handle,
+        //     material = material_handle
+        // }
     }
 
-    return ModelData {
-        primitives = draw_primitives
+    return SkinnedModelData {
+        static_data = {
+            primitives = draw_primitives
+        }
     }
 }

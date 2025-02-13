@@ -48,13 +48,13 @@ CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 LooseProp :: struct {
     position: hlsl.float3,
     scale: f32,
-    mesh_data: ModelData,
+    mesh_data: StaticModelData,
 }
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     model_matrix: hlsl.float4x4,
-    mesh_data: ModelData,
+    mesh_data: StaticModelData,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -81,7 +81,7 @@ Character :: struct {
     move_speed: f32,
     jump_speed: f32,
     control_flags: CharacterFlags,
-    mesh_data: ModelData,
+    mesh_data: StaticModelData,
 }
 
 GameState :: struct {
@@ -284,7 +284,7 @@ main :: proc() {
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
 
-    main_scene_mesh := load_gltf_model(&vgd, &render_data, main_scene_path)
+    main_scene_mesh := load_gltf_static_model(&vgd, &render_data, main_scene_path)
     defer gltf_delete(&main_scene_mesh)
 
     // Get collision data out of main scene model
@@ -301,16 +301,16 @@ main :: proc() {
     }
 
     // Load test glTF model
-    spyro_mesh: ModelData
-    moon_mesh: ModelData
+    spyro_mesh: StaticModelData
+    moon_mesh: StaticModelData
     defer gltf_delete(&spyro_mesh)
     defer gltf_delete(&moon_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
-        spyro_mesh = load_gltf_model(&vgd, &render_data, path)
+        spyro_mesh = load_gltf_static_model(&vgd, &render_data, path)
         path = "data/models/majoras_moon.glb"
-        moon_mesh = load_gltf_model(&vgd, &render_data, path)
+        moon_mesh = load_gltf_static_model(&vgd, &render_data, path)
     }
     
     // Add moon terrain piece
@@ -331,7 +331,7 @@ main :: proc() {
     // Load animated test glTF model
     {
         path : cstring = "data/models/RiggedSimple.glb"
-        mesh := load_gltf_model(&vgd, &render_data, path, context.temp_allocator)
+        mesh := load_gltf_skinned_model(&vgd, &render_data, path, context.temp_allocator)
     }
 
     game_state.character = Character {
@@ -597,58 +597,6 @@ main :: proc() {
             }
             imgui.End()
         }
-        
-        @static current_view_from_world: hlsl.float4x4
-
-        // TEST CODE PLZ REMOVE
-        {
-            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            if want_refire_raycast {
-                collision_pt := last_raycast_hit
-                game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                game_state.character.velocity = {}
-                game_state.character.state = .Falling
-            } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
-                viewport_coords := hlsl.uint2 {
-                    u32(place_thing_screen_coords.x) - u32(render_data.viewport_dimensions[0]),
-                    u32(place_thing_screen_coords.y) - u32(render_data.viewport_dimensions[1]),
-                }
-                ray := get_view_ray(
-                    &game_state.viewport_camera,
-                    viewport_coords,
-                    {u32(render_data.viewport_dimensions[2]), u32(render_data.viewport_dimensions[3])}
-                )
-    
-                collision_pt: hlsl.float3
-                closest_dist := math.INF_F32
-                for &piece in game_state.terrain_pieces {
-                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-                    if ok {
-                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-                        if candidate_dist < closest_dist {
-                            collision_pt = candidate
-                            closest_dist = candidate_dist
-                        }
-                    }
-                }
-    
-                if closest_dist < math.INF_F32 {
-                    game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                    game_state.character.velocity = {}
-                    game_state.character.state = .Falling
-                    last_raycast_hit = collision_pt
-                }
-            }
-        }
-        // Update and draw player
-        player_update(&game_state, &output_verbs, last_frame_dt)
-        player_draw(&game_state, &vgd, &render_data)
-
-        // Camera update
-        current_view_from_world = camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
-        render_data.cpu_uniforms.clip_from_world =
-            camera_projection_from_view(&game_state.viewport_camera) *
-            current_view_from_world
 
         // React to main menu bar interaction
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
@@ -740,6 +688,57 @@ main :: proc() {
         // Imgui Demo
         if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
         
+        @static current_view_from_world: hlsl.float4x4
+
+        // TEST CODE PLZ REMOVE
+        {
+            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
+            if want_refire_raycast {
+                collision_pt := last_raycast_hit
+                game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
+                game_state.character.velocity = {}
+                game_state.character.state = .Falling
+            } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
+                viewport_coords := hlsl.uint2 {
+                    u32(place_thing_screen_coords.x) - u32(render_data.viewport_dimensions[0]),
+                    u32(place_thing_screen_coords.y) - u32(render_data.viewport_dimensions[1]),
+                }
+                ray := get_view_ray(
+                    &game_state.viewport_camera,
+                    viewport_coords,
+                    {u32(render_data.viewport_dimensions[2]), u32(render_data.viewport_dimensions[3])}
+                )
+    
+                collision_pt: hlsl.float3
+                closest_dist := math.INF_F32
+                for &piece in game_state.terrain_pieces {
+                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                    if ok {
+                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+                        if candidate_dist < closest_dist {
+                            collision_pt = candidate
+                            closest_dist = candidate_dist
+                        }
+                    }
+                }
+    
+                if closest_dist < math.INF_F32 {
+                    game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
+                    game_state.character.velocity = {}
+                    game_state.character.state = .Falling
+                    last_raycast_hit = collision_pt
+                }
+            }
+        }
+        // Update and draw player
+        player_update(&game_state, &output_verbs, last_frame_dt)
+        player_draw(&game_state, &vgd, &render_data)
+
+        // Camera update
+        current_view_from_world = camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
+        render_data.cpu_uniforms.clip_from_world =
+            camera_projection_from_view(&game_state.viewport_camera) *
+            current_view_from_world
 
         // Draw terrain pieces
         for &piece in game_state.terrain_pieces {

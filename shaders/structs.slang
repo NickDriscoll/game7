@@ -7,6 +7,12 @@ struct StaticMeshData {
     uint color_offset;
 }
 
+struct SkinnedMeshData {
+    StaticMeshData static_data;
+    uint joint_ids_offset;
+    uint joint_weights_offset;
+}
+
 struct InstanceData {
     float4x4 world_from_model;
     float4x4 normal_matrix;
