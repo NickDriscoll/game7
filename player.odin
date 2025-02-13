@@ -177,7 +177,7 @@ player_update :: proc(using game_state: ^GameState, output_verbs: ^OutputVerbs, 
     camera_follow_point += (target_pt - camera_follow_point) * (1.0 - math.exp(-camera_follow_speed * dt))
 }
 
-player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, render_data: ^RenderingState) {
+player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, render_data: ^Renderer) {
     y := character.facing
     z := hlsl.float3 {0.0, 0.0, 1.0}
     x := hlsl.cross(y, z)
