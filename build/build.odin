@@ -193,7 +193,7 @@ main :: proc() {
     }
     
     // wait for the odin compiler
-    log.info("waiting on odin compiler..")
+    log.info("waiting on odin compiler...")
     {
         proc_state, _ := os2.process_wait(odin_process)
 	    if proc_state.exit_code != 0 {

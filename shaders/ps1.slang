@@ -19,6 +19,40 @@ static const float3 SUNLIGHT = normalize(float3(-1.0, 1.0, 1.0));
 // @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
 
+float3 id_to_color(uint id) {
+    uint r = id % 6;
+
+    float3 color;
+    switch (r) {
+    case 0: {
+        color = float3(1.0, 0.0, 0.0);
+        break;
+    }
+    case 1: {
+        color = float3(0.0, 1.0, 0.0);
+        break;
+    }
+    case 2: {
+        color = float3(0.0, 0.0, 1.0);
+        break;
+    }
+    case 3: {
+        color = float3(0.0, 1.0, 1.0);
+        break;
+    }
+    case 4: {
+        color = float3(1.0, 0.0, 1.0);
+        break;
+    }
+    case 5: {
+        color = float3(1.0, 1.0, 0.0);
+        break;
+    }
+    }
+
+    return color;
+}
+
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
     InstanceData inst = u_data.i_data[inst_idx];
@@ -64,4 +98,5 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     return float4(diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb, 1.0);
+    //return float4(diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb * id_to_color(primitive_id), 1.0);
 }

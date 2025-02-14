@@ -47,9 +47,10 @@ struct UniformData {
     float4 *color_data;
     uint4 *joint_ids;
     float4 *joint_weights;
+    float4x4 *inv_bind_matrices;
 
     float time; // Periodic time value
     float distortion_strength;
 
-    float _pad0;
+    float2 _pad0;
 }
