@@ -65,6 +65,7 @@ CPUStaticMeshData :: struct {
 CPUSkinnedMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
+    animations: [dynamic]AnimationData,
     gpu_data: GPUSkinnedMeshData,
 }
 
@@ -1140,6 +1141,18 @@ StaticModelData :: struct {
     primitives: [dynamic]StaticDrawPrimitive
 }
 
+get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
+    base_ptr := buffer_view.buffer.data
+    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+    return cast([^]T)offset_ptr
+}
+
+get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
+    base_ptr := buffer.data
+    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
+    return cast([^]T)offset_ptr
+}
+
 gltf_delete :: proc(using d: ^StaticModelData)  {
     delete(primitives)
 }
@@ -1150,20 +1163,6 @@ load_gltf_static_model :: proc(
     path: cstring,
     allocator := context.allocator
 ) -> StaticModelData {
-    get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-        base_ptr := buffer_view.buffer.data
-        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-        return cast([^]T)offset_ptr
-    }
-
-    get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
-        base_ptr := buffer.data
-        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
-        return cast([^]T)offset_ptr
-    }
-
-    
-    
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -1346,7 +1345,7 @@ SkinnedDrawPrimitive :: struct {
 }
 
 SkinnedModelData :: struct {
-    primitives: [dynamic]SkinnedDrawPrimitive
+    primitives: [dynamic]SkinnedDrawPrimitive,
 }
 
 load_gltf_skinned_model :: proc(
@@ -1355,20 +1354,6 @@ load_gltf_skinned_model :: proc(
     path: cstring,
     allocator := context.allocator
 ) -> SkinnedModelData {
-    get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-        base_ptr := buffer_view.buffer.data
-        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-        return cast([^]T)offset_ptr
-    }
-
-    get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
-        base_ptr := buffer.data
-        offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
-        return cast([^]T)offset_ptr
-    }
-
-    
-    
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -1422,7 +1407,7 @@ load_gltf_skinned_model :: proc(
     // @TODO: Don't just load the first mesh you see
     mesh := gltf_data.meshes[0]
 
-    // Load all skins
+    // Load inverse bind matrices
     inv_bind_matrices: [dynamic]hlsl.float4x4
     defer delete(inv_bind_matrices)
     {
@@ -1454,10 +1439,15 @@ load_gltf_skinned_model :: proc(
                     case .scale: out_frames = &new_anim.scale_frames
                 }
 
+                keyframe_count := channel.sampler.input.count
                 keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
                 keyframe_values := get_accessor_ptr(channel.sampler.output, hlsl.float3)
-                
+                for i in 0..<keyframe_count {
+
+                }
             }
+
+
         }
     }
 
