@@ -18,6 +18,8 @@ MAX_GLOBAL_DRAW_CMDS :: 4 * 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
 MAX_GLOBAL_INDICES :: 1024*1024
 MAX_GLOBAL_MESHES :: 64 * 1024
+MAX_GLOBAL_JOINTS :: 64 * 1024
+MAX_GLOBAL_ANIMATIONS :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
@@ -37,9 +39,10 @@ UniformBufferData :: struct {
     color_ptr: vk.DeviceAddress,
     joint_id_ptr: vk.DeviceAddress,
     joint_weight_ptr: vk.DeviceAddress,
+    inv_bind_ptr: vk.DeviceAddress,
     time: f32,
     distortion_strength: f32,
-    _pad0: f32,
+    _pad0: hlsl.float2,
 }
 
 Ps1PushConstants :: struct {
@@ -76,7 +79,24 @@ GPUSkinnedMeshData :: struct {
     static_data: GPUStaticMeshData,
     joint_ids_offset: u32,
     joint_weights_offset: u32,
+    inv_bind_matrices_offset: u32,
     //_pad0: hlsl.uint2,
+}
+
+AnimationInterpolation :: enum {
+    Step,
+    Linear,
+    CubicSpline,
+}
+AnimationKeyFrame :: struct {
+    time: f32,
+    value: hlsl.float3,
+    type: AnimationInterpolation,
+}
+AnimationData :: struct {
+    translation_frames: [dynamic]AnimationKeyFrame,
+    rotation_frames: [dynamic]AnimationKeyFrame,
+    scale_frames: [dynamic]AnimationKeyFrame,
 }
 
 MaterialData :: struct {
@@ -152,7 +172,9 @@ Renderer :: struct {
     gpu_skinned_meshes: [dynamic]GPUSkinnedMeshData,
 
     // Animation data
-    
+    inverse_bind_matrices_buffer: vkw.Buffer_Handle,
+    inverse_bind_matrices_head: u32,
+
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(MaterialData),
@@ -263,6 +285,11 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.skinned_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.skinned_mesh_buffer", f32(info.size) / 1024 / 1024)
 
+        info.name = "Global skinned mesh data buffer"
+        info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
+        render_state.inverse_bind_matrices_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of memory for render_state.inverse_bind_matrices_buffer", f32(info.size) / 1024 / 1024)
+
         info.name = "Global material buffer"
         info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
         render_state.material_buffer = vkw.create_buffer(gd, &info)
@@ -311,6 +338,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
         joint_ids_buffer, _ := vkw.get_buffer(gd, render_state.joint_ids_buffer)
         joint_weights_buffer, _ := vkw.get_buffer(gd, render_state.joint_weights_buffer)
+        inv_bind_buffer, _ := vkw.get_buffer(gd, render_state.inverse_bind_matrices_buffer)
     
         render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
         render_state.cpu_uniforms.material_ptr = material_buffer.address
@@ -321,6 +349,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.cpu_uniforms.color_ptr = color_buffer.address
         render_state.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
         render_state.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
+        render_state.cpu_uniforms.inv_bind_ptr = inv_bind_buffer.address
     }
 
     // Create main rendertarget
@@ -617,7 +646,10 @@ create_skinned_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     positions: []hlsl.float4,
-    indices: []u16
+    indices: []u16,
+    joint_ids: []hlsl.uint4,
+    joint_weights: []hlsl.float4,
+    inv_bind_matrices: []hlsl.float4x4
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
@@ -643,6 +675,36 @@ create_skinned_mesh :: proc(
         indices_head += indices_len
 
         vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
+    }
+
+    inv_bind_start: u32
+    {
+        inv_bind_len := u32(len(inv_bind_matrices))
+
+        inv_bind_start = inverse_bind_matrices_head
+        inverse_bind_matrices_head += inv_bind_len
+
+        vkw.sync_write_buffer(gd, inverse_bind_matrices_buffer, inv_bind_matrices, inv_bind_start)
+    }
+
+    joint_ids_start: u32
+    {
+        joint_ids_len := u32(len(joint_ids))
+
+        joint_ids_start = joint_ids_head
+        joint_ids_head += joint_ids_len
+
+        vkw.sync_write_buffer(gd, joint_ids_buffer, joint_ids, joint_ids_start)
+    }
+
+    joint_weights_start: u32
+    {
+        joint_weights_len := u32(len(joint_weights))
+
+        joint_weights_start = joint_weights_head
+        joint_weights_head += joint_weights_len
+
+        vkw.sync_write_buffer(gd, joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
     mesh := CPUSkinnedMeshData {
@@ -742,57 +804,57 @@ add_vertex_uvs :: proc(
 }
 
 
-add_vertex_joint_ids :: proc(
-    gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
-    handle: $HandleType,
-    ids: []hlsl.uint4
-) -> bool {
-    ids_start := joint_ids_head
-    ids_len := u32(len(ids))
-    assert(ids_len > 0)
-    assert(ids_start + ids_len < MAX_GLOBAL_VERTICES)
+// add_vertex_joint_ids :: proc(
+//     gd: ^vkw.Graphics_Device,
+//     using r: ^Renderer,
+//     handle: $HandleType,
+//     ids: []hlsl.uint4
+// ) -> bool {
+//     ids_start := joint_ids_head
+//     ids_len := u32(len(ids))
+//     assert(ids_len > 0)
+//     assert(ids_start + ids_len < MAX_GLOBAL_VERTICES)
 
-    joint_ids_head += ids_len
+//     joint_ids_head += ids_len
 
-    when HandleType == Static_Mesh_Handle {
-        gpu_mesh := &gpu_static_meshes[handle.index]
-        gpu_mesh.joint_ids_offset = ids_start
-    } else when HandleType == Skinned_Mesh_Handle {
-        gpu_mesh := &gpu_skinned_meshes[handle.index]
-        gpu_mesh.static_data.joint_ids_offset = ids_start
-    } else {
-        panic("Invalid arg type")
-    }
+//     when HandleType == Static_Mesh_Handle {
+//         gpu_mesh := &gpu_static_meshes[handle.index]
+//         gpu_mesh.joint_ids_offset = ids_start
+//     } else when HandleType == Skinned_Mesh_Handle {
+//         gpu_mesh := &gpu_skinned_meshes[handle.index]
+//         gpu_mesh.joint_ids_offset = ids_start
+//     } else {
+//         panic("Invalid arg type")
+//     }
 
-    return vkw.sync_write_buffer(gd, joint_ids_buffer, ids, ids_start)
-}
+//     return vkw.sync_write_buffer(gd, joint_ids_buffer, ids, ids_start)
+// }
 
-add_vertex_joint_weights :: proc(
-    gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
-    handle: $HandleType,
-    weights: []hlsl.float4
-) -> bool {
-    weights_start := joint_weights_head
-    weights_len := u32(len(weights))
-    assert(weights_len > 0)
-    assert(weights_start + weights_len < MAX_GLOBAL_VERTICES)
+// add_vertex_joint_weights :: proc(
+//     gd: ^vkw.Graphics_Device,
+//     using r: ^Renderer,
+//     handle: $HandleType,
+//     weights: []hlsl.float4
+// ) -> bool {
+//     weights_start := joint_weights_head
+//     weights_len := u32(len(weights))
+//     assert(weights_len > 0)
+//     assert(weights_start + weights_len < MAX_GLOBAL_VERTICES)
 
-    joint_weights_head += weights_len
+//     joint_weights_head += weights_len
 
-    when HandleType == Static_Mesh_Handle {
-        gpu_mesh := &gpu_static_meshes[handle.index]
-        gpu_mesh.joint_weights_offset = weights_start
-    } else when HandleType == Skinned_Mesh_Handle {
-        gpu_mesh := &gpu_skinned_meshes[handle.index]
-        gpu_mesh.static_data.joint_weights_offset = weights_start
-    } else {
-        panic("Invalid arg type")
-    }
+//     when HandleType == Static_Mesh_Handle {
+//         gpu_mesh := &gpu_static_meshes[handle.index]
+//         gpu_mesh.joint_weights_offset = weights_start
+//     } else when HandleType == Skinned_Mesh_Handle {
+//         gpu_mesh := &gpu_skinned_meshes[handle.index]
+//         gpu_mesh.joint_weights_offset = weights_start
+//     } else {
+//         panic("Invalid arg type")
+//     }
 
-    return vkw.sync_write_buffer(gd, joint_ids_buffer, weights, weights_start)
-}
+//     return vkw.sync_write_buffer(gd, joint_ids_buffer, weights, weights_start)
+// }
 
 add_material :: proc(using r: ^Renderer, new_mat: ^MaterialData) -> Material_Handle {
     dirty_flags += {.Material}
@@ -1069,13 +1131,13 @@ render :: proc(
 
 
 
-DrawPrimitive :: struct {
+StaticDrawPrimitive :: struct {
     mesh: Static_Mesh_Handle,
     material: Material_Handle,
 }
 
 StaticModelData :: struct {
-    primitives: [dynamic]DrawPrimitive
+    primitives: [dynamic]StaticDrawPrimitive
 }
 
 gltf_delete :: proc(using d: ^StaticModelData)  {
@@ -1155,7 +1217,7 @@ load_gltf_static_model :: proc(
     // @TODO: Don't just load the first mesh you see
     mesh := gltf_data.meshes[0]
 
-    draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)
+    draw_primitives := make([dynamic]StaticDrawPrimitive, len(mesh.primitives), allocator)
 
     for primitive, i in mesh.primitives {
         // Get indices
@@ -1267,7 +1329,7 @@ load_gltf_static_model :: proc(
         }
         material_handle := add_material(render_data, &material)
 
-        draw_primitives[i] = DrawPrimitive {
+        draw_primitives[i] = StaticDrawPrimitive {
             mesh = mesh_handle,
             material = material_handle
         }
@@ -1278,9 +1340,13 @@ load_gltf_static_model :: proc(
     }
 }
 
-SkinnedModelData :: struct {
-    static_data: StaticModelData,
+SkinnedDrawPrimitive :: struct {
+    mesh: Skinned_Mesh_Handle,
+    material: Material_Handle
+}
 
+SkinnedModelData :: struct {
+    primitives: [dynamic]SkinnedDrawPrimitive
 }
 
 load_gltf_skinned_model :: proc(
@@ -1357,16 +1423,45 @@ load_gltf_skinned_model :: proc(
     mesh := gltf_data.meshes[0]
 
     // Load all skins
-    if len(gltf_data.skins) > 0 {
+    inv_bind_matrices: [dynamic]hlsl.float4x4
+    defer delete(inv_bind_matrices)
+    {
         assert(len(gltf_data.skins) == 1)
+
         glb_skin := gltf_data.skins[0]
-        w := mesh
-        for joint_node in glb_skin.joints {
-            //joint_node.
+        
+        // Load inverse bind matrices
+        inv_bind_count := glb_skin.inverse_bind_matrices.count
+        resize(&inv_bind_matrices, inv_bind_count)
+        inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
+        mem.copy(&inv_bind_matrices[0], inv_bind_ptr, int(inv_bind_count))
+
+        // Load joint data
+        for joint in glb_skin.joints {
+            log.infof("%v", joint.children)
+        }
+
+        // Load animation data
+        for animation in gltf_data.animations {
+            new_anim: AnimationData
+
+            // Load animation channels
+            for channel in animation.channels {
+                out_frames: ^[dynamic]AnimationKeyFrame
+                #partial switch channel.target_path {
+                    case .translation: out_frames = &new_anim.translation_frames
+                    case .rotation: out_frames = &new_anim.rotation_frames
+                    case .scale: out_frames = &new_anim.scale_frames
+                }
+
+                keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
+                keyframe_values := get_accessor_ptr(channel.sampler.output, hlsl.float3)
+                
+            }
         }
     }
 
-    draw_primitives := make([dynamic]DrawPrimitive, len(mesh.primitives), allocator)
+    draw_primitives := make([dynamic]SkinnedDrawPrimitive, len(mesh.primitives), allocator)
 
     for primitive, i in mesh.primitives {
         // Get indices
@@ -1464,12 +1559,18 @@ load_gltf_skinned_model :: proc(
     
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
-        mesh_handle := create_skinned_mesh(gd, render_data, position_data[:], index_data[:])
-        // add_face_normals(gd, render_data, mesh_handle, face_normals[:])
-        // if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-        // if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
-        // if len(joint_ids) > 0 do add_vertex_joint_ids(gd, render_data, mesh_handle, joint_ids[:])
-        // if len(joint_weights) > 0 do add_vertex_joint_weights(gd, render_data, mesh_handle, joint_weights[:])
+        mesh_handle := create_skinned_mesh(
+            gd,
+            render_data,
+            position_data[:],
+            index_data[:],
+            joint_ids[:],
+            joint_weights[:],
+            inv_bind_matrices[:]
+        )
+        add_face_normals(gd, render_data, mesh_handle, face_normals[:])
+        if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+        if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
 
 
         // Now get material data
@@ -1494,15 +1595,13 @@ load_gltf_skinned_model :: proc(
         }
         material_handle := add_material(render_data, &material)
 
-        // draw_primitives[i] = DrawPrimitive {
-        //     mesh = mesh_handle,
-        //     material = material_handle
-        // }
+        draw_primitives[i] = SkinnedDrawPrimitive {
+            mesh = mesh_handle,
+            material = material_handle
+        }
     }
 
     return SkinnedModelData {
-        static_data = {
-            primitives = draw_primitives
-        }
+        primitives = draw_primitives
     }
 }
