@@ -173,8 +173,7 @@ player_update :: proc(using game_state: ^GameState, output_verbs: ^OutputVerbs, 
     target_pt := character.collision.position
     //target_pt := character.collision.position - 0.01 * {character.velocity.x, character.velocity.y, 0.0}
     
-    // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
-    camera_follow_point += (target_pt - camera_follow_point) * (1.0 - math.exp(-camera_follow_speed * dt))
+    camera_follow_point = exponential_smoothing(camera_follow_point, target_pt, camera_follow_speed, dt)
 }
 
 player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, render_data: ^Renderer) {
