@@ -235,6 +235,9 @@ poll_sdl2_events :: proc(
                 }
             }
             case .KEYDOWN: {
+                // Just ignore if it's a repeat event
+                if event.key.repeat > 0 do continue
+
                 sc := event.key.keysym.scancode
 
                 // Handle key remapping here
