@@ -65,7 +65,7 @@ CPUStaticMeshData :: struct {
 CPUSkinnedMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    animations: [dynamic]AnimationData,
+    animations: [dynamic]Animation,
     gpu_data: GPUSkinnedMeshData,
 }
 
@@ -92,12 +92,16 @@ AnimationInterpolation :: enum {
 AnimationKeyFrame :: struct {
     time: f32,
     value: hlsl.float3,
+}
+AnimationChannel :: struct {
+    keyframes: [dynamic]AnimationKeyFrame,
     type: AnimationInterpolation,
 }
-AnimationData :: struct {
-    translation_frames: [dynamic]AnimationKeyFrame,
-    rotation_frames: [dynamic]AnimationKeyFrame,
-    scale_frames: [dynamic]AnimationKeyFrame,
+Animation :: struct {
+    translation_channel: AnimationChannel,
+    rotation_channel: AnimationChannel,
+    scale_channel: AnimationChannel,
+    name: string,
 }
 
 MaterialData :: struct {
@@ -650,7 +654,7 @@ create_skinned_mesh :: proc(
     indices: []u16,
     joint_ids: []hlsl.uint4,
     joint_weights: []hlsl.float4,
-    inv_bind_matrices: []hlsl.float4x4
+    inv_bind_matrices: []hlsl.float4x4,
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
@@ -803,59 +807,6 @@ add_vertex_uvs :: proc(
 
     return vkw.sync_write_buffer(gd, uvs_buffer, uvs, uv_start)
 }
-
-
-// add_vertex_joint_ids :: proc(
-//     gd: ^vkw.Graphics_Device,
-//     using r: ^Renderer,
-//     handle: $HandleType,
-//     ids: []hlsl.uint4
-// ) -> bool {
-//     ids_start := joint_ids_head
-//     ids_len := u32(len(ids))
-//     assert(ids_len > 0)
-//     assert(ids_start + ids_len < MAX_GLOBAL_VERTICES)
-
-//     joint_ids_head += ids_len
-
-//     when HandleType == Static_Mesh_Handle {
-//         gpu_mesh := &gpu_static_meshes[handle.index]
-//         gpu_mesh.joint_ids_offset = ids_start
-//     } else when HandleType == Skinned_Mesh_Handle {
-//         gpu_mesh := &gpu_skinned_meshes[handle.index]
-//         gpu_mesh.joint_ids_offset = ids_start
-//     } else {
-//         panic("Invalid arg type")
-//     }
-
-//     return vkw.sync_write_buffer(gd, joint_ids_buffer, ids, ids_start)
-// }
-
-// add_vertex_joint_weights :: proc(
-//     gd: ^vkw.Graphics_Device,
-//     using r: ^Renderer,
-//     handle: $HandleType,
-//     weights: []hlsl.float4
-// ) -> bool {
-//     weights_start := joint_weights_head
-//     weights_len := u32(len(weights))
-//     assert(weights_len > 0)
-//     assert(weights_start + weights_len < MAX_GLOBAL_VERTICES)
-
-//     joint_weights_head += weights_len
-
-//     when HandleType == Static_Mesh_Handle {
-//         gpu_mesh := &gpu_static_meshes[handle.index]
-//         gpu_mesh.joint_weights_offset = weights_start
-//     } else when HandleType == Skinned_Mesh_Handle {
-//         gpu_mesh := &gpu_skinned_meshes[handle.index]
-//         gpu_mesh.joint_weights_offset = weights_start
-//     } else {
-//         panic("Invalid arg type")
-//     }
-
-//     return vkw.sync_write_buffer(gd, joint_ids_buffer, weights, weights_start)
-// }
 
 add_material :: proc(using r: ^Renderer, new_mat: ^MaterialData) -> Material_Handle {
     dirty_flags += {.Material}
@@ -1346,6 +1297,7 @@ SkinnedDrawPrimitive :: struct {
 
 SkinnedModelData :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
+    animations: [dynamic]Animation,
 }
 
 load_gltf_skinned_model :: proc(
@@ -1410,6 +1362,7 @@ load_gltf_skinned_model :: proc(
     // Load inverse bind matrices
     inv_bind_matrices: [dynamic]hlsl.float4x4
     defer delete(inv_bind_matrices)
+    animations: [dynamic]Animation
     {
         assert(len(gltf_data.skins) == 1)
 
@@ -1427,27 +1380,45 @@ load_gltf_skinned_model :: proc(
         }
 
         // Load animation data
+        animations = make([dynamic]Animation, len(mesh.primitives), allocator)
         for animation in gltf_data.animations {
-            new_anim: AnimationData
+            new_anim: Animation
+
+            log.infof("Loading animation \"%v\"", animation.name)
 
             // Load animation channels
             for channel in animation.channels {
-                out_frames: ^[dynamic]AnimationKeyFrame
+                out_channel: ^AnimationChannel
                 #partial switch channel.target_path {
-                    case .translation: out_frames = &new_anim.translation_frames
-                    case .rotation: out_frames = &new_anim.rotation_frames
-                    case .scale: out_frames = &new_anim.scale_frames
+                    case .translation: out_channel = &new_anim.translation_channel
+                    case .rotation: out_channel = &new_anim.rotation_channel
+                    case .scale: out_channel = &new_anim.scale_channel
+                    case: log.errorf("Unsupported animation target: %v", channel.target_path)
+                }
+
+                if channel.sampler.interpolation == .cubic_spline {
+                    log.errorf("Unsupported animation interpolation: %v", channel.sampler.interpolation)
+                }
+                switch channel.sampler.interpolation {
+                    case .step: out_channel.type = .Step
+                    case .linear: out_channel.type = .Linear
+                    case .cubic_spline: out_channel.type = .CubicSpline
                 }
 
                 keyframe_count := channel.sampler.input.count
+                reserve(&out_channel.keyframes, keyframe_count)
                 keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
                 keyframe_values := get_accessor_ptr(channel.sampler.output, hlsl.float3)
                 for i in 0..<keyframe_count {
-
+                    append(&out_channel.keyframes, AnimationKeyFrame {
+                        time = keyframe_times[i],
+                        value = keyframe_values[i],
+                    })
                 }
+                
             }
 
-
+            append(&animations, new_anim)
         }
     }
 
@@ -1592,6 +1563,7 @@ load_gltf_skinned_model :: proc(
     }
 
     return SkinnedModelData {
-        primitives = draw_primitives
+        primitives = draw_primitives,
+        animations = animations
     }
 }
