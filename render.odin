@@ -524,7 +524,9 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
 
     hm.destroy(&cpu_materials)
     hm.destroy(&cpu_static_meshes)
-    delete(gpu_static_meshes)    
+    hm.destroy(&cpu_skinned_meshes)
+    delete(gpu_static_meshes)
+    delete(gpu_skinned_meshes)
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
@@ -1104,8 +1106,18 @@ get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
     return cast([^]T)offset_ptr
 }
 
-gltf_delete :: proc(using d: ^StaticModelData)  {
+gltf_static_delete :: proc(using d: ^StaticModelData)  {
     delete(primitives)
+}
+
+gltf_skinned_delete :: proc(d: ^SkinnedModelData)  {
+    delete(d.primitives)
+    for anim in d.animations {
+        delete(anim.scale_channel.keyframes)
+        delete(anim.rotation_channel.keyframes)
+        delete(anim.translation_channel.keyframes)
+    }
+    delete(d.animations)
 }
 
 load_gltf_static_model :: proc(
@@ -1380,9 +1392,12 @@ load_gltf_skinned_model :: proc(
         }
 
         // Load animation data
-        animations = make([dynamic]Animation, len(mesh.primitives), allocator)
+        animations = make([dynamic]Animation, allocator)
         for animation in gltf_data.animations {
             new_anim: Animation
+            defer delete(new_anim.translation_channel.keyframes)
+            defer delete(new_anim.rotation_channel.keyframes)
+            defer delete(new_anim.scale_channel.keyframes)
 
             log.infof("Loading animation \"%v\"", animation.name)
 
