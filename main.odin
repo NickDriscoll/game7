@@ -285,7 +285,7 @@ main :: proc() {
     //main_scene_path : cstring = "data/models/plane.glb"
 
     main_scene_mesh := load_gltf_static_model(&vgd, &render_data, main_scene_path)
-    defer gltf_delete(&main_scene_mesh)
+    defer gltf_static_delete(&main_scene_mesh)
 
     // Get collision data out of main scene model
     {
@@ -303,8 +303,8 @@ main :: proc() {
     // Load test glTF model
     spyro_mesh: StaticModelData
     moon_mesh: StaticModelData
-    defer gltf_delete(&spyro_mesh)
-    defer gltf_delete(&moon_mesh)
+    defer gltf_static_delete(&spyro_mesh)
+    defer gltf_static_delete(&moon_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
@@ -329,9 +329,11 @@ main :: proc() {
     }
 
     // Load animated test glTF model
+    simple_skinned_model: SkinnedModelData
+    defer gltf_skinned_delete(&simple_skinned_model)
     {
         path : cstring = "data/models/RiggedSimple.glb"
-        mesh := load_gltf_skinned_model(&vgd, &render_data, path, context.temp_allocator)
+        simple_skinned_model = load_gltf_skinned_model(&vgd, &render_data, path, context.temp_allocator)
     }
 
     game_state.character = Character {
