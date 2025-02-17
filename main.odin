@@ -269,9 +269,9 @@ main :: proc() {
     game_state.timescale = 1.0
 
     // Initialize the renderer
-    render_data := init_renderer(&vgd, resolution)
-    defer delete_renderer(&vgd, &render_data)
-    render_data.main_framebuffer.clear_color = {0.1568627, 0.443137, 0.9176471, 1.0}
+    renderer := init_renderer(&vgd, resolution)
+    defer delete_renderer(&vgd, &renderer)
+    renderer.main_framebuffer.clear_color = {0.1568627, 0.443137, 0.9176471, 1.0}
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
@@ -284,7 +284,7 @@ main :: proc() {
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
 
-    main_scene_mesh := load_gltf_static_model(&vgd, &render_data, main_scene_path)
+    main_scene_mesh := load_gltf_static_model(&vgd, &renderer, main_scene_path)
     defer gltf_static_delete(&main_scene_mesh)
 
     // Get collision data out of main scene model
@@ -308,9 +308,9 @@ main :: proc() {
     {
         path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
-        spyro_mesh = load_gltf_static_model(&vgd, &render_data, path)
+        spyro_mesh = load_gltf_static_model(&vgd, &renderer, path)
         path = "data/models/majoras_moon.glb"
-        moon_mesh = load_gltf_static_model(&vgd, &render_data, path)
+        moon_mesh = load_gltf_static_model(&vgd, &renderer, path)
     }
     
     // Add moon terrain piece
@@ -333,7 +333,7 @@ main :: proc() {
     defer gltf_skinned_delete(&simple_skinned_model)
     {
         path : cstring = "data/models/RiggedSimple.glb"
-        simple_skinned_model = load_gltf_skinned_model(&vgd, &render_data, path, context.temp_allocator)
+        simple_skinned_model = load_gltf_skinned_model(&vgd, &renderer, path, context.temp_allocator)
     }
 
     game_state.character = Character {
@@ -440,13 +440,13 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        render_data.cpu_uniforms.clip_from_screen = {
+        renderer.cpu_uniforms.clip_from_screen = {
             2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
             0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0
         }
-        render_data.cpu_uniforms.time = f32(vgd.frame_count) / 144
+        renderer.cpu_uniforms.time = f32(vgd.frame_count) / 144
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -499,10 +499,10 @@ main :: proc() {
         // Update
 
         docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
-        render_data.viewport_dimensions[0] = docknode.Pos.x
-        render_data.viewport_dimensions[1] = docknode.Pos.y
-        render_data.viewport_dimensions[2] = docknode.Size.x
-        render_data.viewport_dimensions[3] = docknode.Size.y
+        renderer.viewport_dimensions[0] = docknode.Pos.x
+        renderer.viewport_dimensions[1] = docknode.Pos.y
+        renderer.viewport_dimensions[2] = docknode.Size.x
+        renderer.viewport_dimensions[3] = docknode.Size.y
         game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
 
         @static cpu_limiter_ms : c.int = 100
@@ -565,7 +565,7 @@ main :: proc() {
                     imgui.Separator()
                 }
 
-                imgui.SliderFloat("Distortion Strength", &render_data.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") do game_state.timescale = 1.0
@@ -702,13 +702,13 @@ main :: proc() {
                 game_state.character.state = .Falling
             } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
                 viewport_coords := hlsl.uint2 {
-                    u32(place_thing_screen_coords.x) - u32(render_data.viewport_dimensions[0]),
-                    u32(place_thing_screen_coords.y) - u32(render_data.viewport_dimensions[1]),
+                    u32(place_thing_screen_coords.x) - u32(renderer.viewport_dimensions[0]),
+                    u32(place_thing_screen_coords.y) - u32(renderer.viewport_dimensions[1]),
                 }
                 ray := get_view_ray(
                     &game_state.viewport_camera,
                     viewport_coords,
-                    {u32(render_data.viewport_dimensions[2]), u32(render_data.viewport_dimensions[3])}
+                    {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
                 )
     
                 collision_pt: hlsl.float3
@@ -734,26 +734,39 @@ main :: proc() {
         }
         // Update and draw player
         player_update(&game_state, &output_verbs, last_frame_dt)
-        player_draw(&game_state, &vgd, &render_data)
+        player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
         current_view_from_world = camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
-        render_data.cpu_uniforms.clip_from_world =
+        renderer.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
 
+        // Draw arbitrary skinned mesh
+        {
+            anim_idx := simple_skinned_model.first_animation_idx
+            anim := renderer.animations[anim_idx]
+            anim_t := math.remainder(renderer.cpu_uniforms.time, anim.end_time)
+            dd := SkinnedDrawData {
+                world_from_model = translation_matrix({0.0, 0.0, 5.0}),
+                anim_idx = anim_idx,
+                anim_t = anim_t
+            }
+            draw_ps1_skinned_mesh(&vgd, &renderer, &simple_skinned_model, &dd)
+        }
+
         // Draw terrain pieces
         for &piece in game_state.terrain_pieces {
-            tform := DrawData {
+            tform := StaticDrawData {
                 world_from_model = piece.model_matrix
             }
-            draw_ps1_static_mesh(&vgd, &render_data, &piece.mesh_data, &tform)
+            draw_ps1_static_mesh(&vgd, &renderer, &piece.mesh_data, &tform)
         }
 
         // Draw loose props
         for &prop, i in game_state.props {
             zpos := prop.position.z
-            transform := DrawData {
+            transform := StaticDrawData {
                 world_from_model = {
                     prop.scale, 0.0, 0.0, prop.position.x,
                     0.0, prop.scale, 0.0, prop.position.y,
@@ -761,7 +774,7 @@ main :: proc() {
                     0.0, 0.0, 0.0, 1.0,
                 }
             }
-            draw_ps1_static_mesh(&vgd, &render_data, &prop.mesh_data, &transform)
+            draw_ps1_static_mesh(&vgd, &renderer, &prop.mesh_data, &transform)
         }
 
         // Window update
@@ -785,7 +798,7 @@ main :: proc() {
             // Resize swapchain if necessary
             if vgd.resize_window {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
-                resize_framebuffers(&vgd, &render_data, resolution)
+                resize_framebuffers(&vgd, &renderer, resolution)
                 game_state.viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
                 user_config.ints["window_width"] = i64(resolution.x)
                 user_config.ints["window_height"] = i64(resolution.y)
@@ -795,10 +808,10 @@ main :: proc() {
                 vgd.resize_window = false
             }
     
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &renderer.gfx_sync_info, renderer.gfx_timeline)
             
             // Increment timeline semaphore upon command buffer completion
-            vkw.add_signal_op(&vgd, &render_data.gfx_sync_info, render_data.gfx_timeline, vgd.frame_count + 1)
+            vkw.add_signal_op(&vgd, &renderer.gfx_sync_info, renderer.gfx_timeline, vgd.frame_count + 1)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -806,10 +819,10 @@ main :: proc() {
     
             // Wait on swapchain image acquire semaphore
             // and signal when we're done drawing on a different semaphore
-            append(&render_data.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
+            append(&renderer.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
                 semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
             })
-            append(&render_data.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
+            append(&renderer.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
                 semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
             })
     
@@ -839,7 +852,7 @@ main :: proc() {
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
 
             // Main render call
-            render(&vgd, gfx_cb_idx, &render_data, &game_state.viewport_camera, &framebuffer)
+            render(&vgd, gfx_cb_idx, &renderer, &game_state.viewport_camera, &framebuffer)
             
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
@@ -867,7 +880,7 @@ main :: proc() {
                 }
             })
     
-            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &render_data.gfx_sync_info)
+            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &renderer.gfx_sync_info)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
         }
 
@@ -875,7 +888,7 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // Clear sync info for next frame
-        vkw.clear_sync_info(&render_data.gfx_sync_info)
+        vkw.clear_sync_info(&renderer.gfx_sync_info)
         vgd.frame_count += 1
 
         // CPU limiter
