@@ -815,7 +815,7 @@ add_material :: proc(using r: ^Renderer, new_mat: ^MaterialData) -> Material_Han
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
 
-draw_ps1_mesh :: proc(
+draw_ps1_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     data: ^StaticModelData,
