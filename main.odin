@@ -747,7 +747,7 @@ main :: proc() {
             tform := DrawData {
                 world_from_model = piece.model_matrix
             }
-            draw_ps1_mesh(&vgd, &render_data, &piece.mesh_data, &tform)
+            draw_ps1_static_mesh(&vgd, &render_data, &piece.mesh_data, &tform)
         }
 
         // Draw loose props
@@ -761,7 +761,7 @@ main :: proc() {
                     0.0, 0.0, 0.0, 1.0,
                 }
             }
-            draw_ps1_mesh(&vgd, &render_data, &prop.mesh_data, &transform)
+            draw_ps1_static_mesh(&vgd, &render_data, &prop.mesh_data, &transform)
         }
 
         // Window update

@@ -192,5 +192,5 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
     ddata.world_from_model[3][0] = game_state.character.collision.position.x
     ddata.world_from_model[3][1] = game_state.character.collision.position.y
     ddata.world_from_model[3][2] = game_state.character.collision.position.z
-    draw_ps1_mesh(gd, render_data, &game_state.character.mesh_data, &ddata)
+    draw_ps1_static_mesh(gd, render_data, &game_state.character.mesh_data, &ddata)
 }
