@@ -101,6 +101,7 @@ Animation :: struct {
     translation_channel: AnimationChannel,
     rotation_channel: AnimationChannel,
     scale_channel: AnimationChannel,
+    end_time: f32,
     name: string,
 }
 
@@ -112,23 +113,41 @@ MaterialData :: struct {
     base_color: hlsl.float4,
 }
 
-DrawData :: struct {
+StaticDrawData :: struct {
     world_from_model: hlsl.float4x4,
 }
 
-StaticInstanceData :: struct {
+SkinnedDrawData :: struct {
+    world_from_model: hlsl.float4x4,
+    anim_idx: u32,
+    anim_t: f32
+}
+
+CPUStaticInstanceData :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
 }
 
-GPUInstanceData :: struct {
+GPUStaticInstanceData :: struct {
     world_from_model: hlsl.float4x4,
     normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
     material_idx: u32,
     _pad0: hlsl.uint2,
     _pad3: hlsl.float4x3,
+}
+
+CPUSkinnedInstanceData :: struct {
+    world_from_model: hlsl.float4x4,
+    mesh_handle: Skinned_Mesh_Handle,
+    material_handle: Material_Handle,
+    animation_time: f32,
+    animation_idx: u32,
+}
+
+GPUSkinnedInstanceData :: struct {
+
 }
 
 GPUBufferDirtyFlags :: bit_set[enum{
@@ -179,13 +198,15 @@ Renderer :: struct {
     // Animation data
     inverse_bind_matrices_buffer: vkw.Buffer_Handle,
     inverse_bind_matrices_head: u32,
-
+    animations: [dynamic]Animation,
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(MaterialData),
     
-    cpu_instances: [dynamic]StaticInstanceData,
-    gpu_instances: [dynamic]GPUInstanceData,
+    cpu_static_instances: [dynamic]CPUStaticInstanceData,
+    gpu_static_instances: [dynamic]GPUStaticInstanceData,
+    cpu_skinned_instances: [dynamic]CPUSkinnedInstanceData,
+    gpu_skinned_instances: [dynamic]GPUSkinnedInstanceData,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
     cpu_uniforms: UniformBufferData,
@@ -301,7 +322,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
-        info.size = size_of(GPUInstanceData) * MAX_GLOBAL_INSTANCES
+        info.size = size_of(GPUStaticInstanceData) * MAX_GLOBAL_INSTANCES
         render_state.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
@@ -519,8 +540,10 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     vkw.delete_buffer(gd, instance_buffer)
     vkw.delete_buffer(gd, uniform_buffer)
 
-    delete(cpu_instances)
-    delete(gpu_instances)
+    delete(cpu_static_instances)
+    delete(gpu_static_instances)
+    delete(cpu_skinned_instances)
+    delete(gpu_skinned_instances)
 
     hm.destroy(&cpu_materials)
     hm.destroy(&cpu_static_meshes)
@@ -819,30 +842,62 @@ draw_ps1_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     data: ^StaticModelData,
-    draw_data: ^DrawData
+    draw_data: ^StaticDrawData,
 ) {
     for prim in data.primitives {
-        draw_ps1_primitive(gd, r, prim.mesh, prim.material, draw_data)
+        draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
+    }
+}
+
+draw_ps1_skinned_mesh :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^Renderer,
+    data: ^SkinnedModelData,
+    draw_data: ^SkinnedDrawData,
+) {
+    for prim in data.primitives {
+        draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
 }
 
 // User code calls this to queue up draw calls
-draw_ps1_primitive :: proc(
+draw_ps1_static_primitive :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
-    draw_data: ^DrawData
+    draw_data: ^StaticDrawData,
 ) -> bool {
     dirty_flags += {.Instance,.Draw}
 
     // Append instance representing this primitive
-    new_inst := StaticInstanceData {
+    new_inst := CPUStaticInstanceData {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         material_handle = material_handle
     }
-    append(&cpu_instances, new_inst)
+    append(&cpu_static_instances, new_inst)
+
+    return true
+}
+
+draw_ps1_skinned_primitive :: proc(
+    gd: ^vkw.Graphics_Device,
+    using r: ^Renderer,
+    mesh_handle: Skinned_Mesh_Handle,
+    material_handle: Material_Handle,
+    draw_data: ^SkinnedDrawData,
+) -> bool {
+    dirty_flags += {.Instance,.Draw}
+
+    new_inst := CPUSkinnedInstanceData {
+        world_from_model = draw_data.world_from_model,
+        mesh_handle = mesh_handle,
+        material_handle = material_handle,
+        animation_idx = draw_data.anim_idx,
+        animation_time = draw_data.anim_t
+    }
+    append(&cpu_skinned_instances, new_inst)
 
     return true
 }
@@ -856,6 +911,9 @@ render :: proc(
     viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
+    // Do CPU-side work for animations
+
+
     // Sync CPU and GPU buffers
 
     // Mesh buffer
@@ -871,12 +929,12 @@ render :: proc(
     // Draw and Instance buffers
     ps1_draw_count : u32 = 0
     if .Draw in dirty_flags || .Instance in dirty_flags {
-        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_instances), context.temp_allocator)
+        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_static_instances), context.temp_allocator)
         defer delete(gpu_draws)
 
         
         // Sort instances by mesh handle
-        slice.sort_by(cpu_instances[:], proc(i, j: StaticInstanceData) -> bool {
+        slice.sort_by(cpu_static_instances[:], proc(i, j: CPUStaticInstanceData) -> bool {
             return i.mesh_handle.index < j.mesh_handle.index
         })
 
@@ -885,14 +943,14 @@ render :: proc(
         current_inst_count := 0
         inst_offset := 0
         current_mesh_handle: Static_Mesh_Handle
-        for inst in cpu_instances {
-            g_inst := GPUInstanceData {
+        for inst in cpu_static_instances {
+            g_inst := GPUStaticInstanceData {
                 world_from_model = inst.world_from_model,
                 normal_matrix = hlsl.cofactor(inst.world_from_model),
                 mesh_idx = inst.mesh_handle.index,
                 material_idx = inst.material_handle.index
             }
-            append(&gpu_instances, g_inst)
+            append(&gpu_static_instances, g_inst)
 
             if current_inst_count == 0 {
                 // First iteration case
@@ -945,7 +1003,7 @@ render :: proc(
         inst_offset += current_inst_count
         ps1_draw_count += 1
 
-        vkw.sync_write_buffer(gd, instance_buffer, gpu_instances[:])
+        vkw.sync_write_buffer(gd, instance_buffer, gpu_static_instances[:])
         vkw.sync_write_buffer(gd, draw_buffer, gpu_draws[:])
     }
 
@@ -1028,8 +1086,8 @@ render :: proc(
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
     
     // Reset per-frame state vars
-    clear(&cpu_instances)
-    clear(&gpu_instances)
+    clear(&cpu_static_instances)
+    clear(&gpu_static_instances)
 
     // Postprocessing step to write final output
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
@@ -1112,12 +1170,6 @@ gltf_static_delete :: proc(using d: ^StaticModelData)  {
 
 gltf_skinned_delete :: proc(d: ^SkinnedModelData)  {
     delete(d.primitives)
-    for anim in d.animations {
-        delete(anim.scale_channel.keyframes)
-        delete(anim.rotation_channel.keyframes)
-        delete(anim.translation_channel.keyframes)
-    }
-    delete(d.animations)
 }
 
 load_gltf_static_model :: proc(
@@ -1309,7 +1361,7 @@ SkinnedDrawPrimitive :: struct {
 
 SkinnedModelData :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
-    animations: [dynamic]Animation,
+    first_animation_idx: u32,
 }
 
 load_gltf_skinned_model :: proc(
@@ -1374,7 +1426,7 @@ load_gltf_skinned_model :: proc(
     // Load inverse bind matrices
     inv_bind_matrices: [dynamic]hlsl.float4x4
     defer delete(inv_bind_matrices)
-    animations: [dynamic]Animation
+    first_anim_idx: u32
     {
         assert(len(gltf_data.skins) == 1)
 
@@ -1391,15 +1443,16 @@ load_gltf_skinned_model :: proc(
             log.infof("%v", joint.children)
         }
 
+        // Get the index that will point to this model's first animation
+        // in the global animations list after the animations are pushed
+        first_anim_idx = u32(len(render_data.animations))
+
         // Load animation data
-        animations = make([dynamic]Animation, allocator)
         for animation in gltf_data.animations {
             new_anim: Animation
-            defer delete(new_anim.translation_channel.keyframes)
-            defer delete(new_anim.rotation_channel.keyframes)
-            defer delete(new_anim.scale_channel.keyframes)
 
             log.infof("Loading animation \"%v\"", animation.name)
+            new_anim.name = string(animation.name)
 
             // Load animation channels
             for channel in animation.channels {
@@ -1429,11 +1482,12 @@ load_gltf_skinned_model :: proc(
                         time = keyframe_times[i],
                         value = keyframe_values[i],
                     })
+                    new_anim.end_time = keyframe_times[i]
                 }
                 
             }
 
-            append(&animations, new_anim)
+            append(&render_data.animations, new_anim)
         }
     }
 
@@ -1579,6 +1633,6 @@ load_gltf_skinned_model :: proc(
 
     return SkinnedModelData {
         primitives = draw_primitives,
-        animations = animations
+        first_animation_idx = first_anim_idx
     }
 }

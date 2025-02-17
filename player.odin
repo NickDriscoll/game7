@@ -184,7 +184,7 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
         x[2], y[2], z[2], 0.0,
         0.0, 0.0, 0.0, 1.0,
     }
-    ddata := DrawData {
+    ddata := StaticDrawData {
         world_from_model = rotate_mat
     }
     ddata.world_from_model[3][0] = game_state.character.collision.position.x
