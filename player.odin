@@ -171,8 +171,6 @@ player_update :: proc(using game_state: ^GameState, output_verbs: ^OutputVerbs, 
 
     // Camera follow point chases player
     target_pt := character.collision.position
-    //target_pt := character.collision.position - 0.01 * {character.velocity.x, character.velocity.y, 0.0}
-    
     camera_follow_point = exponential_smoothing(camera_follow_point, target_pt, camera_follow_speed, dt)
 }
 
