@@ -39,7 +39,7 @@ UniformBufferData :: struct {
     color_ptr: vk.DeviceAddress,
     joint_id_ptr: vk.DeviceAddress,
     joint_weight_ptr: vk.DeviceAddress,
-    inv_bind_ptr: vk.DeviceAddress,
+    joint_mats_ptr: vk.DeviceAddress,
     time: f32,
     distortion_strength: f32,
     _pad0: hlsl.float2,
@@ -96,6 +96,7 @@ AnimationKeyFrame :: struct {
 AnimationChannel :: struct {
     keyframes: [dynamic]AnimationKeyFrame,
     type: AnimationInterpolation,
+    local_joint_id: u32,
 }
 Animation :: struct {
     translation_channel: AnimationChannel,
@@ -196,8 +197,9 @@ Renderer :: struct {
     gpu_skinned_meshes: [dynamic]GPUSkinnedMeshData,
 
     // Animation data
-    inverse_bind_matrices_buffer: vkw.Buffer_Handle,
-    inverse_bind_matrices_head: u32,
+    joint_matrices_buffer: vkw.Buffer_Handle,
+    joint_matrices_head: u32,
+    inverse_bind_matrices: [dynamic]hlsl.float4x4,
     animations: [dynamic]Animation,
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
@@ -230,6 +232,7 @@ Renderer :: struct {
 
     // Main viewport dimensions
     // Updated every frame with respect to the ImGUI dockspace's central node
+    // @TODO: Replace [4]f32 with vk.Rect2D
     viewport_dimensions: [4]f32,
 }
 
@@ -311,9 +314,9 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.skinned_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.skinned_mesh_buffer", f32(info.size) / 1024 / 1024)
 
-        info.name = "Global skinned mesh data buffer"
+        info.name = "Global joint matrices buffer"
         info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
-        render_state.inverse_bind_matrices_buffer = vkw.create_buffer(gd, &info)
+        render_state.joint_matrices_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.inverse_bind_matrices_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
@@ -364,7 +367,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
         joint_ids_buffer, _ := vkw.get_buffer(gd, render_state.joint_ids_buffer)
         joint_weights_buffer, _ := vkw.get_buffer(gd, render_state.joint_weights_buffer)
-        inv_bind_buffer, _ := vkw.get_buffer(gd, render_state.inverse_bind_matrices_buffer)
+        joint_matrices_buffer, _ := vkw.get_buffer(gd, render_state.joint_matrices_buffer)
     
         render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
         render_state.cpu_uniforms.material_ptr = material_buffer.address
@@ -375,7 +378,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.cpu_uniforms.color_ptr = color_buffer.address
         render_state.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
         render_state.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
-        render_state.cpu_uniforms.inv_bind_ptr = inv_bind_buffer.address
+        render_state.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
     }
 
     // Create main rendertarget
@@ -679,7 +682,6 @@ create_skinned_mesh :: proc(
     indices: []u16,
     joint_ids: []hlsl.uint4,
     joint_weights: []hlsl.float4,
-    inv_bind_matrices: []hlsl.float4x4,
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
@@ -705,16 +707,6 @@ create_skinned_mesh :: proc(
         indices_head += indices_len
 
         vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
-    }
-
-    inv_bind_start: u32
-    {
-        inv_bind_len := u32(len(inv_bind_matrices))
-
-        inv_bind_start = inverse_bind_matrices_head
-        inverse_bind_matrices_head += inv_bind_len
-
-        vkw.sync_write_buffer(gd, inverse_bind_matrices_buffer, inv_bind_matrices, inv_bind_start)
     }
 
     joint_ids_start: u32
@@ -912,7 +904,10 @@ render :: proc(
     framebuffer: ^vkw.Framebuffer,
 ) {
     // Do CPU-side work for animations
-
+    for skinned_instance in cpu_skinned_instances {
+        //anim := animations[skinned_instance.animation_idx]
+        
+    }
 
     // Sync CPU and GPU buffers
 
@@ -1088,6 +1083,8 @@ render :: proc(
     // Reset per-frame state vars
     clear(&cpu_static_instances)
     clear(&gpu_static_instances)
+    clear(&cpu_skinned_instances)
+    clear(&gpu_skinned_instances)
 
     // Postprocessing step to write final output
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
@@ -1362,6 +1359,8 @@ SkinnedDrawPrimitive :: struct {
 SkinnedModelData :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
     first_animation_idx: u32,
+    first_joint_idx: u32,
+    first_inverse_bind_matrix: u32
 }
 
 load_gltf_skinned_model :: proc(
@@ -1424,28 +1423,32 @@ load_gltf_skinned_model :: proc(
     mesh := gltf_data.meshes[0]
 
     // Load inverse bind matrices
-    inv_bind_matrices: [dynamic]hlsl.float4x4
-    defer delete(inv_bind_matrices)
     first_anim_idx: u32
+    first_inverse_bind_matrix: u32
+    first_joint_idx := render_data.joint_matrices_head
     {
         assert(len(gltf_data.skins) == 1)
 
         glb_skin := gltf_data.skins[0]
-        
-        // Load inverse bind matrices
-        inv_bind_count := glb_skin.inverse_bind_matrices.count
-        resize(&inv_bind_matrices, inv_bind_count)
-        inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
-        mem.copy(&inv_bind_matrices[0], inv_bind_ptr, int(inv_bind_count))
-
-        // Load joint data
-        for joint in glb_skin.joints {
-            log.infof("%v", joint.children)
-        }
 
         // Get the index that will point to this model's first animation
         // in the global animations list after the animations are pushed
         first_anim_idx = u32(len(render_data.animations))
+        first_inverse_bind_matrix = u32(len(render_data.inverse_bind_matrices))
+        
+        // Load inverse bind matrices
+        inv_bind_count := glb_skin.inverse_bind_matrices.count
+        resize(&render_data.inverse_bind_matrices, uint(first_inverse_bind_matrix) + inv_bind_count)
+        inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
+        mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_count))
+
+        joints: [dynamic]^cgltf.node
+        defer delete(joints)
+        resize(&joints, len(glb_skin.joints))
+        mem.copy(&joints[0], &glb_skin.joints[0], size_of(^cgltf.node) * len(glb_skin.joints))
+        // Claim space in the joint matrices buffer by advancing
+        // the head by how many joints are in this model
+        render_data.joint_matrices_head += u32(len(glb_skin.joints))
 
         // Load animation data
         for animation in gltf_data.animations {
@@ -1472,6 +1475,10 @@ load_gltf_skinned_model :: proc(
                     case .linear: out_channel.type = .Linear
                     case .cubic_spline: out_channel.type = .CubicSpline
                 }
+
+                // Get local idx of animated joint
+                out_channel.local_joint_id = 0
+                for uintptr(joints[out_channel.local_joint_id]) != uintptr(channel.target_node) do out_channel.local_joint_id += 1
 
                 keyframe_count := channel.sampler.input.count
                 reserve(&out_channel.keyframes, keyframe_count)
@@ -1596,7 +1603,6 @@ load_gltf_skinned_model :: proc(
             index_data[:],
             joint_ids[:],
             joint_weights[:],
-            inv_bind_matrices[:]
         )
         add_face_normals(gd, render_data, mesh_handle, face_normals[:])
         if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
@@ -1633,6 +1639,8 @@ load_gltf_skinned_model :: proc(
 
     return SkinnedModelData {
         primitives = draw_primitives,
-        first_animation_idx = first_anim_idx
+        first_animation_idx = first_anim_idx,
+        first_joint_idx = first_joint_idx,
+        first_inverse_bind_matrix = first_inverse_bind_matrix
     }
 }
