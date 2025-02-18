@@ -30,7 +30,7 @@ FRAGMENT_SHADERS : []string : {
 
 // List of all .slang files with a compute shader entry point
 COMPUTE_SHADERS : []string : {
-
+    "compute_skinning"
 }
 
 when ODIN_DEBUG {
