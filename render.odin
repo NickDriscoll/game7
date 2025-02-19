@@ -2,8 +2,9 @@ package main
 
 import "core:fmt"
 import "core:log"
-import "core:math/linalg/hlsl"
 import "core:math"
+import "core:math/linalg"
+import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:slice"
 import "core:strings"
@@ -65,7 +66,6 @@ CPUStaticMeshData :: struct {
 CPUSkinnedMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    animations: [dynamic]Animation,
     gpu_data: GPUSkinnedMeshData,
 }
 
@@ -80,10 +80,12 @@ GPUSkinnedMeshData :: struct {
     static_data: GPUStaticMeshData,
     joint_ids_offset: u32,
     joint_weights_offset: u32,
-    inv_bind_matrices_offset: u32,
     //_pad0: hlsl.uint2,
 }
 
+Joint :: struct {
+    parent: u32
+}
 AnimationInterpolation :: enum {
     Step,
     Linear,
@@ -91,7 +93,7 @@ AnimationInterpolation :: enum {
 }
 AnimationKeyFrame :: struct {
     time: f32,
-    value: hlsl.float3,
+    value: hlsl.float4,
 }
 AnimationChannel :: struct {
     keyframes: [dynamic]AnimationKeyFrame,
@@ -904,8 +906,39 @@ render :: proc(
     framebuffer: ^vkw.Framebuffer,
 ) {
     // Do CPU-side work for animations
+    // Need to put data in relevant place for compute shader operation
+    // then launch said compute shader
     for skinned_instance in cpu_skinned_instances {
-        //anim := animations[skinned_instance.animation_idx]
+        anim := animations[skinned_instance.animation_idx]
+        anim_t := skinned_instance.animation_time
+
+        mesh, _ := hm.get(&cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
+        
+        // Get interpolated keyframe state for translation, rotation, and scale
+        {
+            interpolation_amount: f32
+            rotation_quat: quaternion128
+            for i in 0..<len(anim.rotation_channel.keyframes)-1 {
+                now := anim.rotation_channel.keyframes[i]
+                next := anim.rotation_channel.keyframes[i + 1]
+                if now.time <= anim_t && anim_t < next.time {
+                    // anim_t == (1 - t)a + bt
+                    // == a - at + bt
+                    // == a - t(a + b)
+                    // a - anim_t == t(a + b)
+                    // a - anim_t / (a + b) == t
+                    interpolation_amount = now.time - anim_t / (now.time + next.time)
+
+                    now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
+                    next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                    rotation_quat = linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+                }
+            }
+
+            
+        }
+        
+        // Compute joint matrices for this animation
         
     }
 
@@ -1477,13 +1510,31 @@ load_gltf_skinned_model :: proc(
                 }
 
                 // Get local idx of animated joint
-                out_channel.local_joint_id = 0
                 for uintptr(joints[out_channel.local_joint_id]) != uintptr(channel.target_node) do out_channel.local_joint_id += 1
 
                 keyframe_count := channel.sampler.input.count
                 reserve(&out_channel.keyframes, keyframe_count)
                 keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
-                keyframe_values := get_accessor_ptr(channel.sampler.output, hlsl.float3)
+                keyframe_values: [dynamic]hlsl.float4
+                defer delete(keyframe_values)
+                resize(&keyframe_values, keyframe_count)
+                #partial switch channel.sampler.output.type {
+                    case .vec3: {
+                        ptr := get_accessor_ptr(channel.sampler.output, hlsl.float3)
+                        for i in 0..<keyframe_count {
+                            val := &ptr[i]
+                            keyframe_values[i] = {val.x, val.y, val.z, 1.0}
+                        }
+                    }
+                    case .vec4: {
+                        ptr := get_accessor_ptr(channel.sampler.output, hlsl.float4)
+                        mem.copy(&keyframe_values[0], ptr, int(size_of(hlsl.float4) * keyframe_count))
+                    }
+                    case: {
+                        log.error("Invalid animation sampler output type.")
+                    }
+                }
+
                 for i in 0..<keyframe_count {
                     append(&out_channel.keyframes, AnimationKeyFrame {
                         time = keyframe_times[i],
