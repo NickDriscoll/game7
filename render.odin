@@ -66,6 +66,8 @@ CPUStaticMeshData :: struct {
 CPUSkinnedMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
+    joint_count: u32,
+    first_inverse_bind_matrix: u32,
     gpu_data: GPUSkinnedMeshData,
 }
 
@@ -84,6 +86,7 @@ GPUSkinnedMeshData :: struct {
 }
 
 Joint :: struct {
+    transform: hlsl.float4x4,
     parent: u32
 }
 AnimationInterpolation :: enum {
@@ -95,15 +98,19 @@ AnimationKeyFrame :: struct {
     time: f32,
     value: hlsl.float4,
 }
+AnimationAspect :: enum {
+    Translation,
+    Rotation,
+    Scale
+}
 AnimationChannel :: struct {
     keyframes: [dynamic]AnimationKeyFrame,
-    type: AnimationInterpolation,
+    interpolation_type: AnimationInterpolation,
+    aspect: AnimationAspect,
     local_joint_id: u32,
 }
 Animation :: struct {
-    translation_channel: AnimationChannel,
-    rotation_channel: AnimationChannel,
-    scale_channel: AnimationChannel,
+    channels: [dynamic]AnimationChannel,
     end_time: f32,
     name: string,
 }
@@ -199,8 +206,9 @@ Renderer :: struct {
     gpu_skinned_meshes: [dynamic]GPUSkinnedMeshData,
 
     // Animation data
-    joint_matrices_buffer: vkw.Buffer_Handle,
+    joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
     joint_matrices_head: u32,
+    cpu_joints: [dynamic]Joint,                     // Contains joints for each _unique_ skin.
     inverse_bind_matrices: [dynamic]hlsl.float4x4,
     animations: [dynamic]Animation,
 
@@ -319,7 +327,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.name = "Global joint matrices buffer"
         info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
         render_state.joint_matrices_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.inverse_bind_matrices_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of memory for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
         info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
@@ -684,6 +692,8 @@ create_skinned_mesh :: proc(
     indices: []u16,
     joint_ids: []hlsl.uint4,
     joint_weights: []hlsl.float4,
+    joint_count: u32,
+    first_inverse_bind_matrix: u32,
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
@@ -734,6 +744,8 @@ create_skinned_mesh :: proc(
     mesh := CPUSkinnedMeshData {
         indices_start = indices_start,
         indices_len = indices_len,
+        joint_count = joint_count,
+        first_inverse_bind_matrix = first_inverse_bind_matrix
     }
     handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
 
@@ -908,38 +920,70 @@ render :: proc(
     // Do CPU-side work for animations
     // Need to put data in relevant place for compute shader operation
     // then launch said compute shader
-    for skinned_instance in cpu_skinned_instances {
-        anim := animations[skinned_instance.animation_idx]
-        anim_t := skinned_instance.animation_time
-
-        mesh, _ := hm.get(&cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
-        
-        // Get interpolated keyframe state for translation, rotation, and scale
-        {
-            interpolation_amount: f32
-            rotation_quat: quaternion128
-            for i in 0..<len(anim.rotation_channel.keyframes)-1 {
-                now := anim.rotation_channel.keyframes[i]
-                next := anim.rotation_channel.keyframes[i + 1]
-                if now.time <= anim_t && anim_t < next.time {
-                    // anim_t == (1 - t)a + bt
-                    // == a - at + bt
-                    // == a - t(a + b)
-                    // a - anim_t == t(a + b)
-                    // a - anim_t / (a + b) == t
-                    interpolation_amount = now.time - anim_t / (now.time + next.time)
-
-                    now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
-                    next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
-                    rotation_quat = linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+    {
+        total_instance_joints : u32 = 0
+        for skinned_instance in cpu_skinned_instances {
+            anim := animations[skinned_instance.animation_idx]
+            anim_t := skinned_instance.animation_time
+    
+            mesh, _ := hm.get(&cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
+            
+            // Get interpolated keyframe state for translation, rotation, and scale
+            {
+                instance_joints := make([dynamic]Joint, mesh.joint_count, allocator = context.temp_allocator)
+                for channel in anim.channels {
+                    // Return the interpolated value of the keyframes
+                    for i in 0..<len(channel.keyframes)-1 {
+                        now := channel.keyframes[i]
+                        next := channel.keyframes[i + 1]
+                        if now.time <= anim_t && anim_t < next.time {
+                            // Get interpolation value between two times
+                            // anim_t == (1 - t)a + bt
+                            // anim_t == a - at + bt
+                            // anim_t == a - t(a + b)
+                            // a - anim_t == t(a + b)
+                            // a - anim_t / (a + b) == t
+                            interpolation_amount := now.time - anim_t / (now.time + next.time)
+                            transform: hlsl.float4x4
+                            switch channel.aspect {
+                                case .Translation: {
+            
+    
+                                    tr := &instance_joints[channel.local_joint_id].transform
+                                    tr^ = transform * tr^
+                                }
+                                case .Rotation: {
+                                    now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
+                                    next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                                    rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+                                    transform = linalg.to_matrix4(rotation_quat)
+    
+                                    tr := &instance_joints[channel.local_joint_id].transform
+                                    tr^ *= transform
+                                }
+                                case .Scale: {
+            
+    
+                                    tr := &instance_joints[channel.local_joint_id].transform
+                                    tr^ *= transform
+                                }
+                            }
+                        }
+                    }
                 }
+    
+                // Premultiply instance joints with inverse bind matrices
+                for &joint, i in instance_joints {
+                    joint.transform *= inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                }
+    
+                // Upload to GPU
+                vkw.sync_write_buffer(gd, joint_matrices_buffer, instance_joints[:], total_instance_joints)
+                total_instance_joints += mesh.joint_count
             }
-
+    
             
         }
-        
-        // Compute joint matrices for this animation
-        
     }
 
     // Sync CPU and GPU buffers
@@ -1453,9 +1497,11 @@ load_gltf_skinned_model :: proc(
     }
 
     // @TODO: Don't just load the first mesh you see
-    mesh := gltf_data.meshes[0]
+    assert(len(gltf_data.meshes) == 1)
+    mesh := &gltf_data.meshes[0]
 
     // Load inverse bind matrices
+    joint_count: u32
     first_anim_idx: u32
     first_inverse_bind_matrix: u32
     first_joint_idx := render_data.joint_matrices_head
@@ -1475,13 +1521,13 @@ load_gltf_skinned_model :: proc(
         inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
         mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_count))
 
+        joint_count = u32(len(glb_skin.joints))
         joints: [dynamic]^cgltf.node
         defer delete(joints)
-        resize(&joints, len(glb_skin.joints))
-        mem.copy(&joints[0], &glb_skin.joints[0], size_of(^cgltf.node) * len(glb_skin.joints))
-        // Claim space in the joint matrices buffer by advancing
-        // the head by how many joints are in this model
-        render_data.joint_matrices_head += u32(len(glb_skin.joints))
+        resize(&joints, joint_count)
+        mem.copy(&joints[0], &glb_skin.joints[0], size_of(^cgltf.node) * int(joint_count))
+        render_data.joint_matrices_head += joint_count
+        resize(&render_data.cpu_joints, len(render_data.cpu_joints) + int(joint_count))
 
         // Load animation data
         for animation in gltf_data.animations {
@@ -1492,11 +1538,11 @@ load_gltf_skinned_model :: proc(
 
             // Load animation channels
             for channel in animation.channels {
-                out_channel: ^AnimationChannel
+                out_channel: AnimationChannel
                 #partial switch channel.target_path {
-                    case .translation: out_channel = &new_anim.translation_channel
-                    case .rotation: out_channel = &new_anim.rotation_channel
-                    case .scale: out_channel = &new_anim.scale_channel
+                    case .translation: out_channel.aspect = .Translation
+                    case .rotation: out_channel.aspect = .Rotation
+                    case .scale: out_channel.aspect = .Scale
                     case: log.errorf("Unsupported animation target: %v", channel.target_path)
                 }
 
@@ -1504,9 +1550,9 @@ load_gltf_skinned_model :: proc(
                     log.errorf("Unsupported animation interpolation: %v", channel.sampler.interpolation)
                 }
                 switch channel.sampler.interpolation {
-                    case .step: out_channel.type = .Step
-                    case .linear: out_channel.type = .Linear
-                    case .cubic_spline: out_channel.type = .CubicSpline
+                    case .step: out_channel.interpolation_type = .Step
+                    case .linear: out_channel.interpolation_type = .Linear
+                    case .cubic_spline: out_channel.interpolation_type = .CubicSpline
                 }
 
                 // Get local idx of animated joint
@@ -1542,7 +1588,7 @@ load_gltf_skinned_model :: proc(
                     })
                     new_anim.end_time = keyframe_times[i]
                 }
-                
+                append(&new_anim.channels, out_channel)
             }
 
             append(&render_data.animations, new_anim)
@@ -1654,6 +1700,8 @@ load_gltf_skinned_model :: proc(
             index_data[:],
             joint_ids[:],
             joint_weights[:],
+            joint_count,
+            first_inverse_bind_matrix
         )
         add_face_normals(gd, render_data, mesh_handle, face_normals[:])
         if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
