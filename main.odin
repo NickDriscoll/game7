@@ -27,6 +27,8 @@ TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
+MAXIMUM_FRAME_DT :: 1.0 / 60.0
+
 TEMP_ARENA_SIZE :: 64 * 1024            //Guessing 64KB necessary size for per-frame allocations
 
 IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
@@ -427,6 +429,7 @@ main :: proc() {
         current_time = time.now()
         nanosecond_dt := time.diff(previous_time, current_time)
         last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
+        last_frame_dt = min(last_frame_dt, MAXIMUM_FRAME_DT)
         previous_time = current_time
 
         // Save user configuration every second or so
