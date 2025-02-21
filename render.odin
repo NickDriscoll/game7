@@ -1606,8 +1606,8 @@ load_gltf_skinned_model :: proc(
                         time = keyframe_times[i],
                         value = keyframe_values[i],
                     })
-                    new_anim.end_time = keyframe_times[i]
                 }
+                new_anim.end_time = keyframe_times[keyframe_count - 1]
                 append(&new_anim.channels, out_channel)
             }
 
