@@ -85,10 +85,10 @@ GPUSkinnedMeshData :: struct {
     //_pad0: hlsl.uint2,
 }
 
-Joint :: struct {
-    transform: hlsl.float4x4,
-    parent: u32
-}
+// Joint :: struct {
+//     transform: hlsl.float4x4,
+//     parent: u32
+// }
 AnimationInterpolation :: enum {
     Step,
     Linear,
@@ -208,8 +208,9 @@ Renderer :: struct {
     // Animation data
     joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
     joint_matrices_head: u32,
-    cpu_joints: [dynamic]Joint,                     // Contains joints for each _unique_ skin.
-    inverse_bind_matrices: [dynamic]hlsl.float4x4,
+    //cpu_joints: [dynamic]Joint,                     // Contains joints for each _unique_ skin.
+    joint_parents: [dynamic]u32,
+    inverse_bind_matrices: [dynamic]hlsl.float4x4,  // Contains one matrix per 
     animations: [dynamic]Animation,
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
@@ -930,8 +931,13 @@ render :: proc(
             
             // Get interpolated keyframe state for translation, rotation, and scale
             {
-                instance_joints := make([dynamic]Joint, mesh.joint_count, allocator = context.temp_allocator)
+                // Initialize joint matrices with identity matrix
+                instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
+                for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
+                
                 for channel in anim.channels {
+                    tr := &instance_joints[channel.local_joint_id]
+
                     // Return the interpolated value of the keyframes
                     for i in 0..<len(channel.keyframes)-1 {
                         now := channel.keyframes[i]
@@ -944,28 +950,25 @@ render :: proc(
                             // a - anim_t == t(a + b)
                             // a - anim_t / (a + b) == t
                             interpolation_amount := now.time - anim_t / (now.time + next.time)
-                            transform: hlsl.float4x4
                             switch channel.aspect {
                                 case .Translation: {
             
     
-                                    tr := &instance_joints[channel.local_joint_id].transform
-                                    tr^ = transform * tr^
+                                    //tr^ = transform * tr^       // Transform is premultiplied
                                 }
                                 case .Rotation: {
                                     now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
                                     next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
                                     rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
-                                    transform = linalg.to_matrix4(rotation_quat)
+                                    transform := linalg.to_matrix4(rotation_quat)
     
-                                    tr := &instance_joints[channel.local_joint_id].transform
-                                    tr^ *= transform
+                                    tr^ *= transform            // Rotation is postmultiplied
                                 }
                                 case .Scale: {
             
     
-                                    tr := &instance_joints[channel.local_joint_id].transform
-                                    tr^ *= transform
+                                    
+                                    //tr^ *= transform            // Scale is postmultiplied
                                 }
                             }
                         }
@@ -973,8 +976,14 @@ render :: proc(
                 }
     
                 // Premultiply instance joints with inverse bind matrices
-                for &joint, i in instance_joints {
-                    joint.transform *= inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                for i in 0..<len(instance_joints) {
+                    joint_transform := &instance_joints[i]
+                    joint_transform^ *= inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                }
+                // Postmultiply with parent transform
+                for i in 1..<len(instance_joints) {
+                    joint_transform := &instance_joints[i]
+                    joint_transform^ = instance_joints[joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
                 }
     
                 // Upload to GPU
@@ -1244,6 +1253,12 @@ gltf_static_delete :: proc(using d: ^StaticModelData)  {
 
 gltf_skinned_delete :: proc(d: ^SkinnedModelData)  {
     delete(d.primitives)
+}
+
+gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
+    idx : u32 = 0
+    for uintptr(nodes[idx]) != uintptr(n) do idx += 1
+    return idx
 }
 
 load_gltf_static_model :: proc(
@@ -1522,12 +1537,17 @@ load_gltf_skinned_model :: proc(
         mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_count))
 
         joint_count = u32(len(glb_skin.joints))
-        joints: [dynamic]^cgltf.node
-        defer delete(joints)
-        resize(&joints, joint_count)
-        mem.copy(&joints[0], &glb_skin.joints[0], size_of(^cgltf.node) * int(joint_count))
         render_data.joint_matrices_head += joint_count
-        resize(&render_data.cpu_joints, len(render_data.cpu_joints) + int(joint_count))
+        old_cpu_joint_count := len(render_data.joint_parents)
+        resize(&render_data.joint_parents, old_cpu_joint_count + int(joint_count))
+        for i in 1..<joint_count {
+            jp := &render_data.joint_parents[old_cpu_joint_count + int(i)]
+
+            joint := glb_skin.joints[i]
+            parent := joint.parent
+
+            jp^ = gltf_node_idx(glb_skin.joints, parent)
+        }
 
         // Load animation data
         for animation in gltf_data.animations {
@@ -1556,7 +1576,7 @@ load_gltf_skinned_model :: proc(
                 }
 
                 // Get local idx of animated joint
-                for uintptr(joints[out_channel.local_joint_id]) != uintptr(channel.target_node) do out_channel.local_joint_id += 1
+                out_channel.local_joint_id = gltf_node_idx(glb_skin.joints, channel.target_node)
 
                 keyframe_count := channel.sampler.input.count
                 reserve(&out_channel.keyframes, keyframe_count)
