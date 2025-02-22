@@ -901,21 +901,26 @@ main :: proc() {
                 }
 
                 // Record commands related to dispatching compute shader
-                // comp_cb_idx := vkw.begin_compute_command_buffer(&vgd)
-                // pcs := ComputeSkinningPushConstants {
-                //     // in_positions: vk.DeviceAddress,
-                //     // out_positions: vk.DeviceAddress,
-                //     // joint_transforms: vk.DeviceAddress,
-                //     // vtx_offset: u32,
-                //     // joint_offset: u32,
-                // }
-                // vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &pcs)
-                // vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
+                comp_cb_idx := vkw.begin_compute_command_buffer(&vgd, renderer.compute_timeline)
 
-                // vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)
+                // Bind compute skinning pipeline
+                vkw.cmd_bind_compute_pipeline(&vgd, comp_cb_idx, renderer.skinning_pipeline)
+
+                pcs := ComputeSkinningPushConstants {
+                    // in_positions: vk.DeviceAddress,
+                    // out_positions: vk.DeviceAddress,
+                    // joint_transforms: vk.DeviceAddress,
+                    // vtx_offset: u32,
+                    // joint_offset: u32,
+                }
+                vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &pcs)
+                vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
+
+                vkw.add_signal_op(&vgd, &renderer.compute_sync, renderer.compute_timeline, vgd.frame_count + 1)
+                vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)
             }
     
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &renderer.gfx_sync, renderer.gfx_timeline)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, renderer.gfx_timeline)
             
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
