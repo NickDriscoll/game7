@@ -341,7 +341,7 @@ render_imgui :: proc(
     if !vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, imgui_state.index_buffer) {
         log.error("Failed to get imgui index buffer")  
     } 
-    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, imgui_state.pipeline)
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
     
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
