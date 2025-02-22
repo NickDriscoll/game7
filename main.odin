@@ -4,8 +4,9 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:math/linalg/hlsl"
 import "core:math"
+import "core:math/linalg"
+import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
@@ -810,6 +811,96 @@ main :: proc() {
 
                 vgd.resize_window = false
             }
+
+
+            // Do CPU-side work for animations
+            // Need to put data in relevant place for compute shader operation
+            // then launch said compute shader
+            {
+                total_instance_joints : u32 = 0
+                for skinned_instance in renderer.cpu_skinned_instances {
+                    anim := renderer.animations[skinned_instance.animation_idx]
+                    anim_t := skinned_instance.animation_time
+            
+                    mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
+                    
+                    // Get interpolated keyframe state for translation, rotation, and scale
+                    {
+                        // Initialize joint matrices with identity matrix
+                        instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
+                        for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
+                        
+                        for channel in anim.channels {
+                            tr := &instance_joints[channel.local_joint_id]
+
+                            // Return the interpolated value of the keyframes
+                            for i in 0..<len(channel.keyframes)-1 {
+                                now := channel.keyframes[i]
+                                next := channel.keyframes[i + 1]
+                                if now.time <= anim_t && anim_t < next.time {
+                                    // Get interpolation value between two times
+                                    // anim_t == (1 - t)a + bt
+                                    // anim_t == a - at + bt
+                                    // anim_t == a - t(a + b)
+                                    // a - anim_t == t(a + b)
+                                    // a - anim_t / (a + b) == t
+                                    // Obviously this is assuming a linear interpolation, which may not be what we have
+                                    interpolation_amount := now.time - anim_t / (now.time + next.time)
+                                    switch channel.aspect {
+                                        case .Translation: {
+                    
+            
+                                            //tr^ = transform * tr^       // Transform is premultiplied
+                                        }
+                                        case .Rotation: {
+                                            now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
+                                            next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                                            rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+                                            transform := linalg.to_matrix4(rotation_quat)
+            
+                                            tr^ *= transform            // Rotation is postmultiplied
+                                        }
+                                        case .Scale: {
+                    
+            
+                                            
+                                            //tr^ *= transform            // Scale is postmultiplied
+                                        }
+                                    }
+                                    break
+                                }
+                            }
+                        }
+
+                        // Premultiply instance joints with inverse bind matrices
+                        for i in 0..<len(instance_joints) {
+                            joint_transform := &instance_joints[i]
+                            joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                        }
+                        // Postmultiply with parent transform
+                        for i in 1..<len(instance_joints) {
+                            joint_transform := &instance_joints[i]
+                            joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
+                        }
+            
+                        // Upload to GPU
+                        vkw.sync_write_buffer(&vgd, renderer.joint_matrices_buffer, instance_joints[:], total_instance_joints)
+                        total_instance_joints += mesh.joint_count
+                    }
+            
+                    
+                }
+
+                // Record commands related to dispatching compute shader
+                // comp_cb_idx := vkw.begin_compute_command_buffer(&vgd)
+                // pcs := ComputeSkinningPushConstants {
+
+                // }
+                // vkw.cmd_push_constants_gfx(&vgd, comp_cb_idx, &pcs)
+                // vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
+
+                //vkw.submit_compute_command_buffer()
+            }
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &renderer.gfx_sync_info, renderer.gfx_timeline)
             
@@ -855,7 +946,13 @@ main :: proc() {
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
 
             // Main render call
-            render(&vgd, gfx_cb_idx, &renderer, &game_state.viewport_camera, &framebuffer)
+            render(
+                &vgd,
+                gfx_cb_idx,
+                &renderer,
+                &game_state.viewport_camera,
+                &framebuffer
+            )
             
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
