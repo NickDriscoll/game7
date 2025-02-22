@@ -7,7 +7,7 @@ cbuffer push_constants {
     uint joint_offset;
 }
 
-static const uint THREADS_X = 64 * 64;
+static const uint THREADS_X = 64;
 [shader("compute")]
 [numthreads(THREADS_X, 1, 1)]
 void compute_main(uint3 thread_id: SV_DispatchThreadID) {

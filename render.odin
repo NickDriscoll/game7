@@ -230,7 +230,6 @@ Renderer :: struct {
 
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
-
     postfx_pipeline: vkw.Pipeline_Handle,
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
@@ -446,7 +445,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         }
     }
 
-    // Pipeline creation
+    // Graphics pipeline creation
     {
         // Load shader bytecode
         // This will be embedded into the executable at compile-time
@@ -540,6 +539,20 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         render_state.ps1_pipeline = handles[0]
         render_state.postfx_pipeline = handles[1]
+    }
+
+    // Compute pipeline creation
+    {
+        infos := make([dynamic]vkw.ComputePipelineInfo, 0, 4, allocator = context.temp_allocator)
+
+        skinning_spv := #load("data/shaders/compute_skinning.comp.spv", []u32)
+        append(&infos, vkw.ComputePipelineInfo {
+            compute_shader_bytecode = skinning_spv
+        })
+
+        handles := vkw.create_compute_pipelines(gd, infos[:])
+
+        render_state.skinning_pipeline = handles[0]
     }
 
     return render_state
@@ -1030,7 +1043,7 @@ render :: proc(
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
     // PS1 simple unlit pipeline
-    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, ps1_pipeline)
 
     // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
     color_target, ok3 := vkw.get_image(gd, main_framebuffer.color_images[0])
@@ -1135,7 +1148,7 @@ render :: proc(
     }})
     
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
-    vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, postfx_pipeline)
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, postfx_pipeline)
 
     vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
         color_target = main_framebuffer.color_images[0].index,
