@@ -122,7 +122,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     raster_state := vkw.default_rasterization_state()
     raster_state.cull_mode = nil
 
-    pipeline_info := vkw.Graphics_Pipeline_Info {
+    pipeline_info := vkw.GraphicsPipelineInfo {
         vertex_shader_bytecode = vertex_spv,
         fragment_shader_bytecode = fragment_spv,
         input_assembly_state = vkw.Input_Assembly_State {
@@ -342,7 +342,7 @@ render_imgui :: proc(
         log.error("Failed to get imgui index buffer")  
     } 
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, imgui_state.pipeline)
-    vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
+    vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
     
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
 

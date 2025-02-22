@@ -909,7 +909,7 @@ main :: proc() {
                 //     // vtx_offset: u32,
                 //     // joint_offset: u32,
                 // }
-                // vkw.cmd_push_constants_gfx(&vgd, comp_cb_idx, &pcs)
+                // vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &pcs)
                 // vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
 
                 // vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)
