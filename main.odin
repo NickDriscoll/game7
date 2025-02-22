@@ -1002,7 +1002,6 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // Clear sync info for next frame
-        vkw.clear_sync_info(&renderer.gfx_sync)
         vgd.frame_count += 1
 
         // CPU limiter
