@@ -85,10 +85,6 @@ GPUSkinnedMeshData :: struct {
     //_pad0: hlsl.uint2,
 }
 
-// Joint :: struct {
-//     transform: hlsl.float4x4,
-//     parent: u32
-// }
 AnimationInterpolation :: enum {
     Step,
     Linear,
@@ -208,7 +204,6 @@ Renderer :: struct {
     // Animation data
     joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
     joint_matrices_head: u32,
-    //cpu_joints: [dynamic]Joint,                     // Contains joints for each _unique_ skin.
     joint_parents: [dynamic]u32,
     inverse_bind_matrices: [dynamic]hlsl.float4x4,  // Contains one matrix per 
     animations: [dynamic]Animation,
@@ -236,6 +231,7 @@ Renderer :: struct {
 
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
+    compute_timeline: vkw.Semaphore_Handle,
     gfx_sync: vkw.Sync_Info,
     compute_sync: vkw.Sync_Info,
 
@@ -264,6 +260,16 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             name = "GFX Timeline",
         }
         render_state.gfx_timeline = vkw.create_semaphore(gd, &info)
+    }
+
+    // Create compute timeline semaphore
+    {
+        info := vkw.Semaphore_Info {
+            type = .TIMELINE,
+            init_value = 0,
+            name = "Compute Timeline",
+        }
+        render_state.compute_timeline = vkw.create_semaphore(gd, &info)
     }
 
     // Create index buffer
