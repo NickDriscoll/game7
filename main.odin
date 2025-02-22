@@ -48,6 +48,15 @@ CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 
 // @TODO: Window grab bag struct? Just for figuring out what to do?
 
+
+ComputeSkinningPushConstants :: struct {
+    in_positions: vk.DeviceAddress,
+    out_positions: vk.DeviceAddress,
+    joint_transforms: vk.DeviceAddress,
+    vtx_offset: u32,
+    joint_offset: u32,
+}
+
 LooseProp :: struct {
     position: hlsl.float3,
     scale: f32,
@@ -894,18 +903,22 @@ main :: proc() {
                 // Record commands related to dispatching compute shader
                 // comp_cb_idx := vkw.begin_compute_command_buffer(&vgd)
                 // pcs := ComputeSkinningPushConstants {
-
+                //     // in_positions: vk.DeviceAddress,
+                //     // out_positions: vk.DeviceAddress,
+                //     // joint_transforms: vk.DeviceAddress,
+                //     // vtx_offset: u32,
+                //     // joint_offset: u32,
                 // }
                 // vkw.cmd_push_constants_gfx(&vgd, comp_cb_idx, &pcs)
                 // vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
 
-                //vkw.submit_compute_command_buffer()
+                // vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)
             }
     
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &renderer.gfx_sync_info, renderer.gfx_timeline)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, &renderer.gfx_sync, renderer.gfx_timeline)
             
             // Increment timeline semaphore upon command buffer completion
-            vkw.add_signal_op(&vgd, &renderer.gfx_sync_info, renderer.gfx_timeline, vgd.frame_count + 1)
+            vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
     
             swapchain_image_idx: u32
             vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
@@ -913,12 +926,8 @@ main :: proc() {
     
             // Wait on swapchain image acquire semaphore
             // and signal when we're done drawing on a different semaphore
-            append(&renderer.gfx_sync_info.wait_ops, vkw.Semaphore_Op {
-                semaphore = vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)]
-            })
-            append(&renderer.gfx_sync_info.signal_ops, vkw.Semaphore_Op {
-                semaphore = vgd.present_semaphores[vkw.in_flight_idx(&vgd)]
-            })
+            vkw.add_wait_op(&vgd, &renderer.gfx_sync, vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)])
+            vkw.add_signal_op(&vgd, &renderer.gfx_sync, vgd.present_semaphores[vkw.in_flight_idx(&vgd)])
     
             // Memory barrier between image acquire and rendering
             swapchain_vkimage, _ := vkw.get_image_vkhandle(&vgd, swapchain_image_handle)
@@ -980,7 +989,7 @@ main :: proc() {
                 }
             })
     
-            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &renderer.gfx_sync_info)
+            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &renderer.gfx_sync)
             vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
         }
 
@@ -988,7 +997,7 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // Clear sync info for next frame
-        vkw.clear_sync_info(&renderer.gfx_sync_info)
+        vkw.clear_sync_info(&renderer.gfx_sync)
         vgd.frame_count += 1
 
         // CPU limiter
