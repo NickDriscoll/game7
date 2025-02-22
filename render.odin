@@ -57,14 +57,6 @@ PostFxPushConstants :: struct {
     uniforms_address: vk.DeviceAddress,
 }
 
-ComputeSkinningPushConstants :: struct {
-    in_positions: vk.DeviceAddress,
-    out_positions: vk.DeviceAddress,
-    joint_transforms: vk.DeviceAddress,
-    vtx_offset: u32,
-    joint_offset: u32,
-}
-
 CPUStaticMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
@@ -220,6 +212,7 @@ Renderer :: struct {
     joint_parents: [dynamic]u32,
     inverse_bind_matrices: [dynamic]hlsl.float4x4,  // Contains one matrix per 
     animations: [dynamic]Animation,
+    skinning_pipeline: vkw.Pipeline_Handle,         // Skinning-in-compute pipeline
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(MaterialData),
@@ -244,7 +237,8 @@ Renderer :: struct {
 
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
-    gfx_sync_info: vkw.Sync_Info,
+    gfx_sync: vkw.Sync_Info,
+    compute_sync: vkw.Sync_Info,
 
     // Main render target
     main_framebuffer: vkw.Framebuffer,
@@ -461,10 +455,10 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         raster_state := vkw.default_rasterization_state()
 
-        pipeline_infos := make([dynamic]vkw.Graphics_Pipeline_Info, context.temp_allocator)
+        pipeline_infos := make([dynamic]vkw.GraphicsPipelineInfo, context.temp_allocator)
 
         // PS1 pipeline
-        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
+        append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = ps1_vert_spv,
             fragment_shader_bytecode = ps1_frag_spv,
             input_assembly_state = vkw.Input_Assembly_State {
@@ -505,7 +499,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
         postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
 
-        append(&pipeline_infos, vkw.Graphics_Pipeline_Info {
+        append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = postfx_vert_spv,
             fragment_shader_bytecode = postfx_frag_spv,
             input_assembly_state = vkw.Input_Assembly_State {
@@ -552,7 +546,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 }
 
 delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
-    vkw.delete_sync_info(&gfx_sync_info)
+    vkw.delete_sync_info(&gfx_sync)
+    vkw.delete_sync_info(&compute_sync)
     vkw.delete_buffer(gd, positions_buffer)
     vkw.delete_buffer(gd, index_buffer)
     vkw.delete_buffer(gd, uvs_buffer)
@@ -1032,7 +1027,7 @@ render :: proc(
     
     // Bind global index buffer and descriptor set
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
-    vkw.cmd_bind_descriptor_set(gd, gfx_cb_idx)
+    vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
     // PS1 simple unlit pipeline
     vkw.cmd_bind_pipeline(gd, gfx_cb_idx, .GRAPHICS, ps1_pipeline)
