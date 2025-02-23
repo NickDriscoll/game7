@@ -595,6 +595,11 @@ main :: proc() {
                 imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 10, 1000)
                 
                 imgui.Separator()
+                {
+                    b := renderer.cpu_uniforms.triangle_vis == 1
+                    if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.triangle_vis ~= 1
+                }
+                imgui.Separator()
 
                 ini_cstring := cstring(&ini_savename_buffer[0])
                 imgui.Text("Save current configuration of Dear ImGUI windows")
@@ -826,7 +831,9 @@ main :: proc() {
             // Need to put data in relevant place for compute shader operation
             // then launch said compute shader
             {
+                push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
                 total_instance_joints : u32 = 0
+                total_skinned_verts : u32 = 0
                 for skinned_instance in renderer.cpu_skinned_instances {
                     anim := renderer.animations[skinned_instance.animation_idx]
                     anim_t := skinned_instance.animation_time
@@ -891,13 +898,21 @@ main :: proc() {
                             joint_transform := &instance_joints[i]
                             joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
                         }
+
+                        // Insert another compute shader dispatch
+                        in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.static_data.position_offset)
+                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * (total_skinned_verts + renderer.positions_head))
+                        pcs := ComputeSkinningPushConstants {
+                            in_positions = in_pos_ptr,
+                            out_positions = out_pos_ptr,
+                        }
+                        append(&push_constant_batches, pcs)
             
                         // Upload to GPU
                         vkw.sync_write_buffer(&vgd, renderer.joint_matrices_buffer, instance_joints[:], total_instance_joints)
                         total_instance_joints += mesh.joint_count
+                        total_skinned_verts += mesh.vertices_len
                     }
-            
-                    
                 }
 
                 // Record commands related to dispatching compute shader
@@ -906,15 +921,12 @@ main :: proc() {
                 // Bind compute skinning pipeline
                 vkw.cmd_bind_compute_pipeline(&vgd, comp_cb_idx, renderer.skinning_pipeline)
 
-                pcs := ComputeSkinningPushConstants {
-                    // in_positions: vk.DeviceAddress,
-                    // out_positions: vk.DeviceAddress,
-                    // joint_transforms: vk.DeviceAddress,
-                    // vtx_offset: u32,
-                    // joint_offset: u32,
+                for &batch in push_constant_batches {
+                    vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &batch)
+
+                    groups : u32 = 1
+                    vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
                 }
-                vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &pcs)
-                vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
 
                 vkw.add_signal_op(&vgd, &renderer.compute_sync, renderer.compute_timeline, vgd.frame_count + 1)
                 vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)

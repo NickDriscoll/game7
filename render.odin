@@ -43,7 +43,8 @@ UniformBufferData :: struct {
     joint_mats_ptr: vk.DeviceAddress,
     time: f32,
     distortion_strength: f32,
-    _pad0: hlsl.float2,
+    triangle_vis: u32,
+    _pad0: f32,
 }
 
 Ps1PushConstants :: struct {
@@ -66,6 +67,7 @@ CPUStaticMeshData :: struct {
 CPUSkinnedMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
+    vertices_len: u32,
     joint_count: u32,
     first_inverse_bind_matrix: u32,
     gpu_data: GPUSkinnedMeshData,
@@ -398,6 +400,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
         render_state.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
     }
+    render_state.cpu_uniforms.triangle_vis = 0
 
     // Create main rendertarget
     {
@@ -764,15 +767,9 @@ create_skinned_mesh :: proc(
         vkw.sync_write_buffer(gd, joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
-    mesh := CPUSkinnedMeshData {
-        indices_start = indices_start,
-        indices_len = indices_len,
-        joint_count = joint_count,
-        first_inverse_bind_matrix = first_inverse_bind_matrix
-    }
-    handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
-
     gpu_mesh := GPUSkinnedMeshData {
+        joint_ids_offset = joint_ids_start,
+        joint_weights_offset = joint_weights_start,
         static_data = {
             position_offset = position_start,
             uv_offset = NULL_OFFSET,
@@ -780,6 +777,16 @@ create_skinned_mesh :: proc(
         }
     }
     append(&gpu_skinned_meshes, gpu_mesh)
+
+    mesh := CPUSkinnedMeshData {
+        indices_start = indices_start,
+        indices_len = indices_len,
+        vertices_len = u32(len(positions)),
+        joint_count = joint_count,
+        first_inverse_bind_matrix = first_inverse_bind_matrix,
+        gpu_data = gpu_mesh,
+    }
+    handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
 
     dirty_flags += {.Mesh}
 

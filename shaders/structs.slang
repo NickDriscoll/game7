@@ -51,6 +51,7 @@ struct UniformData {
 
     float time; // Periodic time value
     float distortion_strength;
+    uint triangle_vis;
 
-    float2 _pad0;
+    float _pad0;
 }
