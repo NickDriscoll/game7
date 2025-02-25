@@ -52,9 +52,10 @@ CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 ComputeSkinningPushConstants :: struct {
     in_positions: vk.DeviceAddress,
     out_positions: vk.DeviceAddress,
+    joint_ids: vk.DeviceAddress,
+    joint_weights: vk.DeviceAddress,
     joint_transforms: vk.DeviceAddress,
-    vtx_offset: u32,
-    joint_offset: u32,
+    max_vtx_id: u32,
 }
 
 LooseProp :: struct {
@@ -832,8 +833,9 @@ main :: proc() {
             // then launch said compute shader
             {
                 push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
-                total_instance_joints : u32 = 0
-                total_skinned_verts : u32 = 0
+                vertex_counts := make([dynamic]u32, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
+                instance_joints_so_far : u32 = 0
+                skinned_verts_so_far : u32 = 0
                 for skinned_instance in renderer.cpu_skinned_instances {
                     anim := renderer.animations[skinned_instance.animation_idx]
                     anim_t := skinned_instance.animation_time
@@ -901,17 +903,28 @@ main :: proc() {
 
                         // Insert another compute shader dispatch
                         in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.static_data.position_offset)
-                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * (total_skinned_verts + renderer.positions_head))
+
+                        // @TODO: use a different buffer for vertex stream-out
+                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * (skinned_verts_so_far + renderer.positions_head))
+                        
+                        joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_ids_offset)
+                        joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_weights_offset)
+                        joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
                         pcs := ComputeSkinningPushConstants {
                             in_positions = in_pos_ptr,
                             out_positions = out_pos_ptr,
+                            joint_ids = joint_ids_ptr,
+                            joint_weights = joint_weights_ptr,
+                            joint_transforms = joint_mats_ptr,
+                            max_vtx_id = mesh.vertices_len
                         }
                         append(&push_constant_batches, pcs)
-            
+                        append(&vertex_counts, mesh.vertices_len)
+
                         // Upload to GPU
-                        vkw.sync_write_buffer(&vgd, renderer.joint_matrices_buffer, instance_joints[:], total_instance_joints)
-                        total_instance_joints += mesh.joint_count
-                        total_skinned_verts += mesh.vertices_len
+                        vkw.sync_write_buffer(&vgd, renderer.joint_matrices_buffer, instance_joints[:], instance_joints_so_far)
+                        instance_joints_so_far += mesh.joint_count
+                        skinned_verts_so_far += mesh.vertices_len
                     }
                 }
 
@@ -921,14 +934,38 @@ main :: proc() {
                 // Bind compute skinning pipeline
                 vkw.cmd_bind_compute_pipeline(&vgd, comp_cb_idx, renderer.skinning_pipeline)
 
-                for &batch in push_constant_batches {
+                for i in 0..<len(push_constant_batches) {
+                    batch := &push_constant_batches[i]
                     vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &batch)
 
-                    groups : u32 = 1
-                    vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
+                    GROUP_THREADCOUNT :: 64
+                    q, r := math.divmod(vertex_counts[i], GROUP_THREADCOUNT)
+                    groups : u32 = q
+                    if r != 0 do groups += 1
+                    //vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
+                    //vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
                 }
 
+                // Barrier to sync streamout buffer writes with vertex shader reads
+                pos_buf, _ := vkw.get_buffer(&vgd, renderer.positions_buffer)
+                vkw.cmd_compute_pipeline_barriers(&vgd, comp_cb_idx, {
+                    vkw.Buffer_Barrier {
+                        src_stage_mask = {.COMPUTE_SHADER},
+                        src_access_mask = {.SHADER_WRITE},
+                        dst_stage_mask = {.ALL_COMMANDS},
+                        dst_access_mask = {.SHADER_READ},
+                        buffer = pos_buf.buffer,
+                        offset = 0,
+                        size = pos_buf.alloc_info.size
+                    }
+                }, {})
+
+                // Increment compute timeline semaphore when compute skinning is finished
                 vkw.add_signal_op(&vgd, &renderer.compute_sync, renderer.compute_timeline, vgd.frame_count + 1)
+
+                // Have graphics queue wait on compute skinning timeline semaphore
+                vkw.add_wait_op(&vgd, &renderer.gfx_sync, renderer.compute_timeline, vgd.frame_count + 1)
+                
                 vkw.submit_compute_command_buffer(&vgd, comp_cb_idx, &renderer.compute_sync)
             }
     
@@ -1014,6 +1051,8 @@ main :: proc() {
         free_all(context.temp_allocator)
 
         // Clear sync info for next frame
+        vkw.clear_sync_info(&renderer.gfx_sync)
+        vkw.clear_sync_info(&renderer.compute_sync)
         vgd.frame_count += 1
 
         // CPU limiter
