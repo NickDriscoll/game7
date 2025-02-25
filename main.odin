@@ -936,14 +936,14 @@ main :: proc() {
 
                 for i in 0..<len(push_constant_batches) {
                     batch := &push_constant_batches[i]
-                    vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, &batch)
+                    vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, batch)
 
                     GROUP_THREADCOUNT :: 64
                     q, r := math.divmod(vertex_counts[i], GROUP_THREADCOUNT)
                     groups : u32 = q
                     if r != 0 do groups += 1
                     //vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
-                    //vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
+                    vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
                 }
 
                 // Barrier to sync streamout buffer writes with vertex shader reads
