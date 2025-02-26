@@ -44,8 +44,6 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
-CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
-
 // @TODO: Window grab bag struct? Just for figuring out what to do?
 
 
@@ -56,12 +54,6 @@ ComputeSkinningPushConstants :: struct {
     joint_weights: vk.DeviceAddress,
     joint_transforms: vk.DeviceAddress,
     max_vtx_id: u32,
-}
-
-LooseProp :: struct {
-    position: hlsl.float3,
-    scale: f32,
-    mesh_data: StaticModelData,
 }
 
 TerrainPiece :: struct {
@@ -86,6 +78,8 @@ CharacterFlags :: bit_set[enum {
     MovingForward,
 }]
 
+
+CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 Character :: struct {
     collision: Sphere,
     state: CharacterState,
@@ -93,6 +87,7 @@ Character :: struct {
     facing: hlsl.float3,
     move_speed: f32,
     jump_speed: f32,
+    remaining_jumps: u32,
     control_flags: CharacterFlags,
     mesh_data: StaticModelData,
 }
@@ -100,7 +95,6 @@ Character :: struct {
 GameState :: struct {
     character: Character,
     viewport_camera: Camera,
-    props: [dynamic]LooseProp,
     terrain_pieces: [dynamic]TerrainPiece,
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -112,7 +106,6 @@ GameState :: struct {
 }
 
 delete_game :: proc(using g: ^GameState) {
-    delete(props)
     for &piece in terrain_pieces do delete_terrain_piece(&piece)
     delete(terrain_pieces)
 }
@@ -780,20 +773,6 @@ main :: proc() {
                 world_from_model = piece.model_matrix
             }
             draw_ps1_static_mesh(&vgd, &renderer, &piece.mesh_data, &tform)
-        }
-
-        // Draw loose props
-        for &prop, i in game_state.props {
-            zpos := prop.position.z
-            transform := StaticDrawData {
-                world_from_model = {
-                    prop.scale, 0.0, 0.0, prop.position.x,
-                    0.0, prop.scale, 0.0, prop.position.y,
-                    0.0, 0.0, prop.scale, zpos,
-                    0.0, 0.0, 0.0, 1.0,
-                }
-            }
-            draw_ps1_static_mesh(&vgd, &renderer, &prop.mesh_data, &transform)
         }
 
         // Window update
