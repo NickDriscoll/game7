@@ -1,3 +1,5 @@
+// Notes adapted from a Twitter post by Janos, the Wicked Engine guy.
+
 // dispatchXYZ means the vkCmdDispatch(X, Y, Z) from Vulkan
 // numthreadsXYZ means the numthreads definition in the compute shader
 
@@ -44,18 +46,17 @@ static const uint THREADS_X = 64;
 void compute_main(uint3 thread_id: SV_DispatchThreadID) {
     uint vtx_id = thread_id.x;
 
-    // uint4 ids = joint_ids[vtx_id];
-    // float4 weights = joint_weights[vtx_id];
-
     // Early out for over-dispatched threads
-    //if (vtx_id > max_vtx_id) return;
+    if (vtx_id > max_vtx_id) return;
+
+    // Compute skinning matrix
+    uint4 ids = joint_ids[vtx_id];
+    float4 weights = joint_weights[vtx_id];
+    float4x4 joint_matrix = {};
+    for (int i = 0; i < 4; ++i) {
+        joint_matrix += weights[i] * joint_transforms[ids[i]];
+    }
 
     float4 model_pos = in_positions[vtx_id];
-    // float4x4 joint_matrix = {};
-    // for (int i = 0; i < 4; ++i) {
-    //     joint_matrix += weights[i] * joint_transforms[ids[i]];
-    // }
-
-    // out_positions[vtx_id] = mul(joint_matrix, model_pos);
-    out_positions[0] = model_pos;
+    out_positions[vtx_id] = mul(joint_matrix, model_pos + float4(ids) + weights);
 }
