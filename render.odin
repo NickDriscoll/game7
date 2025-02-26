@@ -312,12 +312,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         info.name = "Global joint ids buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        render_state.joint_ids_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.joint_ids_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint weights buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        render_state.joint_weights_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global triangle normals buffer"
@@ -1486,7 +1486,8 @@ load_gltf_skinned_model :: proc(
         inv_bind_count := glb_skin.inverse_bind_matrices.count
         resize(&render_data.inverse_bind_matrices, uint(first_inverse_bind_matrix) + inv_bind_count)
         inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
-        mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_count))
+        inv_bind_bytes := size_of(hlsl.float4x4) * inv_bind_count
+        mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_bytes))
 
         joint_count = u32(len(glb_skin.joints))
         render_data.joint_matrices_head += joint_count
