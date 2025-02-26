@@ -155,6 +155,7 @@ main :: proc() {
                 "-stage",
                 "compute",
                 "-g3",
+                "-O0",      // Some compute shaders have invalid SPIR-V when optimizations are on. See https://github.com/KhronosGroup/SPIRV-Tools/issues/5959
                 "-entry",
                 "compute_main",
                 "-o",
