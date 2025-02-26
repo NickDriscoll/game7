@@ -135,7 +135,7 @@ main :: proc() {
             }
         }
     }
-    
+
     // Set up logger
     context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
@@ -818,7 +818,7 @@ main :: proc() {
                 for skinned_instance in renderer.cpu_skinned_instances {
                     anim := renderer.animations[skinned_instance.animation_idx]
                     anim_t := skinned_instance.animation_time
-            
+
                     mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
                     
                     // Get interpolated keyframe state for translation, rotation, and scale
@@ -829,6 +829,9 @@ main :: proc() {
                         
                         for channel in anim.channels {
                             tr := &instance_joints[channel.local_joint_id]
+
+                            // Check if anim_t is outside the keyframe range
+
 
                             // Return the interpolated value of the keyframes
                             for i in 0..<len(channel.keyframes)-1 {
@@ -845,8 +848,6 @@ main :: proc() {
                                     interpolation_amount := now.time - anim_t / (now.time + next.time)
                                     switch channel.aspect {
                                         case .Translation: {
-                    
-            
                                             //tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
@@ -858,13 +859,44 @@ main :: proc() {
                                             tr^ *= transform            // Rotation is postmultiplied
                                         }
                                         case .Scale: {
-                    
-            
-                                            
                                             //tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
                                     break
+                                } else if anim_t < now.time {
+                                    // Clamp to first keyframe
+                                    switch channel.aspect {
+                                        case .Translation: {
+                                            //tr^ = transform * tr^       // Transform is premultiplied
+                                        }
+                                        case .Rotation: {
+                                            now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
+                                            transform := linalg.to_matrix4(now_quat)
+            
+                                            tr^ *= transform            // Rotation is postmultiplied
+                                        }
+                                        case .Scale: {
+                                            //tr^ *= transform            // Scale is postmultiplied
+                                        }
+                                    }
+
+
+                                } else {
+                                    // Clamp to last keyframe
+                                    switch channel.aspect {
+                                        case .Translation: {
+                                            //tr^ = transform * tr^       // Transform is premultiplied
+                                        }
+                                        case .Rotation: {
+                                            next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                                            transform := linalg.to_matrix4(next_quat)
+            
+                                            tr^ *= transform            // Rotation is postmultiplied
+                                        }
+                                        case .Scale: {
+                                            //tr^ *= transform            // Scale is postmultiplied
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -962,7 +994,7 @@ main :: proc() {
             vkw.add_wait_op(&vgd, &renderer.gfx_sync, vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)])
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, vgd.present_semaphores[vkw.in_flight_idx(&vgd)])
     
-            // Memory barrier between image acquire and rendering
+            // Memory barrier between swapchain acquire and rendering
             swapchain_vkimage, _ := vkw.get_image_vkhandle(&vgd, swapchain_image_handle)
             vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
                 vkw.Image_Barrier {
