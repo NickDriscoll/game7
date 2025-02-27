@@ -834,6 +834,7 @@ main :: proc() {
 
 
                             // Return the interpolated value of the keyframes
+                            // @TODO: This loop sucks
                             for i in 0..<len(channel.keyframes)-1 {
                                 now := channel.keyframes[i]
                                 next := channel.keyframes[i + 1]
@@ -916,7 +917,8 @@ main :: proc() {
                         in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.static_data.position_offset)
 
                         // @TODO: use a different buffer for vertex stream-out
-                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * (skinned_verts_so_far + renderer.positions_head))
+                        out_positions_offset := size_of(hlsl.float4) * (skinned_verts_so_far + renderer.positions_head)
+                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(out_positions_offset)
                         
                         joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_ids_offset)
                         joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_weights_offset)
@@ -927,10 +929,29 @@ main :: proc() {
                             joint_ids = joint_ids_ptr,
                             joint_weights = joint_weights_ptr,
                             joint_transforms = joint_mats_ptr,
-                            max_vtx_id = mesh.vertices_len
+                            max_vtx_id = mesh.vertices_len - 1
                         }
                         append(&push_constant_batches, pcs)
                         append(&vertex_counts, mesh.vertices_len)
+
+                        // Also add CPUStaticInstance for the skinned output of the compute shader
+                        new_cpu_static_mesh := CPUStaticMeshData {
+                            indices_start = mesh.indices_start,
+                            indices_len = mesh.indices_len,
+                        }
+                        handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
+                        gpu_mesh := GPUStaticMeshData {
+                            position_offset = out_positions_offset,
+                            uv_offset = NULL_OFFSET,
+                            color_offset = NULL_OFFSET
+                        }
+                        append(&renderer.gpu_static_meshes, gpu_mesh)
+                        new_cpu_static_instance := CPUStaticInstanceData {
+                            world_from_model = skinned_instance.world_from_model,
+                            mesh_handle = handle,
+                            material_handle = skinned_instance.material_handle
+                        }
+                        append(&renderer.cpu_static_instances, new_cpu_static_instance)
 
                         // Upload to GPU
                         vkw.sync_write_buffer(&vgd, renderer.joint_matrices_buffer, instance_joints[:], instance_joints_so_far)
@@ -953,8 +974,7 @@ main :: proc() {
                     q, r := math.divmod(vertex_counts[i], GROUP_THREADCOUNT)
                     groups : u32 = q
                     if r != 0 do groups += 1
-                    //vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
-                    vkw.cmd_dispatch(&vgd, comp_cb_idx, 1, 1, 1)
+                    vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
                 }
 
                 // Barrier to sync streamout buffer writes with vertex shader reads
