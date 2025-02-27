@@ -63,24 +63,24 @@ CPUStaticMeshData :: struct {
     indices_len: u32,
 }
 
-CPUSkinnedMeshData :: struct {
+CPUSkinnedMesh :: struct {
     indices_start: u32,
     indices_len: u32,
     vertices_len: u32,
     joint_count: u32,
     first_inverse_bind_matrix: u32,
-    gpu_data: GPUSkinnedMeshData,
+    gpu_data: GPUSkinnedMesh,
 }
 
-GPUStaticMeshData :: struct {
+GPUStaticMesh :: struct {
     position_offset: u32,
     face_normals_offset: u32,
     uv_offset: u32,
     color_offset: u32,
 }
 
-GPUSkinnedMeshData :: struct {
-    static_data: GPUStaticMeshData,
+GPUSkinnedMesh :: struct {
+    static_data: GPUStaticMesh,
     joint_ids_offset: u32,
     joint_weights_offset: u32,
     //_pad0: hlsl.uint2,
@@ -112,7 +112,7 @@ Animation :: struct {
     name: string,
 }
 
-MaterialData :: struct {
+Material :: struct {
     color_texture: u32,
     normal_texture: u32,
     arm_texture: u32,           // "arm" as in ambient roughness metalness, packed in RGB in that order    
@@ -120,23 +120,23 @@ MaterialData :: struct {
     base_color: hlsl.float4,
 }
 
-StaticDrawData :: struct {
+StaticDraw :: struct {
     world_from_model: hlsl.float4x4,
 }
 
-SkinnedDrawData :: struct {
+SkinnedDraw :: struct {
     world_from_model: hlsl.float4x4,
     anim_idx: u32,
     anim_t: f32
 }
 
-CPUStaticInstanceData :: struct {
+CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
 }
 
-GPUStaticInstanceData :: struct {
+GPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
@@ -145,7 +145,7 @@ GPUStaticInstanceData :: struct {
     _pad3: hlsl.float4x3,
 }
 
-CPUSkinnedInstanceData :: struct {
+CPUSkinnedInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Skinned_Mesh_Handle,
     material_handle: Material_Handle,
@@ -165,25 +165,24 @@ Skinned_Mesh_Handle :: distinct hm.Handle
 Material_Handle :: distinct hm.Handle
 
 Renderer :: struct {
-    positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
-    positions_head: u32,
-
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
     indices_head: u32,
     
-    
+    // Global buffers for vertex attributes
+    positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
+    positions_head: u32,
     uvs_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex uvs
     uvs_head: u32,
-
     colors_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex colors
     colors_head: u32,
-
     joint_ids_buffer: vkw.Buffer_Handle,
     joint_ids_head: u32,
-
     joint_weights_buffer: vkw.Buffer_Handle,
     joint_weights_head: u32,
 
+    // Per-triangle data used for lighting
+    // @TODO: Look into potentially computing face normals in the fragment shader
+    //        I think this might be possible with ddx/ddy
     triangle_normals_buffer: vkw.Buffer_Handle,
     triangle_normals_head: u32,
 
@@ -191,31 +190,32 @@ Renderer :: struct {
     // i.e. offsets into the vertex attribute buffers
     static_mesh_buffer: vkw.Buffer_Handle,
     cpu_static_meshes: hm.Handle_Map(CPUStaticMeshData),
-    gpu_static_meshes: [dynamic]GPUStaticMeshData,
+    gpu_static_meshes: [dynamic]GPUStaticMesh,
 
     // Separate global mesh buffer for skinned meshes
     skinned_mesh_buffer: vkw.Buffer_Handle,
-    cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMeshData),
-    gpu_skinned_meshes: [dynamic]GPUSkinnedMeshData,
+    cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMesh),
+    gpu_skinned_meshes: [dynamic]GPUSkinnedMesh,
 
     // Animation data
     joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
     joint_matrices_head: u32,
     joint_parents: [dynamic]u32,
-    inverse_bind_matrices: [dynamic]hlsl.float4x4,  // Contains one matrix per 
+    inverse_bind_matrices: [dynamic]hlsl.float4x4,  // 
     animations: [dynamic]Animation,
     skinning_pipeline: vkw.Pipeline_Handle,         // Skinning-in-compute pipeline
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
-    cpu_materials: hm.Handle_Map(MaterialData),
+    cpu_materials: hm.Handle_Map(Material),
     
-    cpu_static_instances: [dynamic]CPUStaticInstanceData,
-    gpu_static_instances: [dynamic]GPUStaticInstanceData,
-    cpu_skinned_instances: [dynamic]CPUSkinnedInstanceData,
+    cpu_static_instances: [dynamic]CPUStaticInstance,
+    gpu_static_instances: [dynamic]GPUStaticInstance,
+    cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
+    // Per-frame shader uniforms
     cpu_uniforms: UniformBufferData,
-    uniform_buffer: vkw.Buffer_Handle,              // Global uniform buffer
+    uniform_buffer: vkw.Buffer_Handle,
 
     dirty_flags: GPUBufferDirtyFlags,               // Represents which CPU/GPU buffers need synced this cycle
 
@@ -319,12 +319,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         render_state.triangle_normals_buffer = vkw.create_buffer(gd, &info)
 
         info.name = "Global static mesh data buffer"
-        info.size = size_of(GPUStaticMeshData) * MAX_GLOBAL_MESHES
+        info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES
         render_state.static_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global skinned mesh data buffer"
-        info.size = size_of(GPUSkinnedMeshData) * MAX_GLOBAL_MESHES
+        info.size = size_of(GPUSkinnedMesh) * MAX_GLOBAL_MESHES
         render_state.skinned_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.skinned_mesh_buffer", f32(info.size) / 1024 / 1024)
 
@@ -334,12 +334,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         log.debugf("Allocated %v MB of memory for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
-        info.size = size_of(MaterialData) * MAX_GLOBAL_MATERIALS
+        info.size = size_of(Material) * MAX_GLOBAL_MATERIALS
         render_state.material_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
-        info.size = size_of(GPUStaticInstanceData) * MAX_GLOBAL_INSTANCES
+        info.size = size_of(GPUStaticInstance) * MAX_GLOBAL_INSTANCES
         render_state.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
@@ -692,7 +692,7 @@ create_static_mesh :: proc(
     }
     handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, mesh))
 
-    gpu_mesh := GPUStaticMeshData {
+    gpu_mesh := GPUStaticMesh {
         position_offset = position_start,
         uv_offset = NULL_OFFSET,
         color_offset = NULL_OFFSET
@@ -760,7 +760,7 @@ create_skinned_mesh :: proc(
         vkw.sync_write_buffer(gd, joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
-    gpu_mesh := GPUSkinnedMeshData {
+    gpu_mesh := GPUSkinnedMesh {
         joint_ids_offset = joint_ids_start,
         joint_weights_offset = joint_weights_start,
         static_data = {
@@ -771,7 +771,7 @@ create_skinned_mesh :: proc(
     }
     append(&gpu_skinned_meshes, gpu_mesh)
 
-    mesh := CPUSkinnedMeshData {
+    mesh := CPUSkinnedMesh {
         indices_start = indices_start,
         indices_len = indices_len,
         vertices_len = u32(len(positions)),
@@ -862,7 +862,7 @@ add_vertex_uvs :: proc(
     return vkw.sync_write_buffer(gd, uvs_buffer, uvs, uv_start)
 }
 
-add_material :: proc(using r: ^Renderer, new_mat: ^MaterialData) -> Material_Handle {
+add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle {
     dirty_flags += {.Material}
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
@@ -871,7 +871,7 @@ draw_ps1_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     data: ^StaticModelData,
-    draw_data: ^StaticDrawData,
+    draw_data: ^StaticDraw,
 ) {
     for prim in data.primitives {
         draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -882,7 +882,7 @@ draw_ps1_skinned_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     using r: ^Renderer,
     data: ^SkinnedModelData,
-    draw_data: ^SkinnedDrawData,
+    draw_data: ^SkinnedDraw,
 ) {
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -895,12 +895,12 @@ draw_ps1_static_primitive :: proc(
     using r: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
-    draw_data: ^StaticDrawData,
+    draw_data: ^StaticDraw,
 ) -> bool {
     dirty_flags += {.Instance,.Draw}
 
     // Append instance representing this primitive
-    new_inst := CPUStaticInstanceData {
+    new_inst := CPUStaticInstance {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         material_handle = material_handle
@@ -915,11 +915,11 @@ draw_ps1_skinned_primitive :: proc(
     using r: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
     material_handle: Material_Handle,
-    draw_data: ^SkinnedDrawData,
+    draw_data: ^SkinnedDraw,
 ) -> bool {
     dirty_flags += {.Instance,.Draw}
 
-    new_inst := CPUSkinnedInstanceData {
+    new_inst := CPUSkinnedInstance {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         material_handle = material_handle,
@@ -960,7 +960,7 @@ render :: proc(
 
         
         // Sort instances by mesh handle
-        slice.sort_by(cpu_static_instances[:], proc(i, j: CPUStaticInstanceData) -> bool {
+        slice.sort_by(cpu_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {
             return i.mesh_handle.index < j.mesh_handle.index
         })
 
@@ -970,7 +970,7 @@ render :: proc(
         inst_offset := 0
         current_mesh_handle: Static_Mesh_Handle
         for inst in cpu_static_instances {
-            g_inst := GPUStaticInstanceData {
+            g_inst := GPUStaticInstance {
                 world_from_model = inst.world_from_model,
                 normal_matrix = hlsl.cofactor(inst.world_from_model),
                 mesh_idx = inst.mesh_handle.index,
@@ -1369,7 +1369,7 @@ load_gltf_static_model :: proc(
             bindless_image_idx = loaded_glb_images[color_tex_idx]
         }
         
-        material := MaterialData {
+        material := Material {
             color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
             base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
@@ -1689,7 +1689,7 @@ load_gltf_skinned_model :: proc(
             bindless_image_idx = loaded_glb_images[color_tex_idx]
         }
         
-        material := MaterialData {
+        material := Material {
             color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
             base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
