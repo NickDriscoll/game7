@@ -61,7 +61,6 @@ PostFxPushConstants :: struct {
 CPUStaticMeshData :: struct {
     indices_start: u32,
     indices_len: u32,
-    gpu_data: GPUStaticMeshData,
 }
 
 CPUSkinnedMeshData :: struct {
@@ -154,10 +153,6 @@ CPUSkinnedInstanceData :: struct {
     animation_idx: u32,
 }
 
-GPUSkinnedInstanceData :: struct {
-
-}
-
 GPUBufferDirtyFlags :: bit_set[enum{
     Mesh,
     Material,
@@ -217,7 +212,6 @@ Renderer :: struct {
     cpu_static_instances: [dynamic]CPUStaticInstanceData,
     gpu_static_instances: [dynamic]GPUStaticInstanceData,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstanceData,
-    gpu_skinned_instances: [dynamic]GPUSkinnedInstanceData,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
     cpu_uniforms: UniformBufferData,
@@ -582,7 +576,6 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     delete(cpu_static_instances)
     delete(gpu_static_instances)
     delete(cpu_skinned_instances)
-    delete(gpu_skinned_instances)
 
     hm.destroy(&cpu_materials)
     hm.destroy(&cpu_static_meshes)
@@ -1122,7 +1115,6 @@ render :: proc(
     clear(&cpu_static_instances)
     clear(&gpu_static_instances)
     clear(&cpu_skinned_instances)
-    clear(&gpu_skinned_instances)
 
     // Postprocessing step to write final output
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
