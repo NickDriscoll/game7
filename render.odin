@@ -108,26 +108,22 @@ AnimationChannel :: struct {
 }
 Animation :: struct {
     channels: [dynamic]AnimationChannel,
-    end_time: f32,
     name: string,
+}
+get_animation_endtime :: proc(anim: ^Animation) -> f32 {
+    return anim.channels[len(anim.channels) - 1].keyframes[0].time
 }
 
 Material :: struct {
     color_texture: u32,
     normal_texture: u32,
-    arm_texture: u32,           // "arm" as in ambient roughness metalness, packed in RGB in that order    
+    arm_texture: u32,           // "arm" as in ambient-roughness-metalness, packed in RGB in that order    
     sampler_idx: u32,
     base_color: hlsl.float4,
 }
 
 StaticDraw :: struct {
     world_from_model: hlsl.float4x4,
-}
-
-SkinnedDraw :: struct {
-    world_from_model: hlsl.float4x4,
-    anim_idx: u32,
-    anim_t: f32
 }
 
 CPUStaticInstance :: struct {
@@ -143,6 +139,12 @@ GPUStaticInstance :: struct {
     material_idx: u32,
     _pad0: hlsl.uint2,
     _pad3: hlsl.float4x3,
+}
+
+SkinnedDraw :: struct {
+    world_from_model: hlsl.float4x4,
+    anim_idx: u32,
+    anim_t: f32
 }
 
 CPUSkinnedInstance :: struct {
@@ -1552,7 +1554,6 @@ load_gltf_skinned_model :: proc(
                         value = keyframe_values[i],
                     })
                 }
-                new_anim.end_time = keyframe_times[keyframe_count - 1]
                 append(&new_anim.channels, out_channel)
             }
 
