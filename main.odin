@@ -758,9 +758,10 @@ main :: proc() {
         {
             anim_idx := simple_skinned_model.first_animation_idx
             anim := &renderer.animations[anim_idx]
-            anim_t := math.remainder(renderer.cpu_uniforms.time, get_animation_endtime(anim))
+            anim_end := get_animation_endtime(anim)
+            anim_t := math.remainder(renderer.cpu_uniforms.time, anim_end)
             dd := SkinnedDraw {
-                world_from_model = translation_matrix({0.0, 0.0, 5.0}),
+                world_from_model = translation_matrix({0.0, 10.0, 5.0}),
                 anim_idx = anim_idx,
                 anim_t = anim_t
             }
@@ -827,6 +828,7 @@ main :: proc() {
                         instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
                         for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
                         
+                        // Compute joint transforms from animation channels
                         for channel in anim.channels {
                             tr := &instance_joints[channel.local_joint_id]
 
@@ -917,11 +919,10 @@ main :: proc() {
                         in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.static_data.position_offset)
 
                         // @TODO: use a different buffer for vertex stream-out
-                        out_positions_offset := size_of(hlsl.float4) * (skinned_verts_so_far + renderer.positions_head)
-                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(out_positions_offset)
+                        out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.out_positions_offset)
                         
                         joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_ids_offset)
-                        joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_weights_offset)
+                        joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.joint_weights_offset)
                         joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
                         pcs := ComputeSkinningPushConstants {
                             in_positions = in_pos_ptr,
@@ -935,20 +936,9 @@ main :: proc() {
                         append(&vertex_counts, mesh.vertices_len)
 
                         // Also add CPUStaticInstance for the skinned output of the compute shader
-                        new_cpu_static_mesh := CPUStaticMeshData {
-                            indices_start = mesh.indices_start,
-                            indices_len = mesh.indices_len,
-                        }
-                        handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
-                        gpu_mesh := GPUStaticMesh {
-                            position_offset = out_positions_offset,
-                            uv_offset = NULL_OFFSET,
-                            color_offset = NULL_OFFSET
-                        }
-                        append(&renderer.gpu_static_meshes, gpu_mesh)
                         new_cpu_static_instance := CPUStaticInstance {
                             world_from_model = skinned_instance.world_from_model,
-                            mesh_handle = handle,
+                            mesh_handle = mesh.static_mesh_handle,
                             material_handle = skinned_instance.material_handle
                         }
                         append(&renderer.cpu_static_instances, new_cpu_static_instance)
