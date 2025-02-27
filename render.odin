@@ -1632,10 +1632,11 @@ load_gltf_skinned_model :: proc(
                 }
                 case .joints: {
                     resize(&joint_ids, attrib.data.count)
-                    joints_ptr := get_accessor_ptr(attrib.data, hlsl.uint4)
-                    joints_bytes := attrib.data.count * size_of(hlsl.uint4)
-
-                    mem.copy(&joint_ids[0], joints_ptr, int(joints_bytes))
+                    joints_ptr := get_accessor_ptr(attrib.data, [4]u16)
+                    for i in 0..<attrib.data.count {
+                        id := joints_ptr[i]
+                        joint_ids[i] = hlsl.uint4 {u32(id[0]), u32(id[1]), u32(id[2]), u32(id[3])}
+                    }
                 }
                 case .weights: {
                     resize(&joint_weights, attrib.data.count)
