@@ -757,8 +757,8 @@ main :: proc() {
         // Draw arbitrary skinned mesh
         {
             anim_idx := simple_skinned_model.first_animation_idx
-            anim := renderer.animations[anim_idx]
-            anim_t := math.remainder(renderer.cpu_uniforms.time, anim.end_time)
+            anim := &renderer.animations[anim_idx]
+            anim_t := math.remainder(renderer.cpu_uniforms.time, get_animation_endtime(anim))
             dd := SkinnedDraw {
                 world_from_model = translation_matrix({0.0, 0.0, 5.0}),
                 anim_idx = anim_idx,
