@@ -759,7 +759,7 @@ main :: proc() {
             anim_idx := simple_skinned_model.first_animation_idx
             anim := renderer.animations[anim_idx]
             anim_t := math.remainder(renderer.cpu_uniforms.time, anim.end_time)
-            dd := SkinnedDrawData {
+            dd := SkinnedDraw {
                 world_from_model = translation_matrix({0.0, 0.0, 5.0}),
                 anim_idx = anim_idx,
                 anim_t = anim_t
@@ -769,7 +769,7 @@ main :: proc() {
 
         // Draw terrain pieces
         for &piece in game_state.terrain_pieces {
-            tform := StaticDrawData {
+            tform := StaticDraw {
                 world_from_model = piece.model_matrix
             }
             draw_ps1_static_mesh(&vgd, &renderer, &piece.mesh_data, &tform)
@@ -940,13 +940,13 @@ main :: proc() {
                             indices_len = mesh.indices_len,
                         }
                         handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
-                        gpu_mesh := GPUStaticMeshData {
+                        gpu_mesh := GPUStaticMesh {
                             position_offset = out_positions_offset,
                             uv_offset = NULL_OFFSET,
                             color_offset = NULL_OFFSET
                         }
                         append(&renderer.gpu_static_meshes, gpu_mesh)
-                        new_cpu_static_instance := CPUStaticInstanceData {
+                        new_cpu_static_instance := CPUStaticInstance {
                             world_from_model = skinned_instance.world_from_model,
                             mesh_handle = handle,
                             material_handle = skinned_instance.material_handle
