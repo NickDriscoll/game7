@@ -63,15 +63,6 @@ CPUStaticMeshData :: struct {
     indices_len: u32,
 }
 
-CPUSkinnedMesh :: struct {
-    indices_start: u32,
-    indices_len: u32,
-    vertices_len: u32,
-    joint_count: u32,
-    first_inverse_bind_matrix: u32,
-    gpu_data: GPUSkinnedMesh,
-}
-
 GPUStaticMesh :: struct {
     position_offset: u32,
     face_normals_offset: u32,
@@ -83,6 +74,7 @@ GPUSkinnedMesh :: struct {
     static_data: GPUStaticMesh,
     joint_ids_offset: u32,
     joint_weights_offset: u32,
+    out_positions_offset: u32,
     //_pad0: hlsl.uint2,
 }
 
@@ -153,6 +145,14 @@ CPUSkinnedInstance :: struct {
     material_handle: Material_Handle,
     animation_time: f32,
     animation_idx: u32,
+}
+
+CPUSkinnedMesh :: struct {
+    vertices_len: u32,
+    joint_count: u32,
+    first_inverse_bind_matrix: u32,
+    gpu_data: GPUSkinnedMesh,
+    static_mesh_handle: Static_Mesh_Handle,
 }
 
 GPUBufferDirtyFlags :: bit_set[enum{
@@ -718,8 +718,8 @@ create_skinned_mesh :: proc(
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
+    positions_len := u32(len(positions))
     {
-        positions_len := u32(len(positions))
         assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
     
@@ -762,24 +762,39 @@ create_skinned_mesh :: proc(
         vkw.sync_write_buffer(gd, joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
+    // Create equivalent static mesh for this skinned mesh
+    new_cpu_static_mesh := CPUStaticMeshData {
+        indices_start = indices_start,
+        indices_len = indices_len,
+    }
+    static_handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, new_cpu_static_mesh))
+    gpu_static_mesh := GPUStaticMesh {
+        position_offset = positions_head,
+        uv_offset = NULL_OFFSET,
+        color_offset = NULL_OFFSET
+    }
+    append(&gpu_static_meshes, gpu_static_mesh)
+
+    assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
     gpu_mesh := GPUSkinnedMesh {
         joint_ids_offset = joint_ids_start,
         joint_weights_offset = joint_weights_start,
+        out_positions_offset = positions_head,
         static_data = {
             position_offset = position_start,
             uv_offset = NULL_OFFSET,
             color_offset = NULL_OFFSET
         }
     }
+    positions_head += positions_len
     append(&gpu_skinned_meshes, gpu_mesh)
 
     mesh := CPUSkinnedMesh {
-        indices_start = indices_start,
-        indices_len = indices_len,
         vertices_len = u32(len(positions)),
         joint_count = joint_count,
         first_inverse_bind_matrix = first_inverse_bind_matrix,
         gpu_data = gpu_mesh,
+        static_mesh_handle = static_handle
     }
     handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
 
