@@ -3,6 +3,7 @@ import tex_bindings;
 
 struct VertexOutput {
     float4 clip_pos : SV_Position;
+    float3 world_pos;
     float2 uv;
     float4 color;
     uint instance_idx;
@@ -63,6 +64,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
     float4 model_position = u_data.position_data[idx + mesh.position_offset];
     float4 world_position = mul(inst.world_from_model, model_position);
 
+    out.world_pos = world_position.xyz;
     out.clip_pos = mul(u_data.clip_from_world, world_position);
 
     out.uv = float2(0.0);
@@ -85,10 +87,11 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
-    StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
-    float4 face_normal = mul(inst.normal_matrix, u_data.face_normals_data[primitive_id + mesh.face_normals_offset]);
+    // StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
+    // float4 face_normal = mul(inst.normal_matrix, u_data.face_normals_data[primitive_id + mesh.face_normals_offset]);
 
-    float diffuse_contribution = max(0.15, dot(normalize(face_normal.xyz), SUNLIGHT));
+    float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
+    float diffuse_contribution = max(0.15, dot(normalize(face_normal), SUNLIGHT));
 
     float4 vtx_color = input.color;
 
