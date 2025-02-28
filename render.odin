@@ -102,7 +102,8 @@ Animation :: struct {
     name: string,
 }
 get_animation_endtime :: proc(anim: ^Animation) -> f32 {
-    return anim.channels[len(anim.channels) - 1].keyframes[0].time
+    idx := len(anim.channels[0].keyframes) - 1
+    return anim.channels[0].keyframes[idx].time
 }
 
 Material :: struct {
