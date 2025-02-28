@@ -41,7 +41,6 @@ struct UniformData {
 
     MaterialData *mat_data;
     float4 *position_data;
-    float4 *face_normals_data;
     
     float2 *uv_data;
     float4 *color_data;
@@ -53,5 +52,5 @@ struct UniformData {
     float distortion_strength;
     uint triangle_vis;
 
-    float _pad0;
+    float3 _pad0;
 }
