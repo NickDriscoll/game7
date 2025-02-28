@@ -34,10 +34,10 @@
 cbuffer push_constants {
     float4 *in_positions;           // Pointer to first input position
     float4 *out_positions;          // Pointer to first output position
-    uint4 *joint_ids;
-    float4 *joint_weights;
-    float4x4 *joint_transforms; // Pointer to first joint transform
-    uint max_vtx_id;
+    uint4 *joint_ids;               // Pointer to first joint ids vector
+    float4 *joint_weights;          // Pointer to first joint weights vector
+    float4x4 *joint_transforms;     // Pointer to first joint transform
+    uint max_vtx_id;                // Total number of vertices so overdispatched threads can exit
 }
 
 static const uint THREADS_X = 64;
