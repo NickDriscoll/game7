@@ -759,7 +759,8 @@ main :: proc() {
             anim_idx := simple_skinned_model.first_animation_idx
             anim := &renderer.animations[anim_idx]
             anim_end := get_animation_endtime(anim)
-            anim_t := math.remainder(renderer.cpu_uniforms.time, anim_end)
+            anim_t := math.remainder(renderer.cpu_uniforms.time * 0.1, anim_end)
+            log.debug(renderer.cpu_uniforms.time)
             dd := SkinnedDraw {
                 world_from_model = translation_matrix({0.0, 10.0, 5.0}),
                 anim_idx = anim_idx,
