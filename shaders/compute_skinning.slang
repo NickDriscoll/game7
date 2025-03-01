@@ -57,6 +57,7 @@ void compute_main(uint3 thread_id: SV_DispatchThreadID) {
         joint_matrix += weights[i] * joint_transforms[ids[i]];
     }
 
+    // Apply skinning matrix to model position and write it out
     float4 model_pos = in_positions[vtx_id];
-    out_positions[vtx_id] = mul(joint_matrix, model_pos + float4(ids) + weights);
+    out_positions[vtx_id] = mul(joint_matrix, model_pos);
 }
