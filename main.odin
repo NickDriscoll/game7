@@ -372,8 +372,8 @@ main :: proc() {
         target = {
             distance = 8.0
         },
-        control_flags = {.Follow}
     }
+    if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
 
@@ -759,8 +759,11 @@ main :: proc() {
             anim_idx := simple_skinned_model.first_animation_idx
             anim := &renderer.animations[anim_idx]
             anim_end := get_animation_endtime(anim)
-            anim_t := math.remainder(renderer.cpu_uniforms.time * 0.1, anim_end)
-            log.debug(renderer.cpu_uniforms.time)
+            //anim_t := math.mod(renderer.cpu_uniforms.time, anim_end)
+            //imgui.Text("anim_t == %f", anim_t)
+            @static anim_t : f32 = 0
+            imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
+
             dd := SkinnedDraw {
                 world_from_model = translation_matrix({0.0, 10.0, 5.0}),
                 anim_idx = anim_idx,
@@ -814,7 +817,6 @@ main :: proc() {
             // then launch said compute shader
             {
                 push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
-                vertex_counts := make([dynamic]u32, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
                 instance_joints_so_far : u32 = 0
                 skinned_verts_so_far : u32 = 0
                 for skinned_instance in renderer.cpu_skinned_instances {
@@ -855,8 +857,8 @@ main :: proc() {
                                             //tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
-                                            now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
-                                            next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                                            now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
+                                            next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
                                             rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
                                             transform := linalg.to_matrix4(rotation_quat)
             
@@ -874,7 +876,7 @@ main :: proc() {
                                             //tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
-                                            now_quat := quaternion(w = now.value[0], x = now.value[1], y = now.value[2], z = now.value[3])
+                                            now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
                                             transform := linalg.to_matrix4(now_quat)
             
                                             tr^ *= transform            // Rotation is postmultiplied
@@ -883,8 +885,7 @@ main :: proc() {
                                             //tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
-
-
+                                    break
                                 } else {
                                     // Clamp to last keyframe
                                     switch channel.aspect {
@@ -892,7 +893,7 @@ main :: proc() {
                                             //tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
-                                            next_quat := quaternion(w = next.value[0], x = next.value[1], y = next.value[2], z = next.value[3])
+                                            next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
                                             transform := linalg.to_matrix4(next_quat)
             
                                             tr^ *= transform            // Rotation is postmultiplied
@@ -901,6 +902,7 @@ main :: proc() {
                                             //tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
+                                    break
                                 }
                             }
                         }
@@ -934,7 +936,6 @@ main :: proc() {
                             max_vtx_id = mesh.vertices_len - 1
                         }
                         append(&push_constant_batches, pcs)
-                        append(&vertex_counts, mesh.vertices_len)
 
                         // Also add CPUStaticInstance for the skinned output of the compute shader
                         new_cpu_static_instance := CPUStaticInstance {
@@ -962,7 +963,7 @@ main :: proc() {
                     vkw.cmd_push_constants_compute(&vgd, comp_cb_idx, batch)
 
                     GROUP_THREADCOUNT :: 64
-                    q, r := math.divmod(vertex_counts[i], GROUP_THREADCOUNT)
+                    q, r := math.divmod(batch.max_vtx_id + 1, GROUP_THREADCOUNT)
                     groups : u32 = q
                     if r != 0 do groups += 1
                     vkw.cmd_dispatch(&vgd, comp_cb_idx, groups, 1, 1)
