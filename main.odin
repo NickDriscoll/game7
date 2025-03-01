@@ -759,9 +759,8 @@ main :: proc() {
             anim_idx := simple_skinned_model.first_animation_idx
             anim := &renderer.animations[anim_idx]
             anim_end := get_animation_endtime(anim)
-            //anim_t := math.mod(renderer.cpu_uniforms.time, anim_end)
-            //imgui.Text("anim_t == %f", anim_t)
-            @static anim_t : f32 = 0
+            anim_t := math.mod(renderer.cpu_uniforms.time, anim_end)
+            //@static anim_t : f32 = 0
             imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
 
             dd := SkinnedDraw {
@@ -833,25 +832,63 @@ main :: proc() {
                         
                         // Compute joint transforms from animation channels
                         for channel in anim.channels {
+                            keyframe_count := len(channel.keyframes)
+                            assert(keyframe_count > 0)
                             tr := &instance_joints[channel.local_joint_id]
 
-                            // Check if anim_t is outside the keyframe range
-
+                            // Check if anim_t is before first keyframe or after last
+                            if anim_t <= channel.keyframes[0].time {
+                                // Clamp to first keyframe
+                                now := &channel.keyframes[0]
+                                switch channel.aspect {
+                                    case .Translation: {
+                                        //tr^ = transform * tr^       // Transform is premultiplied
+                                    }
+                                    case .Rotation: {
+                                        now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
+                                        transform := linalg.to_matrix4(now_quat)
+        
+                                        tr^ *= transform            // Rotation is postmultiplied
+                                    }
+                                    case .Scale: {
+                                        //tr^ *= transform            // Scale is postmultiplied
+                                    }
+                                }
+                                break
+                            } else if anim_t >= channel.keyframes[keyframe_count - 1].time {
+                                // Clamp to last keyframe
+                                next := &channel.keyframes[keyframe_count - 1]
+                                switch channel.aspect {
+                                    case .Translation: {
+                                        //tr^ = transform * tr^       // Transform is premultiplied
+                                    }
+                                    case .Rotation: {
+                                        next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
+                                        transform := linalg.to_matrix4(next_quat)
+        
+                                        tr^ *= transform            // Rotation is postmultiplied
+                                    }
+                                    case .Scale: {
+                                        //tr^ *= transform            // Scale is postmultiplied
+                                    }
+                                }
+                                break
+                            }
 
                             // Return the interpolated value of the keyframes
-                            // @TODO: This loop sucks
                             for i in 0..<len(channel.keyframes)-1 {
                                 now := channel.keyframes[i]
                                 next := channel.keyframes[i + 1]
                                 if now.time <= anim_t && anim_t < next.time {
                                     // Get interpolation value between two times
                                     // anim_t == (1 - t)a + bt
-                                    // anim_t == a - at + bt
-                                    // anim_t == a - t(a + b)
-                                    // a - anim_t == t(a + b)
-                                    // a - anim_t / (a + b) == t
+                                    // anim_t == a + -at + bt
+                                    // anim_t == a + t(b - a)
+                                    // anim_t - a == t(b - a)
+                                    // (anim_t - a) / (b - a) == t
                                     // Obviously this is assuming a linear interpolation, which may not be what we have
-                                    interpolation_amount := now.time - anim_t / (now.time + next.time)
+                                    interpolation_amount := (anim_t - now.time) / (next.time - now.time)
+
                                     switch channel.aspect {
                                         case .Translation: {
                                             //tr^ = transform * tr^       // Transform is premultiplied
@@ -861,40 +898,6 @@ main :: proc() {
                                             next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
                                             rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
                                             transform := linalg.to_matrix4(rotation_quat)
-            
-                                            tr^ *= transform            // Rotation is postmultiplied
-                                        }
-                                        case .Scale: {
-                                            //tr^ *= transform            // Scale is postmultiplied
-                                        }
-                                    }
-                                    break
-                                } else if anim_t < now.time {
-                                    // Clamp to first keyframe
-                                    switch channel.aspect {
-                                        case .Translation: {
-                                            //tr^ = transform * tr^       // Transform is premultiplied
-                                        }
-                                        case .Rotation: {
-                                            now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
-                                            transform := linalg.to_matrix4(now_quat)
-            
-                                            tr^ *= transform            // Rotation is postmultiplied
-                                        }
-                                        case .Scale: {
-                                            //tr^ *= transform            // Scale is postmultiplied
-                                        }
-                                    }
-                                    break
-                                } else {
-                                    // Clamp to last keyframe
-                                    switch channel.aspect {
-                                        case .Translation: {
-                                            //tr^ = transform * tr^       // Transform is premultiplied
-                                        }
-                                        case .Rotation: {
-                                            next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
-                                            transform := linalg.to_matrix4(next_quat)
             
                                             tr^ *= transform            // Rotation is postmultiplied
                                         }
