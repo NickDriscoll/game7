@@ -161,6 +161,7 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
 }
 
 update_user_cfg_camera :: proc(using s: ^UserConfiguration, camera: ^Camera) {
+    flags["follow_cam"] = .Follow in camera.control_flags
     floats["freecam_x"] = f64(camera.position.x)
     floats["freecam_y"] = f64(camera.position.y)
     floats["freecam_z"] = f64(camera.position.z)
