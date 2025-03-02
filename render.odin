@@ -672,7 +672,6 @@ create_static_mesh :: proc(
         indices_len = indices_len,
     }
     handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, mesh))
-
     gpu_mesh := GPUStaticMesh {
         position_offset = position_start,
         uv_offset = NULL_OFFSET,
@@ -822,7 +821,7 @@ add_vertex_uvs :: proc(
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
         mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
-        gpu_mesh := gpu_static_meshes[mesh.static_mesh_handle.index]
+        gpu_mesh := &gpu_static_meshes[mesh.static_mesh_handle.index]
         gpu_mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
