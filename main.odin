@@ -836,103 +836,127 @@ main :: proc() {
                         instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
                         for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
                         
+                        @static no_animation := false
+                        @static no_inv_bind := false
+                        @static no_parenting := false
+                        imgui.Checkbox("no animation step", &no_animation)
+                        imgui.Checkbox("no inverse bind step", &no_inv_bind)
+                        imgui.Checkbox("no parenting step", &no_parenting)
+
                         // Compute joint transforms from animation channels
-                        for channel in anim.channels {
-                            keyframe_count := len(channel.keyframes)
-                            assert(keyframe_count > 0)
-                            tr := &instance_joints[channel.local_joint_id]
-
-                            // Check if anim_t is before first keyframe or after last
-                            if anim_t <= channel.keyframes[0].time {
-                                // Clamp to first keyframe
-                                now := &channel.keyframes[0]
-                                switch channel.aspect {
-                                    case .Translation: {
-                                        transform := translation_matrix(now.value.xyz)
-                                        tr^ = transform * tr^       // Transform is premultiplied
-                                    }
-                                    case .Rotation: {
-                                        now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
-                                        transform := linalg.to_matrix4(now_quat)
-        
-                                        tr^ *= transform            // Rotation is postmultiplied
-                                    }
-                                    case .Scale: {
-                                        transform := scaling_matrix(now.value.xyz)
-                                        tr^ *= transform            // Scale is postmultiplied
-                                    }
-                                }
-                                break
-                            } else if anim_t >= channel.keyframes[keyframe_count - 1].time {
-                                // Clamp to last keyframe
-                                next := &channel.keyframes[keyframe_count - 1]
-                                switch channel.aspect {
-                                    case .Translation: {
-                                        transform := translation_matrix(next.value.xyz)
-                                        tr^ = transform * tr^       // Transform is premultiplied
-                                    }
-                                    case .Rotation: {
-                                        next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
-                                        transform := linalg.to_matrix4(next_quat)
-        
-                                        tr^ *= transform            // Rotation is postmultiplied
-                                    }
-                                    case .Scale: {
-                                        transform := scaling_matrix(next.value.xyz)
-                                        tr^ *= transform            // Scale is postmultiplied
-                                    }
-                                }
-                                break
-                            }
-
-                            // Return the interpolated value of the keyframes
-                            for i in 0..<len(channel.keyframes)-1 {
-                                now := channel.keyframes[i]
-                                next := channel.keyframes[i + 1]
-                                if now.time <= anim_t && anim_t < next.time {
-                                    // Get interpolation value between two times
-                                    // anim_t == (1 - t)a + bt
-                                    // anim_t == a + -at + bt
-                                    // anim_t == a + t(b - a)
-                                    // anim_t - a == t(b - a)
-                                    // (anim_t - a) / (b - a) == t
-                                    // Obviously this is assuming a linear interpolation, which may not be what we have
-                                    interpolation_amount := (anim_t - now.time) / (next.time - now.time)
-
+                        if !no_animation {
+                            for channel in anim.channels {
+                                keyframe_count := len(channel.keyframes)
+                                assert(keyframe_count > 0)
+                                tr := &instance_joints[channel.local_joint_id]
+    
+                                // Check if anim_t is before first keyframe or after last
+                                if anim_t <= channel.keyframes[0].time {
+                                    // Clamp to first keyframe
+                                    now := &channel.keyframes[0]
                                     switch channel.aspect {
                                         case .Translation: {
-                                            displacement := linalg.lerp(now.value, next.value, interpolation_amount)
-                                            transform := translation_matrix(displacement.xyz)
+                                            transform := translation_matrix(now.value.xyz)
                                             tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
                                             now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
-                                            next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
-                                            rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
-                                            transform := linalg.to_matrix4(rotation_quat)
+                                            transform := linalg.to_matrix4(now_quat)
             
                                             tr^ *= transform            // Rotation is postmultiplied
                                         }
                                         case .Scale: {
-                                            scale := linalg.lerp(now.value, next.value, interpolation_amount)
-                                            transform := scaling_matrix(scale.xyz)
+                                            transform := scaling_matrix(now.value.xyz)
+                                            tr^ *= transform            // Scale is postmultiplied
+                                        }
+                                    }
+                                    break
+                                } else if anim_t >= channel.keyframes[keyframe_count - 1].time {
+                                    // Clamp to last keyframe
+                                    next := &channel.keyframes[keyframe_count - 1]
+                                    switch channel.aspect {
+                                        case .Translation: {
+                                            transform := translation_matrix(next.value.xyz)
+                                            tr^ = transform * tr^       // Transform is premultiplied
+                                        }
+                                        case .Rotation: {
+                                            next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
+                                            transform := linalg.to_matrix4(next_quat)
+            
+                                            tr^ *= transform            // Rotation is postmultiplied
+                                        }
+                                        case .Scale: {
+                                            transform := scaling_matrix(next.value.xyz)
                                             tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
                                     break
                                 }
+    
+                                // Return the interpolated value of the keyframes
+                                for i in 0..<len(channel.keyframes)-1 {
+                                    now := channel.keyframes[i]
+                                    next := channel.keyframes[i + 1]
+                                    if now.time <= anim_t && anim_t < next.time {
+                                        // Get interpolation value between two times
+                                        // anim_t == (1 - t)a + bt
+                                        // anim_t == a + -at + bt
+                                        // anim_t == a + t(b - a)
+                                        // anim_t - a == t(b - a)
+                                        // (anim_t - a) / (b - a) == t
+                                        // Obviously this is assuming a linear interpolation, which may not be what we have
+                                        interpolation_amount := (anim_t - now.time) / (next.time - now.time)
+    
+                                        switch channel.aspect {
+                                            case .Translation: {
+                                                displacement := linalg.lerp(now.value, next.value, interpolation_amount)
+                                                transform := translation_matrix(displacement.xyz)
+                                                tr^ = transform * tr^       // Transform is premultiplied
+                                            }
+                                            case .Rotation: {
+                                                now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
+                                                next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
+                                                rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+                                                transform := linalg.to_matrix4(rotation_quat)
+                
+                                                tr^ *= transform            // Rotation is postmultiplied
+                                            }
+                                            case .Scale: {
+                                                scale := linalg.lerp(now.value, next.value, interpolation_amount)
+                                                transform := scaling_matrix(scale.xyz)
+                                                tr^ *= transform            // Scale is postmultiplied
+                                            }
+                                        }
+                                        break
+                                    }
+                                }
                             }
                         }
 
-                        // Premultiply instance joints with inverse bind matrices
-                        for i in 0..<len(instance_joints) {
-                            joint_transform := &instance_joints[i]
-                            joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
-                        }
                         // Postmultiply with parent transform
-                        for i in 1..<len(instance_joints) {
-                            joint_transform := &instance_joints[i]
-                            joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
+                        if !no_parenting {
+                            for i in 1..<len(instance_joints) {
+                                joint_transform := &instance_joints[i]
+                                joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
+                            }
+                        }
+                        // Premultiply instance joints with inverse bind matrices
+                        if !no_inv_bind {
+                            for i in 0..<len(instance_joints) {
+                                joint_transform := &instance_joints[i]
+                                joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                            }
+                        }
+                        {
+                            sb: strings.Builder
+                            defer strings.builder_destroy(&sb)
+                            strings.builder_init(&sb, context.temp_allocator)
+
+                            fmt.sbprintf(&sb, "%#v", instance_joints[0])
+                            imgui.Text(strings.to_cstring(&sb))
+                            strings.builder_reset(&sb)
+                            fmt.sbprintf(&sb, "%#v", instance_joints[1])
+                            imgui.Text(strings.to_cstring(&sb))
                         }
 
                         // Insert another compute shader dispatch
