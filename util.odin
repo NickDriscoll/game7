@@ -89,6 +89,15 @@ uniform_scaling_matrix :: proc(scale: f32) -> hlsl.float4x4 {
     }
 }
 
+scaling_matrix :: proc(scale: hlsl.float3) -> hlsl.float4x4 {
+    return {
+        scale.x, 0.0, 0.0, 0.0,
+        0.0, scale.y, 0.0, 0.0,
+        0.0, 0.0, scale.z, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+}
+
 // From https://lisyarus.github.io/blog/posts/exponential-smoothing.html
 exponential_smoothing :: proc(current: $VectorType, target: VectorType, speed: f32, dt: f32) -> VectorType {
     return current + (target - current) * (1.0 - math.exp(-speed * dt))
