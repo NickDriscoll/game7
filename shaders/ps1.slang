@@ -88,7 +88,11 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     MaterialData material = u_data.mat_data[inst.material_idx];
 
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
-    float diffuse_contribution = max(0.15, dot(normalize(face_normal), SUNLIGHT));
+    float diffuse_contribution = dot(normalize(face_normal), SUNLIGHT);
+    
+    // Half lambert
+    diffuse_contribution = 0.5 * diffuse_contribution + 0.5;
+    diffuse_contribution *= diffuse_contribution;
 
     float4 vtx_color = input.color;
 
