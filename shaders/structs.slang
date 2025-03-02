@@ -2,9 +2,9 @@
 
 struct StaticMeshData {
     uint position_offset;
-    uint face_normals_offset;
     uint uv_offset;
     uint color_offset;
+    uint _pad0;
 }
 
 struct SkinnedMeshData {
