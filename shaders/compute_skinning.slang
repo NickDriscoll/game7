@@ -60,4 +60,5 @@ void compute_main(uint3 thread_id: SV_DispatchThreadID) {
     // Apply skinning matrix to model position and write it out
     float4 model_pos = in_positions[vtx_id];
     out_positions[vtx_id] = mul(joint_matrix, model_pos);
+    //out_positions[vtx_id] = model_pos;
 }

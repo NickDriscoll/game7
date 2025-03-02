@@ -64,17 +64,9 @@ CPUStaticMeshData :: struct {
 
 GPUStaticMesh :: struct {
     position_offset: u32,
-    face_normals_offset: u32,
     uv_offset: u32,
     color_offset: u32,
-}
-
-GPUSkinnedMesh :: struct {
-    static_data: GPUStaticMesh,
-    joint_ids_offset: u32,
-    joint_weights_offset: u32,
-    out_positions_offset: u32,
-    //_pad0: hlsl.uint2,
+    _pad0: u32,
 }
 
 AnimationInterpolation :: enum {
@@ -147,6 +139,13 @@ CPUSkinnedInstance :: struct {
     animation_idx: u32,
 }
 
+GPUSkinnedMesh :: struct {
+    joint_ids_offset: u32,
+    joint_weights_offset: u32,
+    in_positions_offset: u32,
+    out_positions_offset: u32,
+}
+
 CPUSkinnedMesh :: struct {
     vertices_len: u32,
     joint_count: u32,
@@ -189,9 +188,7 @@ Renderer :: struct {
     gpu_static_meshes: [dynamic]GPUStaticMesh,
 
     // Separate global mesh buffer for skinned meshes
-    skinned_mesh_buffer: vkw.Buffer_Handle,
     cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMesh),
-    gpu_skinned_meshes: [dynamic]GPUSkinnedMesh,
 
     // Animation data
     joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
@@ -314,11 +311,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES
         render_state.static_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
-
-        info.name = "Global skinned mesh data buffer"
-        info.size = size_of(GPUSkinnedMesh) * MAX_GLOBAL_MESHES
-        render_state.skinned_mesh_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.skinned_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint matrices buffer"
         info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
@@ -571,7 +563,6 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     hm.destroy(&cpu_static_meshes)
     hm.destroy(&cpu_skinned_meshes)
     delete(gpu_static_meshes)
-    delete(gpu_skinned_meshes)
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
@@ -767,15 +758,10 @@ create_skinned_mesh :: proc(
     gpu_mesh := GPUSkinnedMesh {
         joint_ids_offset = joint_ids_start,
         joint_weights_offset = joint_weights_start,
+        in_positions_offset = position_start,
         out_positions_offset = positions_head,
-        static_data = {
-            position_offset = position_start,
-            uv_offset = NULL_OFFSET,
-            color_offset = NULL_OFFSET
-        }
     }
     positions_head += positions_len
-    append(&gpu_skinned_meshes, gpu_mesh)
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
@@ -808,8 +794,9 @@ add_vertex_colors :: proc(
         gpu_mesh := &gpu_static_meshes[handle.index]
         gpu_mesh.color_offset = color_start
     } else when HandleType == Skinned_Mesh_Handle {
-        gpu_mesh := &gpu_skinned_meshes[handle.index]
-        gpu_mesh.static_data.color_offset = color_start
+        assert(false)
+        // gpu_mesh := &gpu_skinned_meshes[handle.index]
+        // gpu_mesh.static_data.color_offset = color_start
     } else {
         panic("Invalid arg type")
     }
@@ -826,7 +813,7 @@ add_vertex_uvs :: proc(
     uv_start := uvs_head
     uvs_len := u32(len(uvs))
     assert(uvs_len > 0)
-    assert(uvs_head + uvs_len < MAX_GLOBAL_VERTICES)
+    assert(uvs_head + uvs_len <= MAX_GLOBAL_VERTICES)
 
     uvs_head += uvs_len
 
@@ -834,8 +821,9 @@ add_vertex_uvs :: proc(
         gpu_mesh := &gpu_static_meshes[handle.index]
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
-        gpu_mesh := &gpu_skinned_meshes[handle.index]
-        gpu_mesh.static_data.uv_offset = uv_start
+        mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
+        gpu_mesh := gpu_static_meshes[mesh.static_mesh_handle.index]
+        gpu_mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
     }
@@ -1321,21 +1309,24 @@ load_gltf_static_model :: proc(
         loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
         defer delete(loaded_glb_materials)
         glb_material := primitive.material
+        has_material := glb_material != nil
 
         bindless_image_idx := vkw.Image_Handle {
             index = NULL_OFFSET
         }
-        if glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+        if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
             tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
             color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
             log.debugf("Texture index is %v", color_tex_idx)
             bindless_image_idx = loaded_glb_images[color_tex_idx]
         }
         
+        base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
+        if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
         material := Material {
             color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
-            base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            base_color = base_color
         }
         material_handle := add_material(render_data, &material)
 
@@ -1622,21 +1613,24 @@ load_gltf_skinned_model :: proc(
         loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
         defer delete(loaded_glb_materials)
         glb_material := primitive.material
+        has_material := glb_material != nil
 
         bindless_image_idx := vkw.Image_Handle {
             index = NULL_OFFSET
         }
-        if glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+        if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
             tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
             color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
             log.debugf("Texture index is %v", color_tex_idx)
             bindless_image_idx = loaded_glb_images[color_tex_idx]
         }
         
+        base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
+        if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
         material := Material {
             color_texture = bindless_image_idx.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
-            base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            base_color = base_color
         }
         material_handle := add_material(render_data, &material)
 

@@ -87,9 +87,6 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
-    // StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
-    // float4 face_normal = mul(inst.normal_matrix, u_data.face_normals_data[primitive_id + mesh.face_normals_offset]);
-
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
     float diffuse_contribution = max(0.15, dot(normalize(face_normal), SUNLIGHT));
 
@@ -108,6 +105,4 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     return float4(final_color, 1.0);
-    //return float4(diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb, 1.0);
-    //return float4(diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb * id_to_color(primitive_id), 1.0);
 }

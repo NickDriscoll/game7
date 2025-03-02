@@ -335,11 +335,13 @@ main :: proc() {
     }
 
     // Load animated test glTF model
-    simple_skinned_model: SkinnedModelData
-    defer gltf_skinned_delete(&simple_skinned_model)
+    test_skinned_model: SkinnedModelData
+    defer gltf_skinned_delete(&test_skinned_model)
     {
-        path : cstring = "data/models/RiggedSimple.glb"
-        simple_skinned_model = load_gltf_skinned_model(&vgd, &renderer, path, context.temp_allocator)
+        //path : cstring = "data/models/RiggedSimple.glb"
+        //path : cstring = "data/models/SimpleSkinned.glb"
+        path : cstring = "data/models/CesiumMan.glb"
+        test_skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
     }
 
     game_state.character = Character {
@@ -756,11 +758,15 @@ main :: proc() {
 
         // Draw arbitrary skinned mesh
         {
-            anim_idx := simple_skinned_model.first_animation_idx
+            anim_idx := test_skinned_model.first_animation_idx
             anim := &renderer.animations[anim_idx]
             anim_end := get_animation_endtime(anim)
-            anim_t := math.mod(renderer.cpu_uniforms.time, anim_end)
-            //@static anim_t : f32 = 0
+
+            @static anim_t : f32 = 0
+            @static animate := true
+            imgui.Checkbox("Animate", &animate)
+            if animate do anim_t += 1.0 / 144.0
+            anim_t = math.mod(anim_t, anim_end)
             imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
 
             dd := SkinnedDraw {
@@ -768,7 +774,7 @@ main :: proc() {
                 anim_idx = anim_idx,
                 anim_t = anim_t
             }
-            draw_ps1_skinned_mesh(&vgd, &renderer, &simple_skinned_model, &dd)
+            draw_ps1_skinned_mesh(&vgd, &renderer, &test_skinned_model, &dd)
         }
 
         // Draw terrain pieces
@@ -842,7 +848,8 @@ main :: proc() {
                                 now := &channel.keyframes[0]
                                 switch channel.aspect {
                                     case .Translation: {
-                                        //tr^ = transform * tr^       // Transform is premultiplied
+                                        transform := translation_matrix(now.value.xyz)
+                                        tr^ = transform * tr^       // Transform is premultiplied
                                     }
                                     case .Rotation: {
                                         now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
@@ -851,7 +858,8 @@ main :: proc() {
                                         tr^ *= transform            // Rotation is postmultiplied
                                     }
                                     case .Scale: {
-                                        //tr^ *= transform            // Scale is postmultiplied
+                                        transform := scaling_matrix(now.value.xyz)
+                                        tr^ *= transform            // Scale is postmultiplied
                                     }
                                 }
                                 break
@@ -860,7 +868,8 @@ main :: proc() {
                                 next := &channel.keyframes[keyframe_count - 1]
                                 switch channel.aspect {
                                     case .Translation: {
-                                        //tr^ = transform * tr^       // Transform is premultiplied
+                                        transform := translation_matrix(next.value.xyz)
+                                        tr^ = transform * tr^       // Transform is premultiplied
                                     }
                                     case .Rotation: {
                                         next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
@@ -869,7 +878,8 @@ main :: proc() {
                                         tr^ *= transform            // Rotation is postmultiplied
                                     }
                                     case .Scale: {
-                                        //tr^ *= transform            // Scale is postmultiplied
+                                        transform := scaling_matrix(next.value.xyz)
+                                        tr^ *= transform            // Scale is postmultiplied
                                     }
                                 }
                                 break
@@ -891,7 +901,9 @@ main :: proc() {
 
                                     switch channel.aspect {
                                         case .Translation: {
-                                            //tr^ = transform * tr^       // Transform is premultiplied
+                                            displacement := linalg.lerp(now.value, next.value, interpolation_amount)
+                                            transform := translation_matrix(displacement.xyz)
+                                            tr^ = transform * tr^       // Transform is premultiplied
                                         }
                                         case .Rotation: {
                                             now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
@@ -902,7 +914,9 @@ main :: proc() {
                                             tr^ *= transform            // Rotation is postmultiplied
                                         }
                                         case .Scale: {
-                                            //tr^ *= transform            // Scale is postmultiplied
+                                            scale := linalg.lerp(now.value, next.value, interpolation_amount)
+                                            transform := scaling_matrix(scale.xyz)
+                                            tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
                                     break
@@ -922,7 +936,7 @@ main :: proc() {
                         }
 
                         // Insert another compute shader dispatch
-                        in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.static_data.position_offset)
+                        in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.in_positions_offset)
 
                         // @TODO: use a different buffer for vertex stream-out
                         out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.out_positions_offset)
