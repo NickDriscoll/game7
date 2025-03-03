@@ -1204,6 +1204,12 @@ load_gltf_static_model :: proc(
         width, height: i32
         raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
 
+        // Get texture name
+        tex_name := glb_image.name
+        if len(tex_name) == 0 {
+            tex_name = "Unnamed glTF image"
+        }
+
         image_create_info := vkw.Image_Create {
             flags = nil,
             image_type = .D2,
@@ -1219,7 +1225,7 @@ load_gltf_static_model :: proc(
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.TRANSFER_DST},
             alloc_flags = nil,
-            name = glb_image.name
+            name = tex_name
         }
         image_slice := slice.from_ptr(raw_image_ptr, int(width * height * channels))
         handle, ok := vkw.sync_create_image_with_data(gd, &image_create_info, image_slice)
@@ -1377,11 +1383,16 @@ load_gltf_skinned_model :: proc(
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
-        log.debugf("Image mime type: %v", glb_image.mime_type)
 
         channels : i32 = 4
         width, height: i32
         raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
+
+        // Get texture name
+        tex_name := glb_image.name
+        if len(tex_name) == 0 {
+            tex_name = "Unnamed glTF image"
+        }
 
         image_create_info := vkw.Image_Create {
             flags = nil,
@@ -1398,7 +1409,7 @@ load_gltf_skinned_model :: proc(
             tiling = .OPTIMAL,
             usage = {.SAMPLED,.TRANSFER_DST},
             alloc_flags = nil,
-            name = glb_image.name
+            name = tex_name
         }
         image_slice := slice.from_ptr(raw_image_ptr, int(width * height * channels))
         handle, ok := vkw.sync_create_image_with_data(gd, &image_create_info, image_slice)
