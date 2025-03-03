@@ -336,6 +336,7 @@ main :: proc() {
 
     // Load animated test glTF model
     test_skinned_model: SkinnedModelData
+    test_skinned_model_pos := hlsl.float3 {0.0, 10.0, 5.0}
     defer gltf_skinned_delete(&test_skinned_model)
     {
         //path : cstring = "data/models/RiggedSimple.glb"
@@ -739,10 +740,12 @@ main :: proc() {
                 }
     
                 if closest_dist < math.INF_F32 {
-                    game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                    game_state.character.velocity = {}
-                    game_state.character.state = .Falling
-                    last_raycast_hit = collision_pt
+                    // game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
+                    // game_state.character.velocity = {}
+                    // game_state.character.state = .Falling
+                    // last_raycast_hit = collision_pt
+
+                    test_skinned_model_pos = collision_pt
                 }
             }
         }
@@ -770,7 +773,7 @@ main :: proc() {
             imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
 
             dd := SkinnedDraw {
-                world_from_model = translation_matrix({0.0, 10.0, 5.0}),
+                world_from_model = translation_matrix(test_skinned_model_pos) * yaw_rotation_matrix(math.PI / 2.0),
                 anim_idx = anim_idx,
                 anim_t = anim_t
             }
@@ -870,7 +873,7 @@ main :: proc() {
                                             tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
-                                    break
+                                    continue
                                 } else if anim_t >= channel.keyframes[keyframe_count - 1].time {
                                     // Clamp to last keyframe
                                     next := &channel.keyframes[keyframe_count - 1]
@@ -890,7 +893,7 @@ main :: proc() {
                                             tr^ *= transform            // Scale is postmultiplied
                                         }
                                     }
-                                    break
+                                    continue
                                 }
     
                                 // Return the interpolated value of the keyframes
