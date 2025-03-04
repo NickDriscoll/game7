@@ -340,8 +340,8 @@ main :: proc() {
     defer gltf_skinned_delete(&test_skinned_model)
     {
         //path : cstring = "data/models/RiggedSimple.glb"
-        //path : cstring = "data/models/SimpleSkinned.glb"
         path : cstring = "data/models/CesiumMan.glb"
+        //path : cstring = "data/models/DreadSamus.glb"
         test_skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
     }
 
@@ -766,9 +766,13 @@ main :: proc() {
             anim_end := get_animation_endtime(anim)
 
             @static anim_t : f32 = 0
+            @static anim_speed : f32 = 1.0
             @static animate := true
             imgui.Checkbox("Animate", &animate)
-            if animate do anim_t += 1.0 / 144.0
+            imgui.SliderFloat("Anim speed", &anim_speed, 0.001, 30.0)
+            imgui.SameLine()
+            if imgui.Button("Reset") do anim_speed = 1.0
+            if animate do anim_t += anim_speed / 144.0
             anim_t = math.mod(anim_t, anim_end)
             imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
 
