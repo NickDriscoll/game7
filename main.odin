@@ -959,11 +959,11 @@ main :: proc() {
                             defer strings.builder_destroy(&sb)
                             strings.builder_init(&sb, context.temp_allocator)
 
-                            fmt.sbprintf(&sb, "%#v", instance_joints[0])
-                            imgui.Text(strings.to_cstring(&sb))
-                            strings.builder_reset(&sb)
-                            fmt.sbprintf(&sb, "%#v", instance_joints[1])
-                            imgui.Text(strings.to_cstring(&sb))
+                            for joint in instance_joints {
+                                fmt.sbprintf(&sb, "%#v", joint)
+                                imgui.Text(strings.to_cstring(&sb))
+                                strings.builder_reset(&sb)
+                            }
                         }
 
                         // Insert another compute shader dispatch
