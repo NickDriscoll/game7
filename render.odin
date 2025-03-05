@@ -1173,28 +1173,8 @@ gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     return idx
 }
 
-load_gltf_static_model :: proc(
-    gd: ^vkw.Graphics_Device,
-    render_data: ^Renderer,
-    path: cstring,
-    allocator := context.allocator
-) -> StaticModelData {
-    gltf_data, res := cgltf.parse_file({}, path)
-    if res != .success {
-        log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
-    }
-    defer cgltf.free(gltf_data)
-    
-    // Load buffers
-    res = cgltf.load_buffers({}, gltf_data, path)
-    if res != .success {
-        log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
-    }
-    
+load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> [dynamic]vkw.Image_Handle {
     loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), context.temp_allocator)
-    defer delete(loaded_glb_images)
-
-    // Load all textures
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
@@ -1234,6 +1214,28 @@ load_gltf_static_model :: proc(
         }
         loaded_glb_images[i] = handle
     }
+    return loaded_glb_images
+}
+
+load_gltf_static_model :: proc(
+    gd: ^vkw.Graphics_Device,
+    render_data: ^Renderer,
+    path: cstring,
+    allocator := context.allocator
+) -> StaticModelData {
+    gltf_data, res := cgltf.parse_file({}, path)
+    if res != .success {
+        log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
+    }
+    defer cgltf.free(gltf_data)
+    
+    // Load buffers
+    res = cgltf.load_buffers({}, gltf_data, path)
+    if res != .success {
+        log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
+    }
+    
+    loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
     // @TODO: Don't just load the first mesh you see
     mesh := gltf_data.meshes[0]
@@ -1376,48 +1378,7 @@ load_gltf_skinned_model :: proc(
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
     
-    loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), context.temp_allocator)
-    defer delete(loaded_glb_images)
-
-    // Load all textures
-    for glb_texture, i in gltf_data.textures {
-        glb_image := glb_texture.image_
-        data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
-
-        channels : i32 = 4
-        width, height: i32
-        raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
-
-        // Get texture name
-        tex_name := glb_image.name
-        if len(tex_name) == 0 {
-            tex_name = "Unnamed glTF image"
-        }
-
-        image_create_info := vkw.Image_Create {
-            flags = nil,
-            image_type = .D2,
-            format = .R8G8B8A8_SRGB,
-            extent = {
-                width = u32(width),
-                height = u32(height),
-                depth = 1
-            },
-            supports_mipmaps = false,
-            array_layers = 1,
-            samples = {._1},
-            tiling = .OPTIMAL,
-            usage = {.SAMPLED,.TRANSFER_DST},
-            alloc_flags = nil,
-            name = tex_name
-        }
-        image_slice := slice.from_ptr(raw_image_ptr, int(width * height * channels))
-        handle, ok := vkw.sync_create_image_with_data(gd, &image_create_info, image_slice)
-        if !ok {
-            log.error("Error loading image from glb")
-        }
-        loaded_glb_images[i] = handle
-    }
+    loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
     // @TODO: Don't just load the first mesh you see
     assert(len(gltf_data.meshes) == 1)
