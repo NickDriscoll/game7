@@ -1253,16 +1253,9 @@ load_gltf_static_model :: proc(
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
     
         // Get vertex data
-        position_data: [dynamic]hlsl.float4
-        defer delete(position_data)
-        color_data: [dynamic]hlsl.float4
-        defer delete(color_data)
-        uv_data: [dynamic]hlsl.float2
-        defer delete(uv_data)
-        joint_ids: [dynamic]hlsl.uint4
-        defer delete(joint_ids)
-        joint_weights: [dynamic]hlsl.float4
-        defer delete(joint_weights)
+        position_data := make([dynamic]hlsl.float4, context.temp_allocator)
+        color_data := make([dynamic]hlsl.float4, context.temp_allocator)
+        uv_data := make([dynamic]hlsl.float2, context.temp_allocator)
     
         for attrib in primitive.attributes {
             #partial switch (attrib.type) {
@@ -1497,16 +1490,11 @@ load_gltf_skinned_model :: proc(
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
     
         // Get vertex data
-        position_data: [dynamic]hlsl.float4
-        defer delete(position_data)
-        color_data: [dynamic]hlsl.float4
-        defer delete(color_data)
-        uv_data: [dynamic]hlsl.float2
-        defer delete(uv_data)
-        joint_ids: [dynamic]hlsl.uint4
-        defer delete(joint_ids)
-        joint_weights: [dynamic]hlsl.float4
-        defer delete(joint_weights)
+        position_data := make([dynamic]hlsl.float4, context.temp_allocator)
+        color_data := make([dynamic]hlsl.float4, context.temp_allocator)
+        uv_data := make([dynamic]hlsl.float2, context.temp_allocator)
+        joint_ids := make([dynamic]hlsl.uint4, context.temp_allocator)
+        joint_weights := make([dynamic]hlsl.float4, context.temp_allocator)
     
         for attrib in primitive.attributes {
             #partial switch (attrib.type) {
