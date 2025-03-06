@@ -1253,48 +1253,15 @@ load_gltf_static_model :: proc(
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
     
         // Get vertex data
-        position_data := make([dynamic]hlsl.float4, context.temp_allocator)
-        color_data := make([dynamic]hlsl.float4, context.temp_allocator)
-        uv_data := make([dynamic]hlsl.float2, context.temp_allocator)
-    
-        for attrib in primitive.attributes {
+        position_data: [dynamic]hlsl.float4
+        color_data: [dynamic]hlsl.float4
+        uv_data: [dynamic]hlsl.float2
+
+        for &attrib in primitive.attributes {
             #partial switch (attrib.type) {
-                case .position: {
-                    resize(&position_data, attrib.data.count)
-                    log.debugf("Position data type: %v", attrib.data.type)
-                    log.debugf("Position count: %v", attrib.data.count)
-                    position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                    position_bytes := attrib.data.count * size_of(hlsl.float3)
-    
-                    // Build up positions buffer
-                    // We have to append a 1.0 to all positions
-                    // in line with homogenous coordinates
-                    for i in 0..<attrib.data.count {
-                        pos := position_ptr[i]
-                        position_data[i] = {pos.x, pos.y, pos.z, 1.0}
-                    }
-                }
-                case .color: {
-                    resize(&color_data, attrib.data.count)
-                    log.debugf("Color data type: %v", attrib.data.type)
-                    log.debugf("Color count: %v", attrib.data.count)
-                    color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                    color_bytes := attrib.data.count * size_of(hlsl.float3)
-    
-                    for i in 0..<attrib.data.count {
-                        col := color_ptr[i]
-                        color_data[i] = {col.x, col.y, col.z, 1.0}
-                    }
-                }
-                case .texcoord: {
-                    resize(&uv_data, attrib.data.count)
-                    log.debugf("UV data type: %v", attrib.data.type)
-                    log.debugf("UV count: %v", attrib.data.count)
-                    uv_ptr := get_accessor_ptr(attrib.data, hlsl.float2)
-                    uv_bytes := attrib.data.count * size_of(hlsl.float2)
-    
-                    mem.copy(&uv_data[0], uv_ptr, int(uv_bytes))
-                }
+                case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                case .color: color_data = load_gltf_float3_to_float4(&attrib)
+                case .texcoord: uv_data = load_gltf_float2(&attrib)
             }
         }
     
@@ -1399,6 +1366,7 @@ load_gltf_skinned_model :: proc(
         inv_bind_bytes := size_of(hlsl.float4x4) * inv_bind_count
         mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_bytes))
 
+        // Determine joint parentage
         joint_count = u32(len(glb_skin.joints))
         render_data.joint_matrices_head += joint_count
         old_cpu_joint_count := len(render_data.joint_parents)
@@ -1490,65 +1458,20 @@ load_gltf_skinned_model :: proc(
         mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
     
         // Get vertex data
-        position_data := make([dynamic]hlsl.float4, context.temp_allocator)
-        color_data := make([dynamic]hlsl.float4, context.temp_allocator)
-        uv_data := make([dynamic]hlsl.float2, context.temp_allocator)
-        joint_ids := make([dynamic]hlsl.uint4, context.temp_allocator)
-        joint_weights := make([dynamic]hlsl.float4, context.temp_allocator)
+        position_data: [dynamic]hlsl.float4
+        color_data: [dynamic]hlsl.float4
+        uv_data: [dynamic]hlsl.float2
+        joint_ids: [dynamic]hlsl.uint4
+        joint_weights: [dynamic]hlsl.float4
     
-        for attrib in primitive.attributes {
+        // @TODO: Use joint ids directly as u16 instead of converting to u32
+        for &attrib in primitive.attributes {
             #partial switch (attrib.type) {
-                case .position: {
-                    resize(&position_data, attrib.data.count)
-                    log.debugf("Position data type: %v", attrib.data.type)
-                    log.debugf("Position count: %v", attrib.data.count)
-                    position_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                    position_bytes := attrib.data.count * size_of(hlsl.float3)
-    
-                    // Build up positions buffer
-                    // We have to append a 1.0 to all positions
-                    // in line with homogenous coordinates
-                    for i in 0..<attrib.data.count {
-                        pos := position_ptr[i]
-                        position_data[i] = {pos.x, pos.y, pos.z, 1.0}
-                    }
-                }
-                case .color: {
-                    resize(&color_data, attrib.data.count)
-                    log.debugf("Color data type: %v", attrib.data.type)
-                    log.debugf("Color count: %v", attrib.data.count)
-                    color_ptr := get_accessor_ptr(attrib.data, hlsl.float3)
-                    color_bytes := attrib.data.count * size_of(hlsl.float3)
-    
-                    for i in 0..<attrib.data.count {
-                        col := color_ptr[i]
-                        color_data[i] = {col.x, col.y, col.z, 1.0}
-                    }
-                }
-                case .texcoord: {
-                    resize(&uv_data, attrib.data.count)
-                    log.debugf("UV data type: %v", attrib.data.type)
-                    log.debugf("UV count: %v", attrib.data.count)
-                    uv_ptr := get_accessor_ptr(attrib.data, hlsl.float2)
-                    uv_bytes := attrib.data.count * size_of(hlsl.float2)
-    
-                    mem.copy(&uv_data[0], uv_ptr, int(uv_bytes))
-                }
-                case .joints: {
-                    resize(&joint_ids, attrib.data.count)
-                    joints_ptr := get_accessor_ptr(attrib.data, [4]u16)
-                    for i in 0..<attrib.data.count {
-                        id := joints_ptr[i]
-                        joint_ids[i] = hlsl.uint4 {u32(id[0]), u32(id[1]), u32(id[2]), u32(id[3])}
-                    }
-                }
-                case .weights: {
-                    resize(&joint_weights, attrib.data.count)
-                    weights_ptr := get_accessor_ptr(attrib.data, hlsl.float4)
-                    weights_bytes := attrib.data.count * size_of(hlsl.float4)
-
-                    mem.copy(&joint_weights[0], weights_ptr, int(weights_bytes))
-                }
+                case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                case .color: color_data = load_gltf_float3_to_float4(&attrib)
+                case .texcoord: uv_data = load_gltf_float2(&attrib)
+                case .joints: joint_ids = load_gltf_joint_ids(&attrib)
+                case .weights: joint_weights = load_gltf_float4(&attrib)
             }
         }
     
