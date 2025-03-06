@@ -1,6 +1,7 @@
 package main
 
 import "core:log"
+import "core:math/linalg/hlsl"
 import "core:mem"
 import "vendor:cgltf"
 
@@ -76,3 +77,51 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
 
     return out_positions
 }
+
+load_gltf_float3_to_float4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.float4 {
+    data := make([dynamic]hlsl.float4, attrib.data.count, context.temp_allocator)
+    ptr := get_accessor_ptr(attrib.data, hlsl.float3)
+
+    // Build up buffer, appending a 1.0 to turn each float3 into a float4
+    for i in 0..<attrib.data.count {
+        pos := ptr[i]
+        data[i] = {pos.x, pos.y, pos.z, 1.0}
+    }
+
+    return data
+}
+
+load_gltf_float2 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.float2 {
+    data := make([dynamic]hlsl.float2, attrib.data.count, context.temp_allocator)
+    ptr := get_accessor_ptr(attrib.data, hlsl.float2)
+    bytes := attrib.data.count * size_of(hlsl.float2)
+
+    mem.copy(&data[0], ptr, int(bytes))
+
+    return data
+}
+
+load_gltf_float4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.float4 {
+    data := make([dynamic]hlsl.float4, attrib.data.count, context.temp_allocator)
+    ptr := get_accessor_ptr(attrib.data, hlsl.float4)
+    bytes := attrib.data.count * size_of(hlsl.float4)
+
+    mem.copy(&data[0], ptr, int(bytes))
+
+    return data
+}
+
+load_gltf_joint_ids :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.uint4 {
+    data := make([dynamic]hlsl.uint4, attrib.data.count, context.temp_allocator)
+    ptr := get_accessor_ptr(attrib.data, [4]u16)
+    bytes := attrib.data.count * size_of(hlsl.uint4)
+    
+    // Loop to convert from u16 to u32
+    for i in 0..<attrib.data.count {
+        id := ptr[i]
+        data[i] = hlsl.uint4 {u32(id[0]), u32(id[1]), u32(id[2]), u32(id[3])}
+    }
+
+    return data
+}
+
