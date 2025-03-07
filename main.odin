@@ -1045,37 +1045,7 @@ main :: proc() {
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
     
-            swapchain_image_idx: u32
-            vkw.acquire_swapchain_image(&vgd, &swapchain_image_idx)
-            swapchain_image_handle := vgd.swapchain_images[swapchain_image_idx]
-    
-            // Wait on swapchain image acquire semaphore
-            // and signal when we're done drawing on a different semaphore
-            vkw.add_wait_op(&vgd, &renderer.gfx_sync, vgd.acquire_semaphores[vkw.in_flight_idx(&vgd)])
-            vkw.add_signal_op(&vgd, &renderer.gfx_sync, vgd.present_semaphores[vkw.in_flight_idx(&vgd)])
-    
-            // Memory barrier between swapchain acquire and rendering
-            swapchain_vkimage, _ := vkw.get_image_vkhandle(&vgd, swapchain_image_handle)
-            vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
-                vkw.Image_Barrier {
-                    src_stage_mask = {.ALL_COMMANDS},
-                    src_access_mask = {.MEMORY_READ},
-                    dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                    dst_access_mask = {.MEMORY_WRITE},
-                    old_layout = .UNDEFINED,
-                    new_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                    src_queue_family = vgd.gfx_queue_family,
-                    dst_queue_family = vgd.gfx_queue_family,
-                    image = swapchain_vkimage,
-                    subresource_range = vk.ImageSubresourceRange {
-                        aspectMask = {.COLOR},
-                        baseMipLevel = 0,
-                        levelCount = 1,
-                        baseArrayLayer = 0,
-                        layerCount = 1
-                    }
-                }
-            })
+            swapchain_image_idx, _ := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
 
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
 
@@ -1091,31 +1061,9 @@ main :: proc() {
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
             render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
-    
-            // Memory barrier between rendering to swapchain image and swapchain present
-            vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
-                vkw.Image_Barrier {
-                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                    src_access_mask = {.MEMORY_WRITE},
-                    dst_stage_mask = {.ALL_COMMANDS},
-                    dst_access_mask = {.MEMORY_READ},
-                    old_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                    new_layout = .PRESENT_SRC_KHR,
-                    src_queue_family = vgd.gfx_queue_family,
-                    dst_queue_family = vgd.gfx_queue_family,
-                    image = swapchain_vkimage,
-                    subresource_range = vk.ImageSubresourceRange {
-                        aspectMask = {.COLOR},
-                        baseMipLevel = 0,
-                        levelCount = 1,
-                        baseArrayLayer = 0,
-                        layerCount = 1
-                    }
-                }
-            })
-    
-            vkw.submit_gfx_command_buffer(&vgd, gfx_cb_idx, &renderer.gfx_sync)
-            vkw.present_swapchain_image(&vgd, &swapchain_image_idx)
+            
+            // Submit gfx command buffer and present swapchain image
+            vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
         }
 
         // CLear temp allocator for next frame
