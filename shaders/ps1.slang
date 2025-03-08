@@ -101,11 +101,9 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
 
-    float3 final_color;
+    float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
     if (u_data.triangle_vis == 1) {
-        final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb * id_to_color(primitive_id);
-    } else {
-        final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+        final_color *= id_to_color(primitive_id);
     }
 
     return float4(final_color, 1.0);
