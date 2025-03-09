@@ -30,7 +30,8 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 MAXIMUM_FRAME_DT :: 1.0 / 60.0
 
-TEMP_ARENA_SIZE :: 64 * 1024            //Guessing 64KB necessary size for per-frame allocations
+SCENE_ARENA_SZIE :: 1024 * 1024         // Memory pool for per-scene allocations
+TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
 
 IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
     1.0, 0.0, 0.0,
@@ -47,15 +48,6 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
 // @TODO: Window grab bag struct? Just for figuring out what to do?
 
 
-ComputeSkinningPushConstants :: struct {
-    in_positions: vk.DeviceAddress,
-    out_positions: vk.DeviceAddress,
-    joint_ids: vk.DeviceAddress,
-    joint_weights: vk.DeviceAddress,
-    joint_transforms: vk.DeviceAddress,
-    max_vtx_id: u32,
-}
-
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     model_matrix: hlsl.float4x4,
@@ -66,20 +58,17 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
     delete_static_triangles(&collision)
 }
 
+CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 CharacterState :: enum {
     Grounded,
     Falling
 }
-
 CharacterFlags :: bit_set[enum {
     MovingLeft,
     MovingRight,
     MovingBack,
     MovingForward,
 }]
-
-
-CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
 Character :: struct {
     collision: Sphere,
     state: CharacterState,
@@ -92,10 +81,19 @@ Character :: struct {
     mesh_data: StaticModelData,
 }
 
+AnimatedMesh :: struct {
+    model: SkinnedModelData,
+    position: hlsl.float3,
+}
+
+// Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
     viewport_camera: Camera,
     terrain_pieces: [dynamic]TerrainPiece,
+    animated_meshes: [dynamic]AnimatedMesh,
+    //static_scenery: [dynamic]
+
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
@@ -112,73 +110,115 @@ delete_game :: proc(using g: ^GameState) {
 
 main :: proc() {
     // Parse command-line arguments
-    log_level := log.Level.Info
-    context.logger = log.create_console_logger(log_level)
     {
-        argc := len(os.args)
-        for arg, i in os.args {
-            if arg == "--log-level" || arg == "-l" {
-                if i + 1 < argc {
-                    switch os.args[i + 1] {
-                        case "DEBUG": log_level = .Debug
-                        case "INFO": log_level = .Info
-                        case "WARNING": log_level = .Warning
-                        case "ERROR": log_level = .Error
-                        case "FATAL": log_level = .Fatal
-                        case: log.warnf(
-                            "Unrecognized --log-level: %v. Using default (%v)",
-                            os.args[i + 1],
-                            log_level,
-                        )
+        log_level := log.Level.Info
+        context.logger = log.create_console_logger(log_level)
+        {
+            argc := len(os.args)
+            for arg, i in os.args {
+                if arg == "--log-level" || arg == "-l" {
+                    if i + 1 < argc {
+                        switch os.args[i + 1] {
+                            case "DEBUG": log_level = .Debug
+                            case "INFO": log_level = .Info
+                            case "WARNING": log_level = .Warning
+                            case "ERROR": log_level = .Error
+                            case "FATAL": log_level = .Fatal
+                            case: log.warnf(
+                                "Unrecognized --log-level: %v. Using default (%v)",
+                                os.args[i + 1],
+                                log_level,
+                            )
+                        }
                     }
                 }
             }
         }
+    
+        // Set up logger
+        context.logger = log.create_console_logger(log_level)
     }
-
-    // Set up logger
-    context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
 
     // Set up global allocator
-    context.allocator = runtime.heap_allocator()
+    global_allocator := runtime.heap_allocator()
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
-        track: mem.Tracking_Allocator
-        mem.tracking_allocator_init(&track, context.allocator)
-        context.allocator = mem.tracking_allocator(&track)
+        global_track: mem.Tracking_Allocator
+        mem.tracking_allocator_init(&global_track, global_allocator)
+        global_allocator = mem.tracking_allocator(&global_track)
         
         defer {
-            if len(track.allocation_map) > 0 {
-                fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-                for _, entry in track.allocation_map {
+            if len(global_track.allocation_map) > 0 {
+                fmt.eprintf("=== %v allocations not freed: ===\n", len(global_track.allocation_map))
+                for _, entry in global_track.allocation_map {
                     fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
                 }
             }
-            if len(track.bad_free_array) > 0 {
-                fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
-                for entry in track.bad_free_array {
+            if len(global_track.bad_free_array) > 0 {
+                fmt.eprintf("=== %v incorrect frees: ===\n", len(global_track.bad_free_array))
+                for entry in global_track.bad_free_array {
                     fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
                 }
             }
-            mem.tracking_allocator_destroy(&track)
+            mem.tracking_allocator_destroy(&global_track)
+        }
+    }
+    context.allocator = global_allocator
+
+    // Set up per-scene allocator
+    scene_allocator: mem.Allocator
+    scene_backing_memory: []byte
+    {
+        per_frame_arena: mem.Arena
+        err: mem.Allocator_Error
+        scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SZIE)
+        if err != nil {
+            log.error("Error allocating scene allocator backing buffer.")
+        }
+
+        mem.arena_init(&per_frame_arena, scene_backing_memory)
+        scene_allocator = mem.arena_allocator(&per_frame_arena)
+        
+    }
+    defer mem.free_bytes(scene_backing_memory)
+    when ODIN_DEBUG {
+        // Set up the tracking allocator if this is a debug build
+        scene_track: mem.Tracking_Allocator
+        mem.tracking_allocator_init(&scene_track, global_allocator)
+        global_allocator = mem.tracking_allocator(&scene_track)
+        
+        defer {
+            if len(scene_track.allocation_map) > 0 {
+                fmt.eprintf("=== %v allocations not freed: ===\n", len(scene_track.allocation_map))
+                for _, entry in scene_track.allocation_map {
+                    fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+                }
+            }
+            if len(scene_track.bad_free_array) > 0 {
+                fmt.eprintf("=== %v incorrect frees: ===\n", len(scene_track.bad_free_array))
+                for entry in scene_track.bad_free_array {
+                    fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+                }
+            }
+            mem.tracking_allocator_destroy(&scene_track)
         }
     }
 
     // Set up per-frame temp allocator
-    per_frame_arena: mem.Arena
-    backing_memory: []byte
+    temp_backing_memory: []byte
     {
+        per_frame_arena: mem.Arena
         err: mem.Allocator_Error
-        backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
+        temp_backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
         if err != nil {
-            log.error("Error allocating temporary memory backing buffer.")
+            log.error("Error allocating temporary allocator backing buffer.")
         }
 
-        mem.arena_init(&per_frame_arena, backing_memory)
+        mem.arena_init(&per_frame_arena, temp_backing_memory)
         context.temp_allocator = mem.arena_allocator(&per_frame_arena)
     }
-    defer mem.free_bytes(backing_memory)
+    defer mem.free_bytes(temp_backing_memory)
 
     // Load user configuration
     user_config_last_saved := time.now()
@@ -266,14 +306,6 @@ main :: proc() {
         return
     }
 
-    // Main app structure storing the game's overall state
-    game_state: GameState
-    defer delete_game(&game_state)
-    game_state.freecam_collision = user_config.flags["freecam_collision"]
-    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
-    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
-    game_state.timescale = 1.0
-
     // Initialize the renderer
     renderer := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &renderer)
@@ -286,6 +318,17 @@ main :: proc() {
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
+
+    // Now we're loading per-scene data, so switch context.allocator
+    context.allocator = scene_allocator
+
+    // Main app structure storing the game's overall state
+    game_state: GameState
+    defer delete_game(&game_state)
+    game_state.freecam_collision = user_config.flags["freecam_collision"]
+    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
+    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
+    game_state.timescale = 1.0
 
     main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
@@ -336,7 +379,7 @@ main :: proc() {
 
     // Load animated test glTF model
     test_skinned_model: SkinnedModelData
-    test_skinned_model_pos := hlsl.float3 {0.0, 10.0, 5.0}
+    test_skinned_model_pos := hlsl.float3 {50.2138786, 65.6309738, -2.65704226}
     defer gltf_skinned_delete(&test_skinned_model)
     {
         //path : cstring = "data/models/RiggedSimple.glb"
@@ -672,33 +715,6 @@ main :: proc() {
             case .None: {}
         }
 
-        // if imgui_state.show_gui && user_config.flags["show_memory_tracker"] {
-        //     if imgui.Begin("Memory tracker", &user_config.flags["show_memory_tracker"]) {
-        //         when ODIN_DEBUG == true {
-        //             sb: strings.Builder
-        //             strings.builder_init(&sb, context.temp_allocator)
-        //             defer strings.builder_destroy(&sb)
-
-        //             total_alloc_size := 0
-        //             for _, al in track.allocation_map {
-        //                 total_alloc_size += al.size
-        //             }
-
-        //             imgui.Text("Tracking_Allocator for context.allocator:")
-        //             imgui.Text("Current number of allocations: %i", len(track.allocation_map))
-        //             imgui.Text("Total bytes allocated by context.allocator: %i", total_alloc_size)
-        //             for ptr, al in track.allocation_map {
-        //                 t := strings.clone_to_cstring(fmt.sbprintf(&sb, "0x%v, %#v", ptr, al), context.temp_allocator)
-        //                 imgui.Text(t)
-        //                 strings.builder_reset(&sb)
-        //             }
-        //         } else {
-        //             imgui.Text("No tracking allocators in Release builds.")
-        //         }
-        //     }
-        //     imgui.End()
-        // }
-
         // Input remapping GUI
         if imgui_state.show_gui && user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
 
@@ -823,6 +839,14 @@ main :: proc() {
                 vgd.resize_window = false
             }
 
+            ComputeSkinningPushConstants :: struct {
+                in_positions: vk.DeviceAddress,
+                out_positions: vk.DeviceAddress,
+                joint_ids: vk.DeviceAddress,
+                joint_weights: vk.DeviceAddress,
+                joint_transforms: vk.DeviceAddress,
+                max_vtx_id: u32,
+            }
 
             // Do CPU-side work for animations
             // Need to put data in relevant place for compute shader operation
@@ -944,14 +968,14 @@ main :: proc() {
                         if !no_parenting {
                             for i in 1..<len(instance_joints) {
                                 joint_transform := &instance_joints[i]
-                                joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_inverse_bind_matrix]] * joint_transform^
+                                joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_joint]] * joint_transform^
                             }
                         }
                         // Premultiply instance joints with inverse bind matrices
                         if !no_inv_bind {
                             for i in 0..<len(instance_joints) {
                                 joint_transform := &instance_joints[i]
-                                joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_inverse_bind_matrix]
+                                joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_joint]
                             }
                         }
                         {
