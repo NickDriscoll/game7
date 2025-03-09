@@ -244,9 +244,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     // renderer.joint_parents = make([dynamic]u32)
     // renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4)
     // renderer.animations = make([dynamic]Animation)
-    renderer.cpu_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
-    renderer.gpu_static_instances = make([dynamic]GPUStaticInstance, allocator = context.temp_allocator)
-    renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
@@ -559,8 +556,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 }
 
 delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
-    vkw.delete_sync_info(&gfx_sync)
-    vkw.delete_sync_info(&compute_sync)
     vkw.delete_buffer(gd, positions_buffer)
     vkw.delete_buffer(gd, index_buffer)
     vkw.delete_buffer(gd, uvs_buffer)
@@ -569,10 +564,6 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     vkw.delete_buffer(gd, material_buffer)
     vkw.delete_buffer(gd, instance_buffer)
     vkw.delete_buffer(gd, uniform_buffer)
-
-    hm.destroy(&cpu_materials)
-    hm.destroy(&cpu_static_meshes)
-    hm.destroy(&cpu_skinned_meshes)
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
@@ -843,6 +834,14 @@ add_vertex_uvs :: proc(
 add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle {
     dirty_flags += {.Material}
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
+}
+
+
+// Per-frame work that needs to happen at the beginning of the frame
+new_frame :: proc(renderer: ^Renderer) {
+    renderer.cpu_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.gpu_static_instances = make([dynamic]GPUStaticInstance, allocator = context.temp_allocator)
+    renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
 draw_ps1_static_mesh :: proc(
