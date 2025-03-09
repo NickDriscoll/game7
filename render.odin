@@ -149,7 +149,7 @@ GPUSkinnedMesh :: struct {
 CPUSkinnedMesh :: struct {
     vertices_len: u32,
     joint_count: u32,
-    first_inverse_bind_matrix: u32,
+    first_joint: u32,
     gpu_data: GPUSkinnedMesh,
     static_mesh_handle: Static_Mesh_Handle,
 }
@@ -692,7 +692,7 @@ create_skinned_mesh :: proc(
     joint_ids: []hlsl.uint4,
     joint_weights: []hlsl.float4,
     joint_count: u32,
-    first_inverse_bind_matrix: u32,
+    first_joint: u32,
 ) -> Skinned_Mesh_Handle {
     
     position_start: u32
@@ -765,7 +765,7 @@ create_skinned_mesh :: proc(
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
         joint_count = joint_count,
-        first_inverse_bind_matrix = first_inverse_bind_matrix,
+        first_joint = first_joint,
         gpu_data = gpu_mesh,
         static_mesh_handle = static_handle
     }
@@ -1317,7 +1317,6 @@ SkinnedModelData :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
     first_animation_idx: u32,
     first_joint_idx: u32,
-    first_inverse_bind_matrix: u32
 }
 
 load_gltf_skinned_model :: proc(
@@ -1347,7 +1346,6 @@ load_gltf_skinned_model :: proc(
     // Load inverse bind matrices
     joint_count: u32
     first_anim_idx: u32
-    first_inverse_bind_matrix: u32
     first_joint_idx := render_data.joint_matrices_head
     {
         assert(len(gltf_data.skins) == 1)
@@ -1357,14 +1355,13 @@ load_gltf_skinned_model :: proc(
         // Get the index that will point to this model's first animation
         // in the global animations list after the animations are pushed
         first_anim_idx = u32(len(render_data.animations))
-        first_inverse_bind_matrix = u32(len(render_data.inverse_bind_matrices))
         
         // Load inverse bind matrices
         inv_bind_count := glb_skin.inverse_bind_matrices.count
-        resize(&render_data.inverse_bind_matrices, uint(first_inverse_bind_matrix) + inv_bind_count)
+        resize(&render_data.inverse_bind_matrices, uint(first_joint_idx) + inv_bind_count)
         inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
         inv_bind_bytes := size_of(hlsl.float4x4) * inv_bind_count
-        mem.copy(&render_data.inverse_bind_matrices[first_inverse_bind_matrix], inv_bind_ptr, int(inv_bind_bytes))
+        mem.copy(&render_data.inverse_bind_matrices[first_joint_idx], inv_bind_ptr, int(inv_bind_bytes))
 
         // Determine joint parentage
         joint_count = u32(len(glb_skin.joints))
@@ -1485,7 +1482,7 @@ load_gltf_skinned_model :: proc(
             joint_ids[:],
             joint_weights[:],
             joint_count,
-            first_inverse_bind_matrix
+            first_joint_idx
         )
         if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
         if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
@@ -1526,6 +1523,5 @@ load_gltf_skinned_model :: proc(
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
-        first_inverse_bind_matrix = first_inverse_bind_matrix
     }
 }
