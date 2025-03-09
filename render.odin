@@ -234,7 +234,22 @@ Renderer :: struct {
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
-    render_state: Renderer
+    renderer: Renderer
+
+    // Allocator dynamic arrays and handlemaps
+    hm.init(&renderer.cpu_static_meshes)
+    hm.init(&renderer.cpu_skinned_meshes)
+    hm.init(&renderer.cpu_materials)
+    // renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh)
+    // renderer.joint_parents = make([dynamic]u32)
+    // renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4)
+    // renderer.animations = make([dynamic]Animation)
+    renderer.cpu_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.gpu_static_instances = make([dynamic]GPUStaticInstance, allocator = context.temp_allocator)
+    renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
+
+    vkw.sync_init(&renderer.gfx_sync)
+    vkw.sync_init(&renderer.compute_sync)
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
@@ -248,7 +263,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             init_value = 0,
             name = "GFX Timeline",
         }
-        render_state.gfx_timeline = vkw.create_semaphore(gd, &info)
+        renderer.gfx_timeline = vkw.create_semaphore(gd, &info)
     }
 
     // Create compute timeline semaphore
@@ -258,7 +273,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             init_value = 0,
             name = "Compute Timeline",
         }
-        render_state.compute_timeline = vkw.create_semaphore(gd, &info)
+        renderer.compute_timeline = vkw.create_semaphore(gd, &info)
     }
 
     // Create index buffer
@@ -270,7 +285,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             required_flags = {.DEVICE_LOCAL},
             name = "Global index buffer",
         }
-        render_state.index_buffer = vkw.create_buffer(gd, &info)
+        renderer.index_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
     }
 
@@ -284,47 +299,47 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         info.name = "Global vertex positions buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.positions_buffer = vkw.create_buffer(gd, &info)
+        renderer.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global vertex UVs buffer"
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
-        render_state.uvs_buffer = vkw.create_buffer(gd, &info)
+        renderer.uvs_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uvs_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global vertex colors buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.colors_buffer = vkw.create_buffer(gd, &info)
+        renderer.colors_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint ids buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.joint_ids_buffer = vkw.create_buffer(gd, &info)
+        renderer.joint_ids_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.joint_ids_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint weights buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
-        render_state.joint_weights_buffer = vkw.create_buffer(gd, &info)
+        renderer.joint_weights_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global static mesh data buffer"
         info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES
-        render_state.static_mesh_buffer = vkw.create_buffer(gd, &info)
+        renderer.static_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint matrices buffer"
         info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
-        render_state.joint_matrices_buffer = vkw.create_buffer(gd, &info)
+        renderer.joint_matrices_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
         info.size = size_of(Material) * MAX_GLOBAL_MATERIALS
-        render_state.material_buffer = vkw.create_buffer(gd, &info)
+        renderer.material_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
         info.size = size_of(GPUStaticInstance) * MAX_GLOBAL_INSTANCES
-        render_state.instance_buffer = vkw.create_buffer(gd, &info)
+        renderer.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
 
@@ -337,7 +352,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "Indirect draw buffer"
         }
-        render_state.draw_buffer = vkw.create_buffer(gd, &info)
+        renderer.draw_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
     }
 
@@ -350,33 +365,33 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "Global uniforms buffer"
         }
-        render_state.uniform_buffer = vkw.create_buffer(gd, &info)
+        renderer.uniform_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
     }
 
     // Initialize the buffer pointers in the uniforms struct
     {
-        mesh_buffer, _ := vkw.get_buffer(gd, render_state.static_mesh_buffer)
-        material_buffer, _ := vkw.get_buffer(gd, render_state.material_buffer)
-        instance_buffer, _ := vkw.get_buffer(gd, render_state.instance_buffer)
-        position_buffer, _ := vkw.get_buffer(gd, render_state.positions_buffer)
-        uv_buffer, _ := vkw.get_buffer(gd, render_state.uvs_buffer)
-        color_buffer, _ := vkw.get_buffer(gd, render_state.colors_buffer)
-        joint_ids_buffer, _ := vkw.get_buffer(gd, render_state.joint_ids_buffer)
-        joint_weights_buffer, _ := vkw.get_buffer(gd, render_state.joint_weights_buffer)
-        joint_matrices_buffer, _ := vkw.get_buffer(gd, render_state.joint_matrices_buffer)
+        mesh_buffer, _ := vkw.get_buffer(gd, renderer.static_mesh_buffer)
+        material_buffer, _ := vkw.get_buffer(gd, renderer.material_buffer)
+        instance_buffer, _ := vkw.get_buffer(gd, renderer.instance_buffer)
+        position_buffer, _ := vkw.get_buffer(gd, renderer.positions_buffer)
+        uv_buffer, _ := vkw.get_buffer(gd, renderer.uvs_buffer)
+        color_buffer, _ := vkw.get_buffer(gd, renderer.colors_buffer)
+        joint_ids_buffer, _ := vkw.get_buffer(gd, renderer.joint_ids_buffer)
+        joint_weights_buffer, _ := vkw.get_buffer(gd, renderer.joint_weights_buffer)
+        joint_matrices_buffer, _ := vkw.get_buffer(gd, renderer.joint_matrices_buffer)
     
-        render_state.cpu_uniforms.mesh_ptr = mesh_buffer.address
-        render_state.cpu_uniforms.material_ptr = material_buffer.address
-        render_state.cpu_uniforms.instance_ptr = instance_buffer.address
-        render_state.cpu_uniforms.position_ptr = position_buffer.address
-        render_state.cpu_uniforms.uv_ptr = uv_buffer.address
-        render_state.cpu_uniforms.color_ptr = color_buffer.address
-        render_state.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
-        render_state.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
-        render_state.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
+        renderer.cpu_uniforms.mesh_ptr = mesh_buffer.address
+        renderer.cpu_uniforms.material_ptr = material_buffer.address
+        renderer.cpu_uniforms.instance_ptr = instance_buffer.address
+        renderer.cpu_uniforms.position_ptr = position_buffer.address
+        renderer.cpu_uniforms.uv_ptr = uv_buffer.address
+        renderer.cpu_uniforms.color_ptr = color_buffer.address
+        renderer.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
+        renderer.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
+        renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
     }
-    render_state.cpu_uniforms.triangle_vis = 0
+    renderer.cpu_uniforms.triangle_vis = 0
 
     // Create main rendertarget
     {
@@ -420,7 +435,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         color_images: [8]vkw.Image_Handle
         color_images[0] = color_target_handle
-        render_state.main_framebuffer = {
+        renderer.main_framebuffer = {
             color_images = color_images,
             depth_image = depth_handle,
             resolution = screen_size,
@@ -522,8 +537,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
         defer delete(handles)
 
-        render_state.ps1_pipeline = handles[0]
-        render_state.postfx_pipeline = handles[1]
+        renderer.ps1_pipeline = handles[0]
+        renderer.postfx_pipeline = handles[1]
     }
 
     // Compute pipeline creation
@@ -537,10 +552,10 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         handles := vkw.create_compute_pipelines(gd, infos[:])
 
-        render_state.skinning_pipeline = handles[0]
+        renderer.skinning_pipeline = handles[0]
     }
 
-    return render_state
+    return renderer
 }
 
 delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
@@ -555,14 +570,9 @@ delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
     vkw.delete_buffer(gd, instance_buffer)
     vkw.delete_buffer(gd, uniform_buffer)
 
-    delete(cpu_static_instances)
-    delete(gpu_static_instances)
-    delete(cpu_skinned_instances)
-
     hm.destroy(&cpu_materials)
     hm.destroy(&cpu_static_meshes)
     hm.destroy(&cpu_skinned_meshes)
-    delete(gpu_static_meshes)
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
