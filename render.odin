@@ -908,6 +908,229 @@ draw_ps1_skinned_primitive :: proc(
     return true
 }
 
+ComputeSkinningPushConstants :: struct {
+    in_positions: vk.DeviceAddress,
+    out_positions: vk.DeviceAddress,
+    joint_ids: vk.DeviceAddress,
+    joint_weights: vk.DeviceAddress,
+    joint_transforms: vk.DeviceAddress,
+    max_vtx_id: u32,
+}
+process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
+    instance_joints_so_far : u32 = 0
+    skinned_verts_so_far : u32 = 0
+    for skinned_instance in renderer.cpu_skinned_instances {
+        anim := renderer.animations[skinned_instance.animation_idx]
+        anim_t := skinned_instance.animation_time
+
+        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
+        
+        // Get interpolated keyframe state for translation, rotation, and scale
+        {
+            // Initialize joint matrices with identity matrix
+            instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
+            for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
+            
+            @static no_animation := false
+            @static no_inv_bind := false
+            @static no_parenting := false
+            imgui.Checkbox("no animation step", &no_animation)
+            imgui.Checkbox("no inverse bind step", &no_inv_bind)
+            imgui.Checkbox("no parenting step", &no_parenting)
+
+            // Compute joint transforms from animation channels
+            // @TODO: Actually fully finish this
+            if !no_animation {
+                for channel in anim.channels {
+                    keyframe_count := len(channel.keyframes)
+                    assert(keyframe_count > 0)
+                    tr := &instance_joints[channel.local_joint_id]
+
+                    // Check if anim_t is before first keyframe or after last
+                    if anim_t <= channel.keyframes[0].time {
+                        // Clamp to first keyframe
+                        now := &channel.keyframes[0]
+                        switch channel.aspect {
+                            case .Translation: {
+                                transform := translation_matrix(now.value.xyz)
+                                tr^ = transform * tr^       // Transform is premultiplied
+                            }
+                            case .Rotation: {
+                                now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
+                                transform := linalg.to_matrix4(now_quat)
+
+                                tr^ *= transform            // Rotation is postmultiplied
+                            }
+                            case .Scale: {
+                                transform := scaling_matrix(now.value.xyz)
+                                tr^ *= transform            // Scale is postmultiplied
+                            }
+                        }
+                        continue
+                    } else if anim_t >= channel.keyframes[keyframe_count - 1].time {
+                        // Clamp to last keyframe
+                        next := &channel.keyframes[keyframe_count - 1]
+                        switch channel.aspect {
+                            case .Translation: {
+                                transform := translation_matrix(next.value.xyz)
+                                tr^ = transform * tr^       // Transform is premultiplied
+                            }
+                            case .Rotation: {
+                                next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
+                                transform := linalg.to_matrix4(next_quat)
+
+                                tr^ *= transform            // Rotation is postmultiplied
+                            }
+                            case .Scale: {
+                                transform := scaling_matrix(next.value.xyz)
+                                tr^ *= transform            // Scale is postmultiplied
+                            }
+                        }
+                        continue
+                    }
+
+                    // Return the interpolated value of the keyframes
+                    for i in 0..<len(channel.keyframes)-1 {
+                        now := channel.keyframes[i]
+                        next := channel.keyframes[i + 1]
+                        if now.time <= anim_t && anim_t < next.time {
+                            // Get interpolation value between two times
+                            // anim_t == (1 - t)a + bt
+                            // anim_t == a + -at + bt
+                            // anim_t == a + t(b - a)
+                            // anim_t - a == t(b - a)
+                            // (anim_t - a) / (b - a) == t
+                            // Obviously this is assuming a linear interpolation, which may not be what we have
+                            interpolation_amount := (anim_t - now.time) / (next.time - now.time)
+
+                            switch channel.aspect {
+                                case .Translation: {
+                                    displacement := linalg.lerp(now.value, next.value, interpolation_amount)
+                                    transform := translation_matrix(displacement.xyz)
+                                    tr^ = transform * tr^       // Transform is premultiplied
+                                }
+                                case .Rotation: {
+                                    now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
+                                    next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
+                                    rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
+                                    transform := linalg.to_matrix4(rotation_quat)
+    
+                                    tr^ *= transform            // Rotation is postmultiplied
+                                }
+                                case .Scale: {
+                                    scale := linalg.lerp(now.value, next.value, interpolation_amount)
+                                    transform := scaling_matrix(scale.xyz)
+                                    tr^ *= transform            // Scale is postmultiplied
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+
+            // Postmultiply with parent transform
+            if !no_parenting {
+                for i in 1..<len(instance_joints) {
+                    joint_transform := &instance_joints[i]
+                    joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_joint]] * joint_transform^
+                }
+            }
+            // Premultiply instance joints with inverse bind matrices
+            if !no_inv_bind {
+                for i in 0..<len(instance_joints) {
+                    joint_transform := &instance_joints[i]
+                    joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_joint]
+                }
+            }
+            {
+                sb: strings.Builder
+                defer strings.builder_destroy(&sb)
+                strings.builder_init(&sb, context.temp_allocator)
+
+                for joint in instance_joints {
+                    fmt.sbprintf(&sb, "%#v", joint)
+                    imgui.Text(strings.to_cstring(&sb))
+                    strings.builder_reset(&sb)
+                }
+            }
+
+            // Insert another compute shader dispatch
+            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.in_positions_offset)
+
+            // @TODO: use a different buffer for vertex stream-out
+            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.out_positions_offset)
+            
+            joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_ids_offset)
+            joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.joint_weights_offset)
+            joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
+            pcs := ComputeSkinningPushConstants {
+                in_positions = in_pos_ptr,
+                out_positions = out_pos_ptr,
+                joint_ids = joint_ids_ptr,
+                joint_weights = joint_weights_ptr,
+                joint_transforms = joint_mats_ptr,
+                max_vtx_id = mesh.vertices_len - 1
+            }
+            append(&push_constant_batches, pcs)
+
+            // Also add CPUStaticInstance for the skinned output of the compute shader
+            new_cpu_static_instance := CPUStaticInstance {
+                world_from_model = skinned_instance.world_from_model,
+                mesh_handle = mesh.static_mesh_handle,
+                material_handle = skinned_instance.material_handle
+            }
+            append(&renderer.cpu_static_instances, new_cpu_static_instance)
+
+            // Upload to GPU
+            vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joints[:], instance_joints_so_far)
+            instance_joints_so_far += mesh.joint_count
+            skinned_verts_so_far += mesh.vertices_len
+        }
+    }
+
+    // Record commands related to dispatching compute shader
+    comp_cb_idx := vkw.begin_compute_command_buffer(gd, renderer.compute_timeline)
+
+    // Bind compute skinning pipeline
+    vkw.cmd_bind_compute_pipeline(gd, comp_cb_idx, renderer.skinning_pipeline)
+
+    for i in 0..<len(push_constant_batches) {
+        batch := &push_constant_batches[i]
+        vkw.cmd_push_constants_compute(gd, comp_cb_idx, batch)
+
+        GROUP_THREADCOUNT :: 64
+        q, r := math.divmod(batch.max_vtx_id + 1, GROUP_THREADCOUNT)
+        groups : u32 = q
+        if r != 0 do groups += 1
+        vkw.cmd_dispatch(gd, comp_cb_idx, groups, 1, 1)
+    }
+
+    // Barrier to sync streamout buffer writes with vertex shader reads
+    pos_buf, _ := vkw.get_buffer(gd, renderer.positions_buffer)
+    vkw.cmd_compute_pipeline_barriers(gd, comp_cb_idx, {
+        vkw.Buffer_Barrier {
+            src_stage_mask = {.COMPUTE_SHADER},
+            src_access_mask = {.SHADER_WRITE},
+            dst_stage_mask = {.ALL_COMMANDS},
+            dst_access_mask = {.SHADER_READ},
+            buffer = pos_buf.buffer,
+            offset = 0,
+            size = pos_buf.alloc_info.size
+        }
+    }, {})
+
+    // Increment compute timeline semaphore when compute skinning is finished
+    vkw.add_signal_op(gd, &renderer.compute_sync, renderer.compute_timeline, gd.frame_count + 1)
+
+    // Have graphics queue wait on compute skinning timeline semaphore
+    vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
+    
+    vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
+    
+}
+
 // This is called once per frame to sync buffers with the GPU
 // and record the relevant commands into the frame's command buffer
 render :: proc(

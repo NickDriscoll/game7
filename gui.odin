@@ -235,7 +235,9 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Edit") {
-
+            if imgui.MenuItem("Scene", "idk", selected = bool(user_config.flags["scene_editor"])) {
+                user_config.flags["scene_editor"] = !user_config.flags["scene_editor"]
+            }
             
             imgui.EndMenu()
         }
@@ -268,9 +270,6 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Debug") {
-            if imgui.MenuItem("Memory tracker", selected = user_config.flags["show_memory_tracker"]) {
-                user_config.flags["show_memory_tracker"] = !user_config.flags["show_memory_tracker"]
-            }
             if imgui.MenuItem("Debug panel", selected = user_config.flags["show_debug_menu"]) {
                 user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
             }
