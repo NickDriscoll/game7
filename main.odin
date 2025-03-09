@@ -498,6 +498,8 @@ main :: proc() {
             0.0, 0.0, 0.0, 1.0
         }
         renderer.cpu_uniforms.time = f32(vgd.frame_count) / 144
+
+        new_frame(&renderer)
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -770,31 +772,6 @@ main :: proc() {
         renderer.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
-
-        // Draw arbitrary skinned mesh
-        // {
-        //     anim_idx := test_skinned_model.first_animation_idx
-        //     anim := &renderer.animations[anim_idx]
-        //     anim_end := get_animation_endtime(anim)
-
-        //     @static anim_t : f32 = 0
-        //     @static anim_speed : f32 = 1.0
-        //     @static animate := true
-        //     imgui.Checkbox("Animate", &animate)
-        //     imgui.SliderFloat("Anim speed", &anim_speed, 0.001, 30.0)
-        //     imgui.SameLine()
-        //     if imgui.Button("Reset") do anim_speed = 1.0
-        //     if animate do anim_t += anim_speed / 144.0
-        //     anim_t = math.mod(anim_t, anim_end)
-        //     imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
-
-        //     dd := SkinnedDraw {
-        //         world_from_model = translation_matrix(test_skinned_model_pos) * yaw_rotation_matrix(math.PI / 2.0),
-        //         anim_idx = anim_idx,
-        //         anim_t = anim_t
-        //     }
-        //     draw_ps1_skinned_mesh(&vgd, &renderer, &test_skinned_model, &dd)
-        // }
 
         for &mesh in game_state.animated_meshes {
             mesh.anim_t += last_frame_dt * game_state.timescale
