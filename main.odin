@@ -84,6 +84,8 @@ Character :: struct {
 AnimatedMesh :: struct {
     model: SkinnedModelData,
     position: hlsl.float3,
+    anim_idx: u32,
+    anim_t: f32,
 }
 
 // Megastruct for all game-specific data
@@ -110,34 +112,32 @@ delete_game :: proc(using g: ^GameState) {
 
 main :: proc() {
     // Parse command-line arguments
+    log_level := log.Level.Info
+    context.logger = log.create_console_logger(log_level)
     {
-        log_level := log.Level.Info
-        context.logger = log.create_console_logger(log_level)
-        {
-            argc := len(os.args)
-            for arg, i in os.args {
-                if arg == "--log-level" || arg == "-l" {
-                    if i + 1 < argc {
-                        switch os.args[i + 1] {
-                            case "DEBUG": log_level = .Debug
-                            case "INFO": log_level = .Info
-                            case "WARNING": log_level = .Warning
-                            case "ERROR": log_level = .Error
-                            case "FATAL": log_level = .Fatal
-                            case: log.warnf(
-                                "Unrecognized --log-level: %v. Using default (%v)",
-                                os.args[i + 1],
-                                log_level,
-                            )
-                        }
+        argc := len(os.args)
+        for arg, i in os.args {
+            if arg == "--log-level" || arg == "-l" {
+                if i + 1 < argc {
+                    switch os.args[i + 1] {
+                        case "DEBUG": log_level = .Debug
+                        case "INFO": log_level = .Info
+                        case "WARNING": log_level = .Warning
+                        case "ERROR": log_level = .Error
+                        case "FATAL": log_level = .Fatal
+                        case: log.warnf(
+                            "Unrecognized --log-level: %v. Using default (%v)",
+                            os.args[i + 1],
+                            log_level,
+                        )
                     }
                 }
             }
         }
-    
-        // Set up logger
-        context.logger = log.create_console_logger(log_level)
     }
+
+    // Set up logger
+    context.logger = log.create_console_logger(log_level)
     log.info("Initiating swag mode...")
 
     // Set up global allocator
@@ -185,8 +185,8 @@ main :: proc() {
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         scene_track: mem.Tracking_Allocator
-        mem.tracking_allocator_init(&scene_track, global_allocator)
-        global_allocator = mem.tracking_allocator(&scene_track)
+        mem.tracking_allocator_init(&scene_track, scene_allocator)
+        scene_allocator = mem.tracking_allocator(&scene_track)
         
         defer {
             if len(scene_track.allocation_map) > 0 {
@@ -306,6 +306,9 @@ main :: proc() {
         return
     }
 
+    // Now we're loading per-scene data, so switch context.allocator
+    context.allocator = scene_allocator
+
     // Initialize the renderer
     renderer := init_renderer(&vgd, resolution)
     defer delete_renderer(&vgd, &renderer)
@@ -319,12 +322,8 @@ main :: proc() {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
 
-    // Now we're loading per-scene data, so switch context.allocator
-    context.allocator = scene_allocator
-
     // Main app structure storing the game's overall state
     game_state: GameState
-    defer delete_game(&game_state)
     game_state.freecam_collision = user_config.flags["freecam_collision"]
     game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
     game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
@@ -334,12 +333,10 @@ main :: proc() {
     //main_scene_path : cstring = "data/models/plane.glb"
 
     main_scene_mesh := load_gltf_static_model(&vgd, &renderer, main_scene_path)
-    defer gltf_static_delete(&main_scene_mesh)
 
     // Get collision data out of main scene model
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
-        defer delete(positions)
         mmat := uniform_scaling_matrix(1.0)
         collision := static_triangle_mesh(positions[:], mmat)
         append(&game_state.terrain_pieces, TerrainPiece {
@@ -352,8 +349,6 @@ main :: proc() {
     // Load test glTF model
     spyro_mesh: StaticModelData
     moon_mesh: StaticModelData
-    defer gltf_static_delete(&spyro_mesh)
-    defer gltf_static_delete(&moon_mesh)
     {
         path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
@@ -378,14 +373,17 @@ main :: proc() {
     }
 
     // Load animated test glTF model
-    test_skinned_model: SkinnedModelData
-    test_skinned_model_pos := hlsl.float3 {50.2138786, 65.6309738, -2.65704226}
-    defer gltf_skinned_delete(&test_skinned_model)
     {
         //path : cstring = "data/models/RiggedSimple.glb"
         path : cstring = "data/models/CesiumMan.glb"
         //path : cstring = "data/models/DreadSamus.glb"
-        test_skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
+        test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
+        append(&game_state.animated_meshes, AnimatedMesh {
+            model = test_skinned_model,
+            position = {50.2138786, 65.6309738, -2.65704226},
+            anim_idx = 0,
+            anim_t = 0.0
+        })
     }
 
     game_state.character = Character {
@@ -426,9 +424,9 @@ main :: proc() {
     game_state.camera_follow_point = game_state.character.collision.position
     game_state.camera_follow_speed = 6.0
 
-    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
+    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
-    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = context.allocator)
+    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(character_key_mappings)
     {
         freecam_key_mappings[.ESCAPE] = .ToggleImgui
@@ -456,7 +454,7 @@ main :: proc() {
 
     // Init input system
     input_system: InputSystem
-    defer destroy_input_system(&input_system)
+    //defer destroy_input_system(&input_system)
     if .Follow in game_state.viewport_camera.control_flags {
         input_system = init_input_system(&character_key_mappings)
     } else {
@@ -756,12 +754,10 @@ main :: proc() {
                 }
     
                 if closest_dist < math.INF_F32 {
-                    // game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                    // game_state.character.velocity = {}
-                    // game_state.character.state = .Falling
-                    // last_raycast_hit = collision_pt
-
-                    test_skinned_model_pos = collision_pt
+                    game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
+                    game_state.character.velocity = {}
+                    game_state.character.state = .Falling
+                    last_raycast_hit = collision_pt
                 }
             }
         }
@@ -776,28 +772,38 @@ main :: proc() {
             current_view_from_world
 
         // Draw arbitrary skinned mesh
-        {
-            anim_idx := test_skinned_model.first_animation_idx
-            anim := &renderer.animations[anim_idx]
-            anim_end := get_animation_endtime(anim)
+        // {
+        //     anim_idx := test_skinned_model.first_animation_idx
+        //     anim := &renderer.animations[anim_idx]
+        //     anim_end := get_animation_endtime(anim)
 
-            @static anim_t : f32 = 0
-            @static anim_speed : f32 = 1.0
-            @static animate := true
-            imgui.Checkbox("Animate", &animate)
-            imgui.SliderFloat("Anim speed", &anim_speed, 0.001, 30.0)
-            imgui.SameLine()
-            if imgui.Button("Reset") do anim_speed = 1.0
-            if animate do anim_t += anim_speed / 144.0
-            anim_t = math.mod(anim_t, anim_end)
-            imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
+        //     @static anim_t : f32 = 0
+        //     @static anim_speed : f32 = 1.0
+        //     @static animate := true
+        //     imgui.Checkbox("Animate", &animate)
+        //     imgui.SliderFloat("Anim speed", &anim_speed, 0.001, 30.0)
+        //     imgui.SameLine()
+        //     if imgui.Button("Reset") do anim_speed = 1.0
+        //     if animate do anim_t += anim_speed / 144.0
+        //     anim_t = math.mod(anim_t, anim_end)
+        //     imgui.SliderFloat("anim_t", &anim_t, 0.0, anim_end)
 
+        //     dd := SkinnedDraw {
+        //         world_from_model = translation_matrix(test_skinned_model_pos) * yaw_rotation_matrix(math.PI / 2.0),
+        //         anim_idx = anim_idx,
+        //         anim_t = anim_t
+        //     }
+        //     draw_ps1_skinned_mesh(&vgd, &renderer, &test_skinned_model, &dd)
+        // }
+
+        for &mesh in game_state.animated_meshes {
+            mesh.anim_t += last_frame_dt * game_state.timescale
             dd := SkinnedDraw {
-                world_from_model = translation_matrix(test_skinned_model_pos) * yaw_rotation_matrix(math.PI / 2.0),
-                anim_idx = anim_idx,
-                anim_t = anim_t
+                world_from_model = translation_matrix(mesh.position),
+                anim_idx = mesh.anim_idx,
+                anim_t = mesh.anim_t
             }
-            draw_ps1_skinned_mesh(&vgd, &renderer, &test_skinned_model, &dd)
+            draw_ps1_skinned_mesh(&vgd, &renderer, &mesh.model, &dd)
         }
 
         // Draw terrain pieces
@@ -1104,4 +1110,6 @@ main :: proc() {
     }
 
     log.info("Returning from main()")
+
+    free_all(scene_allocator)
 }
