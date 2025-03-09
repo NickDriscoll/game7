@@ -84,6 +84,7 @@ Character :: struct {
 AnimatedMesh :: struct {
     model: SkinnedModelData,
     position: hlsl.float3,
+    rotation: quaternion128,
     anim_idx: u32,
     anim_t: f32,
 }
@@ -381,6 +382,7 @@ main :: proc() {
         append(&game_state.animated_meshes, AnimatedMesh {
             model = test_skinned_model,
             position = {50.2138786, 65.6309738, -2.65704226},
+            rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
             anim_idx = 0,
             anim_t = 0.0
         })
@@ -773,10 +775,17 @@ main :: proc() {
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
 
+        // Update and draw animated scenery
         for &mesh in game_state.animated_meshes {
+            anim := &renderer.animations[mesh.anim_idx]
+            anim_end := get_animation_endtime(anim)
             mesh.anim_t += last_frame_dt * game_state.timescale
+            mesh.anim_t = math.mod(mesh.anim_t, anim_end)
+
+            rot := linalg.to_matrix4(mesh.rotation)
+
             dd := SkinnedDraw {
-                world_from_model = translation_matrix(mesh.position),
+                world_from_model = translation_matrix(mesh.position) * rot,
                 anim_idx = mesh.anim_idx,
                 anim_t = mesh.anim_t
             }
