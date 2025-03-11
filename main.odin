@@ -111,6 +111,15 @@ delete_game :: proc(using g: ^GameState) {
     delete(terrain_pieces)
 }
 
+scene_editor :: proc(game_state: ^GameState) {
+    io := imgui.GetIO()
+    
+    // Animated meshes
+    for mesh in game_state.animated_meshes {
+    }
+
+}
+
 main :: proc() {
     // Parse command-line arguments
     log_level := log.Level.Info
@@ -502,6 +511,8 @@ main :: proc() {
         renderer.cpu_uniforms.time = f32(vgd.frame_count) / 144
 
         new_frame(&renderer)
+
+        scene_editor(&game_state)
         
         output_verbs := poll_sdl2_events(&input_system)
 

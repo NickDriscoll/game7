@@ -1044,17 +1044,6 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                     joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_joint]
                 }
             }
-            {
-                sb: strings.Builder
-                defer strings.builder_destroy(&sb)
-                strings.builder_init(&sb, context.temp_allocator)
-
-                for joint in instance_joints {
-                    fmt.sbprintf(&sb, "%#v", joint)
-                    imgui.Text(strings.to_cstring(&sb))
-                    strings.builder_reset(&sb)
-                }
-            }
 
             // Insert another compute shader dispatch
             in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.in_positions_offset)
@@ -1376,7 +1365,8 @@ StaticDrawPrimitive :: struct {
 }
 
 StaticModelData :: struct {
-    primitives: [dynamic]StaticDrawPrimitive
+    primitives: [dynamic]StaticDrawPrimitive,
+    name: string,
 }
 
 get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
@@ -1536,7 +1526,8 @@ load_gltf_static_model :: proc(
     }
 
     return StaticModelData {
-        primitives = draw_primitives
+        primitives = draw_primitives,
+        name = string(mesh.name)
     }
 }
 
@@ -1549,6 +1540,7 @@ SkinnedModelData :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
     first_animation_idx: u32,
     first_joint_idx: u32,
+    name: string,
 }
 
 load_gltf_skinned_model :: proc(
@@ -1755,5 +1747,6 @@ load_gltf_skinned_model :: proc(
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
+        name = string(mesh.name)
     }
 }
