@@ -240,10 +240,10 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     hm.init(&renderer.cpu_static_meshes)
     hm.init(&renderer.cpu_skinned_meshes)
     hm.init(&renderer.cpu_materials)
-    // renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh)
-    // renderer.joint_parents = make([dynamic]u32)
-    // renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4)
-    // renderer.animations = make([dynamic]Animation)
+    renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh)
+    renderer.joint_parents = make([dynamic]u32)
+    renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4)
+    renderer.animations = make([dynamic]Animation)
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
@@ -1633,9 +1633,7 @@ load_gltf_skinned_model :: proc(
                 keyframe_count := channel.sampler.input.count
                 reserve(&out_channel.keyframes, keyframe_count)
                 keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
-                keyframe_values: [dynamic]hlsl.float4
-                defer delete(keyframe_values)
-                resize(&keyframe_values, keyframe_count)
+                keyframe_values := make([dynamic]hlsl.float4, keyframe_count, context.temp_allocator)
                 #partial switch channel.sampler.output.type {
                     case .vec3: {
                         ptr := get_accessor_ptr(channel.sampler.output, hlsl.float3)

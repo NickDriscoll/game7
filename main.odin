@@ -885,5 +885,5 @@ main :: proc() {
 
     log.info("Returning from main()")
 
-    free_all(scene_allocator)
+    //free_all(scene_allocator)
 }
