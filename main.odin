@@ -464,13 +464,15 @@ main :: proc() {
     }
 
     // Init input system
+    context.allocator = global_allocator
     input_system: InputSystem
-    //defer destroy_input_system(&input_system)
+    defer destroy_input_system(&input_system)
     if .Follow in game_state.viewport_camera.control_flags {
         input_system = init_input_system(&character_key_mappings)
     } else {
         input_system = init_input_system(&freecam_key_mappings)
     }
+    context.allocator = scene_allocator
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
@@ -885,5 +887,5 @@ main :: proc() {
 
     log.info("Returning from main()")
 
-    //free_all(scene_allocator)
+    free_all(scene_allocator)
 }
