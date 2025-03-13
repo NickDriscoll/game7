@@ -687,7 +687,7 @@ create_static_mesh :: proc(
 
 create_skinned_mesh :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     positions: []hlsl.float4,
     indices: []u16,
     joint_ids: []hlsl.uint4,
@@ -699,46 +699,46 @@ create_skinned_mesh :: proc(
     position_start: u32
     positions_len := u32(len(positions))
     {
-        assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
+        assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
     
-        position_start = positions_head
-        positions_head += positions_len
+        position_start = renderer.positions_head
+        renderer.positions_head += positions_len
     
-        vkw.sync_write_buffer(gd, positions_buffer, positions, position_start)
+        vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
     }
 
     indices_start: u32
     indices_len: u32
     {
         indices_len = u32(len(indices))
-        assert(indices_head + indices_len < MAX_GLOBAL_INDICES)
+        assert(renderer.indices_head + indices_len < MAX_GLOBAL_INDICES)
         assert(indices_len > 0)
 
-        indices_start = indices_head
-        indices_head += indices_len
+        indices_start = renderer.indices_head
+        renderer.indices_head += indices_len
 
-        vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
+        vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
     }
 
     joint_ids_start: u32
     {
         joint_ids_len := u32(len(joint_ids))
 
-        joint_ids_start = joint_ids_head
-        joint_ids_head += joint_ids_len
+        joint_ids_start = renderer.joint_ids_head
+        renderer.joint_ids_head += joint_ids_len
 
-        vkw.sync_write_buffer(gd, joint_ids_buffer, joint_ids, joint_ids_start)
+        vkw.sync_write_buffer(gd, renderer.joint_ids_buffer, joint_ids, joint_ids_start)
     }
 
     joint_weights_start: u32
     {
         joint_weights_len := u32(len(joint_weights))
 
-        joint_weights_start = joint_weights_head
-        joint_weights_head += joint_weights_len
+        joint_weights_start = renderer.joint_weights_head
+        renderer.joint_weights_head += joint_weights_len
 
-        vkw.sync_write_buffer(gd, joint_weights_buffer, joint_weights, joint_weights_start)
+        vkw.sync_write_buffer(gd, renderer.joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
     // Create equivalent static mesh for this skinned mesh
@@ -746,22 +746,22 @@ create_skinned_mesh :: proc(
         indices_start = indices_start,
         indices_len = indices_len,
     }
-    static_handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, new_cpu_static_mesh))
+    static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
     gpu_static_mesh := GPUStaticMesh {
-        position_offset = positions_head,
+        position_offset = renderer.positions_head,
         uv_offset = NULL_OFFSET,
         color_offset = NULL_OFFSET
     }
-    append(&gpu_static_meshes, gpu_static_mesh)
+    append(&renderer.gpu_static_meshes, gpu_static_mesh)
 
-    assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
+    assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
     gpu_mesh := GPUSkinnedMesh {
         joint_ids_offset = joint_ids_start,
         joint_weights_offset = joint_weights_start,
         in_positions_offset = position_start,
-        out_positions_offset = positions_head,
+        out_positions_offset = renderer.positions_head,
     }
-    positions_head += positions_len
+    renderer.positions_head += positions_len
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
@@ -770,9 +770,9 @@ create_skinned_mesh :: proc(
         gpu_data = gpu_mesh,
         static_mesh_handle = static_handle
     }
-    handle := Skinned_Mesh_Handle(hm.insert(&cpu_skinned_meshes, mesh))
+    handle := Skinned_Mesh_Handle(hm.insert(&renderer.cpu_skinned_meshes, mesh))
 
-    dirty_flags += {.Mesh}
+    renderer.dirty_flags += {.Mesh}
 
     return handle
 }
@@ -1464,15 +1464,9 @@ load_gltf_static_model :: proc(
 
     draw_primitives := make([dynamic]StaticDrawPrimitive, len(mesh.primitives), allocator)
 
-    for primitive, i in mesh.primitives {
+    for &primitive, i in mesh.primitives {
         // Get indices
-        index_data: [dynamic]u16
-        defer delete(index_data)
-        indices_count := primitive.indices.count
-        indices_bytes := indices_count * size_of(u16)
-        resize(&index_data, indices_count)
-        index_ptr := get_accessor_ptr(primitive.indices, u16)
-        mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+        index_data := load_gltf_indices_u16(&primitive)
     
         // Get vertex data
         position_data: [dynamic]hlsl.float4
@@ -1666,15 +1660,9 @@ load_gltf_skinned_model :: proc(
 
     draw_primitives := make([dynamic]SkinnedDrawPrimitive, len(mesh.primitives), allocator)
 
-    for primitive, i in mesh.primitives {
+    for &primitive, i in mesh.primitives {
         // Get indices
-        index_data: [dynamic]u16
-        defer delete(index_data)
-        indices_count := primitive.indices.count
-        indices_bytes := indices_count * size_of(u16)
-        resize(&index_data, indices_count)
-        index_ptr := get_accessor_ptr(primitive.indices, u16)
-        mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+        index_data := load_gltf_indices_u16(&primitive)
     
         // Get vertex data
         position_data: [dynamic]hlsl.float4
