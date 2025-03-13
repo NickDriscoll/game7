@@ -78,6 +78,16 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
     return out_positions
 }
 
+load_gltf_indices_u16 :: proc(primitive: ^cgltf.primitive) -> [dynamic]u16 {
+    indices_count := primitive.indices.count
+    index_data := make([dynamic]u16, indices_count, context.temp_allocator)
+    indices_bytes := indices_count * size_of(u16)
+    index_ptr := get_accessor_ptr(primitive.indices, u16)
+    mem.copy(raw_data(index_data), index_ptr, int(indices_bytes))
+
+    return index_data
+}
+
 load_gltf_float3_to_float4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.float4 {
     data := make([dynamic]hlsl.float4, attrib.data.count, context.temp_allocator)
     ptr := get_accessor_ptr(attrib.data, hlsl.float3)
