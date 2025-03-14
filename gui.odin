@@ -273,6 +273,9 @@ main_menu_bar :: proc(
             if imgui.MenuItem("Debug panel", selected = user_config.flags["show_debug_menu"]) {
                 user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
             }
+            if imgui.MenuItem("Allocator stats", selected = user_config.flags["show_allocator_stats"]) {
+                user_config.flags["show_allocator_stats"] = !user_config.flags["show_allocator_stats"]
+            }
             if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags["show_imgui_demo"]) {
                 user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
             }
