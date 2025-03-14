@@ -829,6 +829,23 @@ main :: proc() {
             }
         }
 
+        // Memory viewer
+        when ODIN_DEBUG {
+            if imgui_state.show_gui && user_config.flags["show_allocator_stats"] {
+                if imgui.Begin("Allocator stats", &user_config.flags["show_allocator_stats"]) {
+                    imgui.Text("Global allocator stats")
+                    imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
+                    imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
+                    imgui.Separator()
+                    imgui.Text("Per-scene allocator stats")
+                    imgui.Text("Total per-scene memory allocated: %i", scene_track.current_memory_allocated)
+                    imgui.Text("Peak per-scene memory allocated: %i", scene_track.peak_memory_allocated)
+                    imgui.Separator()
+                }
+                imgui.End()
+            }
+        }
+
         // Render
         {
             // Resize swapchain if necessary
@@ -867,7 +884,7 @@ main :: proc() {
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
             render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
-            
+
             // Submit gfx command buffer and present swapchain image
             vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
         }
