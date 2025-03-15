@@ -93,6 +93,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     // Half lambert
     diffuse_contribution = 0.5 * diffuse_contribution + 0.5;
     diffuse_contribution *= diffuse_contribution;
+    diffuse_contribution = max(0.05, diffuse_contribution);
 
     float4 vtx_color = input.color;
 
