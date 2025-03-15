@@ -35,10 +35,21 @@ COMPUTE_SHADERS : []string : {
 
 when ODIN_DEBUG {
     //ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing", "-strict-style"}
-    ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing"}
+    ODIN_COMMAND : []string : {
+        "odin",
+        "build",
+        ".",
+        "-debug",
+        "-vet-shadowing",
+    }
 } else {
     //ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing", "-strict-style"}
-    ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing"}
+    ODIN_COMMAND : []string : {
+        "odin",
+        "build",
+        ".",
+        "-vet-shadowing"
+    }
 }
 
 // @TODO: Automatically compile stb on Linux platforms
@@ -50,19 +61,21 @@ main :: proc() {
     {
         argc := len(os.args)
         for arg, i in os.args {
-            if arg == "--log-level" || arg == "-l" {
-                if i + 1 < argc {
-                    switch os.args[i + 1] {
-                        case "DEBUG": log_level = .Debug
-                        case "INFO": log_level = .Info
-                        case "WARNING": log_level = .Warning
-                        case "ERROR": log_level = .Error
-                        case "FATAL": log_level = .Fatal
-                        case: log.warnf(
-                            "Unrecognized --log-level: %v. Using default (%v)",
-                            os.args[i + 1],
-                            log_level
-                        )
+            switch arg {
+                case "--log-level", "-l": {
+                    if i + 1 < argc {
+                        switch os.args[i + 1] {
+                            case "DEBUG": log_level = .Debug
+                            case "INFO": log_level = .Info
+                            case "WARNING": log_level = .Warning
+                            case "ERROR": log_level = .Error
+                            case "FATAL": log_level = .Fatal
+                            case: log.warnf(
+                                "Unrecognized --log-level: %v. Using default (%v)",
+                                os.args[i + 1],
+                                log_level
+                            )
+                        }
                     }
                 }
             }
@@ -88,8 +101,6 @@ main :: proc() {
     for path in VERTEX_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.vert.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
 
         slangc_command := os2.Process_Desc {
             command = {
@@ -111,14 +122,14 @@ main :: proc() {
             return
         }
         append(&processes, process)
+        strings.builder_reset(&in_sb)
+        strings.builder_reset(&out_sb)
     }
 
     log.info("building fragment shaders...")
     for path in FRAGMENT_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.frag.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
 
         slangc_command := os2.Process_Desc {
             command = {
@@ -140,14 +151,14 @@ main :: proc() {
             return
         }
         append(&processes, process)
+        strings.builder_reset(&in_sb)
+        strings.builder_reset(&out_sb)
     }
 
     log.info("building compute shaders...")
     for path in COMPUTE_SHADERS {
         out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.comp.spv", path)
         in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
 
         slangc_command := os2.Process_Desc {
             command = {
@@ -170,6 +181,8 @@ main :: proc() {
             return
         }
         append(&processes, process)
+        strings.builder_reset(&in_sb)
+        strings.builder_reset(&out_sb)
     }
 
     // Wait on the shader compilers
