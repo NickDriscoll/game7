@@ -121,35 +121,6 @@ scene_editor :: proc(game_state: ^GameState) {
 }
 
 main :: proc() {
-    // Parse command-line arguments
-    log_level := log.Level.Info
-    context.logger = log.create_console_logger(log_level)
-    {
-        argc := len(os.args)
-        for arg, i in os.args {
-            if arg == "--log-level" || arg == "-l" {
-                if i + 1 < argc {
-                    switch os.args[i + 1] {
-                        case "DEBUG": log_level = .Debug
-                        case "INFO": log_level = .Info
-                        case "WARNING": log_level = .Warning
-                        case "ERROR": log_level = .Error
-                        case "FATAL": log_level = .Fatal
-                        case: log.warnf(
-                            "Unrecognized --log-level: %v. Using default (%v)",
-                            os.args[i + 1],
-                            log_level,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // Set up logger
-    context.logger = log.create_console_logger(log_level)
-    log.info("Initiating swag mode...")
-
     // Set up global allocator
     global_allocator := runtime.heap_allocator()
     when ODIN_DEBUG {
@@ -175,6 +146,37 @@ main :: proc() {
         }
     }
     context.allocator = global_allocator
+
+    // Parse command-line arguments
+    log_level := log.Level.Info
+    {
+        context.logger = log.create_console_logger(log_level)
+        argc := len(os.args)
+        for arg, i in os.args {
+            if arg == "--log-level" || arg == "-l" {
+                if i + 1 < argc {
+                    switch os.args[i + 1] {
+                        case "DEBUG": log_level = .Debug
+                        case "INFO": log_level = .Info
+                        case "WARNING": log_level = .Warning
+                        case "ERROR": log_level = .Error
+                        case "FATAL": log_level = .Fatal
+                        case: log.warnf(
+                            "Unrecognized --log-level: %v. Using default (%v)",
+                            os.args[i + 1],
+                            log_level,
+                        )
+                    }
+                }
+            }
+        }
+        log.destroy_console_logger(context.logger)
+    }
+
+    // Set up logger
+    context.logger = log.create_console_logger(log_level)
+    defer log.destroy_console_logger(context.logger)
+    log.info("Initiating swag mode...")
 
     // Set up per-scene allocator
     scene_allocator: mem.Allocator
@@ -238,7 +240,7 @@ main :: proc() {
     user_config_autosave := user_config.flags["config_autosave"]
 
     // Initialize SDL2
-    sdl2.Init({.EVENTS, .GAMECONTROLLER, .VIDEO})
+    sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
     defer sdl2.Quit()
     log.info("Initialized SDL2")
     
@@ -474,6 +476,18 @@ main :: proc() {
     }
     context.allocator = scene_allocator
 
+    // Init audio system
+    audio_device_id: sdl2.AudioDeviceID
+    {
+        desired_audiospec := sdl2.AudioSpec {
+
+        }
+        returned_audiospec: sdl2.AudioSpec
+        audio_device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &returned_audiospec, false)
+
+    }
+    defer sdl2.CloseAudioDevice(audio_device_id)
+
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
@@ -617,7 +631,7 @@ main :: proc() {
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     fmt.sbprintf(&sb, "Player state: %v", state)
-                    state_str := strings.to_cstring(&sb)
+                    state_str, _ := strings.to_cstring(&sb)
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
