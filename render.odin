@@ -1399,6 +1399,7 @@ load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> 
         channels : i32 = 4
         width, height: i32
         raw_image_ptr := stbi.load_from_memory(data_ptr, i32(glb_image.buffer_view.size), &width, &height, nil, channels)
+        defer stbi.image_free(raw_image_ptr)
 
         // Get texture name
         tex_name := glb_image.name
