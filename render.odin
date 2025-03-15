@@ -1145,7 +1145,6 @@ render :: proc(
     ps1_draw_count : u32 = 0
     if .Draw in dirty_flags || .Instance in dirty_flags {
         gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_static_instances), context.temp_allocator)
-        defer delete(gpu_draws)
 
         
         // Sort instances by mesh handle
@@ -1299,11 +1298,6 @@ render :: proc(
     vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, ps1_draw_count)
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
-    
-    // Reset per-frame state vars
-    clear(&cpu_static_instances)
-    clear(&gpu_static_instances)
-    clear(&cpu_skinned_instances)
 
     // Postprocessing step to write final output
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
