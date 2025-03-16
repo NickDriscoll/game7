@@ -96,6 +96,8 @@ GameState :: struct {
     animated_meshes: [dynamic]AnimatedMesh,
     //static_scenery: [dynamic]
 
+    editing_object: Maybe(EditorResponse),
+
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
@@ -110,16 +112,51 @@ delete_game :: proc(using g: ^GameState) {
     delete(terrain_pieces)
 }
 
-scene_editor :: proc(game_state: ^GameState) {
+
+EditorResponseType :: enum {
+    MoveAnimatedScenery
+}
+
+EditorResponse :: struct {
+    type: EditorResponseType,
+    index: u32
+}
+
+scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
     io := imgui.GetIO()
 
+    builder: strings.Builder
+    strings.builder_init(&builder, context.temp_allocator)
 
-    
-    // Animated meshes
-    for mesh in game_state.animated_meshes {
+    if imgui.Begin("Scene editor") {
+        // Animated meshes
+        imgui.Text("Animated scenery")
+        for &mesh, i in game_state.animated_meshes {
+            imgui.Text(strings.clone_to_cstring(mesh.model.name, context.temp_allocator))
+            fmt.sbprintf(&builder, "Position %v", mesh.position)
+            imgui.Text(strings.to_cstring(&builder))
+
+            strings.builder_reset(&builder)
+            fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
+            strings.builder_reset(&builder)
+            imgui.Text(strings.to_cstring(&builder))
+
+            // @TODO: Don't assume one animation
+            anim := renderer.animations[mesh.model.first_animation_idx]
+            imgui.SliderFloat("Animation t", &mesh.anim_t, 0.0, get_animation_endtime(&anim))
+
+            if imgui.Button("Move") {
+                game_state.editing_object = EditorResponse {
+                    type = .MoveAnimatedScenery,
+                    index = u32(i)
+                }
+            }
+        }
     }
-
+    imgui.End()
 }
+
+
 
 main :: proc() {
     // Set up global allocator
@@ -529,7 +566,7 @@ main :: proc() {
 
         new_frame(&renderer)
 
-        scene_editor(&game_state)
+        scene_editor(&game_state, &renderer)
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -632,7 +669,7 @@ main :: proc() {
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     fmt.sbprintf(&sb, "Player state: %v", state)
-                    state_str, _ := strings.to_cstring(&sb)
+                    state_str := strings.to_cstring(&sb)
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
@@ -750,8 +787,51 @@ main :: proc() {
 
         // Imgui Demo
         if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
-        
-        @static current_view_from_world: hlsl.float4x4
+
+        // Handle editing object code
+        switch obj in game_state.editing_object {
+            case EditorResponse: {
+                if !io.WantCaptureMouse {
+                    viewport_coords := hlsl.uint2 {
+                        u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
+                        u32(input_system.mouse_location.y) - u32(renderer.viewport_dimensions[1]),
+                    }
+                    ray := get_view_ray(
+                        &game_state.viewport_camera,
+                        viewport_coords,
+                        {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
+                    )
+                    log.infof("%v, %v", input_system.mouse_location.x, input_system.mouse_location.y)
+
+                    collision_pt: hlsl.float3
+                    closest_dist := math.INF_F32
+                    for &piece in game_state.terrain_pieces {
+                        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                        if ok {
+                            candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+                            if candidate_dist < closest_dist {
+                                collision_pt = candidate
+                                closest_dist = candidate_dist
+                            }
+                        }
+                    }
+
+                    if closest_dist < math.INF_F32 {
+                        switch obj.type {
+                            case .MoveAnimatedScenery: {
+                                object := &game_state.animated_meshes[obj.index]
+                                object.position = collision_pt
+                            }
+                            case: {}
+                        }
+                        // game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
+                        // game_state.character.velocity = {}
+                        // game_state.character.state = .Falling
+                        // last_raycast_hit = collision_pt
+                    }
+                }
+            }
+        }
 
         // TEST CODE PLZ REMOVE
         {
@@ -791,6 +871,8 @@ main :: proc() {
                     game_state.character.state = .Falling
                     last_raycast_hit = collision_pt
                 }
+
+                game_state.editing_object = nil
             }
         }
         // Update and draw player
@@ -798,7 +880,7 @@ main :: proc() {
         player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
-        current_view_from_world = camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
+        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
         renderer.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
