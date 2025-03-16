@@ -1594,7 +1594,6 @@ load_gltf_skinned_model :: proc(
         for animation in gltf_data.animations {
             new_anim: Animation
 
-            log.infof("Loading animation \"%v\"", animation.name)
             new_anim.name = string(animation.name)
 
             // Load animation channels
