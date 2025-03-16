@@ -85,6 +85,8 @@ InputSystem :: struct {
     axis_sensitivities: map[sdl2.GameControllerAxis]f32,
     stick_sensitivities: map[ControllerStickAxis]f32,
 
+    mouse_location: [2]i32,
+
     input_being_remapped: RemapInput,
     currently_remapping: bool,
 
@@ -191,7 +193,7 @@ OutputVerbs :: struct {
 
 // Main once-per-frame input proc
 poll_sdl2_events :: proc(
-    using state: ^InputSystem,
+    state: ^InputSystem,
     allocator := context.temp_allocator
 ) -> OutputVerbs {
     
@@ -241,21 +243,21 @@ poll_sdl2_events :: proc(
                 sc := event.key.keysym.scancode
 
                 // Handle key remapping here
-                if currently_remapping {
-                    verb, ok := key_mappings[input_being_remapped.key]
+                if state.currently_remapping {
+                    verb, ok := state.key_mappings[state.input_being_remapped.key]
                     if ok {
-                        existing_verb, key_exists := key_mappings[sc]
+                        existing_verb, key_exists := state.key_mappings[sc]
                         if key_exists {
                             log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
-                            input_being_remapped.key = nil
-                            currently_remapping = false
+                            state.input_being_remapped.key = nil
+                            state.currently_remapping = false
                             continue
                         }
 
-                        key_mappings[sc] = verb
-                        delete_key(key_mappings, input_being_remapped.key)
-                        input_being_remapped.key = nil
-                        currently_remapping = false
+                        state.key_mappings[sc] = verb
+                        delete_key(state.key_mappings, state.input_being_remapped.key)
+                        state.input_being_remapped.key = nil
+                        state.currently_remapping = false
                         continue
                     }
                 }
@@ -265,7 +267,7 @@ poll_sdl2_events :: proc(
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
 
-                verbtype, found := key_mappings[sc]
+                verbtype, found := state.key_mappings[sc]
                 if found {
                     bools[verbtype] = true
                 }
@@ -276,13 +278,13 @@ poll_sdl2_events :: proc(
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard do continue
 
-                verbtype, found := key_mappings[event.key.keysym.scancode]
+                verbtype, found := state.key_mappings[event.key.keysym.scancode]
                 if found {
                     bools[verbtype] = false
                 }
             }
             case .MOUSEBUTTONDOWN: {
-                verbtype, found := mouse_mappings[event.button.button]
+                verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
                     int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
@@ -290,7 +292,7 @@ poll_sdl2_events :: proc(
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
             }
             case .MOUSEBUTTONUP: {
-                verbtype, found := mouse_mappings[event.button.button]
+                verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
                     int2s[verbtype] = {0, 0}
                 }
@@ -299,12 +301,14 @@ poll_sdl2_events :: proc(
             case .MOUSEMOTION: {
                 old_motion := int2s[.MouseMotion]
                 old_relmotion := int2s[.MouseMotionRel]
+                state.mouse_location.x = event.motion.x
+                state.mouse_location.y = event.motion.y
                 int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
                 int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
                 log.debugf("Scrolled %v", event.wheel.y)
-                verbtype, found := wheel_mappings[event.wheel.which]
+                verbtype, found := state.wheel_mappings[event.wheel.which]
                 if found {
                     old := floats[verbtype]
                     floats[verbtype] = old + f32(event.wheel.y)
@@ -313,18 +317,18 @@ poll_sdl2_events :: proc(
             }
             case .CONTROLLERDEVICEADDED: {
                 controller_idx := event.cdevice.which
-                controller_one = sdl2.GameControllerOpen(controller_idx)
-                type := sdl2.GameControllerGetType(controller_one)
-                name := sdl2.GameControllerName(controller_one)
-                led := sdl2.GameControllerHasLED(controller_one)
-                if led do sdl2.GameControllerSetLED(controller_one, 0xFF, 0x00, 0xFF)
+                state.controller_one = sdl2.GameControllerOpen(controller_idx)
+                type := sdl2.GameControllerGetType(state.controller_one)
+                name := sdl2.GameControllerName(state.controller_one)
+                led := sdl2.GameControllerHasLED(state.controller_one)
+                if led do sdl2.GameControllerSetLED(state.controller_one, 0xFF, 0x00, 0xFF)
                 log.infof("%v connected (%v)", name, type)
             }
             case .CONTROLLERDEVICEREMOVED: {
                 controller_idx := event.cdevice.which
                 if controller_idx == 0 {
-                    sdl2.GameControllerClose(controller_one)
-                    controller_one = nil
+                    sdl2.GameControllerClose(state.controller_one)
+                    state.controller_one = nil
                 }
                 log.infof("Controller %v removed.", controller_idx)
             }
@@ -332,32 +336,32 @@ poll_sdl2_events :: proc(
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
                 // Handle button remapping here
-                if currently_remapping {
-                    verb, ok := button_mappings[input_being_remapped.button]
+                if state.currently_remapping {
+                    verb, ok := state.button_mappings[state.input_being_remapped.button]
                     if ok {
-                        existing_verb, button_exists := button_mappings[button]
+                        existing_verb, button_exists := state.button_mappings[button]
                         if button_exists {
                             log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
-                            input_being_remapped.key = nil
-                            currently_remapping = false
+                            state.input_being_remapped.key = nil
+                            state.currently_remapping = false
                             continue
                         }
                         
-                        button_mappings[button] = verb
-                        delete_key(&button_mappings, input_being_remapped.button)
-                        input_being_remapped.button = nil
-                        currently_remapping = false
+                        state.button_mappings[button] = verb
+                        delete_key(&state.button_mappings, state.input_being_remapped.button)
+                        state.input_being_remapped.button = nil
+                        state.currently_remapping = false
                         continue
                     }
                 }
 
-                verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
+                verbtype, found := state.button_mappings[sdl2.GameControllerButton(button)]
                 if found {
                     bools[verbtype] = true
                 }
             }
             case .CONTROLLERBUTTONUP: {
-                verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
+                verbtype, found := state.button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
                 if found {
                     bools[verbtype] = false
                 }
@@ -376,15 +380,15 @@ poll_sdl2_events :: proc(
     // Poll controller axes and emit appropriate verbs
     {
         stick := ControllerStickAxis.Left
-        verbtype, found := stick_mappings[stick]
+        verbtype, found := state.stick_mappings[stick]
         if found {
-            x := axis_to_f32(controller_one, .LEFTX)
-            y := axis_to_f32(controller_one, .LEFTY)
-            if .LEFTX in reverse_axes do x = -x
-            if .LEFTY in reverse_axes do y = -y
+            x := axis_to_f32(state.controller_one, .LEFTX)
+            y := axis_to_f32(state.controller_one, .LEFTY)
+            if .LEFTX in state.reverse_axes do x = -x
+            if .LEFTY in state.reverse_axes do y = -y
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in deadzone_sticks || dist > AXIS_DEADZONE {
-                sensitivity, found2 := stick_sensitivities[.Left]
+            if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
+                sensitivity, found2 := state.stick_sensitivities[.Left]
                 if !found2 do sensitivity = 1.0
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }
@@ -392,15 +396,15 @@ poll_sdl2_events :: proc(
     }
     {
         stick := ControllerStickAxis.Right
-        verbtype, found := stick_mappings[stick]
+        verbtype, found := state.stick_mappings[stick]
         if found {
-            x := axis_to_f32(controller_one, .RIGHTX)
-            y := axis_to_f32(controller_one, .RIGHTY)
-            if .RIGHTX in reverse_axes do x = -x
-            if .RIGHTY in reverse_axes do y = -y
+            x := axis_to_f32(state.controller_one, .RIGHTX)
+            y := axis_to_f32(state.controller_one, .RIGHTY)
+            if .RIGHTX in state.reverse_axes do x = -x
+            if .RIGHTY in state.reverse_axes do y = -y
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in deadzone_sticks || dist > AXIS_DEADZONE {
-                sensitivity, found2 := stick_sensitivities[.Right]
+            if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
+                sensitivity, found2 := state.stick_sensitivities[.Right]
                 if !found2 do sensitivity = 1.0
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }   
@@ -410,15 +414,15 @@ poll_sdl2_events :: proc(
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
 
-        verbtype, found := axis_mappings[ax]
+        verbtype, found := state.axis_mappings[ax]
         if found {
-            val := axis_to_f32(controller_one, ax)
+            val := axis_to_f32(state.controller_one, ax)
             if val == 0.0 do continue
             abval := math.abs(val)
-            if ax in deadzone_axes && abval <= AXIS_DEADZONE do continue
-            if ax in reverse_axes do val = -val
+            if ax in state.deadzone_axes && abval <= AXIS_DEADZONE do continue
+            if ax in state.reverse_axes do val = -val
         
-            sensitivity, found2 := axis_sensitivities[ax]
+            sensitivity, found2 := state.axis_sensitivities[ax]
             if found2 do val *= sensitivity
 
             floats[verbtype] = val
