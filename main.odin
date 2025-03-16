@@ -16,7 +16,6 @@ import "core:time"
 
 import "vendor:cgltf"
 import "vendor:sdl2"
-import stbi "vendor:stb/image"
 
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
@@ -103,7 +102,7 @@ GameState :: struct {
 
     freecam_collision: bool,
     borderless_fullscreen: bool,
-    exclusive_fullscreen: bool
+    exclusive_fullscreen: bool,
 }
 
 delete_game :: proc(using g: ^GameState) {
@@ -113,6 +112,8 @@ delete_game :: proc(using g: ^GameState) {
 
 scene_editor :: proc(game_state: ^GameState) {
     io := imgui.GetIO()
+
+
     
     // Animated meshes
     for mesh in game_state.animated_meshes {
@@ -250,7 +251,7 @@ main :: proc() {
         log.fatal("Couldn't load Vulkan library.")
         return
     }
-    
+
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
         app_name = "Game7",
