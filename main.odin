@@ -801,7 +801,6 @@ main :: proc() {
                         viewport_coords,
                         {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
                     )
-                    log.infof("%v, %v", input_system.mouse_location.x, input_system.mouse_location.y)
 
                     collision_pt: hlsl.float3
                     closest_dist := math.INF_F32
