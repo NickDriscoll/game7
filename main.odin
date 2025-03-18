@@ -96,7 +96,9 @@ GameState :: struct {
     animated_meshes: [dynamic]AnimatedMesh,
     //static_scenery: [dynamic]
 
+    // Editor state
     editing_object: Maybe(EditorResponse),
+    
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -132,11 +134,14 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
         // Animated meshes
         imgui.Text("Animated scenery")
         for &mesh, i in game_state.animated_meshes {
-            imgui.Text(strings.clone_to_cstring(mesh.model.name, context.temp_allocator))
+            fmt.sbprintf(&builder, "%v", mesh.model.name)
+            imgui.Text(strings.to_cstring(&builder))
+            strings.builder_reset(&builder)
+
             fmt.sbprintf(&builder, "Position %v", mesh.position)
             imgui.Text(strings.to_cstring(&builder))
-
             strings.builder_reset(&builder)
+            
             fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
             strings.builder_reset(&builder)
             imgui.Text(strings.to_cstring(&builder))
@@ -626,7 +631,7 @@ main :: proc() {
         game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
 
         @static cpu_limiter_ms : c.int = 100
-        
+
         // Misc imgui window for testing
         @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
@@ -669,7 +674,7 @@ main :: proc() {
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     fmt.sbprintf(&sb, "Player state: %v", state)
-                    state_str := strings.to_cstring(&sb)
+                    state_str, _ := strings.to_cstring(&sb)
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
