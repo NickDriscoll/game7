@@ -1727,6 +1727,6 @@ load_gltf_skinned_model :: proc(
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
-        name = string(mesh.name)
+        name = strings.clone(string(mesh.name), context.allocator)
     }
 }
