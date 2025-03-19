@@ -86,6 +86,7 @@ InputSystem :: struct {
     stick_sensitivities: map[ControllerStickAxis]f32,
 
     mouse_location: [2]i32,
+    mouse_clicked: bool,
 
     input_being_remapped: RemapInput,
     currently_remapping: bool,
@@ -130,7 +131,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     }
 
     // Hardcoded default mouse mappings
-    mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
+    //mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
     // 0 bc there's just one mouse wheel... right?
@@ -204,6 +205,8 @@ poll_sdl2_events :: proc(
     outputs.floats = make(map[VerbType]f32, 16, allocator)
     outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
     using outputs
+
+    state.mouse_clicked = false
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
@@ -288,7 +291,7 @@ poll_sdl2_events :: proc(
                 if found {
                     int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
-
+                state.mouse_clicked = true
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
             }
             case .MOUSEBUTTONUP: {
