@@ -84,6 +84,7 @@ AnimatedMesh :: struct {
     model: SkinnedModelData,
     position: hlsl.float3,
     rotation: quaternion128,
+    scale: f32,
     anim_idx: u32,
     anim_t: f32,
 }
@@ -97,7 +98,7 @@ GameState :: struct {
     //static_scenery: [dynamic]
 
     // Editor state
-    editing_object: Maybe(EditorResponse),
+    editor_response: Maybe(EditorResponse),
     
 
     camera_follow_point: hlsl.float3,
@@ -116,7 +117,8 @@ delete_game :: proc(using g: ^GameState) {
 
 
 EditorResponseType :: enum {
-    MoveAnimatedScenery
+    MoveAnimatedScenery,
+    AddAnimatedScenery
 }
 
 EditorResponse :: struct {
@@ -133,6 +135,11 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
     if imgui.Begin("Scene editor") {
         // Animated meshes
         imgui.Text("Animated scenery")
+        if imgui.Button("Add new animated scenery") {
+            game_state.editor_response = EditorResponse {
+                type = .AddAnimatedScenery
+            }
+        }
         for &mesh, i in game_state.animated_meshes {
             fmt.sbprintf(&builder, "%v", mesh.model.name)
             imgui.Text(strings.to_cstring(&builder))
@@ -146,16 +153,31 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
             strings.builder_reset(&builder)
             imgui.Text(strings.to_cstring(&builder))
 
+            imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
+
             // @TODO: Don't assume one animation
             anim := renderer.animations[mesh.model.first_animation_idx]
             imgui.SliderFloat("Animation t", &mesh.anim_t, 0.0, get_animation_endtime(&anim))
 
-            if imgui.Button("Move") {
-                game_state.editing_object = EditorResponse {
+            disable_button := false
+            move_text : cstring = "Move"
+            switch obj in game_state.editor_response {
+                case EditorResponse: {
+                    if obj.type == .MoveAnimatedScenery && obj.index == u32(i) {
+                        disable_button = true
+                        move_text = "Moving..."
+                    }
+                }
+            }
+
+            if disable_button do imgui.BeginDisabled()
+            if imgui.Button(move_text) {
+                game_state.editor_response = EditorResponse {
                     type = .MoveAnimatedScenery,
                     index = u32(i)
                 }
             }
+            if disable_button do imgui.EndDisabled()
         }
     }
     imgui.End()
@@ -437,6 +459,7 @@ main :: proc() {
             model = test_skinned_model,
             position = {50.2138786, 65.6309738, -2.65704226},
             rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
+            scale = 1.0,
             anim_idx = 0,
             anim_t = 0.0
         })
@@ -793,9 +816,43 @@ main :: proc() {
         // Imgui Demo
         if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
 
-        // Handle editing object code
-        switch obj in game_state.editing_object {
+        // Handle current editor state
+        switch obj in game_state.editor_response {
             case EditorResponse: {
+                // Add new thing window
+                #partial switch obj.type {
+                    case .AddAnimatedScenery: {
+                        // @TODO: Is this a bug in the filepath package?
+                        // The File_Info structs are supposed to be allocated
+                        // with context.temp_allocator, but it appears that it
+                        // actually uses context.allocator
+                        old_alloc := context.allocator
+                        context.allocator = context.temp_allocator
+
+                        if imgui.Begin("Add animated scenery") {
+                            file_proc :: proc(
+                                info: os.File_Info,
+                                in_err: os.Error,
+                                user_data: rawptr
+                            ) -> (err: os.Error, skip_dir: bool) {
+                                imgui.Text(strings.clone_to_cstring(info.name, context.temp_allocator))
+
+                                err = nil
+                                skip_dir = false
+                                return
+                            }
+                            walk_error := filepath.walk("./data/models", file_proc, nil)
+                            if walk_error != nil {
+                                log.errorf("Error walking models dir: %v", walk_error)
+                            }
+                        }
+                        imgui.End()
+
+                        context.allocator = old_alloc
+                    }
+                    case: {}
+                }
+
                 if !io.WantCaptureMouse {
                     viewport_coords := hlsl.uint2 {
                         u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
@@ -821,64 +878,22 @@ main :: proc() {
                     }
 
                     if closest_dist < math.INF_F32 {
-                        switch obj.type {
+                        #partial switch obj.type {
                             case .MoveAnimatedScenery: {
                                 object := &game_state.animated_meshes[obj.index]
                                 object.position = collision_pt
                             }
                             case: {}
                         }
-                        // game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                        // game_state.character.velocity = {}
-                        // game_state.character.state = .Falling
-                        // last_raycast_hit = collision_pt
+                    }
+
+                    if input_system.mouse_clicked {
+                        game_state.editor_response = nil
                     }
                 }
             }
         }
 
-        // TEST CODE PLZ REMOVE
-        {
-            place_thing_screen_coords, ok2 := output_verbs.int2s[.PlaceThing]
-            if want_refire_raycast {
-                collision_pt := last_raycast_hit
-                game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                game_state.character.velocity = {}
-                game_state.character.state = .Falling
-            } else if !io.WantCaptureMouse && ok2 && place_thing_screen_coords != {0, 0} {
-                viewport_coords := hlsl.uint2 {
-                    u32(place_thing_screen_coords.x) - u32(renderer.viewport_dimensions[0]),
-                    u32(place_thing_screen_coords.y) - u32(renderer.viewport_dimensions[1]),
-                }
-                ray := get_view_ray(
-                    &game_state.viewport_camera,
-                    viewport_coords,
-                    {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
-                )
-    
-                collision_pt: hlsl.float3
-                closest_dist := math.INF_F32
-                for &piece in game_state.terrain_pieces {
-                    candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-                    if ok {
-                        candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-                        if candidate_dist < closest_dist {
-                            collision_pt = candidate
-                            closest_dist = candidate_dist
-                        }
-                    }
-                }
-    
-                if closest_dist < math.INF_F32 {
-                    game_state.character.collision.position = collision_pt + {0.0, 0.0, game_state.character.collision.radius}
-                    game_state.character.velocity = {}
-                    game_state.character.state = .Falling
-                    last_raycast_hit = collision_pt
-                }
-
-                game_state.editing_object = nil
-            }
-        }
         // Update and draw player
         player_update(&game_state, &output_verbs, last_frame_dt)
         player_draw(&game_state, &vgd, &renderer)
@@ -898,8 +913,9 @@ main :: proc() {
 
             rot := linalg.to_matrix4(mesh.rotation)
 
+            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
             dd := SkinnedDraw {
-                world_from_model = translation_matrix(mesh.position) * rot,
+                world_from_model = world_mat,
                 anim_idx = mesh.anim_idx,
                 anim_t = mesh.anim_t
             }
