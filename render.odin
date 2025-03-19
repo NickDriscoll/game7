@@ -24,6 +24,7 @@ MAX_GLOBAL_ANIMATIONS :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
+// @TODO: Just make this zero somehow
 NULL_OFFSET :: 0xFFFFFFFF
 
 FRAMES_IN_FLIGHT :: 2
@@ -218,6 +219,10 @@ Renderer :: struct {
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
+    // Maps of string filenames to ModelData types
+    loaded_static_models: map[string]StaticModelData,
+    loaded_skinned_models: map[string]SkinnedModelData,
+
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
     compute_timeline: vkw.Semaphore_Handle,
@@ -247,6 +252,9 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
+
+    renderer.loaded_static_models = make(map[string]StaticModelData)
+    renderer.loaded_skinned_models = make(map[string]SkinnedModelData)
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
@@ -638,7 +646,7 @@ swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, reso
 
 create_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     positions: []hlsl.float4,
     indices: []u16
 ) -> Static_Mesh_Handle {
@@ -646,41 +654,41 @@ create_static_mesh :: proc(
     position_start: u32
     {
         positions_len := u32(len(positions))
-        assert(positions_head + positions_len < MAX_GLOBAL_VERTICES)
+        assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
     
-        position_start = positions_head
-        positions_head += positions_len
+        position_start = renderer.positions_head
+        renderer.positions_head += positions_len
     
-        vkw.sync_write_buffer(gd, positions_buffer, positions, position_start)
+        vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
     }
 
     indices_start: u32
     indices_len: u32
     {
         indices_len = u32(len(indices))
-        assert(indices_head + indices_len < MAX_GLOBAL_INDICES)
+        assert(renderer.indices_head + indices_len < MAX_GLOBAL_INDICES)
         assert(indices_len > 0)
 
-        indices_start = indices_head
-        indices_head += indices_len
+        indices_start = renderer.indices_head
+        renderer.indices_head += indices_len
 
-        vkw.sync_write_buffer(gd, index_buffer, indices, indices_start)
+        vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
     }
 
     mesh := CPUStaticMeshData {
         indices_start = indices_start,
         indices_len = indices_len,
     }
-    handle := Static_Mesh_Handle(hm.insert(&cpu_static_meshes, mesh))
+    handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
     gpu_mesh := GPUStaticMesh {
         position_offset = position_start,
         uv_offset = NULL_OFFSET,
         color_offset = NULL_OFFSET
     }
-    append(&gpu_static_meshes, gpu_mesh)
+    append(&renderer.gpu_static_meshes, gpu_mesh)
 
-    dirty_flags += {.Mesh}
+    renderer.dirty_flags += {.Mesh}
 
     return handle
 }
@@ -932,16 +940,17 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
             for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
             
-            @static no_animation := false
-            @static no_inv_bind := false
-            @static no_parenting := false
-            imgui.Checkbox("no animation step", &no_animation)
-            imgui.Checkbox("no inverse bind step", &no_inv_bind)
-            imgui.Checkbox("no parenting step", &no_parenting)
+            // @static no_animation := false
+            // @static no_inv_bind := false
+            // @static no_parenting := false
+            // imgui.Checkbox("no animation step", &no_animation)
+            // imgui.Checkbox("no inverse bind step", &no_inv_bind)
+            // imgui.Checkbox("no parenting step", &no_parenting)
 
             // Compute joint transforms from animation channels
             // @TODO: Actually fully finish this
-            if !no_animation {
+            //if !no_animation {
+            {
                 for channel in anim.channels {
                     keyframe_count := len(channel.keyframes)
                     assert(keyframe_count > 0)
@@ -1031,14 +1040,16 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
 
             // Postmultiply with parent transform
-            if !no_parenting {
+            //if !no_parenting {
+            {
                 for i in 1..<len(instance_joints) {
                     joint_transform := &instance_joints[i]
                     joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_joint]] * joint_transform^
                 }
             }
             // Premultiply instance joints with inverse bind matrices
-            if !no_inv_bind {
+            //if !no_inv_bind {
+            {
                 for i in 0..<len(instance_joints) {
                     joint_transform := &instance_joints[i]
                     joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_joint]
@@ -1145,7 +1156,6 @@ render :: proc(
     ps1_draw_count : u32 = 0
     if .Draw in dirty_flags || .Instance in dirty_flags {
         gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_static_instances), context.temp_allocator)
-
         
         // Sort instances by mesh handle
         slice.sort_by(cpu_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {

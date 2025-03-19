@@ -126,20 +126,50 @@ EditorResponse :: struct {
     index: u32
 }
 
-scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
+scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer, gui: ^ImguiState) {
     io := imgui.GetIO()
 
     builder: strings.Builder
     strings.builder_init(&builder, context.temp_allocator)
 
-    if imgui.Begin("Scene editor") {
+    if gui.show_gui && imgui.Begin("Scene editor") {
         // Animated meshes
         imgui.Text("Animated scenery")
-        if imgui.Button("Add new animated scenery") {
-            game_state.editor_response = EditorResponse {
-                type = .AddAnimatedScenery
+        // @TODO: Is this a bug in the filepath package?
+        // The File_Info structs are supposed to be allocated
+        // with context.temp_allocator, but it appears that it
+        // actually uses context.allocator
+        old_alloc := context.allocator
+        context.allocator = context.temp_allocator
+
+        file_proc :: proc(
+            info: os.File_Info,
+            in_err: os.Error,
+            user_data: rawptr
+        ) -> (err: os.Error, skip_dir: bool) {
+            //imgui.Text(strings.clone_to_cstring(info.name, context.temp_allocator))
+            if !info.is_dir {
+                item_array := cast(^[dynamic]cstring)user_data
+                append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
             }
+
+            err = nil
+            skip_dir = false
+            return
         }
+        list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+        walk_error := filepath.walk("./data/models", file_proc, &list_items)
+        if walk_error != nil {
+            log.errorf("Error walking models dir: %v", walk_error)
+        }
+        // Show listbox
+        current_item : c.int = 0
+        if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items))) {
+            log.info("So true!")
+        }
+        context.allocator = old_alloc
+        imgui.Separator()
+        
         for &mesh, i in game_state.animated_meshes {
             fmt.sbprintf(&builder, "%v", mesh.model.name)
             imgui.Text(strings.to_cstring(&builder))
@@ -180,7 +210,7 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer) {
             if disable_button do imgui.EndDisabled()
         }
     }
-    imgui.End()
+    if gui.show_gui do imgui.End()
 }
 
 
@@ -424,13 +454,11 @@ main :: proc() {
     }
 
     // Load test glTF model
-    spyro_mesh: StaticModelData
     moon_mesh: StaticModelData
     {
-        path : cstring = "data/models/spyro2.glb"
+        //path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
-        spyro_mesh = load_gltf_static_model(&vgd, &renderer, path)
-        path = "data/models/majoras_moon.glb"
+        path : cstring = "data/models/majoras_moon.glb"
         moon_mesh = load_gltf_static_model(&vgd, &renderer, path)
     }
     
@@ -450,33 +478,33 @@ main :: proc() {
     }
 
     // Load animated test glTF model
-    {
-        //path : cstring = "data/models/RiggedSimple.glb"
-        path : cstring = "data/models/CesiumMan.glb"
-        //path : cstring = "data/models/DreadSamus.glb"
-        test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
-        append(&game_state.animated_meshes, AnimatedMesh {
-            model = test_skinned_model,
-            position = {50.2138786, 65.6309738, -2.65704226},
-            rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
-            scale = 1.0,
-            anim_idx = 0,
-            anim_t = 0.0
-        })
-    }
+    // {
+    //     //path : cstring = "data/models/RiggedSimple.glb"
+    //     path : cstring = "data/models/CesiumMan.glb"
+    //     //path : cstring = "data/models/DreadSamus.glb"
+    //     test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
+    //     append(&game_state.animated_meshes, AnimatedMesh {
+    //         model = test_skinned_model,
+    //         position = {50.2138786, 65.6309738, -2.65704226},
+    //         rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
+    //         scale = 1.0,
+    //         anim_idx = 0,
+    //         anim_t = 0.0
+    //     })
+    // }
 
-    game_state.character = Character {
-        collision = {
-            position = CHARACTER_START_POS,
-            radius = 0.8
-        },
-        velocity = {},
-        state = .Falling,
-        facing = {0.0, 1.0, 0.0},
-        move_speed = 10.0,
-        jump_speed = 15.0,
-        mesh_data = moon_mesh
-    }
+    // game_state.character = Character {
+    //     collision = {
+    //         position = CHARACTER_START_POS,
+    //         radius = 0.8
+    //     },
+    //     velocity = {},
+    //     state = .Falling,
+    //     facing = {0.0, 1.0, 0.0},
+    //     move_speed = 10.0,
+    //     jump_speed = 15.0,
+    //     mesh_data = moon_mesh
+    // }
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -594,7 +622,7 @@ main :: proc() {
 
         new_frame(&renderer)
 
-        scene_editor(&game_state, &renderer)
+        scene_editor(&game_state, &renderer, &imgui_state)
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -819,40 +847,6 @@ main :: proc() {
         // Handle current editor state
         switch obj in game_state.editor_response {
             case EditorResponse: {
-                // Add new thing window
-                #partial switch obj.type {
-                    case .AddAnimatedScenery: {
-                        // @TODO: Is this a bug in the filepath package?
-                        // The File_Info structs are supposed to be allocated
-                        // with context.temp_allocator, but it appears that it
-                        // actually uses context.allocator
-                        old_alloc := context.allocator
-                        context.allocator = context.temp_allocator
-
-                        if imgui.Begin("Add animated scenery") {
-                            file_proc :: proc(
-                                info: os.File_Info,
-                                in_err: os.Error,
-                                user_data: rawptr
-                            ) -> (err: os.Error, skip_dir: bool) {
-                                imgui.Text(strings.clone_to_cstring(info.name, context.temp_allocator))
-
-                                err = nil
-                                skip_dir = false
-                                return
-                            }
-                            walk_error := filepath.walk("./data/models", file_proc, nil)
-                            if walk_error != nil {
-                                log.errorf("Error walking models dir: %v", walk_error)
-                            }
-                        }
-                        imgui.End()
-
-                        context.allocator = old_alloc
-                    }
-                    case: {}
-                }
-
                 if !io.WantCaptureMouse {
                     viewport_coords := hlsl.uint2 {
                         u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
@@ -1020,6 +1014,8 @@ main :: proc() {
     }
 
     log.info("Returning from main()")
+
+    vkw.device_wait_idle(&vgd)
 
     free_all(scene_allocator)
 }
