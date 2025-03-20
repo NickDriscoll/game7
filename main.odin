@@ -50,7 +50,7 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     model_matrix: hlsl.float4x4,
-    mesh_data: StaticModelData,
+    mesh_data: ^StaticModelData,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -77,11 +77,11 @@ Character :: struct {
     jump_speed: f32,
     remaining_jumps: u32,
     control_flags: CharacterFlags,
-    mesh_data: StaticModelData,
+    mesh_data: ^StaticModelData,
 }
 
 AnimatedMesh :: struct {
-    model: SkinnedModelData,
+    model: ^SkinnedModelData,
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
@@ -126,13 +126,20 @@ EditorResponse :: struct {
     index: u32
 }
 
-scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer, gui: ^ImguiState) {
+scene_editor :: proc(
+    game_state: ^GameState,
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    gui: ^ImguiState,
+    user_config: ^UserConfiguration
+) {
     io := imgui.GetIO()
 
     builder: strings.Builder
     strings.builder_init(&builder, context.temp_allocator)
 
-    if gui.show_gui && imgui.Begin("Scene editor") {
+    show_editor := gui.show_gui && user_config.flags["scene_editor"]
+    if show_editor && imgui.Begin("Scene editor", &user_config.flags["scene_editor"]) {
         // Animated meshes
         imgui.Text("Animated scenery")
         // @TODO: Is this a bug in the filepath package?
@@ -165,7 +172,17 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer, gui: ^ImguiSta
         // Show listbox
         current_item : c.int = 0
         if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items))) {
-            log.info("So true!")
+            // Insert selected item into animated scenery list
+            log.infof("You clicked item #%v", current_item)
+            fmt.sbprintf(&builder, "data/models/%v", list_items[current_item])
+            path_cstring, _ := strings.to_cstring(&builder)
+            model := load_gltf_skinned_model(gd, renderer, path_cstring)
+            append(&game_state.animated_meshes, AnimatedMesh {
+                model = model,
+                scale = 1.0
+            })
+
+            strings.builder_reset(&builder)
         }
         context.allocator = old_alloc
         imgui.Separator()
@@ -210,7 +227,7 @@ scene_editor :: proc(game_state: ^GameState, renderer: ^Renderer, gui: ^ImguiSta
             if disable_button do imgui.EndDisabled()
         }
     }
-    if gui.show_gui do imgui.End()
+    if show_editor do imgui.End()
 }
 
 
@@ -270,7 +287,7 @@ main :: proc() {
 
     // Set up logger
     context.logger = log.create_console_logger(log_level)
-    defer log.destroy_console_logger(context.logger)
+    when ODIN_DEBUG do defer log.destroy_console_logger(context.logger)
     log.info("Initiating swag mode...")
 
     // Set up per-scene allocator
@@ -311,6 +328,7 @@ main :: proc() {
             mem.tracking_allocator_destroy(&scene_track)
         }
     }
+    defer free_all(scene_allocator)
 
     // Set up per-frame temp allocator
     temp_backing_memory: []byte
@@ -336,7 +354,7 @@ main :: proc() {
 
     // Initialize SDL2
     sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
-    defer sdl2.Quit()
+    when ODIN_DEBUG do defer sdl2.Quit()
     log.info("Initialized SDL2")
     
     // Use SDL2 to dynamically link against the Vulkan loader
@@ -355,7 +373,7 @@ main :: proc() {
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
     vgd := vkw.init_vulkan(&init_params)
-    defer vkw.quit_vulkan(&vgd)
+    when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
     
     // Make window 
     desktop_display_mode: sdl2.DisplayMode
@@ -404,7 +422,7 @@ main :: proc() {
         i32(resolution.y),
         sdl_windowflags
     )
-    defer sdl2.DestroyWindow(sdl_window)
+    when ODIN_DEBUG do defer sdl2.DestroyWindow(sdl_window)
     sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
 
     // Initialize the state required for rendering to the window
@@ -413,17 +431,17 @@ main :: proc() {
         return
     }
 
-    // Now we're loading per-scene data, so switch context.allocator
+    // Now that we're done with global allocations, switch context.allocator to scene_allocator
     context.allocator = scene_allocator
 
     // Initialize the renderer
     renderer := init_renderer(&vgd, resolution)
-    defer delete_renderer(&vgd, &renderer)
+    when ODIN_DEBUG do defer delete_renderer(&vgd, &renderer)
     renderer.main_framebuffer.clear_color = {0.1568627, 0.443137, 0.9176471, 1.0}
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
-    defer imgui_cleanup(&vgd, &imgui_state)
+    when ODIN_DEBUG do defer imgui_cleanup(&vgd, &imgui_state)
     ini_savename_buffer: [2048]u8
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
@@ -454,7 +472,7 @@ main :: proc() {
     }
 
     // Load test glTF model
-    moon_mesh: StaticModelData
+    moon_mesh: ^StaticModelData
     {
         //path : cstring = "data/models/spyro2.glb"
         //path : cstring = "data/models/klonoa2.glb"
@@ -478,33 +496,33 @@ main :: proc() {
     }
 
     // Load animated test glTF model
-    // {
-    //     //path : cstring = "data/models/RiggedSimple.glb"
-    //     path : cstring = "data/models/CesiumMan.glb"
-    //     //path : cstring = "data/models/DreadSamus.glb"
-    //     test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
-    //     append(&game_state.animated_meshes, AnimatedMesh {
-    //         model = test_skinned_model,
-    //         position = {50.2138786, 65.6309738, -2.65704226},
-    //         rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
-    //         scale = 1.0,
-    //         anim_idx = 0,
-    //         anim_t = 0.0
-    //     })
-    // }
+    {
+        //path : cstring = "data/models/RiggedSimple.glb"
+        path : cstring = "data/models/CesiumMan.glb"
+        //path : cstring = "data/models/DreadSamus.glb"
+        test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
+        append(&game_state.animated_meshes, AnimatedMesh {
+            model = test_skinned_model,
+            position = {50.2138786, 65.6309738, -2.65704226},
+            rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
+            scale = 1.0,
+            anim_idx = 0,
+            anim_t = 0.0
+        })
+    }
 
-    // game_state.character = Character {
-    //     collision = {
-    //         position = CHARACTER_START_POS,
-    //         radius = 0.8
-    //     },
-    //     velocity = {},
-    //     state = .Falling,
-    //     facing = {0.0, 1.0, 0.0},
-    //     move_speed = 10.0,
-    //     jump_speed = 15.0,
-    //     mesh_data = moon_mesh
-    // }
+    game_state.character = Character {
+        collision = {
+            position = CHARACTER_START_POS,
+            radius = 0.8
+        },
+        velocity = {},
+        state = .Falling,
+        facing = {0.0, 1.0, 0.0},
+        move_speed = 10.0,
+        jump_speed = 15.0,
+        mesh_data = moon_mesh
+    }
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -622,7 +640,7 @@ main :: proc() {
 
         new_frame(&renderer)
 
-        scene_editor(&game_state, &renderer, &imgui_state)
+        scene_editor(&game_state, &vgd, &renderer, &imgui_state, &user_config)
         
         output_verbs := poll_sdl2_events(&input_system)
 
@@ -913,7 +931,7 @@ main :: proc() {
                 anim_idx = mesh.anim_idx,
                 anim_t = mesh.anim_t
             }
-            draw_ps1_skinned_mesh(&vgd, &renderer, &mesh.model, &dd)
+            draw_ps1_skinned_mesh(&vgd, &renderer, mesh.model, &dd)
         }
 
         // Draw terrain pieces
@@ -921,7 +939,7 @@ main :: proc() {
             tform := StaticDraw {
                 world_from_model = piece.model_matrix
             }
-            draw_ps1_static_mesh(&vgd, &renderer, &piece.mesh_data, &tform)
+            draw_ps1_static_mesh(&vgd, &renderer, piece.mesh_data, &tform)
         }
 
         // Window update
@@ -1016,6 +1034,4 @@ main :: proc() {
     log.info("Returning from main()")
 
     vkw.device_wait_idle(&vgd)
-
-    free_all(scene_allocator)
 }

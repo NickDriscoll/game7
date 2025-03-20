@@ -1,5 +1,6 @@
 package main
 
+import "core:path/filepath"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -222,6 +223,7 @@ Renderer :: struct {
     // Maps of string filenames to ModelData types
     loaded_static_models: map[string]StaticModelData,
     loaded_skinned_models: map[string]SkinnedModelData,
+    _glb_name_interner: strings.Intern,                     // String interner for registering .glb filenames
 
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
@@ -255,6 +257,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
     renderer.loaded_static_models = make(map[string]StaticModelData)
     renderer.loaded_skinned_models = make(map[string]SkinnedModelData)
+    strings.intern_init(&renderer._glb_name_interner)
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
@@ -564,14 +567,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 }
 
 delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
-    vkw.delete_buffer(gd, positions_buffer)
-    vkw.delete_buffer(gd, index_buffer)
-    vkw.delete_buffer(gd, uvs_buffer)
-    vkw.delete_buffer(gd, colors_buffer)
-    vkw.delete_buffer(gd, static_mesh_buffer)
-    vkw.delete_buffer(gd, material_buffer)
-    vkw.delete_buffer(gd, instance_buffer)
-    vkw.delete_buffer(gd, uniform_buffer)
+    
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
@@ -869,6 +865,7 @@ draw_ps1_skinned_mesh :: proc(
     data: ^SkinnedModelData,
     draw_data: ^SkinnedDraw,
 ) {
+    draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -929,10 +926,10 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     instance_joints_so_far : u32 = 0
     skinned_verts_so_far : u32 = 0
     for skinned_instance in renderer.cpu_skinned_instances {
+        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
         anim := renderer.animations[skinned_instance.animation_idx]
         anim_t := skinned_instance.animation_time
 
-        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
         
         // Get interpolated keyframe state for translation, rotation, and scale
         {
@@ -954,7 +951,7 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                 for channel in anim.channels {
                     keyframe_count := len(channel.keyframes)
                     assert(keyframe_count > 0)
-                    tr := &instance_joints[channel.local_joint_id]
+                    joint_transform := &instance_joints[channel.local_joint_id]
 
                     // Check if anim_t is before first keyframe or after last
                     if anim_t <= channel.keyframes[0].time {
@@ -963,17 +960,17 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                         switch channel.aspect {
                             case .Translation: {
                                 transform := translation_matrix(now.value.xyz)
-                                tr^ = transform * tr^       // Transform is premultiplied
+                                joint_transform^ = transform * joint_transform^       // Transform is premultiplied
                             }
                             case .Rotation: {
                                 now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
                                 transform := linalg.to_matrix4(now_quat)
 
-                                tr^ *= transform            // Rotation is postmultiplied
+                                joint_transform^ *= transform            // Rotation is postmultiplied
                             }
                             case .Scale: {
                                 transform := scaling_matrix(now.value.xyz)
-                                tr^ *= transform            // Scale is postmultiplied
+                                joint_transform^ *= transform            // Scale is postmultiplied
                             }
                         }
                         continue
@@ -983,17 +980,17 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                         switch channel.aspect {
                             case .Translation: {
                                 transform := translation_matrix(next.value.xyz)
-                                tr^ = transform * tr^       // Transform is premultiplied
+                                joint_transform^ = transform * joint_transform^       // Transform is premultiplied
                             }
                             case .Rotation: {
                                 next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
                                 transform := linalg.to_matrix4(next_quat)
 
-                                tr^ *= transform            // Rotation is postmultiplied
+                                joint_transform^ *= transform            // Rotation is postmultiplied
                             }
                             case .Scale: {
                                 transform := scaling_matrix(next.value.xyz)
-                                tr^ *= transform            // Scale is postmultiplied
+                                joint_transform^ *= transform            // Scale is postmultiplied
                             }
                         }
                         continue
@@ -1017,7 +1014,7 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                                 case .Translation: {
                                     displacement := linalg.lerp(now.value, next.value, interpolation_amount)
                                     transform := translation_matrix(displacement.xyz)
-                                    tr^ = transform * tr^       // Transform is premultiplied
+                                    joint_transform^ = transform * joint_transform^       // Transform is premultiplied
                                 }
                                 case .Rotation: {
                                     now_quat := quaternion(x = now.value[0], y = now.value[1], z = now.value[2], w = now.value[3])
@@ -1025,12 +1022,12 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                                     rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
                                     transform := linalg.to_matrix4(rotation_quat)
     
-                                    tr^ *= transform            // Rotation is postmultiplied
+                                    joint_transform^ *= transform            // Rotation is postmultiplied
                                 }
                                 case .Scale: {
                                     scale := linalg.lerp(now.value, next.value, interpolation_amount)
                                     transform := scaling_matrix(scale.xyz)
-                                    tr^ *= transform            // Scale is postmultiplied
+                                    joint_transform^ *= transform            // Scale is postmultiplied
                                 }
                             }
                             break
@@ -1449,7 +1446,20 @@ load_gltf_static_model :: proc(
     render_data: ^Renderer,
     path: cstring,
     allocator := context.allocator
-) -> StaticModelData {
+) -> ^StaticModelData {
+    spath := string(path)
+    glb_filename := filepath.base(spath)
+    
+    interned_filename, intern_err := strings.intern_get(&render_data._glb_name_interner, glb_filename)
+    if intern_err != nil {
+        log.errorf("Error interning glb filename: %v", interned_filename)
+    }
+
+    if interned_filename in render_data.loaded_static_models {
+        // Early out if this glb is already loaded
+        return &render_data.loaded_static_models[interned_filename]
+    }
+
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -1485,7 +1495,7 @@ load_gltf_static_model :: proc(
                 case .texcoord: uv_data = load_gltf_float2(&attrib)
             }
         }
-    
+
         // Now that we have the mesh data in CPU-side buffers,
         // it's time to upload them
         mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
@@ -1524,10 +1534,12 @@ load_gltf_static_model :: proc(
         }
     }
 
-    return StaticModelData {
+    render_data.loaded_static_models[interned_filename] = StaticModelData {
         primitives = draw_primitives,
         name = string(mesh.name)
     }
+
+    return &render_data.loaded_static_models[interned_filename]
 }
 
 SkinnedDrawPrimitive :: struct {
@@ -1547,7 +1559,20 @@ load_gltf_skinned_model :: proc(
     render_data: ^Renderer,
     path: cstring,
     allocator := context.allocator
-) -> SkinnedModelData {
+) -> ^SkinnedModelData {
+    spath := string(path)
+    glb_filename := filepath.base(spath)
+    
+    interned_filename, intern_err := strings.intern_get(&render_data._glb_name_interner, glb_filename)
+    if intern_err != nil {
+        log.errorf("Error interning glb filename: %v", interned_filename)
+    }
+
+    if interned_filename in render_data.loaded_skinned_models {
+        // Early out if this glb is already loaded
+        return &render_data.loaded_skinned_models[interned_filename]
+    }
+
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
@@ -1733,10 +1758,12 @@ load_gltf_skinned_model :: proc(
         }
     }
 
-    return SkinnedModelData {
+    render_data.loaded_skinned_models[interned_filename] = SkinnedModelData {
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
         name = strings.clone(string(mesh.name), context.allocator)
     }
+
+    return &render_data.loaded_skinned_models[interned_filename]
 }
