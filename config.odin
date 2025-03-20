@@ -87,6 +87,7 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "borderless_fullscreen = false\n")
     os.write_string(out_file, "always_on_top = false\n")
     os.write_string(out_file, "show_imgui_demo = false\n")
+    os.write_string(out_file, "scene_editor = false\n")
 
     os.write_string(out_file, "freecam_x = 0.0\n")
     os.write_string(out_file, "freecam_y = -5.0\n")
