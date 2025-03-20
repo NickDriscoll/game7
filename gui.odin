@@ -416,9 +416,6 @@ render_imgui :: proc(
 
 imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
     imgui.DestroyContext(ctxt)
-    vkw.delete_buffer(vgd, vertex_buffer)
-    vkw.delete_buffer(vgd, index_buffer)
-    vkw.delete_buffer(vgd, uniform_buffer)
 }
 
 // Utility funcs
