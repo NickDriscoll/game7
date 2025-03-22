@@ -294,7 +294,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             name = "Global index buffer",
         }
         renderer.index_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.index_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.index_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create device-local storage buffers
@@ -308,47 +308,47 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.name = "Global vertex positions buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global vertex UVs buffer"
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
         renderer.uvs_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.uvs_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.uvs_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global vertex colors buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.colors_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.colors_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint ids buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.joint_ids_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.joint_ids_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.joint_ids_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint weights buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.joint_weights_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global static mesh data buffer"
         info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES
         renderer.static_mesh_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint matrices buffer"
         info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
         renderer.joint_matrices_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global material buffer"
         info.size = size_of(Material) * MAX_GLOBAL_MATERIALS
         renderer.material_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.material_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
         info.size = size_of(GPUStaticInstance) * MAX_GLOBAL_INSTANCES
         renderer.instance_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create indirect draw buffer
@@ -361,7 +361,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             name = "Indirect draw buffer"
         }
         renderer.draw_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.draw_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create uniform buffer
@@ -374,7 +374,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             name = "Global uniforms buffer"
         }
         renderer.uniform_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of memory for render_state.uniform", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.uniform", f32(info.size) / 1024 / 1024)
     }
 
     // Initialize the buffer pointers in the uniforms struct
@@ -1370,18 +1370,6 @@ StaticModelData :: struct {
     name: string,
 }
 
-get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-    base_ptr := buffer_view.buffer.data
-    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
-    return cast([^]T)offset_ptr
-}
-
-get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
-    base_ptr := buffer.data
-    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
-    return cast([^]T)offset_ptr
-}
-
 gltf_static_delete :: proc(using d: ^StaticModelData)  {
     delete(primitives)
 }
@@ -1475,68 +1463,74 @@ load_gltf_static_model :: proc(
     loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
     // @TODO: Don't just load the first mesh you see
-    mesh := gltf_data.meshes[0]
+    //mesh := gltf_data.meshes[0]
 
-    draw_primitives := make([dynamic]StaticDrawPrimitive, len(mesh.primitives), allocator)
+    primitive_count := 0
+    for mesh in gltf_data.meshes {
+        primitive_count += len(mesh.primitives)
+    }
+    draw_primitives := make([dynamic]StaticDrawPrimitive, 0, primitive_count, allocator)
 
-    for &primitive, i in mesh.primitives {
-        // Get indices
-        index_data := load_gltf_indices_u16(&primitive)
-    
-        // Get vertex data
-        position_data: [dynamic]hlsl.float4
-        color_data: [dynamic]hlsl.float4
-        uv_data: [dynamic]hlsl.float2
-
-        for &attrib in primitive.attributes {
-            #partial switch (attrib.type) {
-                case .position: position_data = load_gltf_float3_to_float4(&attrib)
-                case .color: color_data = load_gltf_float3_to_float4(&attrib)
-                case .texcoord: uv_data = load_gltf_float2(&attrib)
-            }
-        }
-
-        // Now that we have the mesh data in CPU-side buffers,
-        // it's time to upload them
-        mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
-        if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-        if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
-
-
-        // Now get material data
-        loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
-        defer delete(loaded_glb_materials)
-        glb_material := primitive.material
-        has_material := glb_material != nil
-
-        bindless_image_idx := vkw.Image_Handle {
-            index = NULL_OFFSET
-        }
-        if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
-            tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
-            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
-            log.debugf("Texture index is %v", color_tex_idx)
-            bindless_image_idx = loaded_glb_images[color_tex_idx]
-        }
+    for mesh in gltf_data.meshes {
+        for &primitive, i in mesh.primitives {
+            // Get indices
+            index_data := load_gltf_indices_u16(&primitive)
         
-        base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
-        if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
-        material := Material {
-            color_texture = bindless_image_idx.index,
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
-            base_color = base_color
-        }
-        material_handle := add_material(render_data, &material)
-
-        draw_primitives[i] = StaticDrawPrimitive {
-            mesh = mesh_handle,
-            material = material_handle
+            // Get vertex data
+            position_data: [dynamic]hlsl.float4
+            color_data: [dynamic]hlsl.float4
+            uv_data: [dynamic]hlsl.float2
+    
+            for &attrib in primitive.attributes {
+                #partial switch (attrib.type) {
+                    case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                    case .color: color_data = load_gltf_float3_to_float4(&attrib)
+                    case .texcoord: uv_data = load_gltf_float2(&attrib)
+                }
+            }
+    
+            // Now that we have the mesh data in CPU-side buffers,
+            // it's time to upload them
+            mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
+            if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+            if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+    
+    
+            // Now get material data
+            loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
+            defer delete(loaded_glb_materials)
+            glb_material := primitive.material
+            has_material := glb_material != nil
+    
+            bindless_image_idx := vkw.Image_Handle {
+                index = NULL_OFFSET
+            }
+            if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+                tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
+                color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
+                log.debugf("Texture index is %v", color_tex_idx)
+                bindless_image_idx = loaded_glb_images[color_tex_idx]
+            }
+            
+            base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
+            if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            material := Material {
+                color_texture = bindless_image_idx.index,
+                sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
+                base_color = base_color
+            }
+            material_handle := add_material(render_data, &material)
+    
+            append(&draw_primitives, StaticDrawPrimitive {
+                mesh = mesh_handle,
+                material = material_handle
+            })
         }
     }
 
     render_data.loaded_static_models[interned_filename] = StaticModelData {
         primitives = draw_primitives,
-        name = string(mesh.name)
+        name = interned_filename
     }
 
     return &render_data.loaded_static_models[interned_filename]
@@ -1762,7 +1756,7 @@ load_gltf_skinned_model :: proc(
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
-        name = strings.clone(string(mesh.name), context.allocator)
+        name = interned_filename
     }
 
     return &render_data.loaded_skinned_models[interned_filename]
