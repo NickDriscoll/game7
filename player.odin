@@ -184,11 +184,13 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
         x[2], y[2], z[2], 0.0,
         0.0, 0.0, 0.0, 1.0,
     }
-    ddata := StaticDraw {
-        world_from_model = rotate_mat
+    ddata := SkinnedDraw {
+        world_from_model = rotate_mat,
+        anim_idx = 0,
+        anim_t = 0.0
     }
     ddata.world_from_model[3][0] = game_state.character.collision.position.x
     ddata.world_from_model[3][1] = game_state.character.collision.position.y
     ddata.world_from_model[3][2] = game_state.character.collision.position.z
-    draw_ps1_static_mesh(gd, render_data, game_state.character.mesh_data, &ddata)
+    draw_ps1_skinned_mesh(gd, render_data, game_state.character.mesh_data, &ddata)
 }
