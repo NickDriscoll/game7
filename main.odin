@@ -57,7 +57,7 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
     delete_static_triangles(&collision)
 }
 
-CHARACTER_START_POS : hlsl.float3 : {-19.0, 45.0, 10.0}
+CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
 CharacterState :: enum {
     Grounded,
     Falling
@@ -99,7 +99,8 @@ GameState :: struct {
 
     // Editor state
     editor_response: Maybe(EditorResponse),
-    
+
+    character_start: hlsl.float3,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -454,8 +455,9 @@ main :: proc() {
     game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
     game_state.timescale = 1.0
 
-    main_scene_path : cstring = "data/models/artisans.glb"
     //main_scene_path : cstring = "data/models/plane.glb"
+    //main_scene_path : cstring = "data/models/artisans.glb"
+    main_scene_path : cstring = "data/models/game7_testmap00.glb"
 
     main_scene_mesh := load_gltf_static_model(&vgd, &renderer, main_scene_path)
 
@@ -511,6 +513,7 @@ main :: proc() {
         })
     }
 
+    game_state.character_start = CHARACTER_START_POS
     game_state.character = Character {
         collision = {
             position = CHARACTER_START_POS,
