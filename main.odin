@@ -77,7 +77,7 @@ Character :: struct {
     jump_speed: f32,
     remaining_jumps: u32,
     control_flags: CharacterFlags,
-    mesh_data: ^StaticModelData,
+    mesh_data: ^SkinnedModelData,
 }
 
 AnimatedMesh :: struct {
@@ -498,19 +498,31 @@ main :: proc() {
     }
 
     // Load animated test glTF model
+    skinned_model: ^SkinnedModelData
     {
         //path : cstring = "data/models/RiggedSimple.glb"
         path : cstring = "data/models/CesiumMan.glb"
         //path : cstring = "data/models/DreadSamus.glb"
-        test_skinned_model := load_gltf_skinned_model(&vgd, &renderer, path)
+        skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
         append(&game_state.animated_meshes, AnimatedMesh {
-            model = test_skinned_model,
+            model = skinned_model,
             position = {50.2138786, 65.6309738, -2.65704226},
             rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
             scale = 1.0,
             anim_idx = 0,
             anim_t = 0.0
         })
+
+        // path = "data/models/RiggedSimple.glb"
+        // sk := load_gltf_skinned_model(&vgd, &renderer, path)
+        // append(&game_state.animated_meshes, AnimatedMesh {
+        //     model = sk,
+        //     position = {-10.2138786, 16.6309738, -2.65704226},
+        //     rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
+        //     scale = 1.0,
+        //     anim_idx = 0,
+        //     anim_t = 0.0
+        // })
     }
 
     game_state.character_start = CHARACTER_START_POS
@@ -524,7 +536,7 @@ main :: proc() {
         facing = {0.0, 1.0, 0.0},
         move_speed = 10.0,
         jump_speed = 15.0,
-        mesh_data = moon_mesh
+        mesh_data = skinned_model
     }
 
     // Initialize main viewport camera
