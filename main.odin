@@ -77,7 +77,7 @@ Character :: struct {
     jump_speed: f32,
     remaining_jumps: u32,
     control_flags: CharacterFlags,
-    mesh_data: ^SkinnedModelData,
+    mesh_data: ^StaticModelData,
 }
 
 AnimatedMesh :: struct {
@@ -536,7 +536,7 @@ main :: proc() {
         facing = {0.0, 1.0, 0.0},
         move_speed = 10.0,
         jump_speed = 15.0,
-        mesh_data = skinned_model
+        mesh_data = moon_mesh
     }
 
     // Initialize main viewport camera
@@ -1004,8 +1004,6 @@ main :: proc() {
 
                 vgd.resize_window = false
             }
-
-            process_animations(&vgd, &renderer)
     
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, renderer.gfx_timeline)
             

@@ -59,7 +59,7 @@ PostFxPushConstants :: struct {
     uniforms_address: vk.DeviceAddress,
 }
 
-CPUStaticMeshData :: struct {
+CPUStaticMesh :: struct {
     indices_start: u32,
     indices_len: u32,
 }
@@ -115,6 +115,7 @@ StaticDraw :: struct {
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
+    gpu_mesh_idx: u32,
     material_handle: Material_Handle,
 }
 
@@ -141,18 +142,15 @@ CPUSkinnedInstance :: struct {
     animation_idx: u32,
 }
 
-GPUSkinnedMesh :: struct {
-    joint_ids_offset: u32,
-    joint_weights_offset: u32,
-    in_positions_offset: u32,
-    out_positions_offset: u32,
-}
-
 CPUSkinnedMesh :: struct {
     vertices_len: u32,
     joint_count: u32,
     first_joint: u32,
-    gpu_data: GPUSkinnedMesh,
+    joint_ids_offset: u32,
+    joint_weights_offset: u32,
+    in_positions_offset: u32,
+    uv_offset: u32,
+    color_offset: u32,
     static_mesh_handle: Static_Mesh_Handle,
 }
 
@@ -186,7 +184,7 @@ Renderer :: struct {
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
     static_mesh_buffer: vkw.Buffer_Handle,
-    cpu_static_meshes: hm.Handle_Map(CPUStaticMeshData),
+    cpu_static_meshes: hm.Handle_Map(CPUStaticMesh),
     gpu_static_meshes: [dynamic]GPUStaticMesh,
 
     // Separate global mesh buffer for skinned meshes
@@ -672,7 +670,7 @@ create_static_mesh :: proc(
         vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
     }
 
-    mesh := CPUStaticMeshData {
+    mesh := CPUStaticMesh {
         indices_start = indices_start,
         indices_len = indices_len,
     }
@@ -745,36 +743,28 @@ create_skinned_mesh :: proc(
         vkw.sync_write_buffer(gd, renderer.joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
-    // Create equivalent static mesh for this skinned mesh
-    new_cpu_static_mesh := CPUStaticMeshData {
+    // Create static mesh for this skinned mesh
+    new_cpu_static_mesh := CPUStaticMesh {
         indices_start = indices_start,
         indices_len = indices_len,
     }
     static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
-    gpu_static_mesh := GPUStaticMesh {
-        position_offset = renderer.positions_head,
-        uv_offset = NULL_OFFSET,
-        color_offset = NULL_OFFSET
-    }
-    append(&renderer.gpu_static_meshes, gpu_static_mesh)
 
-    assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
-    gpu_mesh := GPUSkinnedMesh {
-        joint_ids_offset = joint_ids_start,
-        joint_weights_offset = joint_weights_start,
-        in_positions_offset = position_start,
-        out_positions_offset = renderer.positions_head,
-    }
-    renderer.positions_head += positions_len
+    //assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
         joint_count = joint_count,
         first_joint = first_joint,
-        gpu_data = gpu_mesh,
+        joint_ids_offset = joint_ids_start,
+        joint_weights_offset = joint_weights_start,
+        in_positions_offset = position_start,
+        uv_offset = NULL_OFFSET,
+        color_offset = NULL_OFFSET,
         static_mesh_handle = static_handle
     }
     handle := Skinned_Mesh_Handle(hm.insert(&renderer.cpu_skinned_meshes, mesh))
+    renderer.positions_head += positions_len
 
     renderer.dirty_flags += {.Mesh}
 
@@ -798,9 +788,8 @@ add_vertex_colors :: proc(
         gpu_mesh := &gpu_static_meshes[handle.index]
         gpu_mesh.color_offset = color_start
     } else when HandleType == Skinned_Mesh_Handle {
-        assert(false)
-        // gpu_mesh := &gpu_skinned_meshes[handle.index]
-        // gpu_mesh.static_data.color_offset = color_start
+        mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh.color_offset = color_start
     } else {
         panic("Invalid arg type")
     }
@@ -826,8 +815,7 @@ add_vertex_uvs :: proc(
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
         mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
-        gpu_mesh := &gpu_static_meshes[mesh.static_mesh_handle.index]
-        gpu_mesh.uv_offset = uv_start
+        mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
     }
@@ -885,6 +873,7 @@ draw_ps1_static_primitive :: proc(
     new_inst := CPUStaticInstance {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
+        gpu_mesh_idx = mesh_handle.index,
         material_handle = material_handle
     }
     append(&cpu_static_instances, new_inst)
@@ -921,16 +910,17 @@ ComputeSkinningPushConstants :: struct {
     joint_transforms: vk.DeviceAddress,
     max_vtx_id: u32,
 }
-process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
     instance_joints_so_far : u32 = 0
     skinned_verts_so_far : u32 = 0
+    vtx_positions_out_offset := renderer.positions_head
     for skinned_instance in renderer.cpu_skinned_instances {
+        renderer.dirty_flags += {.Mesh}
         mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
         anim := renderer.animations[skinned_instance.animation_idx]
         anim_t := skinned_instance.animation_time
 
-        
         // Get interpolated keyframe state for translation, rotation, and scale
         {
             // Initialize joint matrices with identity matrix
@@ -1054,13 +1044,13 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
 
             // Insert another compute shader dispatch
-            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.in_positions_offset)
+            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.in_positions_offset)
 
             // @TODO: use a different buffer for vertex stream-out
-            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.out_positions_offset)
-            
-            joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.gpu_data.joint_ids_offset)
-            joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.gpu_data.joint_weights_offset)
+            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * vtx_positions_out_offset)
+
+            joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
+            joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
             joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
             pcs := ComputeSkinningPushConstants {
                 in_positions = in_pos_ptr,
@@ -1072,18 +1062,29 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
             append(&push_constant_batches, pcs)
 
+            // Make this instance's static mesh data for this frame
+            gpu_static_mesh := GPUStaticMesh {
+                position_offset = vtx_positions_out_offset,
+                uv_offset = mesh.uv_offset,
+                color_offset = mesh.color_offset,
+            }
+            append(&renderer.gpu_static_meshes, gpu_static_mesh)
+
             // Also add CPUStaticInstance for the skinned output of the compute shader
             new_cpu_static_instance := CPUStaticInstance {
                 world_from_model = skinned_instance.world_from_model,
                 mesh_handle = mesh.static_mesh_handle,
+                gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
                 material_handle = skinned_instance.material_handle
             }
             append(&renderer.cpu_static_instances, new_cpu_static_instance)
 
             // Upload to GPU
+            // @TODO: Batch this up
             vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joints[:], instance_joints_so_far)
             instance_joints_so_far += mesh.joint_count
             skinned_verts_so_far += mesh.vertices_len
+            vtx_positions_out_offset += mesh.vertices_len
         }
     }
 
@@ -1125,7 +1126,6 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
     
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
-    
 }
 
 // This is called once per frame to sync buffers with the GPU
@@ -1133,121 +1133,100 @@ process_animations :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 render :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
+    // Do compute skinning work
+    compute_skinning(gd, renderer)
+
     // Sync CPU and GPU buffers
 
     // Mesh buffer
-    if .Mesh in dirty_flags {
-        vkw.sync_write_buffer(gd, static_mesh_buffer, gpu_static_meshes[:])
+    if .Mesh in renderer.dirty_flags {
+        vkw.sync_write_buffer(gd, renderer.static_mesh_buffer, renderer.gpu_static_meshes[:])
+
+        // Remove the meshes that came from skinned instances
+        for i in 0..<len(renderer.cpu_skinned_instances) {
+            pop(&renderer.gpu_static_meshes)
+        }
     }
 
     // Material buffer
-    if .Material in dirty_flags {
-        vkw.sync_write_buffer(gd, material_buffer, cpu_materials.values[:])
+    if .Material in renderer.dirty_flags {
+        vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
     }
 
     // Draw and Instance buffers
-    ps1_draw_count : u32 = 0
-    if .Draw in dirty_flags || .Instance in dirty_flags {
-        gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(cpu_static_instances), context.temp_allocator)
+    gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(renderer.cpu_static_instances), context.temp_allocator)
+    if .Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags {
         
         // Sort instances by mesh handle
-        slice.sort_by(cpu_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {
+        slice.sort_by(renderer.cpu_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {
             return i.mesh_handle.index < j.mesh_handle.index
         })
 
         // With the understanding that these instances are already sorted by
         // mesh_idx, construct the draw stream with appropriate instancing
-        current_inst_count := 0
-        inst_offset := 0
-        current_mesh_handle: Static_Mesh_Handle
-        for inst in cpu_static_instances {
-            g_inst := GPUStaticInstance {
-                world_from_model = inst.world_from_model,
-                normal_matrix = hlsl.cofactor(inst.world_from_model),
-                mesh_idx = inst.mesh_handle.index,
-                material_idx = inst.material_handle.index
-            }
-            append(&gpu_static_instances, g_inst)
-
-            if current_inst_count == 0 {
-                // First iteration case
-
-                current_mesh_handle = inst.mesh_handle
-                current_inst_count += 1
-            } else {
-                if current_mesh_handle != inst.mesh_handle {
-                    // First instance of next mesh handle case
-
-                    mesh_data, ok := hm.get(&cpu_static_meshes, hm.Handle(current_mesh_handle))
-                    if !ok {
-                        log.error("Couldn't get CPU mesh during draw command building")
-                    }
-
-                    draw_call := vk.DrawIndexedIndirectCommand {
-                        indexCount = mesh_data.indices_len,
-                        instanceCount = u32(current_inst_count),
-                        firstIndex = mesh_data.indices_start,
-                        vertexOffset = 0,
-                        firstInstance = u32(inst_offset)
-                    }
-                    append(&gpu_draws, draw_call)
-                    inst_offset += current_inst_count
-                    ps1_draw_count += 1
-
-                    current_inst_count = 1
-                    current_mesh_handle = inst.mesh_handle
-                } else {
-                    // Another instance of current mesh case
-                    current_inst_count += 1
+        if len(renderer.cpu_static_instances) > 0 {
+            current_instance := 0
+            for current_instance < len(renderer.cpu_static_instances) {
+                current_mesh_handle := renderer.cpu_static_instances[current_instance].mesh_handle
+                current_mesh, ok := hm.get(&renderer.cpu_static_meshes, current_mesh_handle)
+                if !ok {
+                    log.error("Unable to get current_mesh")
                 }
+                draw_call := vk.DrawIndexedIndirectCommand {
+                    indexCount = current_mesh.indices_len,
+                    instanceCount = 0,
+                    firstIndex = current_mesh.indices_start,
+                    vertexOffset = 0,
+                    firstInstance = u32(current_instance)
+                }
+                
+                inst := &renderer.cpu_static_instances[current_instance]
+                for inst.mesh_handle == current_mesh_handle {
+                    g_inst := GPUStaticInstance {
+                        world_from_model = inst.world_from_model,
+                        normal_matrix = hlsl.cofactor(inst.world_from_model),
+                        mesh_idx = inst.gpu_mesh_idx,
+                        material_idx = inst.material_handle.index
+                    }
+                    append(&renderer.gpu_static_instances, g_inst)
+                    draw_call.instanceCount += 1
+                    current_instance += 1
+                    if current_instance == len(renderer.cpu_static_instances) do break
+                    inst = &renderer.cpu_static_instances[current_instance]
+                }
+
+                append(&gpu_draws, draw_call)
             }
         }
 
-        // Final draw call
-        mesh_data, ok := hm.get(&cpu_static_meshes, hm.Handle(current_mesh_handle))
-        if !ok {
-            log.error("Couldn't get CPU mesh during draw command building")
-        }
-
-        draw_call := vk.DrawIndexedIndirectCommand {
-            indexCount = mesh_data.indices_len,
-            instanceCount = u32(current_inst_count),
-            firstIndex = mesh_data.indices_start,
-            vertexOffset = 0,
-            firstInstance = u32(inst_offset)
-        }
-        append(&gpu_draws, draw_call)
-        inst_offset += current_inst_count
-        ps1_draw_count += 1
-
-        vkw.sync_write_buffer(gd, instance_buffer, gpu_static_instances[:])
-        vkw.sync_write_buffer(gd, draw_buffer, gpu_draws[:])
+        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
+        vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:])
     }
 
     // Update uniforms buffer
     {
-        in_slice := slice.from_ptr(&cpu_uniforms, 1)
-        if !vkw.sync_write_buffer(gd, uniform_buffer, in_slice) {
+        in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
+        if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice) {
             log.error("Failed to write uniform buffer data")
         }
     }
 
     // Clear dirty flags after checking them
-    dirty_flags = {}
+    renderer.dirty_flags = {}
     
     // Bind global index buffer and descriptor set
-    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, index_buffer)
+    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
     // PS1 simple unlit pipeline
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, ps1_pipeline)
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
 
     // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
-    color_target, ok3 := vkw.get_image(gd, main_framebuffer.color_images[0])
+    color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
     vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
         vkw.Image_Barrier {
             src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -1270,14 +1249,14 @@ render :: proc(
     })
 
     // Begin renderpass into main internal rendertarget
-    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &main_framebuffer)
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
 
-    res := main_framebuffer.resolution
+    res := renderer.main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        x = viewport_dimensions[0],
-        y = viewport_dimensions[1],
-        width = viewport_dimensions[2],
-        height = viewport_dimensions[3],
+        x = renderer.viewport_dimensions[0],
+        y = renderer.viewport_dimensions[1],
+        width = renderer.viewport_dimensions[2],
+        height = renderer.viewport_dimensions[3],
         minDepth = 0.0,
         maxDepth = 1.0
     }})
@@ -1295,14 +1274,14 @@ render :: proc(
     })
 
     t := f32(gd.frame_count) / 144.0
-    uniform_buf, ok := vkw.get_buffer(gd, uniform_buffer)
+    uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
     vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
         uniform_buffer_ptr = uniform_buf.address,
         sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
     })
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, draw_buffer, 0, ps1_draw_count)
+    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, u32(len(gpu_draws)))
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
@@ -1343,10 +1322,10 @@ render :: proc(
     }})
     
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, postfx_pipeline)
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
 
     vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
-        color_target = main_framebuffer.color_images[0].index,
+        color_target = renderer.main_framebuffer.color_images[0].index,
         sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
         uniforms_address = uniform_buf.address
     })
