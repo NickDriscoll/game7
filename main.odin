@@ -87,6 +87,7 @@ AnimatedMesh :: struct {
     scale: f32,
     anim_idx: u32,
     anim_t: f32,
+    anim_speed: f32,
 }
 
 // Megastruct for all game-specific data
@@ -180,7 +181,8 @@ scene_editor :: proc(
             model := load_gltf_skinned_model(gd, renderer, path_cstring)
             append(&game_state.animated_meshes, AnimatedMesh {
                 model = model,
-                scale = 1.0
+                scale = 1.0,
+                anim_speed = 1.0
             })
 
             strings.builder_reset(&builder)
@@ -189,6 +191,7 @@ scene_editor :: proc(
         imgui.Separator()
         
         for &mesh, i in game_state.animated_meshes {
+            imgui.PushIDInt(c.int(i))
             fmt.sbprintf(&builder, "%v", mesh.model.name)
             imgui.Text(strings.to_cstring(&builder))
             strings.builder_reset(&builder)
@@ -206,6 +209,7 @@ scene_editor :: proc(
             // @TODO: Don't assume one animation
             anim := renderer.animations[mesh.model.first_animation_idx]
             imgui.SliderFloat("Animation t", &mesh.anim_t, 0.0, get_animation_endtime(&anim))
+            imgui.SliderFloat("Animation speed", &mesh.anim_speed, 0.0, 10.0)
 
             disable_button := false
             move_text : cstring = "Move"
@@ -226,6 +230,7 @@ scene_editor :: proc(
                 }
             }
             if disable_button do imgui.EndDisabled()
+            imgui.PopID()
         }
     }
     if show_editor do imgui.End()
@@ -510,7 +515,8 @@ main :: proc() {
             rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
             scale = 1.0,
             anim_idx = 0,
-            anim_t = 0.0
+            anim_t = 0.0,
+            anim_speed = 1.0,
         })
 
         // path = "data/models/RiggedSimple.glb"
@@ -935,7 +941,7 @@ main :: proc() {
         for &mesh in game_state.animated_meshes {
             anim := &renderer.animations[mesh.anim_idx]
             anim_end := get_animation_endtime(anim)
-            mesh.anim_t += last_frame_dt * game_state.timescale
+            mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed
             mesh.anim_t = math.mod(mesh.anim_t, anim_end)
 
             rot := linalg.to_matrix4(mesh.rotation)
