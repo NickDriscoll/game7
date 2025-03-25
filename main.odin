@@ -80,6 +80,13 @@ Character :: struct {
     mesh_data: ^StaticModelData,
 }
 
+StaticScenery :: struct {
+    model: ^StaticModelData,
+    position: hlsl.float3,
+    rotation: quaternion128,
+    scale: f32,
+}
+
 AnimatedMesh :: struct {
     model: ^SkinnedModelData,
     position: hlsl.float3,
@@ -95,8 +102,8 @@ GameState :: struct {
     character: Character,
     viewport_camera: Camera,
     terrain_pieces: [dynamic]TerrainPiece,
-    animated_meshes: [dynamic]AnimatedMesh,
-    //static_scenery: [dynamic]
+    static_scenery: [dynamic]StaticScenery,
+    animated_scenery: [dynamic]AnimatedMesh,
 
     // Editor state
     editor_response: Maybe(EditorResponse),
@@ -142,8 +149,6 @@ scene_editor :: proc(
 
     show_editor := gui.show_gui && user_config.flags["scene_editor"]
     if show_editor && imgui.Begin("Scene editor", &user_config.flags["scene_editor"]) {
-        // Animated meshes
-        imgui.Text("Animated scenery")
         // @TODO: Is this a bug in the filepath package?
         // The File_Info structs are supposed to be allocated
         // with context.temp_allocator, but it appears that it
@@ -156,7 +161,6 @@ scene_editor :: proc(
             in_err: os.Error,
             user_data: rawptr
         ) -> (err: os.Error, skip_dir: bool) {
-            //imgui.Text(strings.clone_to_cstring(info.name, context.temp_allocator))
             if !info.is_dir {
                 item_array := cast(^[dynamic]cstring)user_data
                 append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
@@ -172,6 +176,7 @@ scene_editor :: proc(
         if walk_error != nil {
             log.errorf("Error walking models dir: %v", walk_error)
         }
+
         // Show listbox
         current_item : c.int = 0
         if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items))) {
@@ -179,19 +184,32 @@ scene_editor :: proc(
             log.infof("You clicked item #%v", current_item)
             fmt.sbprintf(&builder, "data/models/%v", list_items[current_item])
             path_cstring, _ := strings.to_cstring(&builder)
+
+            // Try to load as a skinned model
+            // Load as a static model if loading as skinned fails
             model := load_gltf_skinned_model(gd, renderer, path_cstring)
-            append(&game_state.animated_meshes, AnimatedMesh {
-                model = model,
-                scale = 1.0,
-                anim_speed = 1.0
-            })
+            if model != nil {
+                append(&game_state.animated_scenery, AnimatedMesh {
+                    model = model,
+                    scale = 1.0,
+                    anim_speed = 1.0
+                })
+            } else {
+                model2 := load_gltf_static_model(gd, renderer, path_cstring)
+                append(&game_state.static_scenery, StaticScenery {
+                    model = model2,
+                    scale = 1.0,
+                })
+            }
 
             strings.builder_reset(&builder)
         }
         imgui.Separator()
-        
+
+        // Animated meshes
+        imgui.Text("Animated scenery")
         to_clone_idx: Maybe(int)
-        for &mesh, i in game_state.animated_meshes {
+        for &mesh, i in game_state.animated_scenery {
             imgui.PushIDInt(c.int(i))
             fmt.sbprintf(&builder, "%v", mesh.model.name)
             imgui.Text(strings.to_cstring(&builder))
@@ -210,7 +228,7 @@ scene_editor :: proc(
             // @TODO: Don't assume one animation
             anim := renderer.animations[mesh.model.first_animation_idx]
             imgui.SliderFloat("Animation t", &mesh.anim_t, 0.0, get_animation_endtime(&anim))
-            imgui.SliderFloat("Animation speed", &mesh.anim_speed, 0.0, 10.0)
+            imgui.SliderFloat("Animation speed", &mesh.anim_speed, 0.0, 20.0)
 
             disable_button := false
             move_text : cstring = "Move"
@@ -240,8 +258,8 @@ scene_editor :: proc(
         // Do object clone
         clone_idx, clone_ok := to_clone_idx.?
         if clone_ok {
-            append(&game_state.animated_meshes, game_state.animated_meshes[clone_idx])
-            new_idx := len(game_state.animated_meshes) - 1
+            append(&game_state.animated_scenery, game_state.animated_scenery[clone_idx])
+            new_idx := len(game_state.animated_scenery) - 1
             game_state.editor_response = EditorResponse {
                 type = .MoveAnimatedScenery,
                 index = u32(new_idx)
@@ -524,7 +542,7 @@ main :: proc() {
         path : cstring = "data/models/CesiumMan.glb"
         //path : cstring = "data/models/DreadSamus.glb"
         skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
-        append(&game_state.animated_meshes, AnimatedMesh {
+        append(&game_state.animated_scenery, AnimatedMesh {
             model = skinned_model,
             position = {50.2138786, 65.6309738, -2.65704226},
             rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
@@ -533,17 +551,6 @@ main :: proc() {
             anim_t = 0.0,
             anim_speed = 1.0,
         })
-
-        // path = "data/models/RiggedSimple.glb"
-        // sk := load_gltf_skinned_model(&vgd, &renderer, path)
-        // append(&game_state.animated_meshes, AnimatedMesh {
-        //     model = sk,
-        //     position = {-10.2138786, 16.6309738, -2.65704226},
-        //     rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
-        //     scale = 1.0,
-        //     anim_idx = 0,
-        //     anim_t = 0.0
-        // })
     }
 
     game_state.character_start = CHARACTER_START_POS
@@ -931,7 +938,7 @@ main :: proc() {
                     if closest_dist < math.INF_F32 {
                         #partial switch obj.type {
                             case .MoveAnimatedScenery: {
-                                object := &game_state.animated_meshes[obj.index]
+                                object := &game_state.animated_scenery[obj.index]
                                 object.position = collision_pt
                             }
                             case: {}
@@ -956,7 +963,7 @@ main :: proc() {
             current_view_from_world
 
         // Update and draw animated scenery
-        for &mesh in game_state.animated_meshes {
+        for &mesh in game_state.animated_scenery {
             anim := &renderer.animations[mesh.anim_idx]
             anim_end := get_animation_endtime(anim)
             mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed

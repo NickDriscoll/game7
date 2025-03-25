@@ -1562,7 +1562,7 @@ load_gltf_skinned_model :: proc(
     first_anim_idx: u32
     first_joint_idx := render_data.joint_matrices_head
     {
-        assert(len(gltf_data.skins) > 0)
+        if len(gltf_data.skins) == 0 do return nil
 
         glb_skin := gltf_data.skins[0]
 
@@ -1653,10 +1653,6 @@ load_gltf_skinned_model :: proc(
             append(&render_data.animations, new_anim)
         }
     }
-
-    // @TODO: Don't just load the first mesh you see
-    // assert(len(gltf_data.meshes) == 1)
-    // mesh := &gltf_data.meshes[0]
 
     // Get total primitive count
     primitive_count := 0
