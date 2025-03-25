@@ -1441,9 +1441,6 @@ load_gltf_static_model :: proc(
     
     loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
-    // @TODO: Don't just load the first mesh you see
-    //mesh := gltf_data.meshes[0]
-
     primitive_count := 0
     for mesh in gltf_data.meshes {
         primitive_count += len(mesh.primitives)
@@ -1560,16 +1557,12 @@ load_gltf_skinned_model :: proc(
     
     loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
-    // @TODO: Don't just load the first mesh you see
-    assert(len(gltf_data.meshes) == 1)
-    mesh := &gltf_data.meshes[0]
-
     // Load inverse bind matrices
     joint_count: u32
     first_anim_idx: u32
     first_joint_idx := render_data.joint_matrices_head
     {
-        assert(len(gltf_data.skins) == 1)
+        assert(len(gltf_data.skins) > 0)
 
         glb_skin := gltf_data.skins[0]
 
@@ -1589,6 +1582,7 @@ load_gltf_skinned_model :: proc(
         render_data.joint_matrices_head += joint_count
         old_cpu_joint_count := len(render_data.joint_parents)
         resize(&render_data.joint_parents, old_cpu_joint_count + int(joint_count))
+        // i starts at 1 because we assume that joint 0 is the root joint i.e. no parent
         for i in 1..<joint_count {
             jp := &render_data.joint_parents[old_cpu_joint_count + int(i)]
 
@@ -1660,74 +1654,86 @@ load_gltf_skinned_model :: proc(
         }
     }
 
-    draw_primitives := make([dynamic]SkinnedDrawPrimitive, len(mesh.primitives), allocator)
+    // @TODO: Don't just load the first mesh you see
+    // assert(len(gltf_data.meshes) == 1)
+    // mesh := &gltf_data.meshes[0]
 
-    for &primitive, i in mesh.primitives {
-        // Get indices
-        index_data := load_gltf_indices_u16(&primitive)
-    
-        // Get vertex data
-        position_data: [dynamic]hlsl.float4
-        color_data: [dynamic]hlsl.float4
-        uv_data: [dynamic]hlsl.float2
-        joint_ids: [dynamic]hlsl.uint4
-        joint_weights: [dynamic]hlsl.float4
-    
-        // @TODO: Use joint ids directly as u16 instead of converting to u32
-        for &attrib in primitive.attributes {
-            #partial switch (attrib.type) {
-                case .position: position_data = load_gltf_float3_to_float4(&attrib)
-                case .color: color_data = load_gltf_float3_to_float4(&attrib)
-                case .texcoord: uv_data = load_gltf_float2(&attrib)
-                case .joints: joint_ids = load_gltf_joint_ids(&attrib)
-                case .weights: joint_weights = load_gltf_float4(&attrib)
-            }
-        }
-    
-        // Now that we have the mesh data in CPU-side buffers,
-        // it's time to upload them
-        mesh_handle := create_skinned_mesh(
-            gd,
-            render_data,
-            position_data[:],
-            index_data[:],
-            joint_ids[:],
-            joint_weights[:],
-            joint_count,
-            first_joint_idx
-        )
-        if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-        if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+    // Get total primitive count
+    primitive_count := 0
+    for mesh in gltf_data.meshes {
+        primitive_count += len(mesh.primitives)
+    }
 
+    draw_primitives := make([dynamic]SkinnedDrawPrimitive, primitive_count, allocator)
 
-        // Now get material data
-        loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
-        defer delete(loaded_glb_materials)
-        glb_material := primitive.material
-        has_material := glb_material != nil
-
-        bindless_image_idx := vkw.Image_Handle {
-            index = NULL_OFFSET
-        }
-        if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
-            tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
-            color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
-            log.debugf("Texture index is %v", color_tex_idx)
-            bindless_image_idx = loaded_glb_images[color_tex_idx]
-        }
+    for mesh in gltf_data.meshes {
+        for &primitive, i in mesh.primitives {
+            // Get indices
+            index_data := load_gltf_indices_u16(&primitive)
         
-        base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
-        if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
-        material := Material {
-            color_texture = bindless_image_idx.index,
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
-            base_color = base_color
-        }
-        material_handle := add_material(render_data, &material)
-
-        draw_primitives[i] = SkinnedDrawPrimitive {
-            mesh = mesh_handle,
-            material = material_handle
+            // Get vertex data
+            position_data: [dynamic]hlsl.float4
+            color_data: [dynamic]hlsl.float4
+            uv_data: [dynamic]hlsl.float2
+            joint_ids: [dynamic]hlsl.uint4
+            joint_weights: [dynamic]hlsl.float4
+        
+            // @TODO: Use joint ids directly as u16 instead of converting to u32
+            for &attrib in primitive.attributes {
+                #partial switch (attrib.type) {
+                    case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                    case .color: color_data = load_gltf_float3_to_float4(&attrib)
+                    case .texcoord: uv_data = load_gltf_float2(&attrib)
+                    case .joints: joint_ids = load_gltf_joint_ids(&attrib)
+                    case .weights: joint_weights = load_gltf_float4(&attrib)
+                }
+            }
+        
+            // Now that we have the mesh data in CPU-side buffers,
+            // it's time to upload them
+            mesh_handle := create_skinned_mesh(
+                gd,
+                render_data,
+                position_data[:],
+                index_data[:],
+                joint_ids[:],
+                joint_weights[:],
+                joint_count,
+                first_joint_idx
+            )
+            if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+            if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+    
+    
+            // Now get material data
+            loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
+            defer delete(loaded_glb_materials)
+            glb_material := primitive.material
+            has_material := glb_material != nil
+    
+            bindless_image_idx := vkw.Image_Handle {
+                index = NULL_OFFSET
+            }
+            if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
+                tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
+                color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
+                log.debugf("Texture index is %v", color_tex_idx)
+                bindless_image_idx = loaded_glb_images[color_tex_idx]
+            }
+            
+            base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
+            if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            material := Material {
+                color_texture = bindless_image_idx.index,
+                sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
+                base_color = base_color
+            }
+            material_handle := add_material(render_data, &material)
+    
+            draw_primitives[i] = SkinnedDrawPrimitive {
+                mesh = mesh_handle,
+                material = material_handle
+            }
         }
     }
 
