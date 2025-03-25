@@ -20,38 +20,17 @@ static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
 // @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
 
+static const float3 ID_COLORS[] = {
+    float3(1.0, 0.0, 0.0),
+    float3(0.0, 1.0, 0.0),
+    float3(0.0, 0.0, 1.0),
+    float3(0.0, 1.0, 1.0),
+    float3(1.0, 0.0, 1.0),
+    float3(1.0, 1.0, 0.0),
+};
 float3 id_to_color(uint id) {
     uint r = id % 6;
-
-    float3 color;
-    switch (r) {
-    case 0: {
-        color = float3(1.0, 0.0, 0.0);
-        break;
-    }
-    case 1: {
-        color = float3(0.0, 1.0, 0.0);
-        break;
-    }
-    case 2: {
-        color = float3(0.0, 0.0, 1.0);
-        break;
-    }
-    case 3: {
-        color = float3(0.0, 1.0, 1.0);
-        break;
-    }
-    case 4: {
-        color = float3(1.0, 0.0, 1.0);
-        break;
-    }
-    case 5: {
-        color = float3(1.0, 1.0, 0.0);
-        break;
-    }
-    }
-
-    return color;
+    return ID_COLORS[r];
 }
 
 [shader("vertex")]
