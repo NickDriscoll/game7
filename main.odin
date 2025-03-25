@@ -190,6 +190,7 @@ scene_editor :: proc(
         }
         imgui.Separator()
         
+        to_clone_idx: Maybe(int)
         for &mesh, i in game_state.animated_meshes {
             imgui.PushIDInt(c.int(i))
             fmt.sbprintf(&builder, "%v", mesh.model.name)
@@ -213,12 +214,11 @@ scene_editor :: proc(
 
             disable_button := false
             move_text : cstring = "Move"
-            switch obj in game_state.editor_response {
-                case EditorResponse: {
-                    if obj.type == .MoveAnimatedScenery && obj.index == u32(i) {
-                        disable_button = true
-                        move_text = "Moving..."
-                    }
+            obj, obj_ok := game_state.editor_response.(EditorResponse)
+            if obj_ok {
+                if obj.type == .MoveAnimatedScenery && obj.index == u32(i) {
+                    disable_button = true
+                    move_text = "Moving..."
                 }
             }
 
@@ -229,8 +229,23 @@ scene_editor :: proc(
                     index = u32(i)
                 }
             }
+            imgui.SameLine()
+            if imgui.Button("Clone") {
+                to_clone_idx = i
+            }
             if disable_button do imgui.EndDisabled()
             imgui.PopID()
+        }
+
+        // Do object clone
+        clone_idx, clone_ok := to_clone_idx.?
+        if clone_ok {
+            append(&game_state.animated_meshes, game_state.animated_meshes[clone_idx])
+            new_idx := len(game_state.animated_meshes) - 1
+            game_state.editor_response = EditorResponse {
+                type = .MoveAnimatedScenery,
+                index = u32(new_idx)
+            }
         }
     }
     if show_editor do imgui.End()
