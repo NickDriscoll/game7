@@ -168,6 +168,7 @@ scene_editor :: proc(
         }
         list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
         walk_error := filepath.walk("./data/models", file_proc, &list_items)
+        context.allocator = old_alloc
         if walk_error != nil {
             log.errorf("Error walking models dir: %v", walk_error)
         }
@@ -187,7 +188,6 @@ scene_editor :: proc(
 
             strings.builder_reset(&builder)
         }
-        context.allocator = old_alloc
         imgui.Separator()
         
         for &mesh, i in game_state.animated_meshes {
@@ -613,7 +613,10 @@ main :: proc() {
     audio_device_id: sdl2.AudioDeviceID
     {
         desired_audiospec := sdl2.AudioSpec {
-
+            freq = 44100,
+            format = sdl2.AUDIO_F32,
+            channels = 1,
+            
         }
         returned_audiospec: sdl2.AudioSpec
         audio_device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &returned_audiospec, false)
