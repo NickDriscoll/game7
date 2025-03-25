@@ -291,7 +291,7 @@ poll_sdl2_events :: proc(
                 if found {
                     int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
-                state.mouse_clicked = true
+                if event.button.button == sdl2.BUTTON_LEFT do state.mouse_clicked = true
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
             }
             case .MOUSEBUTTONUP: {
