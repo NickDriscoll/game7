@@ -62,6 +62,7 @@ PostFxPushConstants :: struct {
 CPUStaticMesh :: struct {
     indices_start: u32,
     indices_len: u32,
+    gpu_mesh_idx: u32,
 }
 
 GPUStaticMesh :: struct {
@@ -115,7 +116,6 @@ StaticDraw :: struct {
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
-    gpu_mesh_idx: u32,
     material_handle: Material_Handle,
 }
 
@@ -644,7 +644,6 @@ create_static_mesh :: proc(
     positions: []hlsl.float4,
     indices: []u16
 ) -> Static_Mesh_Handle {
-    
     position_start: u32
     {
         positions_len := u32(len(positions))
@@ -669,18 +668,19 @@ create_static_mesh :: proc(
 
         vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
     }
-
-    mesh := CPUStaticMesh {
-        indices_start = indices_start,
-        indices_len = indices_len,
-    }
-    handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
     gpu_mesh := GPUStaticMesh {
         position_offset = position_start,
         uv_offset = NULL_OFFSET,
         color_offset = NULL_OFFSET
     }
     append(&renderer.gpu_static_meshes, gpu_mesh)
+
+    mesh := CPUStaticMesh {
+        indices_start = indices_start,
+        indices_len = indices_len,
+        gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
+    }
+    handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
 
     renderer.dirty_flags += {.Mesh}
 
@@ -697,7 +697,6 @@ create_skinned_mesh :: proc(
     joint_count: u32,
     first_joint: u32,
 ) -> Skinned_Mesh_Handle {
-    
     position_start: u32
     positions_len := u32(len(positions))
     {
@@ -773,54 +772,56 @@ create_skinned_mesh :: proc(
 
 add_vertex_colors :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     handle: $HandleType,
     colors: []hlsl.float4
 ) -> bool {
-    color_start := colors_head
+    color_start := renderer.colors_head
     colors_len := u32(len(colors))
     assert(colors_len > 0)
-    assert(colors_head + colors_len < MAX_GLOBAL_VERTICES)
+    assert(renderer.colors_head + colors_len < MAX_GLOBAL_VERTICES)
 
-    colors_head += colors_len
+    renderer.colors_head += colors_len
 
     when HandleType == Static_Mesh_Handle {
-        gpu_mesh := &gpu_static_meshes[handle.index]
+        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
+        gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.color_offset = color_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
         mesh.color_offset = color_start
     } else {
         panic("Invalid arg type")
     }
 
-    return vkw.sync_write_buffer(gd, colors_buffer, colors, color_start)
+    return vkw.sync_write_buffer(gd, renderer.colors_buffer, colors, color_start)
 }
 
 add_vertex_uvs :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     handle: $HandleType,
     uvs: []hlsl.float2
 ) -> bool {
-    uv_start := uvs_head
+    uv_start := renderer.uvs_head
     uvs_len := u32(len(uvs))
     assert(uvs_len > 0)
-    assert(uvs_head + uvs_len <= MAX_GLOBAL_VERTICES)
+    assert(renderer.uvs_head + uvs_len <= MAX_GLOBAL_VERTICES)
 
-    uvs_head += uvs_len
+    renderer.uvs_head += uvs_len
 
     when HandleType == Static_Mesh_Handle {
-        gpu_mesh := &gpu_static_meshes[handle.index]
+        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
+        gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(&cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
         mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
     }
 
-    return vkw.sync_write_buffer(gd, uvs_buffer, uvs, uv_start)
+    return vkw.sync_write_buffer(gd, renderer.uvs_buffer, uvs, uv_start)
 }
 
 add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle {
@@ -873,7 +874,6 @@ draw_ps1_static_primitive :: proc(
     new_inst := CPUStaticInstance {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
-        gpu_mesh_idx = mesh_handle.index,
         material_handle = material_handle
     }
     append(&cpu_static_instances, new_inst)
@@ -1069,12 +1069,14 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                 color_offset = mesh.color_offset,
             }
             append(&renderer.gpu_static_meshes, gpu_static_mesh)
+            
+            static_mesh, _ := hm.get(&renderer.cpu_static_meshes, hm.Handle(mesh.static_mesh_handle))
+            static_mesh.gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1)
 
             // Also add CPUStaticInstance for the skinned output of the compute shader
             new_cpu_static_instance := CPUStaticInstance {
                 world_from_model = skinned_instance.world_from_model,
                 mesh_handle = mesh.static_mesh_handle,
-                gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
                 material_handle = skinned_instance.material_handle
             }
             append(&renderer.cpu_static_instances, new_cpu_static_instance)
@@ -1186,10 +1188,11 @@ render :: proc(
                 
                 inst := &renderer.cpu_static_instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
+                    mesh, _ := hm.get(&renderer.cpu_static_meshes, inst.mesh_handle)
                     g_inst := GPUStaticInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
-                        mesh_idx = inst.gpu_mesh_idx,
+                        mesh_idx = mesh.gpu_mesh_idx,
                         material_idx = inst.material_handle.index
                     }
                     append(&renderer.gpu_static_instances, g_inst)
