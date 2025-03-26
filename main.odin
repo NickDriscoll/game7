@@ -126,6 +126,7 @@ delete_game :: proc(using g: ^GameState) {
 
 
 EditorResponseType :: enum {
+    MoveStaticScenery,
     MoveAnimatedScenery,
     AddAnimatedScenery
 }
@@ -206,9 +207,56 @@ scene_editor :: proc(
         }
         imgui.Separator()
 
+        // Static meshes
+        static_to_clone_idx: Maybe(int)
+        imgui.Text("Static scenery")
+        for &mesh, i in game_state.static_scenery {
+            imgui.PushIDInt(c.int(i))
+
+            fmt.sbprintf(&builder, "%v", mesh.model.name)
+            imgui.Text(strings.to_cstring(&builder))
+            strings.builder_reset(&builder)
+
+            fmt.sbprintf(&builder, "Position %v", mesh.position)
+            imgui.Text(strings.to_cstring(&builder))
+            strings.builder_reset(&builder)
+            
+            fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
+            strings.builder_reset(&builder)
+            imgui.Text(strings.to_cstring(&builder))
+
+            imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
+
+            disable_button := false
+            move_text : cstring = "Move"
+            obj, obj_ok := game_state.editor_response.(EditorResponse)
+            if obj_ok {
+                if obj.type == .MoveStaticScenery && obj.index == u32(i) {
+                    disable_button = true
+                    move_text = "Moving..."
+                }
+            }
+
+            if disable_button do imgui.BeginDisabled()
+            if imgui.Button(move_text) {
+                game_state.editor_response = EditorResponse {
+                    type = .MoveStaticScenery,
+                    index = u32(i)
+                }
+            }
+            imgui.SameLine()
+            if imgui.Button("Clone") {
+                static_to_clone_idx = i
+            }
+            if disable_button do imgui.EndDisabled()
+
+            imgui.PopID()
+        }
+
         // Animated meshes
         imgui.Text("Animated scenery")
-        to_clone_idx: Maybe(int)
+        anim_to_clone_idx: Maybe(int)
+        imgui.PushID("Animated")
         for &mesh, i in game_state.animated_scenery {
             imgui.PushIDInt(c.int(i))
             fmt.sbprintf(&builder, "%v", mesh.model.name)
@@ -249,20 +297,34 @@ scene_editor :: proc(
             }
             imgui.SameLine()
             if imgui.Button("Clone") {
-                to_clone_idx = i
+                anim_to_clone_idx = i
             }
             if disable_button do imgui.EndDisabled()
             imgui.PopID()
         }
+        imgui.PopID()
 
         // Do object clone
-        clone_idx, clone_ok := to_clone_idx.?
-        if clone_ok {
-            append(&game_state.animated_scenery, game_state.animated_scenery[clone_idx])
-            new_idx := len(game_state.animated_scenery) - 1
-            game_state.editor_response = EditorResponse {
-                type = .MoveAnimatedScenery,
-                index = u32(new_idx)
+        {
+            clone_idx, clone_ok := static_to_clone_idx.?
+            if clone_ok {
+                append(&game_state.static_scenery, game_state.static_scenery[clone_idx])
+                new_idx := len(game_state.static_scenery) - 1
+                game_state.editor_response = EditorResponse {
+                    type = .MoveStaticScenery,
+                    index = u32(new_idx)
+                }
+            }
+        }
+        {
+            clone_idx, clone_ok := anim_to_clone_idx.?
+            if clone_ok {
+                append(&game_state.animated_scenery, game_state.animated_scenery[clone_idx])
+                new_idx := len(game_state.animated_scenery) - 1
+                game_state.editor_response = EditorResponse {
+                    type = .MoveAnimatedScenery,
+                    index = u32(new_idx)
+                }
             }
         }
     }
@@ -937,6 +999,10 @@ main :: proc() {
 
                     if closest_dist < math.INF_F32 {
                         #partial switch obj.type {
+                            case .MoveStaticScenery: {
+                                object := &game_state.static_scenery[obj.index]
+                                object.position = collision_pt
+                            }
                             case .MoveAnimatedScenery: {
                                 object := &game_state.animated_scenery[obj.index]
                                 object.position = collision_pt
@@ -961,6 +1027,17 @@ main :: proc() {
         renderer.cpu_uniforms.clip_from_world =
             camera_projection_from_view(&game_state.viewport_camera) *
             current_view_from_world
+
+        // Update and draw static scenery
+        for &mesh in game_state.static_scenery {
+            rot := linalg.to_matrix4(mesh.rotation)
+
+            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
+            dd := StaticDraw {
+                world_from_model = world_mat,
+            }
+            draw_ps1_static_mesh(&vgd, &renderer, mesh.model, &dd)
+        }
 
         // Update and draw animated scenery
         for &mesh in game_state.animated_scenery {
