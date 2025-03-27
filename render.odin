@@ -59,19 +59,6 @@ PostFxPushConstants :: struct {
     uniforms_address: vk.DeviceAddress,
 }
 
-CPUStaticMesh :: struct {
-    indices_start: u32,
-    indices_len: u32,
-    gpu_mesh_idx: u32,
-}
-
-GPUStaticMesh :: struct {
-    position_offset: u32,
-    uv_offset: u32,
-    color_offset: u32,
-    _pad0: u32,
-}
-
 AnimationInterpolation :: enum {
     Step,
     Linear,
@@ -113,10 +100,24 @@ StaticDraw :: struct {
     world_from_model: hlsl.float4x4,
 }
 
+CPUStaticMesh :: struct {
+    indices_start: u32,
+    indices_len: u32,
+    gpu_mesh_idx: u32,
+}
+
+GPUStaticMesh :: struct {
+    position_offset: u32,
+    uv_offset: u32,
+    color_offset: u32,
+    _pad0: u32,
+}
+
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
+    gpu_mesh_idx: u32,
 }
 
 GPUStaticInstance :: struct {
@@ -863,32 +864,35 @@ draw_ps1_skinned_mesh :: proc(
 // User code calls this to queue up draw calls
 draw_ps1_static_primitive :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
     draw_data: ^StaticDraw,
 ) -> bool {
-    dirty_flags += {.Instance,.Draw}
+    renderer.dirty_flags += {.Instance,.Draw}
+
+    mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh_handle)
 
     // Append instance representing this primitive
     new_inst := CPUStaticInstance {
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
+        gpu_mesh_idx = mesh.gpu_mesh_idx,
         material_handle = material_handle
     }
-    append(&cpu_static_instances, new_inst)
+    append(&renderer.cpu_static_instances, new_inst)
 
     return true
 }
 
 draw_ps1_skinned_primitive :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    renderer: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
     material_handle: Material_Handle,
     draw_data: ^SkinnedDraw,
 ) -> bool {
-    dirty_flags += {.Instance,.Draw}
+    renderer.dirty_flags += {.Instance,.Draw}
 
     new_inst := CPUSkinnedInstance {
         world_from_model = draw_data.world_from_model,
@@ -897,7 +901,7 @@ draw_ps1_skinned_primitive :: proc(
         animation_idx = draw_data.anim_idx,
         animation_time = draw_data.anim_t
     }
-    append(&cpu_skinned_instances, new_inst)
+    append(&renderer.cpu_skinned_instances, new_inst)
 
     return true
 }
@@ -1069,15 +1073,13 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                 color_offset = mesh.color_offset,
             }
             append(&renderer.gpu_static_meshes, gpu_static_mesh)
-            
-            static_mesh, _ := hm.get(&renderer.cpu_static_meshes, hm.Handle(mesh.static_mesh_handle))
-            static_mesh.gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1)
 
             // Also add CPUStaticInstance for the skinned output of the compute shader
             new_cpu_static_instance := CPUStaticInstance {
                 world_from_model = skinned_instance.world_from_model,
                 mesh_handle = mesh.static_mesh_handle,
-                material_handle = skinned_instance.material_handle
+                material_handle = skinned_instance.material_handle,
+                gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1)
             }
             append(&renderer.cpu_static_instances, new_cpu_static_instance)
 
@@ -1188,11 +1190,10 @@ render :: proc(
                 
                 inst := &renderer.cpu_static_instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
-                    mesh, _ := hm.get(&renderer.cpu_static_meshes, inst.mesh_handle)
                     g_inst := GPUStaticInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
-                        mesh_idx = mesh.gpu_mesh_idx,
+                        mesh_idx = inst.gpu_mesh_idx,
                         material_idx = inst.material_handle.index
                     }
                     append(&renderer.gpu_static_instances, g_inst)
@@ -1566,6 +1567,7 @@ load_gltf_skinned_model :: proc(
     first_joint_idx := render_data.joint_matrices_head
     {
         if len(gltf_data.skins) == 0 do return nil
+        assert(len(gltf_data.skins) == 1)
 
         glb_skin := gltf_data.skins[0]
 
