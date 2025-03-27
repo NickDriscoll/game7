@@ -157,7 +157,7 @@ scene_editor :: proc(
         old_alloc := context.allocator
         context.allocator = context.temp_allocator
 
-        file_proc :: proc(
+        filewalk_proc :: proc(
             info: os.File_Info,
             in_err: os.Error,
             user_data: rawptr
@@ -172,7 +172,7 @@ scene_editor :: proc(
             return
         }
         list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-        walk_error := filepath.walk("./data/models", file_proc, &list_items)
+        walk_error := filepath.walk("./data/models", filewalk_proc, &list_items)
         context.allocator = old_alloc
         if walk_error != nil {
             log.errorf("Error walking models dir: %v", walk_error)
