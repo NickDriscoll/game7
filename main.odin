@@ -49,8 +49,11 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
-    model_matrix: hlsl.float4x4,
-    mesh_data: ^StaticModelData,
+    position: hlsl.float3,
+    rotation: quaternion128,
+    scale: f32,
+    //model_matrix: hlsl.float4x4,
+    model: ^StaticModelData,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -105,6 +108,9 @@ GameState :: struct {
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedMesh,
 
+    // Icosphere mesh for visualizing spherical collision and points
+
+
     // Editor state
     editor_response: Maybe(EditorResponse),
 
@@ -119,6 +125,13 @@ GameState :: struct {
     exclusive_fullscreen: bool,
 }
 
+init_gamestate :: proc() -> GameState {
+    game_state: GameState
+
+
+    return game_state
+}
+
 delete_game :: proc(using g: ^GameState) {
     for &piece in terrain_pieces do delete_terrain_piece(&piece)
     delete(terrain_pieces)
@@ -126,6 +139,7 @@ delete_game :: proc(using g: ^GameState) {
 
 
 EditorResponseType :: enum {
+    MoveTerrainPiece,
     MoveStaticScenery,
     MoveAnimatedScenery,
     AddAnimatedScenery
@@ -180,7 +194,7 @@ scene_editor :: proc(
 
         // Show listbox
         current_item : c.int = 0
-        if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items))) {
+        if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items)), 15) {
             // Insert selected item into animated scenery list
             log.infof("You clicked item #%v", current_item)
             fmt.sbprintf(&builder, "data/models/%v", list_items[current_item])
@@ -207,102 +221,170 @@ scene_editor :: proc(
         }
         imgui.Separator()
 
-        // Static meshes
-        static_to_clone_idx: Maybe(int)
-        imgui.Text("Static scenery")
-        for &mesh, i in game_state.static_scenery {
-            imgui.PushIDInt(c.int(i))
-
-            fmt.sbprintf(&builder, "%v", mesh.model.name)
-            imgui.Text(strings.to_cstring(&builder))
-            strings.builder_reset(&builder)
-
-            fmt.sbprintf(&builder, "Position %v", mesh.position)
-            imgui.Text(strings.to_cstring(&builder))
-            strings.builder_reset(&builder)
-            
-            fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-            strings.builder_reset(&builder)
-            imgui.Text(strings.to_cstring(&builder))
-
-            imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
-
-            disable_button := false
-            move_text : cstring = "Move"
-            obj, obj_ok := game_state.editor_response.(EditorResponse)
-            if obj_ok {
-                if obj.type == .MoveStaticScenery && obj.index == u32(i) {
-                    disable_button = true
-                    move_text = "Moving..."
+        idk_proc :: proc(
+            renderer: ^Renderer,
+            objects: ^[dynamic]$T,
+            label: cstring,
+            editor_response: ^Maybe(EditorResponse),
+            response_type: EditorResponseType,
+            builder: ^strings.Builder
+        ) -> Maybe(int) {
+            clone_idx: Maybe(int)
+            if imgui.CollapsingHeader(label) {
+                imgui.PushID(label)
+                if len(objects) == 0 {
+                    imgui.Text("Nothing to see here!")
                 }
-            }
+                for &mesh, i in objects {
+                    imgui.PushIDInt(c.int(i))
+        
+                    fmt.sbprintf(builder, "%v", mesh.model.name)
+                    imgui.Text(strings.to_cstring(builder))
+                    strings.builder_reset(builder)
+        
+                    fmt.sbprintf(builder, "Position %v", mesh.position)
+                    imgui.Text(strings.to_cstring(builder))
+                    strings.builder_reset(builder)
+                    
+                    fmt.sbprintf(builder, "Rotation: %v", mesh.rotation)
+                    strings.builder_reset(builder)
+                    imgui.Text(strings.to_cstring(builder))
 
-            if disable_button do imgui.BeginDisabled()
-            if imgui.Button(move_text) {
-                game_state.editor_response = EditorResponse {
-                    type = .MoveStaticScenery,
-                    index = u32(i)
+                    imgui.DragFloat3("Position", &mesh.position, 0.1)
+
+                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
+
+                    when T == AnimatedMesh {
+                        anim := &renderer.animations[mesh.model.first_animation_idx]
+                        imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_endtime(anim))
+                        imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
+                    }
+        
+                    disable_button := false
+                    move_text : cstring = "Move"
+                    obj, obj_ok := editor_response.(EditorResponse)
+                    if obj_ok {
+                        if obj.type == response_type && obj.index == u32(i) {
+                            disable_button = true
+                            move_text = "Moving..."
+                        }
+                    }
+        
+                    if disable_button do imgui.BeginDisabled()
+                    if imgui.Button(move_text) {
+                        editor_response^ = EditorResponse {
+                            type = response_type,
+                            index = u32(i)
+                        }
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Clone") {
+                        clone_idx = i
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Delete") {
+                        unordered_remove(objects, i)
+                    }
+                    if disable_button do imgui.EndDisabled()
+        
+                    imgui.PopID()
                 }
+                imgui.PopID()
             }
-            imgui.SameLine()
-            if imgui.Button("Clone") {
-                static_to_clone_idx = i
-            }
-            if disable_button do imgui.EndDisabled()
-
-            imgui.PopID()
+            return clone_idx
         }
+
+        // Terrain pieces
+        // terrain_piece_clone_idx := idk_proc(
+        //     renderer,
+        //     &game_state.terrain_pieces,
+        //     "Terrain pieces",
+        //     &game_state.editor_response,
+        //     .MoveTerrainPiece,
+        //     &builder
+        // )
+        {
+            objects := &game_state.terrain_pieces
+            label : cstring = "Terrain pieces"
+            editor_response := &game_state.editor_response
+            response_type := EditorResponseType.MoveTerrainPiece
+            terrain_piece_clone_idx: Maybe(int)
+            if imgui.CollapsingHeader(label) {
+                imgui.PushID(label)
+                if len(objects) == 0 {
+                    imgui.Text("Nothing to see here!")
+                }
+                for &mesh, i in objects {
+                    imgui.PushIDInt(c.int(i))
+        
+                    fmt.sbprintf(&builder, "%v", mesh.model.name)
+                    imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
+        
+                    fmt.sbprintf(&builder, "Position %v", mesh.position)
+                    imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
+                    
+                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
+                    strings.builder_reset(&builder)
+                    imgui.Text(strings.to_cstring(&builder))
+    
+                    imgui.DragFloat3("Position", &mesh.position, 0.1)
+    
+                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
+        
+                    disable_button := false
+                    move_text : cstring = "Move"
+                    obj, obj_ok := editor_response.(EditorResponse)
+                    if obj_ok {
+                        if obj.type == response_type && obj.index == u32(i) {
+                            disable_button = true
+                            move_text = "Moving..."
+                        }
+                    }
+        
+                    if disable_button do imgui.BeginDisabled()
+                    if imgui.Button(move_text) {
+                        editor_response^ = EditorResponse {
+                            type = response_type,
+                            index = u32(i)
+                        }
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Clone") {
+                        terrain_piece_clone_idx = i
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Delete") {
+                        unordered_remove(objects, i)
+                    }
+                    if disable_button do imgui.EndDisabled()
+        
+                    imgui.PopID()
+                }
+                imgui.PopID()
+            }
+        }
+
+        // Static meshes
+        static_to_clone_idx := idk_proc(
+            renderer,
+            &game_state.static_scenery,
+            "Static scenery",
+            &game_state.editor_response,
+            .MoveStaticScenery,
+            &builder
+        )
 
         // Animated meshes
-        imgui.Text("Animated scenery")
-        anim_to_clone_idx: Maybe(int)
-        imgui.PushID("Animated")
-        for &mesh, i in game_state.animated_scenery {
-            imgui.PushIDInt(c.int(i))
-            fmt.sbprintf(&builder, "%v", mesh.model.name)
-            imgui.Text(strings.to_cstring(&builder))
-            strings.builder_reset(&builder)
-
-            fmt.sbprintf(&builder, "Position %v", mesh.position)
-            imgui.Text(strings.to_cstring(&builder))
-            strings.builder_reset(&builder)
-            
-            fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-            strings.builder_reset(&builder)
-            imgui.Text(strings.to_cstring(&builder))
-
-            imgui.SliderFloat("Scale", &mesh.scale, 0.0, 10.0)
-
-            // @TODO: Don't assume one animation
-            anim := renderer.animations[mesh.model.first_animation_idx]
-            imgui.SliderFloat("Animation t", &mesh.anim_t, 0.0, get_animation_endtime(&anim))
-            imgui.SliderFloat("Animation speed", &mesh.anim_speed, 0.0, 20.0)
-
-            disable_button := false
-            move_text : cstring = "Move"
-            obj, obj_ok := game_state.editor_response.(EditorResponse)
-            if obj_ok {
-                if obj.type == .MoveAnimatedScenery && obj.index == u32(i) {
-                    disable_button = true
-                    move_text = "Moving..."
-                }
-            }
-
-            if disable_button do imgui.BeginDisabled()
-            if imgui.Button(move_text) {
-                game_state.editor_response = EditorResponse {
-                    type = .MoveAnimatedScenery,
-                    index = u32(i)
-                }
-            }
-            imgui.SameLine()
-            if imgui.Button("Clone") {
-                anim_to_clone_idx = i
-            }
-            if disable_button do imgui.EndDisabled()
-            imgui.PopID()
-        }
-        imgui.PopID()
+        anim_to_clone_idx := idk_proc(
+            renderer,
+            &game_state.animated_scenery,
+            "Animated scenery",
+            &game_state.editor_response,
+            .MoveAnimatedScenery,
+            &builder
+        )
 
         // Do object clone
         {
@@ -565,11 +647,12 @@ main :: proc() {
     {
         positions := get_glb_positions(main_scene_path, context.temp_allocator)
         mmat := uniform_scaling_matrix(1.0)
-        collision := static_triangle_mesh(positions[:], mmat)
+        collision := new_static_triangle_mesh(positions[:], mmat)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
-            model_matrix = mmat,
-            mesh_data = main_scene_mesh,
+            position = {},
+            scale = 1.0,
+            model = main_scene_mesh,
         })
     }
 
@@ -589,11 +672,15 @@ main :: proc() {
         rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
         trans := translation_matrix({350.0, 400.0, 500.0})
         mat := trans * rot * scale
-        collision := static_triangle_mesh(positions[:], mat)
+        collision := new_static_triangle_mesh(positions[:], mat)
+        rotq := linalg.quaternion_from_euler_angles_f32(0.0, 0.0, -math.PI / 4.0, linalg.Euler_Angle_Order.XYZ)
+        rotq *=  linalg.quaternion_from_euler_angles_f32(math.PI / 4.0, 0.0, 0.0, linalg.Euler_Angle_Order.XYZ)
         append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
-            model_matrix = mat,
-            mesh_data = moon_mesh
+            position = {350.0, 400.0, 500.0},
+            rotation = rotq,
+            scale = 300.0,
+            model = moon_mesh
         })
     }
 
@@ -1059,10 +1146,14 @@ main :: proc() {
 
         // Draw terrain pieces
         for &piece in game_state.terrain_pieces {
+            scale := scaling_matrix(piece.scale)
+            rot := linalg.matrix4_from_quaternion_f32(piece.rotation)
+            trans := translation_matrix(piece.position)
+            mat := trans * rot * scale
             tform := StaticDraw {
-                world_from_model = piece.model_matrix
+                world_from_model = mat
             }
-            draw_ps1_static_mesh(&vgd, &renderer, piece.mesh_data, &tform)
+            draw_ps1_static_mesh(&vgd, &renderer, piece.model, &tform)
         }
 
         // Window update
