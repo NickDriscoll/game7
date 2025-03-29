@@ -40,7 +40,7 @@ delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
     delete(triangles)
 }
 
-static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
+new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
     FLOATS_PER_TRIANGLE :: 9
 
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
