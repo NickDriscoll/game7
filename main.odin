@@ -343,8 +343,9 @@ main :: proc() {
         velocity = {},
         state = .Falling,
         facing = {0.0, 1.0, 0.0},
-        move_speed = 10.0,
+        move_speed = 7.0,
         jump_speed = 15.0,
+        anim_speed = 0.856,
         //mesh_data = moon_mesh
         mesh_data = skinned_model
     }
@@ -576,6 +577,7 @@ main :: proc() {
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
                     if imgui.Button("Reset player") {
                         collision.position = CHARACTER_START_POS
                         velocity = {}
