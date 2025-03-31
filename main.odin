@@ -534,29 +534,10 @@ main :: proc() {
         @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
-            using game_state.viewport_camera
             if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
-                imgui.Text("Camera position: (%f, %f, %f)", position.x, position.y, position.z)
-                imgui.Text("Camera yaw: %f", yaw)
-                imgui.Text("Camera pitch: %f", pitch)
-                imgui.SliderFloat("Camera fast speed", &camera_sprint_multiplier, 0.0, 100.0)
-                imgui.SliderFloat("Camera slow speed", &camera_slow_multiplier, 0.0, 1.0/5.0)
-                
-                follow_cam := .Follow in control_flags
-                if imgui.Checkbox("Follow cam", &follow_cam) {
-                    pitch = 0.0
-                    yaw = 0.0
-                    control_flags ~= {.Follow}
-                    if .Follow in control_flags {
-                        replace_keybindings(&input_system, &character_key_mappings)
-                    } else {
-                        replace_keybindings(&input_system, &freecam_key_mappings)
-                    }
-                }
-                imgui.SliderFloat("Camera follow distance", &target.distance, 1.0, 20.0)
+                imgui.Separator()
                 imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
-
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
                     user_config.flags["freecam_collision"] = game_state.freecam_collision
                 }
@@ -571,6 +552,7 @@ main :: proc() {
 
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
+                    imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
                     fmt.sbprintf(&sb, "Player state: %v", state)
                     state_str, _ := strings.to_cstring(&sb)
                     strings.builder_reset(&sb)
@@ -684,6 +666,29 @@ main :: proc() {
                 vgd.resize_window = true
             }
             case .None: {}
+        }
+
+        
+        if imgui_state.show_gui && user_config.flags["camera_config"] {
+            res, ok := camera_gui(
+                &game_state.viewport_camera,
+                &input_system,
+                &user_config,
+                &camera_sprint_multiplier,
+                &camera_slow_multiplier,
+                &user_config.flags["camera_config"]
+            )
+            if ok {
+                switch res {
+                    case .ToggleFollowCam: {
+                        if .Follow in game_state.viewport_camera.control_flags {
+                            replace_keybindings(&input_system, &character_key_mappings)
+                        } else {
+                            replace_keybindings(&input_system, &freecam_key_mappings)
+                        }
+                    }
+                }    
+            }
         }
 
         // Input remapping GUI

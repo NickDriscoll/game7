@@ -24,32 +24,6 @@ delete_terrain_piece :: proc(using t: ^TerrainPiece) {
     delete_static_triangles(&collision)
 }
 
-CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
-CharacterState :: enum {
-    Grounded,
-    Falling
-}
-CharacterFlags :: bit_set[enum {
-    MovingLeft,
-    MovingRight,
-    MovingBack,
-    MovingForward,
-}]
-Character :: struct {
-    collision: Sphere,
-    state: CharacterState,
-    velocity: hlsl.float3,
-    facing: hlsl.float3,
-    move_speed: f32,
-    jump_speed: f32,
-    remaining_jumps: u32,
-    anim_t: f32,
-    anim_speed: f32,
-    control_flags: CharacterFlags,
-    //mesh_data: ^StaticModelData,
-    mesh_data: ^SkinnedModelData,
-}
-
 StaticScenery :: struct {
     model: ^StaticModelData,
     position: hlsl.float3,
@@ -383,10 +357,37 @@ scene_editor :: proc(
 
 
 
+CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
+CharacterState :: enum {
+    Grounded,
+    Falling
+}
+CharacterFlags :: bit_set[enum {
+    MovingLeft,
+    MovingRight,
+    MovingBack,
+    MovingForward,
+}]
+Character :: struct {
+    collision: Sphere,
+    state: CharacterState,
+    velocity: hlsl.float3,
+    acceleration: hlsl.float3,
+    facing: hlsl.float3,
+    move_speed: f32,
+    jump_speed: f32,
+    remaining_jumps: u32,
+    anim_t: f32,
+    anim_speed: f32,
+    control_flags: CharacterFlags,
+    mesh_data: ^SkinnedModelData,
+}
+
 player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f32) {
     if output_verbs.bools[.PlayerReset] {
         game_state.character.collision.position = CHARACTER_START_POS
         game_state.character.velocity = {}
+        game_state.character.acceleration = {}
     }
 
     GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
@@ -438,18 +439,28 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         if .MovingForward in game_state.character.control_flags do zv += 1.0
 
         // Input vector is in view space, so we transform to world space
-        world_v := hlsl.float4 {-zv, xv, 0.0, 0.0}
-        world_v = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_v
-        if hlsl.length(world_v) > 1.0 {
-            world_v = hlsl.normalize(world_v)
+        world_invector := hlsl.float4 {-zv, xv, 0.0, 0.0}
+        world_invector = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_invector
+        if hlsl.length(world_invector) > 1.0 {
+            world_invector = hlsl.normalize(world_invector)
         }
     
-        game_state.character.velocity.xy = game_state.character.move_speed * world_v.xy
+        SPEED_LIMIT :: 10.0 // ms/s^2
+        game_state.character.acceleration = world_invector.xyz
+        if hlsl.length(game_state.character.velocity.xy) > 0 {
+            game_state.character.velocity.xy -= 0.1
+            if game_state.character.velocity.x < 0.0 do game_state.character.velocity.x = 0.0
+            if game_state.character.velocity.y < 0.0 do game_state.character.velocity.y = 0.0
+        }
+        game_state.character.velocity.xy += game_state.character.move_speed * game_state.character.acceleration.xy
+        if math.abs(hlsl.length(game_state.character.velocity.xy)) > SPEED_LIMIT {
+            game_state.character.velocity.xy = hlsl.normalize(game_state.character.velocity.xy)
+        }
         movement_dist := hlsl.length(game_state.character.velocity.xy)
         game_state.character.anim_t += game_state.character.anim_speed * game_state.timescale * dt * movement_dist
 
         if xv != 0.0 || zv != 0.0 {
-            game_state.character.facing = -hlsl.normalize(world_v).xyz
+            game_state.character.facing = -hlsl.normalize(world_invector).xyz
         }
     }
 

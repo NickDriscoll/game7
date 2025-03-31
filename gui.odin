@@ -243,7 +243,10 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Config") {
-            if imgui.MenuItem("Input", "porque?") do user_config.flags["input_config"] = !user_config.flags["input_config"]
+            input_config := user_config.flags["input_config"]
+            if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags["input_config"] = !user_config.flags["input_config"]
+            camera_config := user_config.flags["camera_config"]
+            if imgui.MenuItem("Camera", selected = camera_config) do user_config.flags["camera_config"] = !user_config.flags["camera_config"]
 
             imgui.EndMenu()
         }
