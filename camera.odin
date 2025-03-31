@@ -158,14 +158,14 @@ camera_gui :: proc(
         imgui.SliderFloat("Camera slow speed", camera_slow_multiplier, 0.0, 1.0/5.0)
     
         freecam := .Follow not_in camera.control_flags
-        if imgui.Checkbox("Free cam", &freecam) {
+        if imgui.Checkbox("Freecam", &freecam) {
             camera.pitch = 0.0
             camera.yaw = 0.0
             camera.control_flags ~= {.Follow}
             response = .ToggleFollowCam
+            ok = true
         }
         imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
-        ok = true
     }
     imgui.End()
 
