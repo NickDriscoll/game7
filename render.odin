@@ -32,6 +32,7 @@ FRAMES_IN_FLIGHT :: 2
 
 UniformBufferData :: struct {
     clip_from_world: hlsl.float4x4,
+    clip_from_skybox: hlsl.float4x4,
     clip_from_screen: hlsl.float4x4,
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
@@ -215,6 +216,7 @@ Renderer :: struct {
 
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
+    skybox_pipeline: vkw.Pipeline_Handle,
     postfx_pipeline: vkw.Pipeline_Handle,
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
@@ -454,15 +456,13 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
     // Graphics pipeline creation
     {
+        raster_state := vkw.default_rasterization_state()
+        pipeline_infos := make([dynamic]vkw.GraphicsPipelineInfo, context.temp_allocator)
+
         // Load shader bytecode
         // This will be embedded into the executable at compile-time
         ps1_vert_spv := #load("data/shaders/ps1.vert.spv", []u32)
         ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
-
-        raster_state := vkw.default_rasterization_state()
-
-        pipeline_infos := make([dynamic]vkw.GraphicsPipelineInfo, context.temp_allocator)
-
         // PS1 pipeline
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = ps1_vert_spv,
@@ -504,7 +504,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
         postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
-
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = postfx_vert_spv,
             fragment_shader_bytecode = postfx_frag_spv,
@@ -541,11 +540,50 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             }
         })
 
+        // Skybox pipeline info
+        pipeline_vert_spv := #load("data/shaders/skybox.vert.spv", []u32)
+        pipeline_frag_spv := #load("data/shaders/skybox.frag.spv", []u32)
+        append(&pipeline_infos, vkw.GraphicsPipelineInfo {
+            vertex_shader_bytecode = pipeline_vert_spv,
+            fragment_shader_bytecode = pipeline_frag_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false,
+            },
+            tessellation_state = {},
+            rasterization_state = raster_state,
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = nil,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false,
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = true,
+                do_depth_write = false,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0,
+            },
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = main_color_attachment_formats,
+                depth_attachment_format = main_depth_attachment_format,
+            },
+        })
+
         handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
-        defer delete(handles)
 
         renderer.ps1_pipeline = handles[0]
         renderer.postfx_pipeline = handles[1]
+        renderer.skybox_pipeline = handles[2]
     }
 
     // Compute pipeline creation
@@ -1286,6 +1324,10 @@ render :: proc(
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
     vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, u32(len(gpu_draws)))
+
+    // Draw skybox
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
+    vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
