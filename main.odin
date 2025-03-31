@@ -341,10 +341,11 @@ main :: proc() {
             radius = 0.8
         },
         velocity = {},
+        deceleration_speed = 0.1,
         state = .Falling,
         facing = {0.0, 1.0, 0.0},
         move_speed = 7.0,
-        jump_speed = 15.0,
+        jump_speed = 8.0,
         anim_speed = 0.856,
         //mesh_data = moon_mesh
         mesh_data = skinned_model
@@ -558,6 +559,7 @@ main :: proc() {
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player deceleration speed", &deceleration_speed, 0.01, 2.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
                     if imgui.Button("Reset player") {
@@ -746,14 +748,20 @@ main :: proc() {
         }
 
         // Update and draw player
-        player_update(&game_state, &output_verbs, last_frame_dt)
+        player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
         player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
         current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
+        projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
         renderer.cpu_uniforms.clip_from_world =
-            camera_projection_from_view(&game_state.viewport_camera) *
+            projection_from_view *
             current_view_from_world
+        {
+            vfw := hlsl.float3x3(current_view_from_world)
+            vfw4 := hlsl.float4x4(vfw)
+            renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
+        }
 
         // Update and draw static scenery
         for &mesh in game_state.static_scenery {
