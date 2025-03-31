@@ -3,6 +3,8 @@ package main
 import "core:math"
 import "core:math/linalg/hlsl"
 
+import imgui "odin-imgui"
+
 CameraTarget :: struct {
     position: hlsl.float3,
     distance: f32,
@@ -133,4 +135,39 @@ get_view_ray :: proc(using camera: ^Camera, click_coords: hlsl.uint2, resolution
         start = start,
         direction = hlsl.normalize(start - position)
     }
+}
+
+CameraGuiResponse :: enum {
+    ToggleFollowCam
+}
+
+camera_gui :: proc(
+    camera: ^Camera,
+    input_system: ^InputSystem,
+    user_config: ^UserConfiguration,
+    camera_sprint_multiplier: ^f32,
+    camera_slow_multiplier: ^f32,
+    close: ^bool
+) -> (response: CameraGuiResponse, ok: bool) {
+    ok = false
+    if imgui.Begin("Camera controls", close) {
+        imgui.Text("Camera position: (%f, %f, %f)", camera.position.x, camera.position.y, camera.position.z)
+        imgui.Text("Camera yaw: %f", camera.yaw)
+        imgui.Text("Camera pitch: %f", camera.pitch)
+        imgui.SliderFloat("Camera fast speed", camera_sprint_multiplier, 0.0, 100.0)
+        imgui.SliderFloat("Camera slow speed", camera_slow_multiplier, 0.0, 1.0/5.0)
+    
+        freecam := .Follow not_in camera.control_flags
+        if imgui.Checkbox("Free cam", &freecam) {
+            camera.pitch = 0.0
+            camera.yaw = 0.0
+            camera.control_flags ~= {.Follow}
+            response = .ToggleFollowCam
+        }
+        imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
+        ok = true
+    }
+    imgui.End()
+
+    return response, ok
 }
