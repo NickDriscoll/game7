@@ -373,6 +373,7 @@ Character :: struct {
     state: CharacterState,
     velocity: hlsl.float3,
     acceleration: hlsl.float3,
+    deceleration_speed: f32,
     facing: hlsl.float3,
     move_speed: f32,
     jump_speed: f32,
@@ -399,6 +400,8 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         v := output_verbs.float2s[.PlayerTranslate]
         xv := v.x
         zv := v.y
+
+        // Boolean input handling
         {
             r, ok := output_verbs.bools[.PlayerTranslateLeft]
             if ok {
@@ -444,20 +447,20 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         if hlsl.length(world_invector) > 1.0 {
             world_invector = hlsl.normalize(world_invector)
         }
-    
-        SPEED_LIMIT :: 10.0 // ms/s^2
-        game_state.character.acceleration = world_invector.xyz
+
+        // Now we have a representation of the player's input vector in world space
+
+        game_state.character.acceleration = {world_invector.x, world_invector.y, 0.0}
+        to_zero := hlsl.float2 {0.0, 0.0} - game_state.character.velocity.xy
         if hlsl.length(game_state.character.velocity.xy) > 0 {
-            game_state.character.velocity.xy -= 0.1
-            if game_state.character.velocity.x < 0.0 do game_state.character.velocity.x = 0.0
-            if game_state.character.velocity.y < 0.0 do game_state.character.velocity.y = 0.0
+            game_state.character.velocity.xy += game_state.character.deceleration_speed * to_zero
         }
-        game_state.character.velocity.xy += game_state.character.move_speed * game_state.character.acceleration.xy
-        if math.abs(hlsl.length(game_state.character.velocity.xy)) > SPEED_LIMIT {
-            game_state.character.velocity.xy = hlsl.normalize(game_state.character.velocity.xy)
+        game_state.character.velocity.xy += game_state.character.acceleration.xy
+        if math.abs(hlsl.length(game_state.character.velocity.xy)) > game_state.character.move_speed {
+            game_state.character.velocity.xy = game_state.character.move_speed * hlsl.normalize(game_state.character.velocity.xy)
         }
         movement_dist := hlsl.length(game_state.character.velocity.xy)
-        game_state.character.anim_t += game_state.character.anim_speed * game_state.timescale * dt * movement_dist
+        game_state.character.anim_t += game_state.character.anim_speed * dt * movement_dist
 
         if xv != 0.0 || zv != 0.0 {
             game_state.character.facing = -hlsl.normalize(world_invector).xyz
@@ -493,7 +496,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             }
 
             // Compute motion interval
-            motion_endpoint := game_state.character.collision.position + game_state.timescale * dt * game_state.character.velocity
+            motion_endpoint := game_state.character.collision.position + dt * game_state.character.velocity
             motion_interval := Segment {
                 start = game_state.character.collision.position,
                 end = motion_endpoint
@@ -516,13 +519,13 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         }
         case .Falling: {
             // Apply gravity to velocity, clamping downward speed if necessary
-            game_state.character.velocity += game_state.timescale * dt * GRAVITY_ACCELERATION
+            game_state.character.velocity += dt * GRAVITY_ACCELERATION
             if game_state.character.velocity.z < TERMINAL_VELOCITY {
                 game_state.character.velocity.z = TERMINAL_VELOCITY
             }
     
             // Compute motion interval
-            motion_endpoint := game_state.character.collision.position + game_state.timescale * dt * game_state.character.velocity
+            motion_endpoint := game_state.character.collision.position + dt * game_state.character.velocity
             motion_interval := Segment {
                 start = game_state.character.collision.position,
                 end = motion_endpoint
