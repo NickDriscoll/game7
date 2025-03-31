@@ -42,7 +42,6 @@ delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.all
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
     sb: strings.Builder
     strings.builder_init(&sb, allocator = context.temp_allocator)
-    defer strings.builder_destroy(&sb)
 
     save_file, err := create_write_file(filename)
     if err != nil {
@@ -89,6 +88,7 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "show_imgui_demo = false\n")
     os.write_string(out_file, "scene_editor = false\n")
     os.write_string(out_file, "camera_config = false\n")
+    os.write_string(out_file, "follow_cam = true\n")
 
     os.write_string(out_file, "freecam_x = 0.0\n")
     os.write_string(out_file, "freecam_y = -5.0\n")
