@@ -1,3 +1,4 @@
+import procs;
 import structs;
 import tex_bindings;
 
@@ -14,8 +15,6 @@ cbuffer push_constants {
     UniformData *u_data;
     uint sampler_idx;
 }
-
-static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
 
 // @TODO: This kind of sucks. Rethink the data.
 static const uint NULL_OFFSET = 0xFFFFFFFF;
@@ -80,6 +79,8 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     if (material.color_texture != NULL_OFFSET) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
+
+    //float3 sky_sample = sky_color(face_normal);
 
     float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
     if (u_data.triangle_vis == 1) {
