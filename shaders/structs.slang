@@ -1,5 +1,7 @@
 
 
+static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
+
 struct StaticMeshData {
     uint position_offset;
     uint uv_offset;
