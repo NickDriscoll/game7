@@ -14,7 +14,6 @@ import "core:strings"
 
 // List of all .slang files with a vertex shader entry point
 VERTEX_SHADERS : []string : {
-    "test",
     "imgui",
     "ps1",
     "postprocessing",
@@ -23,7 +22,6 @@ VERTEX_SHADERS : []string : {
 
 // List of all .slang files with a fragment shader entry point
 FRAGMENT_SHADERS : []string : {
-    "test",
     "imgui",
     "ps1",
     "postprocessing",
