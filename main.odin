@@ -346,6 +346,7 @@ main :: proc() {
         facing = {0.0, 1.0, 0.0},
         move_speed = 7.0,
         jump_speed = 8.0,
+        remaining_jumps = 2,
         anim_speed = 0.856,
         //mesh_data = moon_mesh
         mesh_data = skinned_model

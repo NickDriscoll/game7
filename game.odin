@@ -356,7 +356,7 @@ scene_editor :: proc(
 
 
 
-
+CHARACTER_TOTAL_JUMPS :: 2
 CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
 CharacterState :: enum {
     Grounded,
@@ -451,8 +451,8 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         // Now we have a representation of the player's input vector in world space
 
         game_state.character.acceleration = {world_invector.x, world_invector.y, 0.0}
-        to_zero := hlsl.float2 {0.0, 0.0} - game_state.character.velocity.xy
-        if hlsl.length(game_state.character.velocity.xy) > 0 {
+        if hlsl.length(game_state.character.acceleration) == 0 {
+            to_zero := hlsl.float2 {0.0, 0.0} - game_state.character.velocity.xy
             game_state.character.velocity.xy += game_state.character.deceleration_speed * to_zero
         }
         game_state.character.velocity.xy += game_state.character.acceleration.xy
@@ -465,6 +465,13 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         if xv != 0.0 || zv != 0.0 {
             game_state.character.facing = -hlsl.normalize(world_invector).xyz
         }
+    }
+
+    // Handle jump command
+    if output_verbs.bools[.PlayerJump] && game_state.character.remaining_jumps > 0 {
+        game_state.character.velocity.z = game_state.character.jump_speed
+        game_state.character.state = .Falling
+        game_state.character.remaining_jumps -= 1
     }
 
     // Main player character state machine
@@ -489,12 +496,6 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 }
             }
 
-            // Handle jump command
-            if output_verbs.bools[.PlayerJump] {
-                game_state.character.velocity += {0.0, 0.0, game_state.character.jump_speed}
-                game_state.character.state = .Falling
-            }
-
             // Compute motion interval
             motion_endpoint := game_state.character.collision.position + dt * game_state.character.velocity
             motion_interval := Segment {
@@ -503,7 +504,9 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             }
 
             // Push out of ground
-            p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+            //p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+            p := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+            n := hlsl.normalize(motion_endpoint - p)
             dist := hlsl.distance(p, game_state.character.collision.position)
             if dist < game_state.character.collision.radius {
                 remaining_dist := game_state.character.collision.radius - dist
@@ -538,26 +541,29 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             }
 
             // Then do collision test against triangles
-            //closest_t, n, hit := dynamic_sphere_vs_terrain_t_with_normal(&game_state.character.collision, game_state.terrain_pieces[:], &motion_interval)
-            closest_pt, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+            //closest_pt, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+            closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+            n := hlsl.normalize(motion_endpoint - closest_pt)
+
             d := hlsl.distance(game_state.character.collision.position, closest_pt)
             hit := d < game_state.character.collision.radius
 
-            // Respond
             if hit {
                 // Hit terrain
-                //game_state.character.collision.position += closest_t * (motion_interval.end - motion_interval.start)
                 remaining_d := game_state.character.collision.radius - d
                 game_state.character.collision.position = motion_endpoint + remaining_d * n
                 n_dot := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
                 if n_dot >= 0.5 && game_state.character.velocity.z < 0.0 {
+                    // Floor
+                    game_state.character.remaining_jumps = CHARACTER_TOTAL_JUMPS
                     game_state.character.velocity = {}
                     game_state.character.state = .Grounded
                 } else if n_dot < -0.1 && game_state.character.velocity.z > 0.0 {
+                    // Ceiling
                     game_state.character.velocity.z = 0.0
                 }
             } else {
-                // Didn't hit anything, falling.
+                // Didn't hit anything, still falling.
                 game_state.character.collision.position = motion_endpoint
             }
         }
