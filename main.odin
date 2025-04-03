@@ -296,6 +296,11 @@ main :: proc() {
         path : cstring = "data/models/majoras_moon.glb"
         moon_mesh = load_gltf_static_model(&vgd, &renderer, path)
     }
+
+    // Load icosphere mesh for debug visualization
+    {
+        game_state.sphere_mesh = load_gltf_static_model(&vgd, &renderer, "data/models/icosphere.glb")
+    }
     
     // Add moon terrain piece
     {
@@ -334,10 +339,12 @@ main :: proc() {
         })
     }
 
-    game_state.character_start = CHARACTER_START_POS
+    // @TODO: Load this value from level file
+    game_state.character_start = {-9.0, 15.0, 1.0}
+
     game_state.character = Character {
         collision = {
-            position = CHARACTER_START_POS,
+            position = game_state.character_start,
             radius = 0.8
         },
         velocity = {},
@@ -564,7 +571,7 @@ main :: proc() {
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
                     if imgui.Button("Reset player") {
-                        collision.position = CHARACTER_START_POS
+                        collision.position = game_state.character_start
                         velocity = {}
                     }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
@@ -701,8 +708,9 @@ main :: proc() {
         if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
 
         // Handle current editor state
-        switch obj in game_state.editor_response {
-            case EditorResponse: {
+        {
+            obj, edit_ok := game_state.editor_response.(EditorResponse)
+            if edit_ok {
                 if !io.WantCaptureMouse {
                     viewport_coords := hlsl.uint2 {
                         u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),

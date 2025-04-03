@@ -9,19 +9,14 @@ struct StaticMeshData {
     uint _pad0;
 }
 
-struct SkinnedMeshData {
-    StaticMeshData static_data;
-    uint joint_ids_offset;
-    uint joint_weights_offset;
-}
-
 struct InstanceData {
     float4x4 world_from_model;
     float4x4 normal_matrix;
     uint mesh_idx;
     uint material_idx;
     uint2 _pad0;
-    float4x3 _pad4;
+    float4 color;
+    float4x2 _pad4;
 }
 
 struct MaterialData {

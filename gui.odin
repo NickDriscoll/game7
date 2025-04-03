@@ -156,6 +156,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             color_attachment_formats = {vk.Format.B8G8R8A8_SRGB},
             depth_attachment_format = nil,
         },
+        name = "Dear ImGUI pipeline"
     }
 
     handles := vkw.create_graphics_pipelines(gd, {pipeline_info})

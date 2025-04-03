@@ -83,6 +83,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     //float3 sky_sample = sky_color(face_normal);
 
     float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+    //final_color = lerp(final_color, sky_sample, 0.05);
     if (u_data.triangle_vis == 1) {
         final_color *= id_to_color(primitive_id);
     }
