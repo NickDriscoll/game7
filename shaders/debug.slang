@@ -32,6 +32,5 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
 float4 fragment_main(VertexOutput input, uint primitive_id: SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
 
-    // return inst.color;
-    return float4(1.0, 0.0, 0.0, 1.0);
+    return inst.color;
 }

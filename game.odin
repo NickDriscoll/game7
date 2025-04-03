@@ -113,9 +113,7 @@ scene_editor :: proc(
             imgui.Checkbox("Visualize player spawn", &game_state.show_character_start)
             if game_state.show_character_start {
                 dd: DebugDraw
-                dd.world_from_model[3][0] = game_state.character.collision.position.x
-                dd.world_from_model[3][1] = game_state.character.collision.position.y
-                dd.world_from_model[3][2] = game_state.character.collision.position.z\
+                dd.world_from_model = translation_matrix(game_state.character.collision.position)
                 dd.color = {0.0, 0.0, 1.0, 0.5}
                 draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
             }
