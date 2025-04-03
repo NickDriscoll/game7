@@ -17,7 +17,8 @@ VERTEX_SHADERS : []string : {
     "imgui",
     "ps1",
     "postprocessing",
-    "skybox"
+    "skybox",
+    "debug"
 }
 
 // List of all .slang files with a fragment shader entry point
@@ -25,7 +26,8 @@ FRAGMENT_SHADERS : []string : {
     "imgui",
     "ps1",
     "postprocessing",
-    "skybox"
+    "skybox",
+    "debug"
 }
 
 // List of all .slang files with a compute shader entry point
