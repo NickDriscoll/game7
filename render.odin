@@ -130,6 +130,18 @@ GPUStaticInstance :: struct {
     _pad3: hlsl.float4x3,
 }
 
+DebugStaticInstance :: struct {
+    world_from_model: hlsl.float4x4,
+    mesh_handle: Static_Mesh_Handle,
+    gpu_mesh_idx: u32,
+    color: hlsl.float4,
+}
+
+DebugDraw :: struct {
+    world_from_model: hlsl.float4x4,
+    color: hlsl.float4
+}
+
 SkinnedDraw :: struct {
     world_from_model: hlsl.float4x4,
     anim_idx: u32,
@@ -170,7 +182,7 @@ Material_Handle :: distinct hm.Handle
 Renderer :: struct {
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
     indices_head: u32,
-    
+
     // Global buffers for vertex attributes
     positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
     positions_head: u32,
@@ -203,10 +215,14 @@ Renderer :: struct {
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(Material),
     
-    cpu_static_instances: [dynamic]CPUStaticInstance,
-    gpu_static_instances: [dynamic]GPUStaticInstance,
+    
+    ps1_static_instances: [dynamic]CPUStaticInstance,
+    debug_static_instances: [dynamic]DebugStaticInstance,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
+
+    gpu_static_instances: [dynamic]GPUStaticInstance,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
+
 
     // Per-frame shader uniforms
     cpu_uniforms: UniformBufferData,
@@ -216,8 +232,11 @@ Renderer :: struct {
 
     // Pipeline buckets
     ps1_pipeline: vkw.Pipeline_Handle,
-    skybox_pipeline: vkw.Pipeline_Handle,
-    postfx_pipeline: vkw.Pipeline_Handle,
+    debug_pipeline: vkw.Pipeline_Handle,
+
+    skybox_pipeline: vkw.Pipeline_Handle,           // Special pipeline for sky drawing
+
+    postfx_pipeline: vkw.Pipeline_Handle,           // Special pipeline for fullscreen-triangle postprocessing
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
@@ -498,6 +517,47 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 color_attachment_formats = main_color_attachment_formats,
                 depth_attachment_format = main_depth_attachment_format,
             },
+            name = "PS1 pipeline"
+        })
+
+        debug_vert_spv := #load("data/shaders/debug.vert.spv", []u32)
+        debug_frag_spv := #load("data/shaders/debug.frag.spv", []u32)
+        // debug pipeline
+        append(&pipeline_infos, vkw.GraphicsPipelineInfo {
+            vertex_shader_bytecode = debug_vert_spv,
+            fragment_shader_bytecode = debug_frag_spv,
+            input_assembly_state = vkw.Input_Assembly_State {
+                topology = .TRIANGLE_LIST,
+                primitive_restart_enabled = false,
+            },
+            tessellation_state = {},
+            rasterization_state = raster_state,
+            multisample_state = vkw.Multisample_State {
+                sample_count = {._1},
+                do_sample_shading = false,
+                min_sample_shading = 0.0,
+                sample_mask = nil,
+                do_alpha_to_coverage = false,
+                do_alpha_to_one = false,
+            },
+            depthstencil_state = vkw.DepthStencil_State {
+                flags = nil,
+                do_depth_test = true,
+                do_depth_write = true,
+                depth_compare_op = .GREATER_OR_EQUAL,
+                do_depth_bounds_test = false,
+                do_stencil_test = false,
+                // front = nil,
+                // back = nil,
+                min_depth_bounds = 0.0,
+                max_depth_bounds = 1.0,
+            },
+            colorblend_state = vkw.default_colorblend_state(),
+            renderpass_state = vkw.PipelineRenderpass_Info {
+                color_attachment_formats = main_color_attachment_formats,
+                depth_attachment_format = main_depth_attachment_format,
+            },
+            name = "Debug pipeline"
         })
 
         // Postprocessing pass info
@@ -537,7 +597,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             renderpass_state = vkw.PipelineRenderpass_Info {
                 color_attachment_formats = {swapchain_format},
                 depth_attachment_format = nil,
-            }
+            },
+            name = "PostFX pipeline"
         })
 
         // Skybox pipeline info
@@ -577,13 +638,15 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 color_attachment_formats = main_color_attachment_formats,
                 depth_attachment_format = main_depth_attachment_format,
             },
+            name = "Skybox pipeline"
         })
 
         handles := vkw.create_graphics_pipelines(gd, pipeline_infos[:])
 
         renderer.ps1_pipeline = handles[0]
-        renderer.postfx_pipeline = handles[1]
-        renderer.skybox_pipeline = handles[2]
+        renderer.debug_pipeline = handles[1]
+        renderer.postfx_pipeline = handles[2]
+        renderer.skybox_pipeline = handles[3]
     }
 
     // Compute pipeline creation
@@ -592,7 +655,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         skinning_spv := #load("data/shaders/compute_skinning.comp.spv", []u32)
         append(&infos, vkw.ComputePipelineInfo {
-            compute_shader_bytecode = skinning_spv
+            compute_shader_bytecode = skinning_spv,
+            name = "Compute skinning pipeline"
         })
 
         handles := vkw.create_compute_pipelines(gd, infos[:])
@@ -871,7 +935,8 @@ add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle 
 
 // Per-frame work that needs to happen at the beginning of the frame
 new_frame :: proc(renderer: ^Renderer) {
-    renderer.cpu_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
     renderer.gpu_static_instances = make([dynamic]GPUStaticInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
@@ -899,6 +964,36 @@ draw_ps1_skinned_mesh :: proc(
     }
 }
 
+draw_debug_mesh :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    model: ^StaticModelData,
+    draw_data: ^DebugDraw
+) {
+    for prim in model.primitives {
+        draw_debug_primtive(gd, renderer, prim.mesh, draw_data)
+    }
+}
+
+draw_debug_primtive :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    mesh_handle: Static_Mesh_Handle,
+    draw_data: ^DebugDraw
+) {
+    renderer.dirty_flags += {.Instance,.Draw}
+
+    mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+
+    new_inst := DebugStaticInstance {
+        world_from_model = draw_data.world_from_model,
+        mesh_handle = mesh_handle,
+        gpu_mesh_idx = mesh.gpu_mesh_idx,
+        color = draw_data.color
+    }
+    append(&renderer.debug_static_instances, new_inst)
+}
+
 // User code calls this to queue up draw calls
 draw_ps1_static_primitive :: proc(
     gd: ^vkw.Graphics_Device,
@@ -918,7 +1013,7 @@ draw_ps1_static_primitive :: proc(
         gpu_mesh_idx = mesh.gpu_mesh_idx,
         material_handle = material_handle
     }
-    append(&renderer.cpu_static_instances, new_inst)
+    append(&renderer.ps1_static_instances, new_inst)
 
     return true
 }
@@ -1119,7 +1214,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                 material_handle = skinned_instance.material_handle,
                 gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1)
             }
-            append(&renderer.cpu_static_instances, new_cpu_static_instance)
+            append(&renderer.ps1_static_instances, new_cpu_static_instance)
 
             // Upload to GPU
             // @TODO: Batch this up
@@ -1199,21 +1294,28 @@ render :: proc(
         vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
     }
 
-    // Draw and Instance buffers
-    gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(renderer.cpu_static_instances), context.temp_allocator)
-    if .Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags {
+    draw_instances :: proc(
+        gd: ^vkw.Graphics_Device,
+        renderer: ^Renderer,
+        instances: []$T,
+        draw_buffer_offset: u32,
+        first_instance: u32
+    ) -> u32 {
+        do_it := (.Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags) && len(instances) > 0
+        if do_it {
+            gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(instances), context.temp_allocator)
         
-        // Sort instances by mesh handle
-        slice.sort_by(renderer.cpu_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {
-            return i.mesh_handle.index < j.mesh_handle.index
-        })
+            // Sort instances by mesh handle
+            slice.sort_by(instances, proc(i, j: T) -> bool {
+                return i.mesh_handle.index < j.mesh_handle.index
+            })
+            
+            // With the understanding that these instances are already sorted by
+            // mesh_idx, construct the draw stream with appropriate instancing
 
-        // With the understanding that these instances are already sorted by
-        // mesh_idx, construct the draw stream with appropriate instancing
-        if len(renderer.cpu_static_instances) > 0 {
             current_instance := 0
-            for current_instance < len(renderer.cpu_static_instances) {
-                current_mesh_handle := renderer.cpu_static_instances[current_instance].mesh_handle
+            for current_instance < len(instances) {
+                current_mesh_handle := instances[current_instance].mesh_handle
                 current_mesh, ok := hm.get(&renderer.cpu_static_meshes, current_mesh_handle)
                 if !ok {
                     log.error("Unable to get current_mesh")
@@ -1223,31 +1325,48 @@ render :: proc(
                     instanceCount = 0,
                     firstIndex = current_mesh.indices_start,
                     vertexOffset = 0,
-                    firstInstance = u32(current_instance)
+                    firstInstance = u32(current_instance) + first_instance
                 }
                 
-                inst := &renderer.cpu_static_instances[current_instance]
+                inst := &instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
+                    material_idx : u32 = 0
+                    when T == CPUStaticInstance {
+                        material_idx = inst.material_handle.index
+                    }
+
                     g_inst := GPUStaticInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
                         mesh_idx = inst.gpu_mesh_idx,
-                        material_idx = inst.material_handle.index
+                        material_idx = material_idx
                     }
                     append(&renderer.gpu_static_instances, g_inst)
                     draw_call.instanceCount += 1
                     current_instance += 1
-                    if current_instance == len(renderer.cpu_static_instances) do break
-                    inst = &renderer.cpu_static_instances[current_instance]
+                    if current_instance == len(instances) do break
+                    inst = &instances[current_instance]
                 }
 
                 append(&gpu_draws, draw_call)
             }
+            vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:], draw_buffer_offset)
+
+            return u32(len(gpu_draws)) + draw_buffer_offset
         }
 
-        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
-        vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:])
+        return 0
     }
+
+    ps1_draw_offset := draw_instances(gd, renderer, renderer.ps1_static_instances[:], 0, 0)
+    debug_draw_offset := draw_instances(
+        gd,
+        renderer,
+        renderer.debug_static_instances[:],
+        ps1_draw_offset,
+        u32(len(renderer.ps1_static_instances))
+    )
+    vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
 
     // Update uniforms buffer
     {
@@ -1263,9 +1382,6 @@ render :: proc(
     // Bind global index buffer and descriptor set
     vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
-
-    // PS1 simple unlit pipeline
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
 
     // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
     color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
@@ -1323,7 +1439,20 @@ render :: proc(
     })
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-    vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, u32(len(gpu_draws)))
+
+    // Main 3D pipeline
+    if ps1_draw_offset > 0 {
+        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
+        vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, ps1_draw_offset)
+    }
+    // Debug draw pipeline
+    if debug_draw_offset > 0 {
+        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
+        vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, u64(ps1_draw_offset * size_of(vk.DrawIndexedIndirectCommand)), debug_draw_offset - ps1_draw_offset)
+    }
+
+
+    // 3D scene mesh drawing finished
 
     // Draw skybox
     vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)

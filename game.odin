@@ -50,12 +50,13 @@ GameState :: struct {
     animated_scenery: [dynamic]AnimatedMesh,
 
     // Icosphere mesh for visualizing spherical collision and points
-
+    sphere_mesh: ^StaticModelData,
 
     // Editor state
     editor_response: Maybe(EditorResponse),
 
     character_start: hlsl.float3,
+    show_character_start: bool,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -83,6 +84,7 @@ EditorResponseType :: enum {
     MoveTerrainPiece,
     MoveStaticScenery,
     MoveAnimatedScenery,
+    MovePlayerSpawn,
     AddAnimatedScenery
 }
 
@@ -105,12 +107,20 @@ scene_editor :: proc(
 
     show_editor := gui.show_gui && user_config.flags["scene_editor"]
     if show_editor && imgui.Begin("Scene editor", &user_config.flags["scene_editor"]) {
-        // @TODO: Is this a bug in the filepath package?
-        // The File_Info structs are supposed to be allocated
-        // with context.temp_allocator, but it appears that it
-        // actually uses context.allocator
-        old_alloc := context.allocator
-        context.allocator = context.temp_allocator
+        // Spawn point editor
+        {
+            imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
+            imgui.Checkbox("Visualize player spawn", &game_state.show_character_start)
+            if game_state.show_character_start {
+                dd: DebugDraw
+                dd.world_from_model[3][0] = game_state.character.collision.position.x
+                dd.world_from_model[3][1] = game_state.character.collision.position.y
+                dd.world_from_model[3][2] = game_state.character.collision.position.z\
+                dd.color = {0.0, 0.0, 1.0, 0.5}
+                draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+            }
+            imgui.Separator()
+        }
 
         filewalk_proc :: proc(
             info: os.File_Info,
@@ -127,8 +137,16 @@ scene_editor :: proc(
             return
         }
         list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+
+        // @TODO: Is this a bug in the filepath package?
+        // The File_Info structs are supposed to be allocated
+        // with context.temp_allocator, but it appears that it
+        // actually uses context.allocator
+        old_alloc := context.allocator
+        context.allocator = context.temp_allocator
         walk_error := filepath.walk("./data/models", filewalk_proc, &list_items)
         context.allocator = old_alloc
+
         if walk_error != nil {
             log.errorf("Error walking models dir: %v", walk_error)
         }
@@ -225,6 +243,7 @@ scene_editor :: proc(
                     imgui.SameLine()
                     if imgui.Button("Delete") {
                         unordered_remove(objects, i)
+                        editor_response^ = nil
                     }
                     if disable_button do imgui.EndDisabled()
         
@@ -298,6 +317,7 @@ scene_editor :: proc(
                     imgui.SameLine()
                     if imgui.Button("Delete") {
                         unordered_remove(objects, i)
+                        game_state.editor_response = nil
                     }
                     if disable_button do imgui.EndDisabled()
         
@@ -357,7 +377,7 @@ scene_editor :: proc(
 
 
 CHARACTER_TOTAL_JUMPS :: 2
-CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
+//CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
 CharacterState :: enum {
     Grounded,
     Falling
@@ -386,7 +406,7 @@ Character :: struct {
 
 player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f32) {
     if output_verbs.bools[.PlayerReset] {
-        game_state.character.collision.position = CHARACTER_START_POS
+        game_state.character.collision.position = game_state.character_start
         game_state.character.velocity = {}
         game_state.character.acceleration = {}
     }
