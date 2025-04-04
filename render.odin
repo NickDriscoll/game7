@@ -127,7 +127,8 @@ GPUStaticInstance :: struct {
     mesh_idx: u32,
     material_idx: u32,
     _pad0: hlsl.uint2,
-    _pad3: hlsl.float4x3,
+    color: hlsl.float4,
+    _pad3: hlsl.float4x2,
 }
 
 DebugStaticInstance :: struct {
@@ -1335,11 +1336,17 @@ render :: proc(
                         material_idx = inst.material_handle.index
                     }
 
+                    color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
+                    when T == DebugStaticInstance {
+                        color = inst.color
+                    }
+
                     g_inst := GPUStaticInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
                         mesh_idx = inst.gpu_mesh_idx,
-                        material_idx = material_idx
+                        material_idx = material_idx,
+                        color = color
                     }
                     append(&renderer.gpu_static_instances, g_inst)
                     draw_call.instanceCount += 1
