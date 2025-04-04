@@ -236,8 +236,7 @@ Renderer :: struct {
     debug_pipeline: vkw.Pipeline_Handle,
 
     skybox_pipeline: vkw.Pipeline_Handle,           // Special pipeline for sky drawing
-
-    postfx_pipeline: vkw.Pipeline_Handle,           // Special pipeline for fullscreen-triangle postprocessing
+    postfx_pipeline: vkw.Pipeline_Handle,           // Special pipeline for fragment shader postprocessing
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
@@ -544,7 +543,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             depthstencil_state = vkw.DepthStencil_State {
                 flags = nil,
                 do_depth_test = true,
-                do_depth_write = true,
+                do_depth_write = false,
                 depth_compare_op = .GREATER_OR_EQUAL,
                 do_depth_bounds_test = false,
                 do_stencil_test = false,
@@ -1447,23 +1446,27 @@ render :: proc(
 
     // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
 
+    // Opaque drawing pipeline(s)
+
     // Main 3D pipeline
     if ps1_draw_offset > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
         vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, ps1_draw_offset)
     }
+
+    // Opaque drawing finished
+
+    // Sky
+    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
+    vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
+
+    // Start transparent drawing
+
     // Debug draw pipeline
     if debug_draw_offset > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
         vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, u64(ps1_draw_offset * size_of(vk.DrawIndexedIndirectCommand)), debug_draw_offset - ps1_draw_offset)
     }
-
-
-    // 3D scene mesh drawing finished
-
-    // Draw skybox
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
-    vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
