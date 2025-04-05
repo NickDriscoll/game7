@@ -559,6 +559,8 @@ main :: proc() {
                     strings.builder_init(&sb, context.temp_allocator)
                     defer strings.builder_destroy(&sb)
 
+                    flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
+                    if imgui.Checkbox("Visualize player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
@@ -585,8 +587,6 @@ main :: proc() {
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") do game_state.timescale = 1.0
-                
-                //imgui.ColorPicker4("Clear color", (^[4]f32)(&render_data.main_framebuffer.clear_color), {.NoPicker})
                 
                 imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
                 imgui.SameLine()
