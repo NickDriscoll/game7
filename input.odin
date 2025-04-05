@@ -29,6 +29,9 @@ VerbType :: enum {
     ToggleImgui,
     ToggleMouseLook,
 
+    Resume,
+    FrameAdvance,
+
     TranslateFreecamLeft,
     TranslateFreecamRight,
     TranslateFreecamForward,
@@ -273,6 +276,8 @@ poll_sdl2_events :: proc(
                 verbtype, found := state.key_mappings[sc]
                 if found {
                     bools[verbtype] = true
+                } else {
+                    log.debugf("Unbound keypress: %v", event.key.keysym.scancode)
                 }
             }
             case .KEYUP: {

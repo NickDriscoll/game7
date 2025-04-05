@@ -399,17 +399,19 @@ main :: proc() {
         freecam_key_mappings[.LSHIFT] = .Sprint
         freecam_key_mappings[.LCTRL] = .Crawl
         freecam_key_mappings[.SPACE] = .PlayerJump
+        freecam_key_mappings[.BACKSLASH] = .FrameAdvance
+        freecam_key_mappings[.PAUSE] = .Resume
         
         character_key_mappings[.ESCAPE] = .ToggleImgui
         character_key_mappings[.W] = .PlayerTranslateForward
         character_key_mappings[.S] = .PlayerTranslateBack
         character_key_mappings[.A] = .PlayerTranslateLeft
         character_key_mappings[.D] = .PlayerTranslateRight
-        character_key_mappings[.Q] = .TranslateFreecamDown
-        character_key_mappings[.E] = .TranslateFreecamUp
         character_key_mappings[.LSHIFT] = .Sprint
         character_key_mappings[.LCTRL] = .Crawl
         character_key_mappings[.SPACE] = .PlayerJump
+        character_key_mappings[.BACKSLASH] = .FrameAdvance
+        character_key_mappings[.PAUSE] = .Resume
     }
 
     // Init input system
@@ -424,19 +426,7 @@ main :: proc() {
     context.allocator = scene_allocator
 
     // Init audio system
-    audio_device_id: sdl2.AudioDeviceID
-    {
-        desired_audiospec := sdl2.AudioSpec {
-            freq = 44100,
-            format = sdl2.AUDIO_F32,
-            channels = 1,
-            
-        }
-        returned_audiospec: sdl2.AudioSpec
-        audio_device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &returned_audiospec, false)
-
-    }
-    defer sdl2.CloseAudioDevice(audio_device_id)
+    audio_system := init_audio_system()
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
@@ -444,7 +434,9 @@ main :: proc() {
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
-    limit_cpu := false
+    do_limit_cpu := false
+    paused := false
+    do_this_frame := true
     
     log.info("App initialization complete. Entering main loop")
 
@@ -457,8 +449,8 @@ main :: proc() {
         last_frame_dt = min(last_frame_dt, MAXIMUM_FRAME_DT)
         previous_time = current_time
 
-        // Save user configuration every second or so
-        if user_config_autosave && time.diff(user_config_last_saved, current_time) < 1_000_000_000 {
+        // Save user configuration every 100ms
+        if user_config_autosave && time.diff(user_config_last_saved, current_time) >= 1_000_000 {
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config_last_saved = current_time
@@ -468,12 +460,6 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        renderer.cpu_uniforms.clip_from_screen = {
-            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0
-        }
         renderer.cpu_uniforms.time = f32(vgd.frame_count) / 144
 
         new_frame(&renderer)
@@ -527,6 +513,7 @@ main :: proc() {
             }
             
         }
+
 
         // Update
 
@@ -588,7 +575,7 @@ main :: proc() {
                 imgui.SameLine()
                 if imgui.Button("Reset") do game_state.timescale = 1.0
                 
-                imgui.Checkbox("Enable CPU Limiter", &limit_cpu)
+                imgui.Checkbox("Enable CPU Limiter", &do_limit_cpu)
                 imgui.SameLine()
                 HelpMarker(
                     "Enabling this setting forces the main thread " +
@@ -756,8 +743,44 @@ main :: proc() {
             }
         }
 
+        // Memory viewer
+        when ODIN_DEBUG {
+            if imgui_state.show_gui && user_config.flags["show_allocator_stats"] {
+                if imgui.Begin("Allocator stats", &user_config.flags["show_allocator_stats"]) {
+                    imgui.Text("Global allocator stats")
+                    imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
+                    imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
+                    imgui.Separator()
+                    imgui.Text("Per-scene allocator stats")
+                    imgui.Text("Total per-scene memory allocated: %i", scene_track.current_memory_allocated)
+                    imgui.Text("Peak per-scene memory allocated: %i", scene_track.peak_memory_allocated)
+                    imgui.Separator()
+                }
+                imgui.End()
+            }
+        }
+
+        // After all imgui work, update clip_from_screen matrix
+        renderer.cpu_uniforms.clip_from_screen = {
+            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        }
+
+        // Determine if we're simulating a tick of game logic this frame
+        do_this_frame = !paused
+        if output_verbs.bools[.FrameAdvance] {
+            do_this_frame = true
+            paused = true
+        }
+        if output_verbs.bools[.Resume] do paused = !paused
+
         // Update and draw player
-        player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
+        if do_this_frame {
+            player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
+        }
+        
         player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
@@ -785,10 +808,12 @@ main :: proc() {
 
         // Update and draw animated scenery
         for &mesh in game_state.animated_scenery {
-            anim := &renderer.animations[mesh.anim_idx]
-            anim_end := get_animation_endtime(anim)
-            mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed
-            mesh.anim_t = math.mod(mesh.anim_t, anim_end)
+            if do_this_frame {
+                anim := &renderer.animations[mesh.anim_idx]
+                anim_end := get_animation_endtime(anim)
+                mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed
+                mesh.anim_t = math.mod(mesh.anim_t, anim_end)
+            }
 
             rot := linalg.to_matrix4(mesh.rotation)
 
@@ -826,23 +851,6 @@ main :: proc() {
             if ok2 {
                 user_config.ints["window_x"] = i64(new_pos.x)
                 user_config.ints["window_y"] = i64(new_pos.y)
-            }
-        }
-
-        // Memory viewer
-        when ODIN_DEBUG {
-            if imgui_state.show_gui && user_config.flags["show_allocator_stats"] {
-                if imgui.Begin("Allocator stats", &user_config.flags["show_allocator_stats"]) {
-                    imgui.Text("Global allocator stats")
-                    imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
-                    imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
-                    imgui.Separator()
-                    imgui.Text("Per-scene allocator stats")
-                    imgui.Text("Total per-scene memory allocated: %i", scene_track.current_memory_allocated)
-                    imgui.Text("Peak per-scene memory allocated: %i", scene_track.peak_memory_allocated)
-                    imgui.Separator()
-                }
-                imgui.End()
             }
         }
 
@@ -897,7 +905,7 @@ main :: proc() {
 
         // CPU limiter
         // 100 mil nanoseconds == 100 milliseconds
-        if limit_cpu do time.sleep(time.Duration(1_000_000 * cpu_limiter_ms))
+        if do_limit_cpu do time.sleep(time.Duration(1_000_000 * cpu_limiter_ms))
     }
 
     log.info("Returning from main()")
