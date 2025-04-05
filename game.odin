@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:os"
 import "core:path/filepath"
@@ -46,13 +47,20 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
+LevelFileFormat :: struct {
+
+}
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
     viewport_camera: Camera,
+
+    // Scene/Level data
     terrain_pieces: [dynamic]TerrainPiece,
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedMesh,
+    character_start: hlsl.float3,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: ^StaticModelData,
@@ -62,14 +70,15 @@ GameState :: struct {
     // Editor state
     editor_response: Maybe(EditorResponse),
 
-    character_start: hlsl.float3,
-    show_character_start: bool,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
 
     freecam_collision: bool,
+    freecam_speed_multiplier: f32,
+    freecam_slow_multiplier: f32,
+
     borderless_fullscreen: bool,
     exclusive_fullscreen: bool,
 }
@@ -118,7 +127,7 @@ scene_editor :: proc(
         {
             imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
             flag := .ShowPlayerSpawn in game_state.debug_vis_flags
-            if imgui.Checkbox("Visualize player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+            if imgui.Checkbox("Show player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
             imgui.Separator()
         }
 
@@ -246,6 +255,7 @@ scene_editor :: proc(
                         editor_response^ = nil
                     }
                     if disable_button do imgui.EndDisabled()
+                    imgui.Separator()
         
                     imgui.PopID()
                 }
@@ -263,12 +273,12 @@ scene_editor :: proc(
         //     .MoveTerrainPiece,
         //     &builder
         // )
+        terrain_piece_clone_idx: Maybe(int)
         {
             objects := &game_state.terrain_pieces
             label : cstring = "Terrain pieces"
             editor_response := &game_state.editor_response
             response_type := EditorResponseType.MoveTerrainPiece
-            terrain_piece_clone_idx: Maybe(int)
             if imgui.CollapsingHeader(label) {
                 imgui.PushID(label)
                 if len(objects) == 0 {
@@ -319,7 +329,13 @@ scene_editor :: proc(
                         unordered_remove(objects, i)
                         game_state.editor_response = nil
                     }
+                    if imgui.Button("Rebuild collision mesh") {
+                        rot := linalg.to_matrix4(mesh.rotation)
+                        mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
+                        rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
+                    }
                     if disable_button do imgui.EndDisabled()
+                    imgui.Separator()
         
                     imgui.PopID()
                 }
@@ -348,6 +364,17 @@ scene_editor :: proc(
         )
 
         // Do object clone
+        {
+            clone_idx, clone_ok := terrain_piece_clone_idx.?
+            if clone_ok {
+                append(&game_state.terrain_pieces, game_state.terrain_pieces[clone_idx])
+                new_idx := len(game_state.terrain_pieces) - 1
+                game_state.editor_response = EditorResponse {
+                    type = .MoveTerrainPiece,
+                    index = u32(new_idx)
+                }
+            }
+        }
         {
             clone_idx, clone_ok := static_to_clone_idx.?
             if clone_ok {
@@ -650,8 +677,6 @@ camera_update :: proc(
     game_state: ^GameState,
     output_verbs: ^OutputVerbs,
     dt: f32,
-    speed_multiplier: f32,
-    slow_multiplier: f32,
 ) -> hlsl.float4x4 {
     using game_state.viewport_camera
 
@@ -757,15 +782,15 @@ camera_update :: proc(
         // Not a sign error. In view-space, -Z is forward
         camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
     
-        camera_speed_mod += speed_multiplier * output_verbs.floats[.Sprint]
-        //camera_speed_mod += slow_multiplier * output_verbs.floats[.Crawl]
+        camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
+        //camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
     
     
         CAMERA_SPEED :: 10
         per_frame_speed := CAMERA_SPEED * dt
     
-        if .Speed in control_flags do camera_speed_mod *= speed_multiplier
-        if .Slow in control_flags do camera_speed_mod *= slow_multiplier
+        if .Speed in control_flags do camera_speed_mod *= game_state.freecam_speed_multiplier
+        if .Slow in control_flags do camera_speed_mod *= game_state.freecam_slow_multiplier
     
         game_state.viewport_camera.yaw += camera_rotation.x
         game_state.viewport_camera.pitch += camera_rotation.y

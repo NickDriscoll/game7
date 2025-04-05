@@ -1444,11 +1444,11 @@ render :: proc(
         sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
     })
 
-    // There will be one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
+    // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
 
     // Opaque drawing pipeline(s)
 
-    // Main 3D pipeline
+    // Main opqaue 3D shaded pipeline
     if ps1_draw_offset > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
         vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, ps1_draw_offset)

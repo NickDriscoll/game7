@@ -277,7 +277,7 @@ main :: proc() {
 
     // Get collision data out of main scene model
     {
-        positions := get_glb_positions(main_scene_path, context.temp_allocator)
+        positions := get_glb_positions(main_scene_path)
         mmat := uniform_scaling_matrix(1.0)
         collision := new_static_triangle_mesh(positions[:], mmat)
         append(&game_state.terrain_pieces, TerrainPiece {
@@ -304,7 +304,7 @@ main :: proc() {
     
     // Add moon terrain piece
     {
-        positions := get_glb_positions("data/models/majoras_moon.glb", context.temp_allocator)
+        positions := get_glb_positions("data/models/majoras_moon.glb")
         scale := uniform_scaling_matrix(300.0)
         rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
         trans := translation_matrix({350.0, 400.0, 500.0})
@@ -370,13 +370,15 @@ main :: proc() {
         pitch = f32(user_config.floats["freecam_pitch"]),
         fov_radians = f32(user_config.floats["camera_fov"]),
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
-        nearplane = 0.1,
+        nearplane = 0.1 / math.sqrt_f32(2.0),
         farplane = 1_000_000.0,
-        collision_radius = 0.8,
+        collision_radius = 0.1,
         target = {
             distance = 8.0
         },
     }
+    game_state.freecam_speed_multiplier = 5.0
+    game_state.freecam_slow_multiplier = 1.0 / 5.0
     if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
     log.debug(game_state.viewport_camera)
     saved_mouse_coords := hlsl.int2 {0, 0}
@@ -470,10 +472,6 @@ main :: proc() {
 
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
-        
-        // Process the app verbs that the input system returned to the game
-        @static camera_sprint_multiplier : f32 = 5.0
-        @static camera_slow_multiplier : f32 = 1.0 / 5.0
 
         // Tell Dear ImGUI about inputs
         {
@@ -547,7 +545,7 @@ main :: proc() {
                     defer strings.builder_destroy(&sb)
 
                     flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
-                    if imgui.Checkbox("Visualize player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                    if imgui.Checkbox("Show player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
@@ -562,6 +560,10 @@ main :: proc() {
                     if imgui.Button("Reset player") {
                         collision.position = game_state.character_start
                         velocity = {}
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Move player") {
+
                     }
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
@@ -668,11 +670,10 @@ main :: proc() {
         
         if imgui_state.show_gui && user_config.flags["camera_config"] {
             res, ok := camera_gui(
+                &game_state,
                 &game_state.viewport_camera,
                 &input_system,
                 &user_config,
-                &camera_sprint_multiplier,
-                &camera_slow_multiplier,
                 &user_config.flags["camera_config"]
             )
             if ok {
@@ -724,6 +725,10 @@ main :: proc() {
 
                     if closest_dist < math.INF_F32 {
                         #partial switch obj.type {
+                            case. MoveTerrainPiece: {
+                                object := &game_state.terrain_pieces[obj.index]
+                                object.position = collision_pt
+                            }
                             case .MoveStaticScenery: {
                                 object := &game_state.static_scenery[obj.index]
                                 object.position = collision_pt
@@ -784,7 +789,7 @@ main :: proc() {
         player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt, camera_sprint_multiplier, camera_slow_multiplier)
+        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
         projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
         renderer.cpu_uniforms.clip_from_world =
             projection_from_view *
