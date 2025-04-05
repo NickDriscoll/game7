@@ -41,6 +41,11 @@ AnimatedMesh :: struct {
     anim_speed: f32,
 }
 
+DebugVisualizationFlags :: bit_set[enum {
+    ShowPlayerSpawn,
+    ShowPlayerHitSphere
+}]
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
@@ -51,6 +56,8 @@ GameState :: struct {
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: ^StaticModelData,
+
+    debug_vis_flags: DebugVisualizationFlags,
 
     // Editor state
     editor_response: Maybe(EditorResponse),
@@ -110,14 +117,8 @@ scene_editor :: proc(
         // Spawn point editor
         {
             imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
-            imgui.Checkbox("Visualize player spawn", &game_state.show_character_start)
-            if game_state.show_character_start {
-                col := &game_state.character.collision
-                dd: DebugDraw
-                dd.world_from_model = translation_matrix(col.position) * scaling_matrix(col.radius)
-                dd.color = {0.3, 0.4, 1.0, 0.5}
-                draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-            }
+            flag := .ShowPlayerSpawn in game_state.debug_vis_flags
+            if imgui.Checkbox("Visualize player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
             imgui.Separator()
         }
 
@@ -622,6 +623,20 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
     ddata.world_from_model[3][1] = col.position.y
     ddata.world_from_model[3][2] = col.position.z - col.radius
     draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
+
+    // Debug draw logic
+    if .ShowPlayerHitSphere in game_state.debug_vis_flags {
+        dd: DebugDraw
+        dd.world_from_model = translation_matrix(col.position) * scaling_matrix(col.radius)
+        dd.color = {0.3, 0.4, 1.0, 0.5}
+        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+    }
+    if .ShowPlayerSpawn in game_state.debug_vis_flags {
+        dd: DebugDraw
+        dd.world_from_model = translation_matrix(game_state.character_start) * scaling_matrix(0.2)
+        dd.color = {0.0, 1.0, 0.0, 0.5}
+        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+    }
 }
 
 
