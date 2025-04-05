@@ -33,11 +33,40 @@ Triangle :: struct {
 }
 
 StaticTriangleCollision :: struct {
+    local_positions: []f32,
     triangles: [dynamic]Triangle,
 }
 
 delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
     delete(triangles)
+}
+
+positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Triangle {
+    FLOATS_PER_TRIANGLE :: 9
+    assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
+
+    // Triangle vertices
+    a4 := hlsl.float4{positions[0], positions[1], positions[2], 1.0}
+    b4 := hlsl.float4{positions[3], positions[4], positions[5], 1.0}
+    c4 := hlsl.float4{positions[6], positions[7], positions[8], 1.0}
+
+    // Transform with supplied model matrix
+    a := hlsl.float3((transform * a4).xyz)
+    b := hlsl.float3((transform * b4).xyz)
+    c := hlsl.float3((transform * c4).xyz)
+
+    // Compute normal from cross product of edges
+    // Edges AB and AC
+    // ab := b - a
+    // ac := c - a
+
+    // n := hlsl.normalize(hlsl.cross(ab, ac))
+
+    return Triangle {
+        a = a,
+        b = b,
+        c = c,
+    }
 }
 
 new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
@@ -50,33 +79,28 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
 
     // For each implicit triangle
     for i := 0; i < len(positions); i += FLOATS_PER_TRIANGLE {
-        // Triangle vertices
-        a4 := hlsl.float4{positions[i], positions[i + 1], positions[i + 2], 1.0}
-        b4 := hlsl.float4{positions[i + 3], positions[i + 4], positions[i + 5], 1.0}
-        c4 := hlsl.float4{positions[i + 6], positions[i + 7], positions[i + 8], 1.0}
-
-        // Transform with supplied model matrix
-        a := hlsl.float3((model_matrix * a4).xyz)
-        b := hlsl.float3((model_matrix * b4).xyz)
-        c := hlsl.float3((model_matrix * c4).xyz)
-
-        // Edges AB and AC
-        ab := b - a
-        ac := c - a
-
-        // Compute normal from cross product of edges
-        //n := hlsl.normalize(hlsl.cross(ab, ac))
-
-        // Add new triangle to list
-        append(&static_mesh.triangles, Triangle {
-            a = a,
-            b = b,
-            c = c,
-        })
+        start := i
+        end := i + FLOATS_PER_TRIANGLE
+        append(&static_mesh.triangles, positions_to_triangle(positions[start:end], model_matrix))
     }
 
+    static_mesh.local_positions = positions
     return static_mesh
 }
+
+rebuild_static_triangle_mesh :: proc(collision: ^StaticTriangleCollision, model_matrix: hlsl.float4x4) {
+    FLOATS_PER_TRIANGLE :: 9
+    
+    // For each implicit triangle
+    tri_count := len(collision.local_positions) / FLOATS_PER_TRIANGLE
+    for i := 0; i < tri_count; i += 1 {
+        tri := &collision.triangles[i]
+        start := FLOATS_PER_TRIANGLE * i
+        end := start + FLOATS_PER_TRIANGLE
+        tri^ = positions_to_triangle(collision.local_positions[start:end], model_matrix)
+    }
+}
+
 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
