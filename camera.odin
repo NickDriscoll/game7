@@ -142,11 +142,10 @@ CameraGuiResponse :: enum {
 }
 
 camera_gui :: proc(
+    game_state: ^GameState,
     camera: ^Camera,
     input_system: ^InputSystem,
     user_config: ^UserConfiguration,
-    camera_sprint_multiplier: ^f32,
-    camera_slow_multiplier: ^f32,
     close: ^bool
 ) -> (response: CameraGuiResponse, ok: bool) {
     ok = false
@@ -154,8 +153,8 @@ camera_gui :: proc(
         imgui.Text("Camera position: (%f, %f, %f)", camera.position.x, camera.position.y, camera.position.z)
         imgui.Text("Camera yaw: %f", camera.yaw)
         imgui.Text("Camera pitch: %f", camera.pitch)
-        imgui.SliderFloat("Camera fast speed", camera_sprint_multiplier, 0.0, 100.0)
-        imgui.SliderFloat("Camera slow speed", camera_slow_multiplier, 0.0, 1.0/5.0)
+        imgui.SliderFloat("Camera fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+        imgui.SliderFloat("Camera slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
     
         freecam := .Follow not_in camera.control_flags
         if imgui.Checkbox("Freecam", &freecam) {
@@ -166,6 +165,9 @@ camera_gui :: proc(
             ok = true
         }
         imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
+        imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
+        imgui.SameLine()
+        if imgui.Button("Default") do camera.fov_radians = math.PI / 2.0
     }
     imgui.End()
 
