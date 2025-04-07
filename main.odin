@@ -613,6 +613,9 @@ main :: proc() {
         // React to main menu bar interaction
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
+            case .SaveLevel: {
+                write_level_file(&game_state)
+            }
             case .ToggleAlwaysOnTop: {
                 sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
             }
