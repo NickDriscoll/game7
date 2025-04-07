@@ -196,6 +196,7 @@ begin_gui :: proc(using state: ^ImguiState) {
 
 MainMenuBarVerb :: enum {
     None,
+    SaveLevel,
     Exit,
     ToggleAlwaysOnTop,
     ToggleBorderlessFullscreen,
@@ -221,11 +222,11 @@ main_menu_bar :: proc(
                 
             }
             if imgui.MenuItem("Save") {
-                
+                retval = .SaveLevel
             }
-            if imgui.MenuItem("Save As") {
+            // if imgui.MenuItem("Save As") {
                 
-            }
+            // }
             if imgui.MenuItem("Save user config") {
                 update_user_cfg_camera(user_config, &game_state.viewport_camera)
                 save_user_config(user_config, USER_CONFIG_FILENAME)

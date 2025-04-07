@@ -6,8 +6,11 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/linalg/hlsl"
+import "core:mem"
 import "core:os"
+import "core:os/os2"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 
 import vkw "desktop_vulkan_wrapper"
@@ -47,8 +50,95 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
-LevelFileFormat :: struct {
+SerializedInstance :: struct {
+    position: [3]f32,
+    rotation: quaternion128,
+    scale: f32
+}
+SerializedMesh :: struct {
+    name: string,
+    instance_count: u32,
+    instances: []SerializedInstance,
+}
+// LevelFileFormat :: struct {
+//     character_start: hlsl.float3,
+//     terrain: []SerializedMesh,
+//     static_scenery: []SerializedMesh,
+//     animated_scenery: []SerializedMesh,
+// }
 
+load_level_file :: proc(path: string) -> bool {
+    
+
+    return true
+}
+
+write_level_file :: proc(gamestate: ^GameState) {
+    output_size := 0
+    
+    output_size += size_of(gamestate.character_start)
+
+    for static_scenery in gamestate.static_scenery {
+        output_size += len(static_scenery.model.name)
+        output_size += size_of(static_scenery.position)
+        output_size += size_of(static_scenery.rotation)
+        output_size += size_of(static_scenery.scale)
+    }
+
+    write_head : u32 = 0
+    raw_output_buffer := make([dynamic]byte, output_size, context.temp_allocator)
+
+    write_thing_to_buffer :: proc(buffer: []byte, ptr: ^$T, head: ^u32) {
+        amount := size_of(T)
+        mem.copy_non_overlapping(&buffer[head^], ptr, amount)
+        head^ += u32(amount)
+    }
+    
+    //write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
+    // write_amount := size_of(gamestate.character_start)
+    // mem.copy_non_overlapping(&raw_output_buffer[write_head], &gamestate.character_start, write_amount)
+    // write_head += write_amount
+
+    for static_scenery in gamestate.static_scenery {
+        name := &static_scenery.model.name
+        name_len := len(name)
+        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
+        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), name_len)
+        write_head += u32(name_len)
+    }
+
+    lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create})
+    if lvl_err != nil {
+        log.errorf("Error opening level file: %v", lvl_err)
+    }
+    defer os2.close(lvl_file)
+
+    _, err := os2.write(lvl_file, raw_output_buffer[:])
+    if err != nil {
+        log.errorf("Error writing level data: %v", err)
+    }
+
+
+    // file_data: LevelFileFormat
+
+    // // Fill out file_data struct
+    // file_data.character_start = gamestate.character_start
+    // for terrain in gamestate.terrain_pieces {
+    //     terrain.model.name
+    // }
+
+    // // Write filled-out struct to file
+    // lvl_file, lvl_err := os2.create("data/levels/hardcoded_test.lvl")
+    // if lvl_err != nil {
+    //     log.errorf("Error opening level file: %v", lvl_err)
+    // }
+    // defer os2.close(lvl_file)
+
+    
+    // n, write_err := os2.write_ptr(lvl_file, &file_data, size_of(LevelFileFormat))
+    // if write_err != nil {
+    //     log.errorf("Error writing level file: %v", write_err)
+    // }
 }
 
 // Megastruct for all game-specific data
@@ -404,7 +494,6 @@ scene_editor :: proc(
 
 
 CHARACTER_TOTAL_JUMPS :: 2
-//CHARACTER_START_POS : hlsl.float3 : {-9.0, 15.0, 10.0}
 CharacterState :: enum {
     Grounded,
     Falling
