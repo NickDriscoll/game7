@@ -67,24 +67,59 @@ SerializedMesh :: struct {
 //     animated_scenery: []SerializedMesh,
 // }
 
-load_level_file :: proc(path: string) -> bool {
-    
+load_level_file :: proc(gamestate: ^GameState, path: string) -> bool {
+    lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
+    if lvl_err != nil {
+        log.errorf("Error reading entire level file: %v", lvl_err)
+        return false
+    }
+
+    read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) {
+        
+    }
+
+    read_head : u32 = 0
+
+    // Character start
+
 
     return true
 }
 
 write_level_file :: proc(gamestate: ^GameState) {
+    // @TODO: Doing the naive thing without deduplication for now
+
     output_size := 0
-    
+
     output_size += size_of(gamestate.character_start)
 
-    for static_scenery in gamestate.static_scenery {
-        output_size += len(static_scenery.model.name)
-        output_size += size_of(static_scenery.position)
-        output_size += size_of(static_scenery.rotation)
-        output_size += size_of(static_scenery.scale)
+    output_size += len(gamestate.terrain_pieces)
+    for piece in gamestate.terrain_pieces {
+        output_size += size_of(u32)
+        output_size += len(piece.model.name)
+        output_size += size_of(piece.position)
+        output_size += size_of(piece.rotation)
+        output_size += size_of(piece.scale)
     }
 
+    output_size += len(gamestate.static_scenery)
+    for scenery in gamestate.static_scenery {
+        output_size += size_of(u32)
+        output_size += len(scenery.model.name)
+        output_size += size_of(scenery.position)
+        output_size += size_of(scenery.rotation)
+        output_size += size_of(scenery.scale)
+    }
+
+    output_size += len(gamestate.animated_scenery)
+    for scenery in gamestate.animated_scenery {
+        output_size += size_of(u32)
+        output_size += len(scenery.model.name)
+        output_size += size_of(scenery.position)
+        output_size += size_of(scenery.rotation)
+        output_size += size_of(scenery.scale)
+    }
+    
     write_head : u32 = 0
     raw_output_buffer := make([dynamic]byte, output_size, context.temp_allocator)
 
@@ -93,21 +128,55 @@ write_level_file :: proc(gamestate: ^GameState) {
         mem.copy_non_overlapping(&buffer[head^], ptr, amount)
         head^ += u32(amount)
     }
-    
-    //write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
-    // write_amount := size_of(gamestate.character_start)
-    // mem.copy_non_overlapping(&raw_output_buffer[write_head], &gamestate.character_start, write_amount)
-    // write_head += write_amount
 
-    for static_scenery in gamestate.static_scenery {
-        name := &static_scenery.model.name
-        name_len := len(name)
+    write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
+
+    ter_len := u32(len(gamestate.terrain_pieces))
+    write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
+    for &piece in gamestate.terrain_pieces {
+        name := &piece.model.name
+        name_len := u32(len(name))
         write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
-        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), name_len)
-        write_head += u32(name_len)
+        
+        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
+        write_head += name_len
+
+        write_thing_to_buffer(raw_output_buffer[:], &piece.position, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &piece.rotation, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &piece.scale, &write_head)
     }
 
-    lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create})
+    static_len := u32(len(gamestate.static_scenery))
+    write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
+    for &scenery in gamestate.static_scenery {
+        name := &scenery.model.name
+        name_len := u32(len(name))
+        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
+        
+        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
+        write_head += name_len
+
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.position, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.rotation, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.scale, &write_head)
+    }
+
+    anim_len := u32(len(gamestate.animated_scenery))
+    write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
+    for &scenery in gamestate.animated_scenery {
+        name := &scenery.model.name
+        name_len := u32(len(name))
+        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
+        
+        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
+        write_head += name_len
+
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.position, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.rotation, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &scenery.scale, &write_head)
+    }
+
+    lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create,.Trunc})
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
     }
@@ -118,27 +187,7 @@ write_level_file :: proc(gamestate: ^GameState) {
         log.errorf("Error writing level data: %v", err)
     }
 
-
-    // file_data: LevelFileFormat
-
-    // // Fill out file_data struct
-    // file_data.character_start = gamestate.character_start
-    // for terrain in gamestate.terrain_pieces {
-    //     terrain.model.name
-    // }
-
-    // // Write filled-out struct to file
-    // lvl_file, lvl_err := os2.create("data/levels/hardcoded_test.lvl")
-    // if lvl_err != nil {
-    //     log.errorf("Error opening level file: %v", lvl_err)
-    // }
-    // defer os2.close(lvl_file)
-
-    
-    // n, write_err := os2.write_ptr(lvl_file, &file_data, size_of(LevelFileFormat))
-    // if write_err != nil {
-    //     log.errorf("Error writing level file: %v", write_err)
-    // }
+    log.info("Finished saving level.")
 }
 
 // Megastruct for all game-specific data
