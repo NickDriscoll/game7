@@ -6,5 +6,6 @@
 .vscode/
 ols.json
 data/shaders/*
+data/source_models/*
 game7
 imgui.ini
