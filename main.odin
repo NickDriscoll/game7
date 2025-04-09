@@ -681,9 +681,14 @@ main :: proc() {
         if show_load_modal {
             imgui.OpenPopup("Modal testing bb")
 
+            center := imgui.GetMainViewport().Size / 2.0
+            imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
             if imgui.BeginPopupModal("Modal testing bb") {
                 imgui.Text("Plz show up")
-                if imgui.Button("Return") do show_load_modal = false
+                if imgui.Button("Return") {
+                    show_load_modal = false
+                    imgui.CloseCurrentPopup()
+                }
                 imgui.EndPopup()
             }
         }

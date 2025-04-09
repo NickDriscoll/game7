@@ -97,6 +97,7 @@ load_level_file :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, gamestate
         append(&gamestate.terrain_pieces, TerrainPiece {
             collision = collision,
             position = position,
+            rotation = rotation,
             scale = scale,
             model = model,
         })
