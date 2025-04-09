@@ -309,13 +309,14 @@ main :: proc() {
     // Add moon terrain piece
     {
         positions := get_glb_positions("data/models/majoras_moon.glb")
+        rotq := linalg.quaternion_from_euler_angles_f32(0.0, 0.0, -math.PI / 4.0, linalg.Euler_Angle_Order.XYZ)
+        rotq *= linalg.quaternion_from_euler_angles_f32(math.PI / 4.0 , 0.0, 0.0, linalg.Euler_Angle_Order.XYZ)
         scale := uniform_scaling_matrix(300.0)
-        rot := yaw_rotation_matrix(-math.PI / 4) * pitch_rotation_matrix(math.PI / 4)
+        rot := linalg.to_matrix4(rotq)
         trans := translation_matrix({350.0, 400.0, 500.0})
         mat := trans * rot * scale
         collision := new_static_triangle_mesh(positions[:], mat)
-        rotq := linalg.quaternion_from_euler_angles_f32(0.0, 0.0, -math.PI / 4.0, linalg.Euler_Angle_Order.XYZ)
-        rotq *=  linalg.quaternion_from_euler_angles_f32(math.PI / 4.0 , 0.0, 0.0, linalg.Euler_Angle_Order.XYZ)
+
         // append(&game_state.terrain_pieces, TerrainPiece {
         //     collision = collision,
         //     position = {350.0, 400.0, 500.0},
@@ -529,6 +530,7 @@ main :: proc() {
         @static cpu_limiter_ms : c.int = 100
 
         // Misc imgui window for testing
+        @static move_player := false
         @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
@@ -566,9 +568,11 @@ main :: proc() {
                         velocity = {}
                     }
                     imgui.SameLine()
+                    imgui.BeginDisabled(move_player)
                     if imgui.Button("Move player") {
-
+                        move_player = true
                     }
+                    imgui.EndDisabled()
                     imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
                     if imgui.Button("Refire last raycast") {
                         want_refire_raycast = true
@@ -611,6 +615,7 @@ main :: proc() {
         }
 
         // React to main menu bar interaction
+        @static show_load_modal := false
         switch main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
             case .SaveLevel: {
@@ -667,9 +672,21 @@ main :: proc() {
 
                 vgd.resize_window = true
             }
+            case .ShowLoadModal: {
+                show_load_modal = true
+            }
             case .None: {}
         }
 
+        if show_load_modal {
+            imgui.OpenPopup("Modal testing bb")
+
+            if imgui.BeginPopupModal("Modal testing bb") {
+                imgui.Text("Plz show up")
+                if imgui.Button("Return") do show_load_modal = false
+                imgui.EndPopup()
+            }
+        }
 
         if imgui_state.show_gui && user_config.flags["camera_config"] {
             res, ok := camera_gui(
@@ -801,6 +818,39 @@ main :: proc() {
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
+        }
+
+        // Move player hackiness
+        if move_player && !io.WantCaptureMouse {
+            viewport_coords := hlsl.uint2 {
+                u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
+                u32(input_system.mouse_location.y) - u32(renderer.viewport_dimensions[1]),
+            }
+            ray := get_view_ray(
+                &game_state.viewport_camera,
+                viewport_coords,
+                {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
+            )
+
+            collision_pt: hlsl.float3
+            closest_dist := math.INF_F32
+            for &piece in game_state.terrain_pieces {
+                candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+                if ok {
+                    candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
+                    if candidate_dist < closest_dist {
+                        collision_pt = candidate
+                        closest_dist = candidate_dist
+                    }
+                }
+            }
+            if closest_dist < math.INF_F32 {
+                col := &game_state.character.collision
+                col.position = collision_pt
+                col.position.z += col.radius
+            }
+
+            if input_system.mouse_clicked do move_player = false
         }
 
         // Update and draw static scenery
