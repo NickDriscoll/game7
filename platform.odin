@@ -9,13 +9,13 @@ create_write_file :: proc(filename: string) -> (os.Handle, os.Error) {
     when ODIN_OS == .Windows {
         h, err = os.open(
             filename,
-            os.O_WRONLY | os.O_CREATE
+            os.O_WRONLY | os.O_CREATE | os.O_TRUNC
         )
     }
     when ODIN_OS == .Linux {
         h, err = os.open(
             filename,
-            os.O_WRONLY | os.O_CREATE,
+            os.O_WRONLY | os.O_CREATE | os.O_TRUNC,
             os.S_IRUSR | os.S_IWUSR
         )
     }
