@@ -8,7 +8,7 @@
     - Static and skinned models loaded from glTF (.glb) files
     - Skeletal animation with the skinning-in-compute technique
 
-![alt text](anim1.gif "Simple 3D walking animation")
+![alt text](complex_anim_999999.gif "Simple 3D walking animation")
 - Handrolled collision detection and game physics
 - Basic level saving/loading
 - Bugs
