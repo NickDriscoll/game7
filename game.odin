@@ -50,23 +50,6 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
-// SerializedInstance :: struct {
-//     position: [3]f32,
-//     rotation: quaternion128,
-//     scale: f32
-// }
-// SerializedMesh :: struct {
-//     name: string,
-//     instance_count: u32,
-//     instances: []SerializedInstance,
-// }
-// LevelFileFormat :: struct {
-//     character_start: hlsl.float3,
-//     terrain: []SerializedMesh,
-//     static_scenery: []SerializedMesh,
-//     animated_scenery: []SerializedMesh,
-// }
-
 load_level_file :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, gamestate: ^GameState, path: string) -> bool {
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {

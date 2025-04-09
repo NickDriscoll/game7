@@ -201,6 +201,7 @@ MainMenuBarVerb :: enum {
     ToggleAlwaysOnTop,
     ToggleBorderlessFullscreen,
     ToggleExclusiveFullscreen,
+    ShowLoadModal
 }
 
 main_menu_bar :: proc(
@@ -219,7 +220,7 @@ main_menu_bar :: proc(
                 
             }
             if imgui.MenuItem("Load") {
-                
+                retval = .ShowLoadModal
             }
             if imgui.MenuItem("Save") {
                 retval = .SaveLevel
