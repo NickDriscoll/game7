@@ -249,6 +249,8 @@ main_menu_bar :: proc(
             if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags["input_config"] = !user_config.flags["input_config"]
             camera_config := user_config.flags["camera_config"]
             if imgui.MenuItem("Camera", selected = camera_config) do user_config.flags["camera_config"] = !user_config.flags["camera_config"]
+            config_autosave := user_config.flags["config_autosave"]
+            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags["config_autosave"] = !user_config.flags["config_autosave"]
 
             imgui.EndMenu()
         }

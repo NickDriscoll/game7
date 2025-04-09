@@ -35,7 +35,7 @@ StaticScenery :: struct {
     scale: f32,
 }
 
-AnimatedMesh :: struct {
+AnimatedScenery :: struct {
     model: ^SkinnedModelData,
     position: hlsl.float3,
     rotation: quaternion128,
@@ -50,16 +50,16 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
-SerializedInstance :: struct {
-    position: [3]f32,
-    rotation: quaternion128,
-    scale: f32
-}
-SerializedMesh :: struct {
-    name: string,
-    instance_count: u32,
-    instances: []SerializedInstance,
-}
+// SerializedInstance :: struct {
+//     position: [3]f32,
+//     rotation: quaternion128,
+//     scale: f32
+// }
+// SerializedMesh :: struct {
+//     name: string,
+//     instance_count: u32,
+//     instances: []SerializedInstance,
+// }
 // LevelFileFormat :: struct {
 //     character_start: hlsl.float3,
 //     terrain: []SerializedMesh,
@@ -67,33 +67,116 @@ SerializedMesh :: struct {
 //     animated_scenery: []SerializedMesh,
 // }
 
-load_level_file :: proc(gamestate: ^GameState, path: string) -> bool {
+load_level_file :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, gamestate: ^GameState, path: string) -> bool {
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
         log.errorf("Error reading entire level file: %v", lvl_err)
         return false
     }
 
-    read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) {
-        
+    read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
+        thing: type
+        mem.copy_non_overlapping(&thing, &buffer[read_head^], size_of(type))
+        read_head^ += size_of(type)
+        return thing
+    }
+
+    read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
+        // Read the u32 string length, then read the string itself
+        str_len := read_thing_from_buffer(buffer, u32, read_head)
+        s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
+        read_head^ += str_len
+        return s
     }
 
     read_head : u32 = 0
 
     // Character start
+    gamestate.character_start = read_thing_from_buffer(lvl_bytes, type_of(gamestate.character_start), &read_head)
 
+    // Terrain pieces
+    ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+    for _ in 0..<ter_len {
+        name := read_string_from_buffer(lvl_bytes, &read_head)
+        path_builder: strings.Builder
+        strings.builder_init(&path_builder, context.temp_allocator)
+        fmt.sbprintf(&path_builder, "data/models/%v", name)
+        path, _ := strings.to_cstring(&path_builder)
+        model := load_gltf_static_model(gd, renderer, path)
+
+        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+        mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+        
+        positions := get_glb_positions(path)
+        collision := new_static_triangle_mesh(positions[:], mmat)
+        append(&gamestate.terrain_pieces, TerrainPiece {
+            collision = collision,
+            position = position,
+            scale = scale,
+            model = model,
+        })
+    }
+
+    // Static scenery
+    stat_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+    for _ in 0..<stat_len {
+        name := read_string_from_buffer(lvl_bytes, &read_head)
+        path_builder: strings.Builder
+        strings.builder_init(&path_builder, context.temp_allocator)
+        fmt.sbprintf(&path_builder, "data/models/%v", name)
+        path, _ := strings.to_cstring(&path_builder)
+        model := load_gltf_static_model(gd, renderer, path)
+
+        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+
+        append(&gamestate.static_scenery, StaticScenery {
+            model = model,
+            position = position,
+            rotation = rotation,
+            scale = scale
+        })
+    }
+
+    // Animated scenery
+    anim_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+    for _ in 0..<anim_len {
+        name := read_string_from_buffer(lvl_bytes, &read_head)
+        path_builder: strings.Builder
+        strings.builder_init(&path_builder, context.temp_allocator)
+        fmt.sbprintf(&path_builder, "data/models/%v", name)
+        path, _ := strings.to_cstring(&path_builder)
+        model := load_gltf_skinned_model(gd, renderer, path)
+
+        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+        
+        append(&gamestate.animated_scenery, AnimatedScenery {
+            model = model,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            anim_idx = 0,
+            anim_t = 0.0,
+            anim_speed = 1.0,
+        })
+    }
 
     return true
 }
 
 write_level_file :: proc(gamestate: ^GameState) {
-    // @TODO: Doing the naive thing without deduplication for now
+    // @TODO: Apply deduplication
 
     output_size := 0
 
     output_size += size_of(gamestate.character_start)
 
-    output_size += len(gamestate.terrain_pieces)
+    output_size += size_of(u32)
     for piece in gamestate.terrain_pieces {
         output_size += size_of(u32)
         output_size += len(piece.model.name)
@@ -102,7 +185,7 @@ write_level_file :: proc(gamestate: ^GameState) {
         output_size += size_of(piece.scale)
     }
 
-    output_size += len(gamestate.static_scenery)
+    output_size += size_of(u32)
     for scenery in gamestate.static_scenery {
         output_size += size_of(u32)
         output_size += len(scenery.model.name)
@@ -111,7 +194,7 @@ write_level_file :: proc(gamestate: ^GameState) {
         output_size += size_of(scenery.scale)
     }
 
-    output_size += len(gamestate.animated_scenery)
+    output_size += size_of(u32)
     for scenery in gamestate.animated_scenery {
         output_size += size_of(u32)
         output_size += len(scenery.model.name)
@@ -176,13 +259,15 @@ write_level_file :: proc(gamestate: ^GameState) {
         write_thing_to_buffer(raw_output_buffer[:], &scenery.scale, &write_head)
     }
 
-    lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create,.Trunc})
+
+    //lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create,.Trunc})
+    lvl_file, lvl_err := create_write_file("data/levels/hardcoded_test.lvl")
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
     }
-    defer os2.close(lvl_file)
+    defer os.close(lvl_file)
 
-    _, err := os2.write(lvl_file, raw_output_buffer[:])
+    _, err := os.write(lvl_file, raw_output_buffer[:])
     if err != nil {
         log.errorf("Error writing level data: %v", err)
     }
@@ -198,7 +283,7 @@ GameState :: struct {
     // Scene/Level data
     terrain_pieces: [dynamic]TerrainPiece,
     static_scenery: [dynamic]StaticScenery,
-    animated_scenery: [dynamic]AnimatedMesh,
+    animated_scenery: [dynamic]AnimatedScenery,
     character_start: hlsl.float3,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -311,7 +396,7 @@ scene_editor :: proc(
             // Load as a static model if loading as skinned fails
             model := load_gltf_skinned_model(gd, renderer, path_cstring)
             if model != nil {
-                append(&game_state.animated_scenery, AnimatedMesh {
+                append(&game_state.animated_scenery, AnimatedScenery {
                     model = model,
                     scale = 1.0,
                     anim_speed = 1.0
@@ -361,7 +446,7 @@ scene_editor :: proc(
 
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
 
-                    when T == AnimatedMesh {
+                    when T == AnimatedScenery {
                         anim := &renderer.animations[mesh.model.first_animation_idx]
                         imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_endtime(anim))
                         imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)

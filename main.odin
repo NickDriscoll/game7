@@ -55,7 +55,7 @@ main :: proc() {
         global_track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&global_track, global_allocator)
         global_allocator = mem.tracking_allocator(&global_track)
-        
+
         defer {
             if len(global_track.allocation_map) > 0 {
                 fmt.eprintf("=== %v allocations not freed: ===\n", len(global_track.allocation_map))
@@ -118,7 +118,7 @@ main :: proc() {
 
         mem.arena_init(&per_frame_arena, scene_backing_memory)
         scene_allocator = mem.arena_allocator(&per_frame_arena)
-        
+
     }
     defer mem.free_bytes(scene_backing_memory)
     when ODIN_DEBUG {
@@ -126,7 +126,7 @@ main :: proc() {
         scene_track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&scene_track, scene_allocator)
         scene_allocator = mem.tracking_allocator(&scene_track)
-        
+
         defer {
             if len(scene_track.allocation_map) > 0 {
                 fmt.eprintf("=== %v allocations not freed: ===\n", len(scene_track.allocation_map))
@@ -160,6 +160,8 @@ main :: proc() {
     }
     defer mem.free_bytes(temp_backing_memory)
 
+
+
     // Load user configuration
     user_config_last_saved := time.now()
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
@@ -167,17 +169,21 @@ main :: proc() {
     defer delete_user_config(&user_config, context.allocator)
     user_config_autosave := user_config.flags["config_autosave"]
 
+
+
     // Initialize SDL2
     sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
     when ODIN_DEBUG do defer sdl2.Quit()
     log.info("Initialized SDL2")
-    
+
     // Use SDL2 to dynamically link against the Vulkan loader
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
         log.fatal("Couldn't load Vulkan library.")
         return
     }
+
+
 
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
@@ -189,7 +195,7 @@ main :: proc() {
     }
     vgd := vkw.init_vulkan(&init_params)
     when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
-    
+
     // Make window 
     desktop_display_mode: sdl2.DisplayMode
     if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
@@ -280,12 +286,12 @@ main :: proc() {
         positions := get_glb_positions(main_scene_path)
         mmat := uniform_scaling_matrix(1.0)
         collision := new_static_triangle_mesh(positions[:], mmat)
-        append(&game_state.terrain_pieces, TerrainPiece {
-            collision = collision,
-            position = {},
-            scale = 1.0,
-            model = main_scene_mesh,
-        })
+        // append(&game_state.terrain_pieces, TerrainPiece {
+        //     collision = collision,
+        //     position = {},
+        //     scale = 1.0,
+        //     model = main_scene_mesh,
+        // })
     }
 
     // Load test glTF model
@@ -298,10 +304,8 @@ main :: proc() {
     }
 
     // Load icosphere mesh for debug visualization
-    {
-        game_state.sphere_mesh = load_gltf_static_model(&vgd, &renderer, "data/models/icosphere.glb")
-    }
-    
+    game_state.sphere_mesh = load_gltf_static_model(&vgd, &renderer, "data/models/icosphere.glb")
+
     // Add moon terrain piece
     {
         positions := get_glb_positions("data/models/majoras_moon.glb")
@@ -312,13 +316,13 @@ main :: proc() {
         collision := new_static_triangle_mesh(positions[:], mat)
         rotq := linalg.quaternion_from_euler_angles_f32(0.0, 0.0, -math.PI / 4.0, linalg.Euler_Angle_Order.XYZ)
         rotq *=  linalg.quaternion_from_euler_angles_f32(math.PI / 4.0 , 0.0, 0.0, linalg.Euler_Angle_Order.XYZ)
-        append(&game_state.terrain_pieces, TerrainPiece {
-            collision = collision,
-            position = {350.0, 400.0, 500.0},
-            rotation = rotq,
-            scale = 300.0,
-            model = moon_mesh
-        })
+        // append(&game_state.terrain_pieces, TerrainPiece {
+        //     collision = collision,
+        //     position = {350.0, 400.0, 500.0},
+        //     rotation = rotq,
+        //     scale = 300.0,
+        //     model = moon_mesh
+        // })
     }
 
     // Load animated test glTF model
@@ -328,19 +332,20 @@ main :: proc() {
         path : cstring = "data/models/CesiumMan.glb"
         //path : cstring = "data/models/DreadSamus.glb"
         skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
-        append(&game_state.animated_scenery, AnimatedMesh {
-            model = skinned_model,
-            position = {50.2138786, 65.6309738, -2.65704226},
-            rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
-            scale = 1.0,
-            anim_idx = 0,
-            anim_t = 0.0,
-            anim_speed = 1.0,
-        })
+        // append(&game_state.animated_scenery, AnimatedScenery {
+        //     model = skinned_model,
+        //     position = {50.2138786, 65.6309738, -2.65704226},
+        //     rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
+        //     scale = 1.0,
+        //     anim_idx = 0,
+        //     anim_t = 0.0,
+        //     anim_speed = 1.0,
+        // })
     }
 
     // @TODO: Load this value from level file
-    game_state.character_start = {-9.0, 15.0, 1.0}
+    //game_state.character_start = {-9.0, 15.0, 1.0}
+    load_level_file(&vgd, &renderer, &game_state, "data/levels/hardcoded_test.lvl")
 
     game_state.character = Character {
         collision = {
@@ -355,7 +360,6 @@ main :: proc() {
         jump_speed = 8.0,
         remaining_jumps = 2,
         anim_speed = 0.856,
-        //mesh_data = moon_mesh
         mesh_data = skinned_model
     }
 
@@ -403,7 +407,7 @@ main :: proc() {
         freecam_key_mappings[.SPACE] = .PlayerJump
         freecam_key_mappings[.BACKSLASH] = .FrameAdvance
         freecam_key_mappings[.PAUSE] = .Resume
-        
+
         character_key_mappings[.ESCAPE] = .ToggleImgui
         character_key_mappings[.W] = .PlayerTranslateForward
         character_key_mappings[.S] = .PlayerTranslateBack
@@ -439,7 +443,7 @@ main :: proc() {
     do_limit_cpu := false
     paused := false
     do_this_frame := true
-    
+
     log.info("App initialization complete. Entering main loop")
 
     do_main_loop := true
@@ -457,7 +461,7 @@ main :: proc() {
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config_last_saved = current_time
         }
-        
+
         // Start a new Dear ImGUI frame and get an io reference
         begin_gui(&imgui_state)
         io := imgui.GetIO()
@@ -467,7 +471,7 @@ main :: proc() {
         new_frame(&renderer)
 
         scene_editor(&game_state, &vgd, &renderer, &imgui_state, &user_config)
-        
+
         output_verbs := poll_sdl2_events(&input_system)
 
         // Quit if user wants it
@@ -509,7 +513,7 @@ main :: proc() {
             } else {
                 sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
             }
-            
+
         }
 
 
@@ -576,7 +580,7 @@ main :: proc() {
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") do game_state.timescale = 1.0
-                
+
                 imgui.Checkbox("Enable CPU Limiter", &do_limit_cpu)
                 imgui.SameLine()
                 HelpMarker(
@@ -585,7 +589,7 @@ main :: proc() {
                     "effectively capping the framerate to 10 FPS"
                 )
                 imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 10, 1000)
-                
+
                 imgui.Separator()
                 {
                     b := renderer.cpu_uniforms.triangle_vis == 1
@@ -602,10 +606,6 @@ main :: proc() {
                     ini_savename_buffer = {}
                 }
                 imgui.Separator()
-
-                if imgui.Checkbox("Periodically save user config", &user_config_autosave) {
-                    user_config.flags["config_autosave"] = user_config_autosave
-                }
             }
             imgui.End()
         }
@@ -639,7 +639,7 @@ main :: proc() {
                 sdl2.SetWindowPosition(sdl_window, xpos, ypos)
                 sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
                 sdl2.SetWindowResizable(sdl_window, !game_state.borderless_fullscreen)
-                
+
                 vgd.resize_window = true
             }
             case .ToggleExclusiveFullscreen: {
@@ -670,7 +670,7 @@ main :: proc() {
             case .None: {}
         }
 
-        
+
         if imgui_state.show_gui && user_config.flags["camera_config"] {
             res, ok := camera_gui(
                 &game_state,
@@ -788,7 +788,7 @@ main :: proc() {
         if do_this_frame {
             player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
         }
-        
+
         player_draw(&game_state, &vgd, &renderer)
 
         // Camera update
@@ -876,12 +876,12 @@ main :: proc() {
 
                 vgd.resize_window = false
             }
-    
+
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, renderer.gfx_timeline)
-            
+
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
-    
+
             swapchain_image_idx, _ := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
 
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
@@ -894,7 +894,7 @@ main :: proc() {
                 &game_state.viewport_camera,
                 &framebuffer
             )
-            
+
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
             render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
