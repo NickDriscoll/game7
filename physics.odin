@@ -763,3 +763,36 @@ dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, 
     }
     return d + t * (motion_interval.end - motion_interval.start), found
 }
+
+
+do_mouse_raycast :: proc(
+    viewport_camera: ^Camera,
+    terrain_pieces: []TerrainPiece,
+    mouse_location: [2]i32,
+    viewport_dimensions: [4]f32
+) -> (hlsl.float3, bool) {
+    viewport_coords := hlsl.uint2 {
+        u32(mouse_location.x) - u32(viewport_dimensions[0]),
+        u32(mouse_location.y) - u32(viewport_dimensions[1]),
+    }
+    ray := get_view_ray(
+        viewport_camera,
+        viewport_coords,
+        {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+    )
+
+    collision_pt: hlsl.float3
+    closest_dist := math.INF_F32
+    for &piece in terrain_pieces {
+        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+        if ok {
+            candidate_dist := hlsl.distance(collision_pt, viewport_camera.position)
+            if candidate_dist < closest_dist {
+                collision_pt = candidate
+                closest_dist = candidate_dist
+            }
+        }
+    }
+
+    return collision_pt, closest_dist < math.INF_F32
+}
