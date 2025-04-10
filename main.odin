@@ -569,7 +569,9 @@ main :: proc() {
                     }
                     imgui.SameLine()
                     imgui.BeginDisabled(move_player)
-                    if imgui.Button("Move player") {
+                    move_text : cstring = "Move player"
+                    if move_player do move_text = "Moving player..."
+                    if imgui.Button(move_text) {
                         move_player = true
                     }
                     imgui.EndDisabled()
@@ -725,30 +727,13 @@ main :: proc() {
             obj, edit_ok := game_state.editor_response.(EditorResponse)
             if edit_ok {
                 if !io.WantCaptureMouse {
-                    viewport_coords := hlsl.uint2 {
-                        u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
-                        u32(input_system.mouse_location.y) - u32(renderer.viewport_dimensions[1]),
-                    }
-                    ray := get_view_ray(
+                    collision_pt, hit := do_mouse_raycast(
                         &game_state.viewport_camera,
-                        viewport_coords,
-                        {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
+                        game_state.terrain_pieces[:],
+                        input_system.mouse_location,
+                        renderer.viewport_dimensions
                     )
-
-                    collision_pt: hlsl.float3
-                    closest_dist := math.INF_F32
-                    for &piece in game_state.terrain_pieces {
-                        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-                        if ok {
-                            candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-                            if candidate_dist < closest_dist {
-                                collision_pt = candidate
-                                closest_dist = candidate_dist
-                            }
-                        }
-                    }
-
-                    if closest_dist < math.INF_F32 {
+                    if hit {
                         #partial switch obj.type {
                             case. MoveTerrainPiece: {
                                 object := &game_state.terrain_pieces[obj.index]
@@ -761,6 +746,9 @@ main :: proc() {
                             case .MoveAnimatedScenery: {
                                 object := &game_state.animated_scenery[obj.index]
                                 object.position = collision_pt
+                            }
+                            case .MovePlayerSpawn: {
+                                game_state.character_start = collision_pt
                             }
                             case: {}
                         }
@@ -827,29 +815,13 @@ main :: proc() {
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
-            viewport_coords := hlsl.uint2 {
-                u32(input_system.mouse_location.x) - u32(renderer.viewport_dimensions[0]),
-                u32(input_system.mouse_location.y) - u32(renderer.viewport_dimensions[1]),
-            }
-            ray := get_view_ray(
+            collision_pt, hit := do_mouse_raycast(
                 &game_state.viewport_camera,
-                viewport_coords,
-                {u32(renderer.viewport_dimensions[2]), u32(renderer.viewport_dimensions[3])}
+                game_state.terrain_pieces[:],
+                input_system.mouse_location,
+                renderer.viewport_dimensions
             )
-
-            collision_pt: hlsl.float3
-            closest_dist := math.INF_F32
-            for &piece in game_state.terrain_pieces {
-                candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-                if ok {
-                    candidate_dist := hlsl.distance(collision_pt, game_state.viewport_camera.position)
-                    if candidate_dist < closest_dist {
-                        collision_pt = candidate
-                        closest_dist = candidate_dist
-                    }
-                }
-            }
-            if closest_dist < math.INF_F32 {
+            if hit {
                 col := &game_state.character.collision
                 col.position = collision_pt
                 col.position.z += col.radius
