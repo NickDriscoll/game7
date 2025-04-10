@@ -333,9 +333,29 @@ scene_editor :: proc(
     if show_editor && imgui.Begin("Scene editor", &user_config.flags["scene_editor"]) {
         // Spawn point editor
         {
-            imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
+            //imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
+            imgui.DragFloat3("Player spawn", &game_state.character_start, 0.1)
             flag := .ShowPlayerSpawn in game_state.debug_vis_flags
             if imgui.Checkbox("Show player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+            
+            resp, ok := game_state.editor_response.(EditorResponse)
+            disable := false
+            move_text : cstring = "Move player spawn"
+            if ok {
+                if resp.type == .MovePlayerSpawn {
+                    disable = true
+                    move_text = "Moving player spawn..."
+                }
+            }
+            imgui.BeginDisabled(disable)
+            if imgui.Button(move_text) {
+                game_state.editor_response = EditorResponse {
+                    type = .MovePlayerSpawn,
+                    index = 0
+                }
+            }
+            imgui.EndDisabled()
+
             imgui.Separator()
         }
 
@@ -446,7 +466,7 @@ scene_editor :: proc(
                         }
                     }
         
-                    if disable_button do imgui.BeginDisabled()
+                    imgui.BeginDisabled(disable_button)
                     if imgui.Button(move_text) {
                         editor_response^ = EditorResponse {
                             type = response_type,
@@ -462,7 +482,7 @@ scene_editor :: proc(
                         unordered_remove(objects, i)
                         editor_response^ = nil
                     }
-                    if disable_button do imgui.EndDisabled()
+                    imgui.EndDisabled()
                     imgui.Separator()
         
                     imgui.PopID()
@@ -521,7 +541,7 @@ scene_editor :: proc(
                         }
                     }
         
-                    if disable_button do imgui.BeginDisabled()
+                    imgui.BeginDisabled(disable_button)
                     if imgui.Button(move_text) {
                         editor_response^ = EditorResponse {
                             type = response_type,
@@ -542,7 +562,7 @@ scene_editor :: proc(
                         mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
                         rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
                     }
-                    if disable_button do imgui.EndDisabled()
+                    imgui.EndDisabled()
                     imgui.Separator()
         
                     imgui.PopID()
@@ -810,7 +830,6 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 if n_dot >= 0.5 && game_state.character.velocity.z < 0.0 {
                     // Floor
                     game_state.character.remaining_jumps = CHARACTER_TOTAL_JUMPS
-                    game_state.character.velocity = {}
                     game_state.character.state = .Grounded
                 } else if n_dot < -0.1 && game_state.character.velocity.z > 0.0 {
                     // Ceiling
