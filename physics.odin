@@ -766,7 +766,7 @@ dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, 
 
 
 do_mouse_raycast :: proc(
-    viewport_camera: ^Camera,
+    viewport_camera: Camera,
     terrain_pieces: []TerrainPiece,
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32

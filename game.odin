@@ -309,9 +309,10 @@ EditorResponseType :: enum {
     MoveStaticScenery,
     MoveAnimatedScenery,
     MovePlayerSpawn,
+    AddTerrainPiece,
+    AddStaticScenery,
     AddAnimatedScenery
 }
-
 EditorResponse :: struct {
     type: EditorResponseType,
     index: u32
@@ -512,6 +513,13 @@ scene_editor :: proc(
                 if len(objects) == 0 {
                     imgui.Text("Nothing to see here!")
                 }
+                if imgui.Button("Add") {
+                    editor_response^ = EditorResponse {
+                        type = .AddTerrainPiece,
+                        index = 0
+                    }
+                }
+                imgui.Separator()
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
         
@@ -954,7 +962,7 @@ camera_update :: proc(
 
         game_state.viewport_camera.position = desired_position
 
-        return lookat_view_from_world(&game_state.viewport_camera)
+        return lookat_view_from_world(game_state.viewport_camera)
     } else {
         camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
         camera_speed_mod : f32 = 1.0
@@ -1039,7 +1047,7 @@ camera_update :: proc(
         }
     
         //Compute temporary camera matrix for orienting player inputted direction vector
-        world_from_view := hlsl.inverse(camera_view_from_world(&game_state.viewport_camera))
+        world_from_view := hlsl.inverse(camera_view_from_world(game_state.viewport_camera))
         camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
         game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
     
@@ -1065,6 +1073,6 @@ camera_update :: proc(
             }
         }
 
-        return camera_view_from_world(&game_state.viewport_camera)
+        return camera_view_from_world(game_state.viewport_camera)
     }
 }

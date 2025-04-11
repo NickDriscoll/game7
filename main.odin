@@ -693,7 +693,7 @@ main :: proc() {
 
             center := imgui.GetMainViewport().Size / 2.0
             imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-            if imgui.BeginPopupModal("Modal testing bb") {
+            if imgui.BeginPopupModal("Modal testing bb", nil, {.NoMove,.NoResize}) {
                 imgui.Text("Plz show up")
                 if imgui.Button("Return") {
                     show_load_modal = false
@@ -732,39 +732,95 @@ main :: proc() {
 
         // Handle current editor state
         {
-            obj, edit_ok := game_state.editor_response.(EditorResponse)
-            if edit_ok {
+            move_thingy :: proc(
+                game_state: ^GameState,
+                input_system: InputSystem,
+                viewport_dimensions: [4]f32,
+                resp: EditorResponse,
+                objects: []$T
+            ) {
+                io := imgui.GetIO()
                 if !io.WantCaptureMouse {
                     collision_pt, hit := do_mouse_raycast(
-                        &game_state.viewport_camera,
+                        game_state.viewport_camera,
                         game_state.terrain_pieces[:],
                         input_system.mouse_location,
-                        renderer.viewport_dimensions
+                        viewport_dimensions
                     )
                     if hit {
-                        #partial switch obj.type {
-                            case. MoveTerrainPiece: {
-                                object := &game_state.terrain_pieces[obj.index]
-                                object.position = collision_pt
-                            }
-                            case .MoveStaticScenery: {
-                                object := &game_state.static_scenery[obj.index]
-                                object.position = collision_pt
-                            }
-                            case .MoveAnimatedScenery: {
-                                object := &game_state.animated_scenery[obj.index]
-                                object.position = collision_pt
-                            }
-                            case .MovePlayerSpawn: {
-                                game_state.character_start = collision_pt
-                            }
-                            case: {}
-                        }
+                        object := &objects[resp.index]
+                        object.position = collision_pt
                     }
 
                     if input_system.mouse_clicked {
                         game_state.editor_response = nil
                     }
+                }
+            }
+
+            resp, edit_ok := game_state.editor_response.(EditorResponse)
+            if edit_ok {
+                #partial switch resp.type {
+                    case .AddTerrainPiece: {
+                        modal_title : cstring = "Add terrain piece"
+                        imgui.OpenPopup(modal_title)
+            
+                        center := imgui.GetMainViewport().Size / 2.0
+                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
+                            imgui.Text("Plz show up")
+                            if imgui.Button("Return") {
+                                game_state.editor_response = {}
+                                imgui.CloseCurrentPopup()
+                            }
+                            imgui.EndPopup()
+                        }
+                    }
+                    case .MoveTerrainPiece: {
+                        move_thingy(
+                            &game_state,
+                            input_system,
+                            renderer.viewport_dimensions,
+                            resp,
+                            game_state.terrain_pieces[:]
+                        )
+                    }
+                    case .MoveStaticScenery: {
+                        move_thingy(
+                            &game_state,
+                            input_system,
+                            renderer.viewport_dimensions,
+                            resp,
+                            game_state.static_scenery[:]
+                        )
+                    }
+                    case .MoveAnimatedScenery: {
+                        move_thingy(
+                            &game_state,
+                            input_system,
+                            renderer.viewport_dimensions,
+                            resp,
+                            game_state.animated_scenery[:]
+                        )
+                    }
+                    case .MovePlayerSpawn: {
+                        if !io.WantCaptureMouse {
+                            collision_pt, hit := do_mouse_raycast(
+                                game_state.viewport_camera,
+                                game_state.terrain_pieces[:],
+                                input_system.mouse_location,
+                                renderer.viewport_dimensions
+                            )
+                            if hit {
+                                game_state.character_start = collision_pt
+                            }
+
+                            if input_system.mouse_clicked {
+                                game_state.editor_response = nil
+                            }
+                        }
+                    }
+                    case: {}
                 }
             }
         }
@@ -824,7 +880,7 @@ main :: proc() {
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
             collision_pt, hit := do_mouse_raycast(
-                &game_state.viewport_camera,
+                game_state.viewport_camera,
                 game_state.terrain_pieces[:],
                 input_system.mouse_location,
                 renderer.viewport_dimensions

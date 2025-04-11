@@ -39,7 +39,7 @@ Camera :: struct {
     control_flags: CameraFlags,
 }
 
-camera_view_from_world :: proc(camera: ^Camera) -> hlsl.float4x4 {
+camera_view_from_world :: proc(camera: Camera) -> hlsl.float4x4 {
     pitch := pitch_rotation_matrix(camera.pitch)
     yaw := yaw_rotation_matrix(camera.yaw)
     trans := translation_matrix(-camera.position)
@@ -79,7 +79,7 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
     return proj_matrix * c_matrix
 }
 lookat_view_from_world :: proc(
-    using camera: ^Camera,
+    using camera: Camera,
     up := hlsl.float3 {0.0, 0.0, 1.0}
 ) -> hlsl.float4x4 {
     focus_vector := hlsl.normalize(position - target.position)
@@ -105,7 +105,7 @@ pitch_yaw_from_lookat :: proc(pos: hlsl.float3, target: hlsl.float3) -> (yaw, pi
     return yaw, pitch
 }
 
-get_view_ray :: proc(using camera: ^Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+get_view_ray :: proc(using camera: Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
     tan_fovy := math.tan(fov_radians / 2.0)
     tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
     clip_coords := hlsl.float4 {
