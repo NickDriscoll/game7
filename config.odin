@@ -7,6 +7,9 @@ import "core:text/scanner"
 import "core:strconv"
 import "core:strings"
 
+// @TODO: Use an enumerated array to associate keys (as an enum)
+// with string names
+
 // Constants for user configuration keys
 EXCLUSIVE_FULLSCREEEN_KEY :: "exclusive_fullscreen"
 BORDERLESS_FULLSCREEN_KEY :: "borderless_fullscreen"
