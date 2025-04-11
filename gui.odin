@@ -167,7 +167,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
     return imgui_state
 }
 
-begin_gui :: proc(using state: ^ImguiState) {
+begin_gui :: proc(state: ^ImguiState) {
     imgui.NewFrame()
 
     // Make viewport-sized dockspace
@@ -183,12 +183,12 @@ begin_gui :: proc(using state: ^ImguiState) {
         imgui.SetNextWindowPos(window_viewport.WorkPos)
         imgui.SetNextWindowSize(window_viewport.WorkSize)
         if imgui.Begin("Main dock window", flags = dock_window_flags) {
-            dockspace_id = imgui.GetID("Main dockspace")
+            state.dockspace_id = imgui.GetID("Main dockspace")
             flags := imgui.DockNodeFlags {
                 .NoDockingOverCentralNode,
                 .PassthruCentralNode,
             }
-            imgui.DockSpaceOverViewport(dockspace_id, window_viewport, flags = flags)
+            imgui.DockSpaceOverViewport(state.dockspace_id, window_viewport, flags = flags)
         }
         imgui.End()
     }
@@ -420,6 +420,11 @@ render_imgui :: proc(
     vkw.sync_write_buffer(gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
     
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+}
+
+imgui_cancel_frame :: proc(imgui_state: ^ImguiState) {
+    imgui.EndFrame()
+    imgui.Render()
 }
 
 imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
