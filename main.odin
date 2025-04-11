@@ -441,6 +441,7 @@ main :: proc() {
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
+    window_minimized := false
     do_limit_cpu := false
     paused := false
     do_this_frame := true
@@ -517,6 +518,13 @@ main :: proc() {
 
         }
 
+        // Check if window was minimized/maximized
+        if output_verbs.bools[.MinimizeWindow] {
+            window_minimized = true
+        }
+        if output_verbs.bools[.FocusWindow] {
+            window_minimized = false
+        }
 
         // Update
 
@@ -889,8 +897,13 @@ main :: proc() {
             }
         }
 
+        // If the window is minimized, we have to end the current imgui frame here
+        if window_minimized {
+            imgui_cancel_frame(&imgui_state)
+        }
+
         // Render
-        {
+        if !window_minimized {
             // Resize swapchain if necessary
             if vgd.resize_window {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
@@ -928,6 +941,8 @@ main :: proc() {
 
             // Submit gfx command buffer and present swapchain image
             vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
+            
+            vgd.frame_count += 1
         }
 
         // CLear temp allocator for next frame
@@ -936,7 +951,6 @@ main :: proc() {
         // Clear sync info for next frame
         vkw.clear_sync_info(&renderer.gfx_sync)
         vkw.clear_sync_info(&renderer.compute_sync)
-        vgd.frame_count += 1
 
         // CPU limiter
         // 100 mil nanoseconds == 100 milliseconds
