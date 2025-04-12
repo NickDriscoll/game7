@@ -419,7 +419,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         renderer.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
         renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
     }
-    renderer.cpu_uniforms.triangle_vis = 0
 
     // Create main rendertarget
     {
@@ -1364,7 +1363,13 @@ render :: proc(
         return 0
     }
 
-    ps1_draw_offset := draw_instances(gd, renderer, renderer.ps1_static_instances[:], 0, 0)
+    ps1_draw_offset := draw_instances(
+        gd,
+        renderer,
+        renderer.ps1_static_instances[:],
+        0,
+        0
+    )
     debug_draw_offset := draw_instances(
         gd,
         renderer,

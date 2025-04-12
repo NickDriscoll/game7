@@ -76,6 +76,8 @@ load_level_file :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, gamestate
 
     // Character start
     gamestate.character_start = read_thing_from_buffer(lvl_bytes, type_of(gamestate.character_start), &read_head)
+    gamestate.character.collision.position = gamestate.character_start
+    gamestate.camera_follow_point = gamestate.character.collision.position
 
     // Terrain pieces
     ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
@@ -351,7 +353,6 @@ init_gamestate :: proc(
     game_state.freecam_speed_multiplier = 5.0
     game_state.freecam_slow_multiplier = 1.0 / 5.0
     if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
-    log.debug(game_state.viewport_camera)
 
     game_state.camera_follow_point = game_state.character.collision.position
     game_state.camera_follow_speed = 6.0
@@ -459,7 +460,6 @@ scene_editor :: proc(
         current_item : c.int = 0
         if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items)), 15) {
             // Insert selected item into animated scenery list
-            log.infof("You clicked item #%v", current_item)
             fmt.sbprintf(&builder, "data/models/%v", list_items[current_item])
             path_cstring, _ := strings.to_cstring(&builder)
 
