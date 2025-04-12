@@ -179,7 +179,8 @@ main :: proc() {
     // Use SDL2 to dynamically link against the Vulkan loader
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
-        log.fatal("Couldn't load Vulkan library.")
+        s := sdl2.GetErrorString()
+        log.fatal("Failed to link Vulkan loader: %v", s)
         return
     }
 
@@ -207,7 +208,7 @@ main :: proc() {
     }
 
     // Determine window resolution
-    resolution := DEFAULT_RESOLUTION
+    resolution : [2]u32 = DEFAULT_RESOLUTION
     if user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] || user_config.flags[BORDERLESS_FULLSCREEN_KEY] do resolution = display_resolution
     if "window_width" in user_config.ints && "window_height" in user_config.ints {
         x := user_config.ints["window_width"]
@@ -269,127 +270,11 @@ main :: proc() {
     }
 
     // Main app structure storing the game's overall state
-    game_state: GameState
-    game_state.freecam_collision = user_config.flags["freecam_collision"]
-    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
-    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
-    game_state.timescale = 1.0
-
-    //main_scene_path : cstring = "data/models/plane.glb"
-    //main_scene_path : cstring = "data/models/artisans.glb"
-    main_scene_path : cstring = "data/models/game7_testmap00.glb"
-
-    main_scene_mesh := load_gltf_static_model(&vgd, &renderer, main_scene_path)
-
-    // Get collision data out of main scene model
-    {
-        positions := get_glb_positions(main_scene_path)
-        mmat := uniform_scaling_matrix(1.0)
-        collision := new_static_triangle_mesh(positions[:], mmat)
-        // append(&game_state.terrain_pieces, TerrainPiece {
-        //     collision = collision,
-        //     position = {},
-        //     scale = 1.0,
-        //     model = main_scene_mesh,
-        // })
-    }
-
-    // Load test glTF model
-    moon_mesh: ^StaticModelData
-    {
-        //path : cstring = "data/models/spyro2.glb"
-        //path : cstring = "data/models/klonoa2.glb"
-        path : cstring = "data/models/majoras_moon.glb"
-        moon_mesh = load_gltf_static_model(&vgd, &renderer, path)
-    }
-
-    // Load icosphere mesh for debug visualization
-    game_state.sphere_mesh = load_gltf_static_model(&vgd, &renderer, "data/models/icosphere.glb")
-
-    // Add moon terrain piece
-    {
-        positions := get_glb_positions("data/models/majoras_moon.glb")
-        rotq := linalg.quaternion_from_euler_angles_f32(0.0, 0.0, -math.PI / 4.0, linalg.Euler_Angle_Order.XYZ)
-        rotq *= linalg.quaternion_from_euler_angles_f32(math.PI / 4.0 , 0.0, 0.0, linalg.Euler_Angle_Order.XYZ)
-        scale := uniform_scaling_matrix(300.0)
-        rot := linalg.to_matrix4(rotq)
-        trans := translation_matrix({350.0, 400.0, 500.0})
-        mat := trans * rot * scale
-        collision := new_static_triangle_mesh(positions[:], mat)
-
-        // append(&game_state.terrain_pieces, TerrainPiece {
-        //     collision = collision,
-        //     position = {350.0, 400.0, 500.0},
-        //     rotation = rotq,
-        //     scale = 300.0,
-        //     model = moon_mesh
-        // })
-    }
-
-    // Load animated test glTF model
-    skinned_model: ^SkinnedModelData
-    {
-        //path : cstring = "data/models/RiggedSimple.glb"
-        path : cstring = "data/models/CesiumMan.glb"
-        //path : cstring = "data/models/DreadSamus.glb"
-        skinned_model = load_gltf_skinned_model(&vgd, &renderer, path)
-        // append(&game_state.animated_scenery, AnimatedScenery {
-        //     model = skinned_model,
-        //     position = {50.2138786, 65.6309738, -2.65704226},
-        //     rotation = quaternion(real=math.cos_f32(math.PI / 4.0), imag=0, jmag=0, kmag=math.sin_f32(math.PI / 4.0)),
-        //     scale = 1.0,
-        //     anim_idx = 0,
-        //     anim_t = 0.0,
-        //     anim_speed = 1.0,
-        // })
-    }
+    game_state := init_gamestate(&vgd, &renderer, &user_config, resolution)
 
     // @TODO: Load this value from level file
     //game_state.character_start = {-9.0, 15.0, 1.0}
     load_level_file(&vgd, &renderer, &game_state, "data/levels/hardcoded_test.lvl")
-
-    game_state.character = Character {
-        collision = {
-            position = game_state.character_start,
-            radius = 0.8
-        },
-        velocity = {},
-        deceleration_speed = 0.1,
-        state = .Falling,
-        facing = {0.0, 1.0, 0.0},
-        move_speed = 7.0,
-        jump_speed = 8.0,
-        remaining_jumps = 2,
-        anim_speed = 0.856,
-        mesh_data = skinned_model
-    }
-
-    // Initialize main viewport camera
-    game_state.viewport_camera = Camera {
-        position = {
-            f32(user_config.floats["freecam_x"]),
-            f32(user_config.floats["freecam_y"]),
-            f32(user_config.floats["freecam_z"])
-        },
-        yaw = f32(user_config.floats["freecam_yaw"]),
-        pitch = f32(user_config.floats["freecam_pitch"]),
-        fov_radians = f32(user_config.floats["camera_fov"]),
-        aspect_ratio = f32(resolution.x) / f32(resolution.y),
-        nearplane = 0.1 / math.sqrt_f32(2.0),
-        farplane = 1_000_000.0,
-        collision_radius = 0.1,
-        target = {
-            distance = 8.0
-        },
-    }
-    game_state.freecam_speed_multiplier = 5.0
-    game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
-    log.debug(game_state.viewport_camera)
-    saved_mouse_coords := hlsl.int2 {0, 0}
-
-    game_state.camera_follow_point = game_state.character.collision.position
-    game_state.camera_follow_speed = 6.0
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
@@ -445,6 +330,7 @@ main :: proc() {
     do_limit_cpu := false
     paused := false
     do_this_frame := true
+    saved_mouse_coords := hlsl.int2 {0, 0}
 
     log.info("App initialization complete. Entering main loop")
 
