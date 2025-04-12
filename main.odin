@@ -264,7 +264,7 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     when ODIN_DEBUG do defer imgui_cleanup(&vgd, &imgui_state)
-    ini_savename_buffer: [2048]u8
+    ini_savename_buffer: [256]u8
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
@@ -883,8 +883,6 @@ main :: proc() {
 
             // Submit gfx command buffer and present swapchain image
             vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
-            
-            vgd.frame_count += 1
         }
 
         // CLear temp allocator for next frame
