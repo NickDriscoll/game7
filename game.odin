@@ -262,6 +262,7 @@ write_level_file :: proc(gamestate: ^GameState) {
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
+    air_bullet: Maybe(Sphere),
     viewport_camera: Camera,
 
     // Scene/Level data
@@ -291,9 +292,69 @@ GameState :: struct {
     exclusive_fullscreen: bool,
 }
 
-init_gamestate :: proc() -> GameState {
+init_gamestate :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    user_config: ^UserConfiguration,
+    resolution: [2]u32
+) -> GameState {
     game_state: GameState
+    game_state.freecam_collision = user_config.flags["freecam_collision"]
+    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
+    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
+    game_state.timescale = 1.0
 
+    // Load icosphere mesh for debug visualization
+    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
+    
+    // Load animated test glTF model
+    skinned_model: ^SkinnedModelData
+    {
+        path : cstring = "data/models/CesiumMan.glb"
+        skinned_model = load_gltf_skinned_model(gd, renderer, path)
+    }
+
+    game_state.character = Character {
+        collision = {
+            position = game_state.character_start,
+            radius = 0.8
+        },
+        velocity = {},
+        deceleration_speed = 0.1,
+        state = .Falling,
+        facing = {0.0, 1.0, 0.0},
+        move_speed = 7.0,
+        jump_speed = 8.0,
+        remaining_jumps = 2,
+        anim_speed = 0.856,
+        mesh_data = skinned_model
+    }
+
+    // Initialize main viewport camera
+    game_state.viewport_camera = Camera {
+        position = {
+            f32(user_config.floats["freecam_x"]),
+            f32(user_config.floats["freecam_y"]),
+            f32(user_config.floats["freecam_z"])
+        },
+        yaw = f32(user_config.floats["freecam_yaw"]),
+        pitch = f32(user_config.floats["freecam_pitch"]),
+        fov_radians = f32(user_config.floats["camera_fov"]),
+        aspect_ratio = f32(resolution.x) / f32(resolution.y),
+        nearplane = 0.1 / math.sqrt_f32(2.0),
+        farplane = 1_000_000.0,
+        collision_radius = 0.1,
+        target = {
+            distance = 8.0
+        },
+    }
+    game_state.freecam_speed_multiplier = 5.0
+    game_state.freecam_slow_multiplier = 1.0 / 5.0
+    if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
+    log.debug(game_state.viewport_camera)
+
+    game_state.camera_follow_point = game_state.character.collision.position
+    game_state.camera_follow_speed = 6.0
 
     return game_state
 }
@@ -303,6 +364,11 @@ delete_game :: proc(using g: ^GameState) {
     delete(terrain_pieces)
 }
 
+new_level :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
+    free_all(scene_allocator)
+
+
+}
 
 EditorResponseType :: enum {
     MoveTerrainPiece,
