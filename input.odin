@@ -51,9 +51,8 @@ VerbType :: enum {
     PlaceThing,
 
     PlayerJump,
+    PlayerShoot,
     PlayerReset,
-    // PlayerTranslateX,
-    // PlayerTranslateY,
     PlayerTranslate,
     PlayerTranslateLeft,
     PlayerTranslateRight,
@@ -135,7 +134,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     }
 
     // Hardcoded default mouse mappings
-    //mouse_mappings[sdl2.BUTTON_LEFT] = .PlaceThing
+    mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
     mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
 
     // 0 bc there's just one mouse wheel... right?
@@ -293,19 +292,23 @@ poll_sdl2_events :: proc(
                 }
             }
             case .MOUSEBUTTONDOWN: {
+                imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
+                if io.WantCaptureMouse do continue
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
+                    bools[verbtype] = true
                     int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
                 if event.button.button == sdl2.BUTTON_LEFT do state.mouse_clicked = true
-                imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
             }
             case .MOUSEBUTTONUP: {
+                imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
+                if io.WantCaptureMouse do continue
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
+                    bools[verbtype] = false
                     int2s[verbtype] = {0, 0}
                 }
-                imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
             }
             case .MOUSEMOTION: {
                 old_motion := int2s[.MouseMotion]
@@ -316,13 +319,13 @@ poll_sdl2_events :: proc(
                 int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
-                log.debugf("Scrolled %v", event.wheel.y)
+                imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
+                if io.WantCaptureMouse do continue
                 verbtype, found := state.wheel_mappings[event.wheel.which]
                 if found {
                     old := floats[verbtype]
                     floats[verbtype] = old + f32(event.wheel.y)
                 }
-                imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
             }
             case .CONTROLLERDEVICEADDED: {
                 controller_idx := event.cdevice.which
