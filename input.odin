@@ -31,6 +31,7 @@ VerbType :: enum {
 
     Resume,
     FrameAdvance,
+    FullscreenHotkey,
 
     TranslateFreecamLeft,
     TranslateFreecamRight,
