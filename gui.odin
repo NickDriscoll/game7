@@ -238,39 +238,39 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Edit") {
-            if imgui.MenuItem("Scene", "idk", selected = bool(user_config.flags["scene_editor"])) {
-                user_config.flags["scene_editor"] = !user_config.flags["scene_editor"]
+            if imgui.MenuItem("Scene", "idk", selected = bool(user_config.flags[.SceneEditor])) {
+                user_config.flags[.SceneEditor] = !user_config.flags[.SceneEditor]
             }
             
             imgui.EndMenu()
         }
 
         if imgui.BeginMenu("Config") {
-            input_config := user_config.flags["input_config"]
-            if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags["input_config"] = !user_config.flags["input_config"]
-            camera_config := user_config.flags["camera_config"]
-            if imgui.MenuItem("Camera", selected = camera_config) do user_config.flags["camera_config"] = !user_config.flags["camera_config"]
-            config_autosave := user_config.flags["config_autosave"]
-            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags["config_autosave"] = !user_config.flags["config_autosave"]
+            input_config := user_config.flags[.InputConfig]
+            if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags[.InputConfig] = !user_config.flags[.InputConfig]
+            camera_config := user_config.flags[.CameraConfig]
+            if imgui.MenuItem("Camera", selected = camera_config) do user_config.flags[.CameraConfig] = !user_config.flags[.CameraConfig]
+            config_autosave := user_config.flags[.ConfigAutosave]
+            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags[.ConfigAutosave] = !user_config.flags[.ConfigAutosave]
 
             imgui.EndMenu()
         }
 
         if imgui.BeginMenu("Window") {
-            if imgui.MenuItem("Always On Top", selected = bool(user_config.flags["always_on_top"])) {
-                user_config.flags["always_on_top"] = !user_config.flags["always_on_top"]
+            if imgui.MenuItem("Always On Top", selected = bool(user_config.flags[.AlwaysOnTop])) {
+                user_config.flags[.AlwaysOnTop] = !user_config.flags[.AlwaysOnTop]
                 retval = .ToggleAlwaysOnTop
             }
 
             if imgui.MenuItem("Borderless Fullscreen", selected = game_state.borderless_fullscreen) {
                 // Update config map
-                user_config.flags[BORDERLESS_FULLSCREEN_KEY] = !game_state.borderless_fullscreen
+                user_config.flags[.BorderlessFullscreen] = !game_state.borderless_fullscreen
                 retval = .ToggleBorderlessFullscreen
             }
             
             if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
                 // Update config map
-                user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] = !game_state.exclusive_fullscreen
+                user_config.flags[.ExclusiveFullscreen] = !game_state.exclusive_fullscreen
                 retval = .ToggleExclusiveFullscreen
             }
 
@@ -278,14 +278,14 @@ main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Debug") {
-            if imgui.MenuItem("Debug panel", selected = user_config.flags["show_debug_menu"]) {
-                user_config.flags["show_debug_menu"] = !user_config.flags["show_debug_menu"]
+            if imgui.MenuItem("Debug panel", selected = user_config.flags[.ShowDebugMenu]) {
+                user_config.flags[.ShowDebugMenu] = !user_config.flags[.ShowDebugMenu]
             }
-            if imgui.MenuItem("Allocator stats", selected = user_config.flags["show_allocator_stats"]) {
-                user_config.flags["show_allocator_stats"] = !user_config.flags["show_allocator_stats"]
+            if imgui.MenuItem("Allocator stats", selected = user_config.flags[.ShowAllocatorStats]) {
+                user_config.flags[.ShowAllocatorStats] = !user_config.flags[.ShowAllocatorStats]
             }
-            if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags["show_imgui_demo"]) {
-                user_config.flags["show_imgui_demo"] = !user_config.flags["show_imgui_demo"]
+            if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags[.ShowImguiDemo]) {
+                user_config.flags[.ShowImguiDemo] = !user_config.flags[.ShowImguiDemo]
             }
 
             imgui.EndMenu()

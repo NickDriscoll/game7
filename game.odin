@@ -301,9 +301,9 @@ init_gamestate :: proc(
     resolution: [2]u32
 ) -> GameState {
     game_state: GameState
-    game_state.freecam_collision = user_config.flags["freecam_collision"]
-    game_state.borderless_fullscreen = user_config.flags[BORDERLESS_FULLSCREEN_KEY]
-    game_state.exclusive_fullscreen = user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY]
+    game_state.freecam_collision = user_config.flags[.FreecamCollision]
+    game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
+    game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
     game_state.timescale = 1.0
 
     // Load icosphere mesh for debug visualization
@@ -335,13 +335,13 @@ init_gamestate :: proc(
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
         position = {
-            f32(user_config.floats["freecam_x"]),
-            f32(user_config.floats["freecam_y"]),
-            f32(user_config.floats["freecam_z"])
+            f32(user_config.floats[.FreecamX]),
+            f32(user_config.floats[.FreecamY]),
+            f32(user_config.floats[.FreecamZ])
         },
-        yaw = f32(user_config.floats["freecam_yaw"]),
-        pitch = f32(user_config.floats["freecam_pitch"]),
-        fov_radians = f32(user_config.floats["camera_fov"]),
+        yaw = f32(user_config.floats[.FreecamYaw]),
+        pitch = f32(user_config.floats[.FreecamPitch]),
+        fov_radians = f32(user_config.floats[.CameraFOV]),
         aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1 / math.sqrt_f32(2.0),
         farplane = 1_000_000.0,
@@ -352,7 +352,7 @@ init_gamestate :: proc(
     }
     game_state.freecam_speed_multiplier = 5.0
     game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags["follow_cam"] do game_state.viewport_camera.control_flags += {.Follow}
+    if user_config.flags[.FollowCam] do game_state.viewport_camera.control_flags += {.Follow}
 
     game_state.camera_follow_point = game_state.character.collision.position
     game_state.camera_follow_speed = 6.0
@@ -397,8 +397,8 @@ scene_editor :: proc(
     builder: strings.Builder
     strings.builder_init(&builder, context.temp_allocator)
 
-    show_editor := gui.show_gui && user_config.flags["scene_editor"]
-    if show_editor && imgui.Begin("Scene editor", &user_config.flags["scene_editor"]) {
+    show_editor := gui.show_gui && user_config.flags[.SceneEditor]
+    if show_editor && imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
         // Spawn point editor
         {
             //imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)

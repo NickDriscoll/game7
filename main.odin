@@ -167,7 +167,7 @@ main :: proc() {
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
     if !config_ok do log.error("Failed to load user config.")
     defer delete_user_config(&user_config, context.allocator)
-    user_config_autosave := user_config.flags["config_autosave"]
+    user_config_autosave := user_config.flags[.ConfigAutosave]
 
 
 
@@ -209,31 +209,31 @@ main :: proc() {
 
     // Determine window resolution
     resolution : [2]u32 = DEFAULT_RESOLUTION
-    if user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] || user_config.flags[BORDERLESS_FULLSCREEN_KEY] do resolution = display_resolution
-    if "window_width" in user_config.ints && "window_height" in user_config.ints {
-        x := user_config.ints["window_width"]
-        y := user_config.ints["window_height"]
+    if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] do resolution = display_resolution
+    if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
+        x := user_config.ints[.WindowWidth]
+        y := user_config.ints[.WindowHeight]
         resolution = {u32(x), u32(y)}
     }
 
     // Determine SDL window flags
     sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
-    if user_config.flags[EXCLUSIVE_FULLSCREEEN_KEY] {
+    if user_config.flags[.ExclusiveFullscreen] {
         sdl_windowflags += {.FULLSCREEN}
     }
-    if user_config.flags[BORDERLESS_FULLSCREEN_KEY] {
+    if user_config.flags[.BorderlessFullscreen] {
         sdl_windowflags += {.BORDERLESS}
     }
 
     // Determine SDL window position
     window_x : i32 = sdl2.WINDOWPOS_CENTERED
     window_y : i32 = sdl2.WINDOWPOS_CENTERED
-    if "window_x" in user_config.ints && "window_y" in user_config.ints {
-        window_x = i32(user_config.ints["window_x"])
-        window_y = i32(user_config.ints["window_y"])
+    if .WindowX in user_config.ints && .WindowY in user_config.ints {
+        window_x = i32(user_config.ints[.WindowX])
+        window_y = i32(user_config.ints[.WindowY])
     } else {
-        user_config.ints["window_x"] = i64(sdl2.WINDOWPOS_CENTERED)
-        user_config.ints["window_y"] = i64(sdl2.WINDOWPOS_CENTERED)
+        user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
+        user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
     }
 
     sdl_window := sdl2.CreateWindow(
@@ -245,7 +245,7 @@ main :: proc() {
         sdl_windowflags
     )
     when ODIN_DEBUG do defer sdl2.DestroyWindow(sdl_window)
-    sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
+    sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
 
     // Initialize the state required for rendering to the window
     if !vkw.init_sdl2_window(&vgd, sdl_window) {
@@ -430,13 +430,13 @@ main :: proc() {
         @static move_player := false
         @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
-        if imgui_state.show_gui && user_config.flags["show_debug_menu"] {
-            if imgui.Begin("Hacking window", &user_config.flags["show_debug_menu"]) {
+        if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
+            if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Separator()
                 imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
                 if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                    user_config.flags["freecam_collision"] = game_state.freecam_collision
+                    user_config.flags[.FreecamCollision] = game_state.freecam_collision
                 }
                 imgui.Separator()
 
@@ -521,7 +521,7 @@ main :: proc() {
                 write_level_file(&game_state)
             }
             case .ToggleAlwaysOnTop: {
-                sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags["always_on_top"]))
+                sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
             }
             case .ToggleBorderlessFullscreen: {
                 game_state.borderless_fullscreen = !game_state.borderless_fullscreen
@@ -533,13 +533,13 @@ main :: proc() {
                     resolution = DEFAULT_RESOLUTION
                     // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
                     // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
-                    xpos = c.int(user_config.ints["window_x"])
-                    ypos = c.int(user_config.ints["window_y"])
+                    xpos = c.int(user_config.ints[.WindowX])
+                    ypos = c.int(user_config.ints[.WindowY])
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
-                user_config.ints["window_x"] = i64(xpos)
-                user_config.ints["window_y"] = i64(ypos)
+                user_config.ints[.WindowX] = i64(xpos)
+                user_config.ints[.WindowY] = i64(ypos)
 
                 sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
                 sdl2.SetWindowPosition(sdl_window, xpos, ypos)
@@ -561,8 +561,8 @@ main :: proc() {
                     resolution = DEFAULT_RESOLUTION
                     // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
                     // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
-                    xpos = c.int(user_config.ints["window_x"])
-                    ypos = c.int(user_config.ints["window_y"])
+                    xpos = c.int(user_config.ints[.WindowX])
+                    ypos = c.int(user_config.ints[.WindowY])
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
@@ -586,11 +586,11 @@ main :: proc() {
             if game_state.borderless_fullscreen {
                 resolution = display_resolution
             } else {
-                resolution = {u32(user_config.ints["window_width"]), u32(user_config.ints["window_height"])}
+                resolution = {u32(user_config.ints[.WindowWidth]), u32(user_config.ints[.WindowHeight])}
                 // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
                 // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
-                xpos = c.int(user_config.ints["window_x"])
-                ypos = c.int(user_config.ints["window_y"])
+                xpos = c.int(user_config.ints[.WindowX])
+                ypos = c.int(user_config.ints[.WindowY])
             }
             io.DisplaySize.x = f32(resolution.x)
             io.DisplaySize.y = f32(resolution.y)
@@ -618,13 +618,13 @@ main :: proc() {
             }
         }
 
-        if imgui_state.show_gui && user_config.flags["camera_config"] {
+        if imgui_state.show_gui && user_config.flags[.CameraConfig] {
             res, ok := camera_gui(
                 &game_state,
                 &game_state.viewport_camera,
                 &input_system,
                 &user_config,
-                &user_config.flags["camera_config"]
+                &user_config.flags[.CameraConfig]
             )
             if ok {
                 switch res {
@@ -640,10 +640,10 @@ main :: proc() {
         }
 
         // Input remapping GUI
-        if imgui_state.show_gui && user_config.flags["input_config"] do input_gui(&input_system, &user_config.flags["input_config"])
+        if imgui_state.show_gui && user_config.flags[.InputConfig] do input_gui(&input_system, &user_config.flags[.InputConfig])
 
         // Imgui Demo
-        if imgui_state.show_gui && user_config.flags["show_imgui_demo"] do imgui.ShowDemoWindow(&user_config.flags["show_imgui_demo"])
+        if imgui_state.show_gui && user_config.flags[.ShowImguiDemo] do imgui.ShowDemoWindow(&user_config.flags[.ShowImguiDemo])
 
         // Handle current editor state
         {
@@ -742,8 +742,8 @@ main :: proc() {
 
         // Memory viewer
         when ODIN_DEBUG {
-            if imgui_state.show_gui && user_config.flags["show_allocator_stats"] {
-                if imgui.Begin("Allocator stats", &user_config.flags["show_allocator_stats"]) {
+            if imgui_state.show_gui && user_config.flags[.ShowAllocatorStats] {
+                if imgui.Begin("Allocator stats", &user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
                     imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
                     imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
@@ -863,8 +863,8 @@ main :: proc() {
 
             new_pos, ok2 := output_verbs.int2s[.MoveWindow]
             if ok2 {
-                user_config.ints["window_x"] = i64(new_pos.x)
-                user_config.ints["window_y"] = i64(new_pos.y)
+                user_config.ints[.WindowX] = i64(new_pos.x)
+                user_config.ints[.WindowY] = i64(new_pos.y)
             }
         }
 
@@ -880,8 +880,11 @@ main :: proc() {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
                 resize_framebuffers(&vgd, &renderer, resolution)
                 game_state.viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
-                user_config.ints["window_width"] = i64(resolution.x)
-                user_config.ints["window_height"] = i64(resolution.y)
+                is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
+                if !is_fullscreen {
+                    user_config.ints[.WindowWidth] = i64(resolution.x)
+                    user_config.ints[.WindowHeight] = i64(resolution.y)
+                }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
 
