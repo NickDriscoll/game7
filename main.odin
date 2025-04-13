@@ -293,6 +293,7 @@ main :: proc() {
         freecam_key_mappings[.SPACE] = .PlayerJump
         freecam_key_mappings[.BACKSLASH] = .FrameAdvance
         freecam_key_mappings[.PAUSE] = .Resume
+        freecam_key_mappings[.F] = .FullscreenHotkey
 
         character_key_mappings[.ESCAPE] = .ToggleImgui
         character_key_mappings[.W] = .PlayerTranslateForward
@@ -304,6 +305,7 @@ main :: proc() {
         character_key_mappings[.SPACE] = .PlayerJump
         character_key_mappings[.BACKSLASH] = .FrameAdvance
         character_key_mappings[.PAUSE] = .Resume
+        character_key_mappings[.F] = .FullscreenHotkey
     }
 
     // Init input system
@@ -333,6 +335,7 @@ main :: proc() {
     saved_mouse_coords := hlsl.int2 {0, 0}
 
     log.info("App initialization complete. Entering main loop")
+    defer vkw.device_wait_idle(&vgd)
 
     do_main_loop := true
     for do_main_loop {
@@ -528,8 +531,10 @@ main :: proc() {
                     resolution = display_resolution
                 } else {
                     resolution = DEFAULT_RESOLUTION
-                    xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                    ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+                    // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                    // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+                    xpos = c.int(user_config.ints["window_x"])
+                    ypos = c.int(user_config.ints["window_y"])
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
@@ -554,13 +559,13 @@ main :: proc() {
                     resolution = display_resolution
                 } else {
                     resolution = DEFAULT_RESOLUTION
-                    xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                    ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+                    // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                    // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+                    xpos = c.int(user_config.ints["window_x"])
+                    ypos = c.int(user_config.ints["window_y"])
                 }
                 io.DisplaySize.x = f32(resolution.x)
                 io.DisplaySize.y = f32(resolution.y)
-                user_config.ints["window_x"] = i64(xpos)
-                user_config.ints["window_y"] = i64(ypos)
 
                 sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
                 sdl2.SetWindowFullscreen(sdl_window, flags)
@@ -572,6 +577,30 @@ main :: proc() {
                 show_load_modal = true
             }
             case .None: {}
+        }
+
+        if output_verbs.bools[.FullscreenHotkey] {
+            game_state.borderless_fullscreen = !game_state.borderless_fullscreen
+            game_state.exclusive_fullscreen = false
+            xpos, ypos: c.int
+            if game_state.borderless_fullscreen {
+                resolution = display_resolution
+            } else {
+                resolution = {u32(user_config.ints["window_width"]), u32(user_config.ints["window_height"])}
+                // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
+                // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
+                xpos = c.int(user_config.ints["window_x"])
+                ypos = c.int(user_config.ints["window_y"])
+            }
+            io.DisplaySize.x = f32(resolution.x)
+            io.DisplaySize.y = f32(resolution.y)
+
+            sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
+            sdl2.SetWindowPosition(sdl_window, xpos, ypos)
+            sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
+            sdl2.SetWindowResizable(sdl_window, !game_state.borderless_fullscreen)
+
+            vgd.resize_window = true
         }
 
         if show_load_modal {
@@ -898,6 +927,4 @@ main :: proc() {
     }
 
     log.info("Returning from main()")
-
-    vkw.device_wait_idle(&vgd)
 }
