@@ -7,36 +7,81 @@ import "core:text/scanner"
 import "core:strconv"
 import "core:strings"
 
-// @TODO: Use an enumerated array to associate keys (as an enum)
-// with string names
+ConfigKey :: enum {
+    ShowDebugMenu,
+    ShowClosestPoint,
+    ConfigAutosave,
+    FollowCam,
+    ShowAllocatorStats,
+    CameraFOV,
+    CameraConfig,
+    ShowImguiDemo,
+    InputConfig,
+    ShowMemoryTracker,
+    FreecamCollision,
+    BorderlessFullscreen,
+    ExclusiveFullscreen,
+    SceneEditor,
+    AlwaysOnTop,
+    FreecamPitch,
+    FreecamYaw,
+    FreecamX,
+    FreecamY,
+    FreecamZ,
+    WindowWidth,
+    WindowHeight,
+    WindowX,
+    WindowY,
+}
+
+CONFIG_KEY_STRINGS : [ConfigKey]string : {
+    .ShowDebugMenu = "show_debug_menu",
+    .CameraConfig = "camera_config",
+    .ShowAllocatorStats = "show_allocator_stats",
+    .BorderlessFullscreen = "borderless_fullscreen",
+    .ExclusiveFullscreen = "exclusive_fullscreen",
+    .ShowImguiDemo = "show_imgui_demo",
+    .FreecamCollision = "freecam_collision",
+    .SceneEditor = "scene_editor",
+    .AlwaysOnTop = "always_on_top",
+    .ConfigAutosave = "config_autosave",
+    .ShowClosestPoint = "show_closest_point",
+	.FollowCam = "follow_cam",
+	.InputConfig = "input_config",
+	.ShowMemoryTracker = "show_memory_tracker",
+	.FreecamPitch = "freecam_pitch",
+	.FreecamYaw = "freecam_yaw",
+	.FreecamX = "freecam_x",
+	.FreecamY = "freecam_y",
+	.FreecamZ = "freecam_z",
+	.WindowWidth = "window_width",
+	.WindowHeight = "window_height",
+	.WindowX = "window_x",
+	.WindowY = "window_y",
+    .CameraFOV = "camera_fov"
+}
+
 
 // Constants for user configuration keys
 EXCLUSIVE_FULLSCREEEN_KEY :: "exclusive_fullscreen"
 BORDERLESS_FULLSCREEN_KEY :: "borderless_fullscreen"
 
 UserConfiguration :: struct {
-    flags: map[string]bool,
-    ints: map[string]i64,
-    floats: map[string]f64,
-
-
-    _interner: strings.Intern,
+    flags: map[ConfigKey]bool,
+    ints: map[ConfigKey]i64,
+    floats: map[ConfigKey]f64,
 }
 
 init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     cfg: UserConfiguration
-    cfg.flags = make(map[string]bool, allocator = allocator)
-
-    err := strings.intern_init(&cfg._interner)
-    if err != nil {
-        log.errorf("Error initializing string interner: %v", err)
-    }
+    cfg.flags = make(map[ConfigKey]bool, allocator = allocator)
+    cfg.ints = make(map[ConfigKey]i64, allocator = allocator)
+    cfg.floats = make(map[ConfigKey]f64, allocator = allocator)
 
     return cfg
 }
 
 delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.allocator) {
-    strings.intern_destroy(&_interner)
     delete(flags)
     delete(ints)
     delete(floats)
@@ -54,21 +99,27 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
 
     // Saving flags
     for key, val in config.flags {
-        st := fmt.sbprintfln(&sb, "%v = %v", key, val)
+        cs := CONFIG_KEY_STRINGS
+        s := cs[key]
+        st := fmt.sbprintfln(&sb, "%v = %v", s, val)
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
 
     // Saving ints
     for key, val in config.ints {
-        st := fmt.sbprintfln(&sb, "%v = %v", key, val)
+        cs := CONFIG_KEY_STRINGS
+        s := cs[key]
+        st := fmt.sbprintfln(&sb, "%v = %v", s, val)
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
 
     // Saving floats
     for key, val in config.floats {
-        st := fmt.sbprintfln(&sb, "%v = %v", key, val)
+        cs := CONFIG_KEY_STRINGS
+        s := cs[key]
+        st := fmt.sbprintfln(&sb, "%v = %v", s, val)
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
@@ -128,16 +179,22 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
     key_str := scanner.token_text(&sc)
     for key_tok != scanner.EOF {
         // Put the key in the internerator
-        interned_key, err := strings.intern_get(&u._interner, key_str)
-        log.debugf("User cfg key: %v", interned_key)
-        if err != nil {
-            log.errorf("Error interning key: %v", err)
+        // interned_key, err := strings.intern_get(&u._interner, key_str)
+        // log.debugf("User cfg key: %v", interned_key)
+        // if err != nil {
+        //     log.errorf("Error interning key: %v", err)
+        // }
+
+        // Map string to key
+        key: Maybe(ConfigKey)
+        for k, e in CONFIG_KEY_STRINGS {
+            if k == key_str do key = e
         }
 
         scanner.scan(&sc)
         eq_tok := scanner.token_text(&sc)
         if eq_tok != "=" {
-            log.errorf("Expected '=', found %v", eq_tok)
+            log.errorf("Expected '=', found \"%v\"", eq_tok)
         }
 
         negative_number := false
@@ -149,13 +206,13 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
             scanner.scan(&sc)
             val_tok = scanner.token_text(&sc)
         }
-        if val_tok == "true"                            do u.flags[interned_key] = true
-        else if val_tok == "false"                      do u.flags[interned_key] = false
+        if val_tok == "true"                            do u.flags[key.?] = true
+        else if val_tok == "false"                      do u.flags[key.?] = false
         else if strings.contains(val_tok, ".") {
             i : f64 = -1 if negative_number else 1
-            u.floats[interned_key] = i * strconv.atof(val_tok)
+            u.floats[key.?] = i * strconv.atof(val_tok)
         }
-        else                                            do u.ints[interned_key] = i64(strconv.atoi(val_tok))
+        else                                            do u.ints[key.?] = i64(strconv.atoi(val_tok))
 
 
         key_tok = scanner.scan(&sc)
@@ -166,12 +223,12 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
 }
 
 update_user_cfg_camera :: proc(using s: ^UserConfiguration, camera: ^Camera) {
-    flags["follow_cam"] = .Follow in camera.control_flags
-    floats["freecam_x"] = f64(camera.position.x)
-    floats["freecam_y"] = f64(camera.position.y)
-    floats["freecam_z"] = f64(camera.position.z)
-    floats["camera_fov"] = f64(camera.fov_radians)
-    floats["freecam_pitch"] = f64(camera.pitch)
-    floats["freecam_yaw"] = f64(camera.yaw)
+    flags[.FollowCam] = .Follow in camera.control_flags
+    floats[.FreecamX] = f64(camera.position.x)
+    floats[.FreecamY] = f64(camera.position.y)
+    floats[.FreecamZ] = f64(camera.position.z)
+    floats[.CameraFOV] = f64(camera.fov_radians)
+    floats[.FreecamPitch] = f64(camera.pitch)
+    floats[.FreecamYaw] = f64(camera.yaw)
 }
 
