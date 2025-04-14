@@ -50,7 +50,17 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
-load_level_file :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, gamestate: ^GameState, path: string) -> bool {
+load_level_file :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    gamestate: ^GameState,
+    user_config: ^UserConfiguration,
+    path: string
+) -> bool {
+    free_all(context.allocator)
+    renderer_new_scene(renderer)
+    gamestate^ = init_gamestate(gd, renderer, user_config)
+
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
         log.errorf("Error reading entire level file: %v", lvl_err)
@@ -264,8 +274,11 @@ write_level_file :: proc(gamestate: ^GameState) {
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
-    air_bullet: Maybe(Sphere),
     viewport_camera: Camera,
+
+    air_bullet: Maybe(Sphere),
+    bullet_time: f32,
+    bullet_endtime: f32,
 
     // Scene/Level data
     terrain_pieces: [dynamic]TerrainPiece,
@@ -298,13 +311,13 @@ init_gamestate :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
     user_config: ^UserConfiguration,
-    resolution: [2]u32
 ) -> GameState {
     game_state: GameState
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
     game_state.timescale = 1.0
+    game_state.bullet_endtime = 0.144
 
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
@@ -342,7 +355,6 @@ init_gamestate :: proc(
         yaw = f32(user_config.floats[.FreecamYaw]),
         pitch = f32(user_config.floats[.FreecamPitch]),
         fov_radians = f32(user_config.floats[.CameraFOV]),
-        aspect_ratio = f32(resolution.x) / f32(resolution.y),
         nearplane = 0.1 / math.sqrt_f32(2.0),
         farplane = 1_000_000.0,
         collision_radius = 0.1,
@@ -401,7 +413,6 @@ scene_editor :: proc(
     if show_editor && imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
         // Spawn point editor
         {
-            //imgui.Text("Player spawn is at (%f, %f, %f)", game_state.character_start.x, game_state.character_start.y, game_state.character_start.z)
             imgui.DragFloat3("Player spawn", &game_state.character_start, 0.1)
             flag := .ShowPlayerSpawn in game_state.debug_vis_flags
             if imgui.Checkbox("Show player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
@@ -426,43 +437,13 @@ scene_editor :: proc(
 
             imgui.Separator()
         }
-
-        filewalk_proc :: proc(
-            info: os.File_Info,
-            in_err: os.Error,
-            user_data: rawptr
-        ) -> (err: os.Error, skip_dir: bool) {
-            if !info.is_dir {
-                item_array := cast(^[dynamic]cstring)user_data
-                append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
-            }
-
-            err = nil
-            skip_dir = false
-            return
-        }
+        
+        selected_item: c.int
         list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-
-        // @TODO: Is this a bug in the filepath package?
-        // The File_Info structs are supposed to be allocated
-        // with context.temp_allocator, but it appears that it
-        // actually uses context.allocator
-        old_alloc := context.allocator
-        context.allocator = context.temp_allocator
-        walk_error := filepath.walk("./data/models", filewalk_proc, &list_items)
-        context.allocator = old_alloc
-
-        if walk_error != nil {
-            log.errorf("Error walking models dir: %v", walk_error)
-        }
-
-        // Show listbox
-        current_item : c.int = 0
-        if imgui.ListBox("glb files", &current_item, &list_items[0], c.int(len(list_items)), 15) {
+        if gui_list_files("./data/models", &list_items, &selected_item, "testing") {
             // Insert selected item into animated scenery list
-            fmt.sbprintf(&builder, "data/models/%v", list_items[current_item])
+            fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
             path_cstring, _ := strings.to_cstring(&builder)
-
             // Try to load as a skinned model
             // Load as a static model if loading as skinned fails
             model := load_gltf_skinned_model(gd, renderer, path_cstring)
@@ -479,7 +460,6 @@ scene_editor :: proc(
                     scale = 1.0,
                 })
             }
-
             strings.builder_reset(&builder)
         }
         imgui.Separator()
@@ -811,7 +791,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         game_state.character.anim_t += game_state.character.anim_speed * dt * movement_dist
 
         if xv != 0.0 || zv != 0.0 {
-            game_state.character.facing = -hlsl.normalize(world_invector).xyz
+            game_state.character.facing = hlsl.normalize(world_invector).xyz
         }
     }
 
@@ -916,13 +896,35 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         }
     }
 
+    // Shoot bullet
+    if output_verbs.bools[.PlayerShoot] {
+        game_state.bullet_time = 0.0
+        game_state.air_bullet = Sphere {
+            position = game_state.character.collision.position,
+            radius = 0.1
+        }
+    }
+
+    // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
+    bullet, bok := &game_state.air_bullet.?
+    if bok {
+        // Bullet update
+        col := game_state.character.collision
+        game_state.bullet_time += dt
+        if game_state.bullet_time > game_state.bullet_endtime {
+            game_state.air_bullet = nil
+        }
+        endpoint := col.position + 1.5 * game_state.character.facing
+        bullet.position = linalg.lerp(col.position, endpoint, game_state.bullet_time / game_state.bullet_endtime)
+    }
+
     // Camera follow point chases player
     target_pt := game_state.character.collision.position
     game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
 }
 
 player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
-    y := character.facing
+    y := -character.facing
     z := hlsl.float3 {0.0, 0.0, 1.0}
     x := hlsl.cross(y, z)
     rotate_mat := hlsl.float4x4 {
@@ -976,11 +978,14 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
 camera_update :: proc(
     game_state: ^GameState,
     output_verbs: ^OutputVerbs,
+    resolution: [2]u32,
     dt: f32,
 ) -> hlsl.float4x4 {
     using game_state.viewport_camera
 
     camera_rotation: [2]f32 = {0.0, 0.0}
+    
+    aspect_ratio = f32(resolution.x) / f32(resolution.y)
 
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}

@@ -263,18 +263,16 @@ main :: proc() {
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
-    when ODIN_DEBUG do defer imgui_cleanup(&vgd, &imgui_state)
+    when ODIN_DEBUG do defer gui_cleanup(&vgd, &imgui_state)
     ini_savename_buffer: [256]u8
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
 
     // Main app structure storing the game's overall state
-    game_state := init_gamestate(&vgd, &renderer, &user_config, resolution)
+    game_state := init_gamestate(&vgd, &renderer, &user_config)
 
-    // @TODO: Load this value from level file
-    //game_state.character_start = {-9.0, 15.0, 1.0}
-    load_level_file(&vgd, &renderer, &game_state, "data/levels/hardcoded_test.lvl")
+    load_level_file(&vgd, &renderer, &game_state, &user_config, "data/levels/hardcoded_test.lvl")
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
@@ -333,6 +331,7 @@ main :: proc() {
     paused := false
     do_this_frame := true
     saved_mouse_coords := hlsl.int2 {0, 0}
+    load_new_level: Maybe(string)
 
     log.info("App initialization complete. Entering main loop")
     defer vkw.device_wait_idle(&vgd)
@@ -351,6 +350,19 @@ main :: proc() {
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config_last_saved = current_time
+        }
+
+        // Load new level before any other per-frame work begins
+        {
+            level, ok := load_new_level.?
+            if ok {
+                builder: strings.Builder
+                strings.builder_init(&builder, context.temp_allocator)
+                fmt.sbprintf(&builder, "data/levels/%v", level)
+                path := strings.to_string(builder)
+                load_level_file(&vgd, &renderer, &game_state, &user_config, path)
+                load_new_level = nil
+            }
         }
 
         // Start a new Dear ImGUI frame and get an io reference
@@ -460,6 +472,7 @@ main :: proc() {
                     imgui.SliderFloat("Player deceleration speed", &deceleration_speed, 0.01, 2.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
+                    imgui.SliderFloat("Bullet travel time", &game_state.bullet_endtime, 0.0, 1.0)
                     if imgui.Button("Reset player") {
                         collision.position = game_state.character_start
                         velocity = {}
@@ -515,7 +528,7 @@ main :: proc() {
 
         // React to main menu bar interaction
         @static show_load_modal := false
-        switch main_menu_bar(&imgui_state, &game_state, &user_config) {
+        switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
             case .SaveLevel: {
                 write_level_file(&game_state)
@@ -608,9 +621,17 @@ main :: proc() {
 
             center := imgui.GetMainViewport().Size / 2.0
             imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+            imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
             if imgui.BeginPopupModal("Modal testing bb", nil, {.NoMove,.NoResize}) {
-                imgui.Text("Plz show up")
-                if imgui.Button("Return") {
+                selected_item: c.int
+                list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                if gui_list_files("./data/levels/", &list_items, &selected_item, "Level select") {
+                    // Load selected level
+                    load_new_level = strings.clone(string(list_items[selected_item]), context.allocator)
+                    show_load_modal = false
+                    imgui.CloseCurrentPopup()
+                }
+                if imgui.Button("Back") {
                     show_load_modal = false
                     imgui.CloseCurrentPopup()
                 }
@@ -779,9 +800,20 @@ main :: proc() {
         }
 
         player_draw(&game_state, &vgd, &renderer)
+        
+        {
+            bullet, ok := game_state.air_bullet.?
+            if ok {
+                dd := DebugDraw {
+                    world_from_model = translation_matrix(bullet.position) * uniform_scaling_matrix(bullet.radius),
+                    color = {0.0, 1.0, 0.0, 0.8}
+                }
+                draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)
+            }
+        }
 
         // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
+        current_view_from_world := camera_update(&game_state, &output_verbs, resolution, last_frame_dt)
         projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
         renderer.cpu_uniforms.clip_from_world =
             projection_from_view *
@@ -870,7 +902,7 @@ main :: proc() {
 
         // If the window is minimized, we have to end the current imgui frame here
         if window_minimized {
-            imgui_cancel_frame(&imgui_state)
+            gui_cancel_frame(&imgui_state)
         }
 
         // Render

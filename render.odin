@@ -260,9 +260,7 @@ Renderer :: struct {
     viewport_dimensions: [4]f32,
 }
 
-init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
-    renderer: Renderer
-
+renderer_new_scene :: proc(renderer: ^Renderer) {
     // Allocator dynamic arrays and handlemaps
     hm.init(&renderer.cpu_static_meshes)
     hm.init(&renderer.cpu_skinned_meshes)
@@ -278,6 +276,20 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     renderer.loaded_static_models = make(map[string]StaticModelData)
     renderer.loaded_skinned_models = make(map[string]SkinnedModelData)
     strings.intern_init(&renderer._glb_name_interner)
+
+    renderer.positions_head = 0
+    renderer.indices_head = 0
+    renderer.colors_head = 0
+    renderer.joint_ids_head = 0
+    renderer.joint_weights_head = 0
+    renderer.joint_matrices_head = 0
+    renderer.uvs_head = 0
+}
+
+init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
+    renderer: Renderer
+
+    renderer_new_scene(&renderer)
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     main_depth_attachment_format := vk.Format.D32_SFLOAT
@@ -1053,7 +1065,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     vtx_positions_out_offset := renderer.positions_head
     for skinned_instance in renderer.cpu_skinned_instances {
         renderer.dirty_flags += {.Mesh}
-        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(skinned_instance.mesh_handle))
+        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
         anim := renderer.animations[skinned_instance.animation_idx]
         anim_t := skinned_instance.animation_time
 
@@ -1786,6 +1798,7 @@ load_gltf_skinned_model :: proc(
         // Load animation data
         for animation in gltf_data.animations {
             new_anim: Animation
+            new_anim.channels = make([dynamic]AnimationChannel, 0, len(animation.channels), allocator)
 
             new_anim.name = string(animation.name)
 
@@ -1812,7 +1825,7 @@ load_gltf_skinned_model :: proc(
                 out_channel.local_joint_id = gltf_node_idx(glb_skin.joints, channel.target_node)
 
                 keyframe_count := channel.sampler.input.count
-                reserve(&out_channel.keyframes, keyframe_count)
+                out_channel.keyframes = make([dynamic]AnimationKeyFrame, 0, keyframe_count, allocator)
                 keyframe_times := get_accessor_ptr(channel.sampler.input, f32)
                 keyframe_values := make([dynamic]hlsl.float4, keyframe_count, context.temp_allocator)
                 #partial switch channel.sampler.output.type {
