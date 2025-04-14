@@ -61,11 +61,6 @@ CONFIG_KEY_STRINGS : [ConfigKey]string : {
     .CameraFOV = "camera_fov"
 }
 
-
-// Constants for user configuration keys
-EXCLUSIVE_FULLSCREEEN_KEY :: "exclusive_fullscreen"
-BORDERLESS_FULLSCREEN_KEY :: "borderless_fullscreen"
-
 UserConfiguration :: struct {
     flags: map[ConfigKey]bool,
     ints: map[ConfigKey]i64,

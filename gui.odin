@@ -1,9 +1,13 @@
 package main
 
 import "core:c"
+import "core:fmt"
 import "core:math/linalg/hlsl"
 import "core:log"
+import "core:os"
+import "core:path/filepath"
 import "core:slice"
+import "core:strings"
 import "vendor:sdl2"
 import vk "vendor:vulkan"
 import imgui "odin-imgui"
@@ -204,7 +208,7 @@ MainMenuBarVerb :: enum {
     ShowLoadModal
 }
 
-main_menu_bar :: proc(
+gui_main_menu_bar :: proc(
     using state: ^ImguiState,
     game_state: ^GameState,
     user_config: ^UserConfiguration
@@ -295,6 +299,40 @@ main_menu_bar :: proc(
     }
 
     return retval
+}
+
+gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
+    filewalk_proc :: proc(
+        info: os.File_Info,
+        in_err: os.Error,
+        user_data: rawptr
+    ) -> (err: os.Error, skip_dir: bool) {
+        if !info.is_dir {
+            item_array := cast(^[dynamic]cstring)user_data
+            append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
+        }
+
+        err = nil
+        skip_dir = false
+        return
+    }
+
+    // @TODO: Is this a bug in the filepath package?
+    // The File_Info structs are supposed to be allocated
+    // with context.temp_allocator, but it appears that it
+    // actually uses context.allocator
+    old_alloc := context.allocator
+    context.allocator = context.temp_allocator
+    walk_error := filepath.walk(path, filewalk_proc, list_items)
+    context.allocator = old_alloc
+
+    if walk_error != nil {
+        log.errorf("Error walking models dir: %v", walk_error)
+    }
+
+    // Show listbox
+    selected_item^ = 0
+    return imgui.ListBox(name, selected_item, &list_items[0], c.int(len(list_items)), 15)
 }
 
 // Once-per-frame call to update imgui vtx/idx/uniform buffers
@@ -422,12 +460,12 @@ render_imgui :: proc(
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 }
 
-imgui_cancel_frame :: proc(imgui_state: ^ImguiState) {
+gui_cancel_frame :: proc(imgui_state: ^ImguiState) {
     imgui.EndFrame()
     imgui.Render()
 }
 
-imgui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
+gui_cleanup :: proc(vgd: ^vkw.Graphics_Device, using is: ^ImguiState) {
     imgui.DestroyContext(ctxt)
 }
 
