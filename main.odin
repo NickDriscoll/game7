@@ -319,6 +319,7 @@ main :: proc() {
 
     // Init audio system
     audio_system := init_audio_system()
+    when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
@@ -363,6 +364,14 @@ main :: proc() {
                 load_level_file(&vgd, &renderer, &game_state, &user_config, path)
                 load_new_level = nil
             }
+        }
+
+        // Advance sound system
+        {
+            sdl2.LockAudioDevice(audio_system.device_id)
+            defer sdl2.UnlockAudioDevice(audio_system.device_id)
+
+            audio_system.time += last_frame_dt
         }
 
         // Start a new Dear ImGUI frame and get an io reference
@@ -617,12 +626,13 @@ main :: proc() {
         }
 
         if show_load_modal {
-            imgui.OpenPopup("Modal testing bb")
+            level_select_text : cstring = "Level select"
+            imgui.OpenPopup(level_select_text)
 
             center := imgui.GetMainViewport().Size / 2.0
             imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
             imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-            if imgui.BeginPopupModal("Modal testing bb", nil, {.NoMove,.NoResize}) {
+            if imgui.BeginPopupModal(level_select_text, nil, {.NoMove,.NoResize}) {
                 selected_item: c.int
                 list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
                 if gui_list_files("./data/levels/", &list_items, &selected_item, "Level select") {
@@ -813,7 +823,7 @@ main :: proc() {
         }
 
         // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, resolution, last_frame_dt)
+        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
         projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
         renderer.cpu_uniforms.clip_from_world =
             projection_from_view *
@@ -911,7 +921,6 @@ main :: proc() {
             if vgd.resize_window {
                 if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
                 resize_framebuffers(&vgd, &renderer, resolution)
-                game_state.viewport_camera.aspect_ratio = f32(resolution.x) / f32(resolution.y)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
                     user_config.ints[.WindowWidth] = i64(resolution.x)
