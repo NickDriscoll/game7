@@ -101,6 +101,17 @@ rebuild_static_triangle_mesh :: proc(collision: ^StaticTriangleCollision, model_
     }
 }
 
+copy_static_triangle_mesh :: proc(collision: StaticTriangleCollision, allocator := context.allocator) -> StaticTriangleCollision {
+    new_positions := make([]f32, len(collision.local_positions), allocator)
+    new_triangles := make([dynamic]Triangle, len(collision.triangles), allocator)
+    copy(new_positions, collision.local_positions)
+    copy(new_triangles[:], collision.triangles[:])
+    
+    return StaticTriangleCollision {
+        local_positions = new_positions,
+        triangles = new_triangles
+    }
+}
 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {

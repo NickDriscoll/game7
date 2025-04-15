@@ -649,7 +649,10 @@ scene_editor :: proc(
         {
             clone_idx, clone_ok := terrain_piece_clone_idx.?
             if clone_ok {
-                append(&game_state.terrain_pieces, game_state.terrain_pieces[clone_idx])
+                new_terrain_piece := game_state.terrain_pieces[clone_idx]
+                new_terrain_piece.collision = copy_static_triangle_mesh(game_state.terrain_pieces[clone_idx].collision)
+
+                append(&game_state.terrain_pieces, new_terrain_piece)
                 new_idx := len(game_state.terrain_pieces) - 1
                 game_state.editor_response = EditorResponse {
                     type = .MoveTerrainPiece,
