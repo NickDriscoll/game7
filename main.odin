@@ -318,7 +318,8 @@ main :: proc() {
     context.allocator = scene_allocator
 
     // Init audio system
-    audio_system := init_audio_system()
+    audio_system: AudioSystem
+    init_audio_system(&audio_system)
     when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
 
     // Setup may have used temp allocation, 
@@ -364,14 +365,6 @@ main :: proc() {
                 load_level_file(&vgd, &renderer, &game_state, &user_config, path)
                 load_new_level = nil
             }
-        }
-
-        // Advance sound system
-        {
-            sdl2.LockAudioDevice(audio_system.device_id)
-            defer sdl2.UnlockAudioDevice(audio_system.device_id)
-
-            audio_system.time += last_frame_dt
         }
 
         // Start a new Dear ImGUI frame and get an io reference
