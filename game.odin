@@ -978,14 +978,11 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
 camera_update :: proc(
     game_state: ^GameState,
     output_verbs: ^OutputVerbs,
-    resolution: [2]u32,
     dt: f32,
 ) -> hlsl.float4x4 {
     using game_state.viewport_camera
 
     camera_rotation: [2]f32 = {0.0, 0.0}
-    
-    aspect_ratio = f32(resolution.x) / f32(resolution.y)
 
     if .Follow in control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
