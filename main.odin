@@ -663,6 +663,8 @@ main :: proc() {
             }
         }
 
+        if imgui_state.show_gui && user_config.flags[.AudioPanel] do audio_gui(&audio_system, &user_config.flags[.AudioPanel])
+
         // Input remapping GUI
         if imgui_state.show_gui && user_config.flags[.InputConfig] do input_gui(&input_system, &user_config.flags[.InputConfig])
 

@@ -9,6 +9,7 @@ import "core:strings"
 
 ConfigKey :: enum {
     ShowDebugMenu,
+    AudioPanel,
     ShowClosestPoint,
     ConfigAutosave,
     FollowCam,
@@ -36,6 +37,7 @@ ConfigKey :: enum {
 
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
     .ShowDebugMenu = "show_debug_menu",
+    .AudioPanel = "audio_panel",
     .CameraConfig = "camera_config",
     .ShowAllocatorStats = "show_allocator_stats",
     .BorderlessFullscreen = "borderless_fullscreen",
