@@ -59,6 +59,7 @@ init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.alloc
     audio_system.note_freq = MIDDLE_C_HZ
     audio_system.volume = 0.1
     audio_system.ctxt = context
+    audio_system.music_files = make([dynamic]^vorbis.vorbis, 0, 16, allocator)
 
     // Init audio system
     {
@@ -81,10 +82,16 @@ destroy_audio_system :: proc(audio_system: ^AudioSystem) {
     sdl2.CloseAudioDevice(audio_system.device_id)
 }
 
-open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) {
+open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> int {
     err: vorbis.Error
     alloc_buffer: vorbis.vorbis_alloc
     v := vorbis.open_filename(path, &err, &alloc_buffer)
+    append(&audio_system.music_files, v)
+    return len(audio_system.music_files) - 1
+}
+
+close_music_file :: proc(audio_system: ^AudioSystem, idx: int) {
+    unordered_remove(&audio_system.music_files, idx)
 }
 
 audio_gui :: proc(audio_system: ^AudioSystem, open: ^bool) {
