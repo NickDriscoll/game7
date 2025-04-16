@@ -437,32 +437,6 @@ scene_editor :: proc(
 
             imgui.Separator()
         }
-        
-        selected_item: c.int
-        list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-        if gui_list_files("./data/models", &list_items, &selected_item, "testing") {
-            // Insert selected item into animated scenery list
-            fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
-            path_cstring, _ := strings.to_cstring(&builder)
-            // Try to load as a skinned model
-            // Load as a static model if loading as skinned fails
-            model := load_gltf_skinned_model(gd, renderer, path_cstring)
-            if model != nil {
-                append(&game_state.animated_scenery, AnimatedScenery {
-                    model = model,
-                    scale = 1.0,
-                    anim_speed = 1.0
-                })
-            } else {
-                model2 := load_gltf_static_model(gd, renderer, path_cstring)
-                append(&game_state.static_scenery, StaticScenery {
-                    model = model2,
-                    scale = 1.0,
-                })
-            }
-            strings.builder_reset(&builder)
-        }
-        imgui.Separator()
 
         idk_proc :: proc(
             renderer: ^Renderer,
