@@ -12,6 +12,7 @@ import "core:os/os2"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "vendor:sdl2"
 
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
@@ -50,16 +51,129 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
+// Megastruct for all game-specific data
+GameState :: struct {
+    character: Character,
+    viewport_camera: Camera,
+
+    air_bullet: Maybe(Sphere),
+    bullet_time: f32,
+    bullet_endtime: f32,
+
+    // Scene/Level data
+    terrain_pieces: [dynamic]TerrainPiece,
+    static_scenery: [dynamic]StaticScenery,
+    animated_scenery: [dynamic]AnimatedScenery,
+    character_start: hlsl.float3,
+
+    // Icosphere mesh for visualizing spherical collision and points
+    sphere_mesh: ^StaticModelData,
+
+    debug_vis_flags: DebugVisualizationFlags,
+
+    // Editor state
+    editor_response: Maybe(EditorResponse),
+
+    bgm_id: uint,
+
+
+    camera_follow_point: hlsl.float3,
+    camera_follow_speed: f32,
+    timescale: f32,
+
+    freecam_collision: bool,
+    freecam_speed_multiplier: f32,
+    freecam_slow_multiplier: f32,
+
+    borderless_fullscreen: bool,
+    exclusive_fullscreen: bool,
+}
+
+init_gamestate :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    user_config: ^UserConfiguration,
+) -> GameState {
+    game_state: GameState
+    game_state.freecam_collision = user_config.flags[.FreecamCollision]
+    game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
+    game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
+    game_state.timescale = 1.0
+    game_state.bullet_endtime = 0.144
+
+    // Load icosphere mesh for debug visualization
+    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
+    
+    // Load animated test glTF model
+    skinned_model: ^SkinnedModelData
+    {
+        path : cstring = "data/models/CesiumMan.glb"
+        skinned_model = load_gltf_skinned_model(gd, renderer, path)
+    }
+
+    game_state.character = Character {
+        collision = {
+            position = game_state.character_start,
+            radius = 0.8
+        },
+        velocity = {},
+        deceleration_speed = 0.1,
+        state = .Falling,
+        facing = {0.0, 1.0, 0.0},
+        move_speed = 7.0,
+        jump_speed = 8.0,
+        remaining_jumps = 2,
+        anim_speed = 0.856,
+        mesh_data = skinned_model
+    }
+
+    // Initialize main viewport camera
+    game_state.viewport_camera = Camera {
+        position = {
+            f32(user_config.floats[.FreecamX]),
+            f32(user_config.floats[.FreecamY]),
+            f32(user_config.floats[.FreecamZ])
+        },
+        yaw = f32(user_config.floats[.FreecamYaw]),
+        pitch = f32(user_config.floats[.FreecamPitch]),
+        fov_radians = f32(user_config.floats[.CameraFOV]),
+        nearplane = 0.1 / math.sqrt_f32(2.0),
+        farplane = 1_000_000.0,
+        collision_radius = 0.1,
+        target = {
+            distance = 8.0
+        },
+    }
+    game_state.freecam_speed_multiplier = 5.0
+    game_state.freecam_slow_multiplier = 1.0 / 5.0
+    if user_config.flags[.FollowCam] do game_state.viewport_camera.control_flags += {.Follow}
+
+    game_state.camera_follow_point = game_state.character.collision.position
+    game_state.camera_follow_speed = 6.0
+
+    return game_state
+}
+
+delete_game :: proc(using g: ^GameState) {
+    for &piece in terrain_pieces do delete_terrain_piece(&piece)
+    delete(terrain_pieces)
+}
+
 load_level_file :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
-    gamestate: ^GameState,
+    audio_system: ^AudioSystem,
+    game_state: ^GameState,
     user_config: ^UserConfiguration,
     path: string
 ) -> bool {
+    // Audio lock while loading level data
+    sdl2.LockAudioDevice(audio_system.device_id)
+    defer sdl2.UnlockAudioDevice(audio_system.device_id)
+
     free_all(context.allocator)
     renderer_new_scene(renderer)
-    gamestate^ = init_gamestate(gd, renderer, user_config)
+    game_state^ = init_gamestate(gd, renderer, user_config)
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
@@ -82,12 +196,19 @@ load_level_file :: proc(
         return s
     }
 
+    // @TODO: Read this from level file
+
+    //game_state.bgm_id := open_music_file(&audio_system, "data/audio/ps1_startup_sony.ogg")
+    //game_state.bgm_id = open_music_file(audio_system, "data/audio/alumina.ogg")
+    //game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/1222626010.ogg")
+    game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/rc2_museum.ogg")
+
     read_head : u32 = 0
 
     // Character start
-    gamestate.character_start = read_thing_from_buffer(lvl_bytes, type_of(gamestate.character_start), &read_head)
-    gamestate.character.collision.position = gamestate.character_start
-    gamestate.camera_follow_point = gamestate.character.collision.position
+    game_state.character_start = read_thing_from_buffer(lvl_bytes, type_of(game_state.character_start), &read_head)
+    game_state.character.collision.position = game_state.character_start
+    game_state.camera_follow_point = game_state.character.collision.position
 
     // Terrain pieces
     ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
@@ -106,7 +227,7 @@ load_level_file :: proc(
         
         positions := get_glb_positions(path)
         collision := new_static_triangle_mesh(positions[:], mmat)
-        append(&gamestate.terrain_pieces, TerrainPiece {
+        append(&game_state.terrain_pieces, TerrainPiece {
             collision = collision,
             position = position,
             rotation = rotation,
@@ -129,7 +250,7 @@ load_level_file :: proc(
         rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
         scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
 
-        append(&gamestate.static_scenery, StaticScenery {
+        append(&game_state.static_scenery, StaticScenery {
             model = model,
             position = position,
             rotation = rotation,
@@ -151,7 +272,7 @@ load_level_file :: proc(
         rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
         scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
         
-        append(&gamestate.animated_scenery, AnimatedScenery {
+        append(&game_state.animated_scenery, AnimatedScenery {
             model = model,
             position = position,
             rotation = rotation,
@@ -269,112 +390,6 @@ write_level_file :: proc(gamestate: ^GameState) {
     }
 
     log.info("Finished saving level.")
-}
-
-// Megastruct for all game-specific data
-GameState :: struct {
-    character: Character,
-    viewport_camera: Camera,
-
-    air_bullet: Maybe(Sphere),
-    bullet_time: f32,
-    bullet_endtime: f32,
-
-    // Scene/Level data
-    terrain_pieces: [dynamic]TerrainPiece,
-    static_scenery: [dynamic]StaticScenery,
-    animated_scenery: [dynamic]AnimatedScenery,
-    character_start: hlsl.float3,
-
-    // Icosphere mesh for visualizing spherical collision and points
-    sphere_mesh: ^StaticModelData,
-
-    debug_vis_flags: DebugVisualizationFlags,
-
-    // Editor state
-    editor_response: Maybe(EditorResponse),
-
-
-    camera_follow_point: hlsl.float3,
-    camera_follow_speed: f32,
-    timescale: f32,
-
-    freecam_collision: bool,
-    freecam_speed_multiplier: f32,
-    freecam_slow_multiplier: f32,
-
-    borderless_fullscreen: bool,
-    exclusive_fullscreen: bool,
-}
-
-init_gamestate :: proc(
-    gd: ^vkw.Graphics_Device,
-    renderer: ^Renderer,
-    user_config: ^UserConfiguration,
-) -> GameState {
-    game_state: GameState
-    game_state.freecam_collision = user_config.flags[.FreecamCollision]
-    game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
-    game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
-    game_state.timescale = 1.0
-    game_state.bullet_endtime = 0.144
-
-    // Load icosphere mesh for debug visualization
-    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
-    
-    // Load animated test glTF model
-    skinned_model: ^SkinnedModelData
-    {
-        path : cstring = "data/models/CesiumMan.glb"
-        skinned_model = load_gltf_skinned_model(gd, renderer, path)
-    }
-
-    game_state.character = Character {
-        collision = {
-            position = game_state.character_start,
-            radius = 0.8
-        },
-        velocity = {},
-        deceleration_speed = 0.1,
-        state = .Falling,
-        facing = {0.0, 1.0, 0.0},
-        move_speed = 7.0,
-        jump_speed = 8.0,
-        remaining_jumps = 2,
-        anim_speed = 0.856,
-        mesh_data = skinned_model
-    }
-
-    // Initialize main viewport camera
-    game_state.viewport_camera = Camera {
-        position = {
-            f32(user_config.floats[.FreecamX]),
-            f32(user_config.floats[.FreecamY]),
-            f32(user_config.floats[.FreecamZ])
-        },
-        yaw = f32(user_config.floats[.FreecamYaw]),
-        pitch = f32(user_config.floats[.FreecamPitch]),
-        fov_radians = f32(user_config.floats[.CameraFOV]),
-        nearplane = 0.1 / math.sqrt_f32(2.0),
-        farplane = 1_000_000.0,
-        collision_radius = 0.1,
-        target = {
-            distance = 8.0
-        },
-    }
-    game_state.freecam_speed_multiplier = 5.0
-    game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags[.FollowCam] do game_state.viewport_camera.control_flags += {.Follow}
-
-    game_state.camera_follow_point = game_state.character.collision.position
-    game_state.camera_follow_speed = 6.0
-
-    return game_state
-}
-
-delete_game :: proc(using g: ^GameState) {
-    for &piece in terrain_pieces do delete_terrain_piece(&piece)
-    delete(terrain_pieces)
 }
 
 new_level :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
