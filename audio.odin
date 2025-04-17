@@ -3,6 +3,9 @@ package main
 import "core:c"
 import "core:log"
 import "core:math"
+import "core:mem"
+import "core:path/filepath"
+import "core:slice"
 import "base:runtime"
 
 import "vendor:sdl2"
@@ -14,55 +17,71 @@ STANDARD_CD_AUDIO :: 44100 //Hz
 MIDDLE_C_HZ :: 278.4375
 STATIC_BUFFER_SIZE :: 2048
 
+// NOTE: This callback runs on an independent thread
+// T
 audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]u8, samples_size: c.int) {
+    
     // Unpack userdata
     audio_system := cast(^AudioSystem)userdata
     context = audio_system.ctxt
-
-    out_sample_count := samples_size / size_of(f32)
-    out_samples_buf := cast([^]f32)stream
     
+    
+    // SLice for output samples to get mixed into
+    out_samples: []f32
+    {
+        out_sample_count := samples_size / size_of(f32)
+        out_samples_buf := cast([^]f32)stream
+        out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
+    }
+    assert(STATIC_BUFFER_SIZE >= len(out_samples))
+    //log.debugf("%v f32 samples (%v%% of static buffer size)", len(out_samples), f32(len(out_samples)) / STATIC_BUFFER_SIZE)
 
+    for &playback in audio_system.music_files {
+        if playback.is_interacted do continue
 
-    play_file := len(audio_system.music_files) > 0
-    assert(STATIC_BUFFER_SIZE >= samples_size)
-    buffer: [STATIC_BUFFER_SIZE]f32
-    if play_file {
+        file_stream_buffer: [STATIC_BUFFER_SIZE]f32
         has_ended := vorbis.get_samples_float_interleaved(
-            audio_system.music_files[0],
+            playback.file,
             1,
-            &buffer[0],
-            out_sample_count
+            &file_stream_buffer[0],
+            c.int(len(out_samples))
         ) == 0
+        playback.calculated_read_head += i32(len(out_samples))
         if has_ended {
-            //vorbis.seek_start(audio_system.music_files[0])
+            playback.calculated_read_head = 0
         }
+        for i in 0..<len(out_samples) {
+            out_samples[i] += playback.volume * file_stream_buffer[i]
+        }
+        //mem.copy(&out_samples[0], &file_stream_buffer[0], len(out_samples) * size_of(f32))
     }
     
 
 
 
-    for i in 0..<out_sample_count {
-        // Mix samples into this variable
-        sample: f32
-
+    for i in 0..<len(out_samples) {
         // Generate pure sine wave tone
         if audio_system.play_tone {
-            sample += math.sin_f32(audio_system.sine_time)
-            audio_system.sine_time += 2.0 * math.PI * (audio_system.note_freq / f32(audio_system.spec.freq))
+            out_samples[i] += audio_system.tone_volume * math.sin_f32(audio_system.sine_time)
+
+            // Advance position on sine wave by 
+            audio_system.sine_time += 2.0 * math.PI * (audio_system.tone_freq / f32(audio_system.spec.freq))
             for audio_system.sine_time > 2.0 * math.PI {
+                // Clamping to [0, 2*pi] in a continuous way
                 audio_system.sine_time -= 2.0 * math.PI
             }
         }
-        
-        if play_file {
-            sample += buffer[i]
-        }
 
-        //sample /= 2
-        
-        out_samples_buf[i] = audio_system.volume * sample
+        // Apply master volume
+        out_samples[i] *= audio_system.volume
     }
+}
+
+FilePlayback :: struct {
+    file: ^vorbis.vorbis,
+    is_interacted: bool,
+    calculated_read_head: i32,
+    volume: f32         // 1.0 == 100%
 }
 
 AudioSystem :: struct {
@@ -73,19 +92,23 @@ AudioSystem :: struct {
     
     sine_time: f32,
     play_tone: bool,
-    note_freq: f32,
+    tone_freq: f32,
+    tone_volume: f32,
 
-    music_files: [dynamic]^vorbis.vorbis,
+    music_files: [dynamic]FilePlayback,
+
+    local_mixing_buffer: [dynamic]f32,
 
     ctxt: runtime.Context       // Copy of context for the callback proc
 }
 
 init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
     audio_system.out_channels = 1
-    audio_system.note_freq = MIDDLE_C_HZ
-    audio_system.volume = 0.1
+    audio_system.tone_freq = MIDDLE_C_HZ
+    audio_system.volume = 0.5
+    audio_system.tone_volume = 0.1
     audio_system.ctxt = context
-    audio_system.music_files = make([dynamic]^vorbis.vorbis, 0, 16, allocator)
+    audio_system.music_files = make([dynamic]FilePlayback, 0, 16, allocator)
 
     // Init audio system
     {
@@ -100,24 +123,40 @@ init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.alloc
         }
         audio_system.device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &audio_system.spec, false)
         log.debugf("Audio spec received from SDL2:\n%#v", audio_system.spec)
+
     }
-    sdl2.PauseAudioDevice(audio_system.device_id, false)
 }
 
 destroy_audio_system :: proc(audio_system: ^AudioSystem) {
     sdl2.CloseAudioDevice(audio_system.device_id)
 }
 
-open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> int {
+toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
+    sdl2.PauseAudioDevice(audio_system.device_id, sdl2.bool(!playing))
+}
+
+open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
+    playback: FilePlayback
+    playback.volume = 0.5
+
+    glb_filename := filepath.base(string(path))
+    
     err: vorbis.Error
     alloc_buffer: vorbis.vorbis_alloc
-
-    v := vorbis.open_filename(path, &err, &alloc_buffer)
+    
+    playback.file = vorbis.open_filename(path, &err, nil)
     if err != nil {
         log.errorf("Error opening vorbis file: %v", err)
+        return 0, false
     }
-    append(&audio_system.music_files, v)
-    return len(audio_system.music_files) - 1
+
+    info := vorbis.get_info(playback.file)
+    if info.sample_rate != c.uint(audio_system.spec.freq) {
+        log.warnf("Audio file sample rate (%v Hz) doesn't match audio spec (%v Hz)", info.sample_rate, audio_system.spec.freq)
+    }
+
+    append(&audio_system.music_files, playback)
+    return len(audio_system.music_files) - 1, true
 }
 
 close_music_file :: proc(audio_system: ^AudioSystem, idx: int) {
@@ -127,12 +166,20 @@ close_music_file :: proc(audio_system: ^AudioSystem, idx: int) {
 audio_gui :: proc(audio_system: ^AudioSystem, open: ^bool) {
     if imgui.Begin("Audio panel", open) {
         imgui.SliderFloat("Master volume", &audio_system.volume, 0.0, 1.0)
+        imgui.Separator()
 
-        imgui.SliderFloat("Tone frequency", &audio_system.note_freq, 20.0, 2400.0)
+        imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
         imgui.Checkbox("Play tone", &audio_system.play_tone)
 
-        for file in audio_system.music_files {
-            //vorbis.stream_length_in_seconds()
+        for &file, i in audio_system.music_files {
+            imgui.PushIDInt(c.int(i))
+            imgui.SliderFloat("Volume", &file.volume, 0.0, 3.0)
+            file.is_interacted = imgui.SliderInt("Scrub samples", &file.calculated_read_head, 0, i32(vorbis.stream_length_in_samples(file.file)))
+            if file.is_interacted {
+                vorbis.seek(file.file, c.uint(file.calculated_read_head))
+                log.info("yup")
+            }
+            imgui.PopID()
         }
         
     }

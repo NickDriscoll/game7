@@ -269,10 +269,16 @@ main :: proc() {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
 
+    // Init audio system
+    audio_system: AudioSystem
+    init_audio_system(&audio_system)
+    when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
+    toggle_device_playback(&audio_system, true)
+
     // Main app structure storing the game's overall state
     game_state := init_gamestate(&vgd, &renderer, &user_config)
 
-    load_level_file(&vgd, &renderer, &game_state, &user_config, "data/levels/hardcoded_test.lvl")
+    load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/hardcoded_test.lvl")
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
@@ -317,12 +323,6 @@ main :: proc() {
     }
     context.allocator = scene_allocator
 
-    // Init audio system
-    audio_system: AudioSystem
-    init_audio_system(&audio_system)
-    when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
-    bgm_id := open_music_file(&audio_system, "data/audio/ps1_startup_sony.ogg")
-
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
@@ -363,7 +363,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&vgd, &renderer, &game_state, &user_config, path)
+                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
                 load_new_level = nil
             }
         }
@@ -547,8 +547,6 @@ main :: proc() {
                     resolution = display_resolution
                 } else {
                     resolution = DEFAULT_RESOLUTION
-                    // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                    // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                     xpos = c.int(user_config.ints[.WindowX])
                     ypos = c.int(user_config.ints[.WindowY])
                 }
@@ -575,8 +573,6 @@ main :: proc() {
                     resolution = display_resolution
                 } else {
                     resolution = DEFAULT_RESOLUTION
-                    // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                    // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                     xpos = c.int(user_config.ints[.WindowX])
                     ypos = c.int(user_config.ints[.WindowY])
                 }
@@ -603,8 +599,6 @@ main :: proc() {
                 resolution = display_resolution
             } else {
                 resolution = {u32(user_config.ints[.WindowWidth]), u32(user_config.ints[.WindowHeight])}
-                // xpos = c.int(display_resolution.x / 2 - DEFAULT_RESOLUTION.x / 2)
-                // ypos = c.int(display_resolution.y / 2 - DEFAULT_RESOLUTION.y / 2)
                 xpos = c.int(user_config.ints[.WindowX])
                 ypos = c.int(user_config.ints[.WindowY])
             }
