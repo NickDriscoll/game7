@@ -321,6 +321,7 @@ main :: proc() {
     audio_system: AudioSystem
     init_audio_system(&audio_system)
     when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
+    bgm_id := open_music_file(&audio_system, "data/audio/ps1_startup_sony.ogg")
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
