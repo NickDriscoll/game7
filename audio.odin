@@ -25,8 +25,9 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     
     // Unpack userdata
     audio_system := cast(^AudioSystem)userdata
-    context = audio_system.ctxt
+    //context = audio_system.ctxt
     
+    source_count := 0
     
     // SLice for output samples to get mixed into
     out_samples: []f32
@@ -35,11 +36,12 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         out_samples_buf := cast([^]f32)stream
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
-    assert(STATIC_BUFFER_SIZE >= len(out_samples))
+    //assert(STATIC_BUFFER_SIZE >= len(out_samples))
     //log.debugf("%v f32 samples (%v%% of static buffer size)", len(out_samples), f32(len(out_samples)) / STATIC_BUFFER_SIZE)
 
     for &playback in audio_system.music_files {
         if playback.is_interacted || playback.is_paused do continue
+        source_count += 1
 
         file_stream_buffer: [STATIC_BUFFER_SIZE]f32
         has_ended := vorbis.get_samples_float_interleaved(
@@ -71,9 +73,11 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
                 // Clamping to [0, 2*pi] in a continuous way
                 audio_system.sine_time -= 2.0 * math.PI
             }
+            source_count += 1
         }
 
         // Apply master volume
+        //out_samples[i] *= audio_system.volume / f32(source_count)
         out_samples[i] *= audio_system.volume
     }
 }
@@ -139,6 +143,7 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
 
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
+    playback.is_paused = true
     playback.volume = 0.5
 
     glb_filename := filepath.base(string(path))
