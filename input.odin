@@ -25,9 +25,9 @@ VerbType :: enum {
     
     MouseMotion,
     MouseMotionRel,
+    ToggleMouseLook,
 
     ToggleImgui,
-    ToggleMouseLook,
 
     Resume,
     FrameAdvance,
@@ -148,6 +148,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
 
     // Hardcoded button mappings
     button_mappings[.A] = .PlayerJump
+    button_mappings[.X] = .PlayerShoot
     button_mappings[.Y] = .PlayerReset
     button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
     button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
