@@ -44,10 +44,11 @@ struct UniformData {
     uint4 *joint_ids;
     float4 *joint_weights;
     float4x4 *inv_bind_matrices;
-
+    
     float time; // Periodic time value
     float distortion_strength;
     uint triangle_vis;
-
-    float3 _pad0;
+    
+    float _pad0;
+    RaytracingAccelerationStructure* acceleration_structure_data;
 }

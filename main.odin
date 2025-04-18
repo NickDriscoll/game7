@@ -472,10 +472,11 @@ main :: proc() {
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
                     imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player sprint speed", &sprint_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player deceleration speed", &deceleration_speed, 0.01, 2.0)
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
-                    imgui.SliderFloat("Bullet travel time", &game_state.bullet_endtime, 0.0, 1.0)
+                    imgui.SliderFloat("Bullet travel time", &game_state.bullet_travel_time, 0.0, 1.0)
                     if imgui.Button("Reset player") {
                         collision.position = game_state.character_start
                         velocity = {}
@@ -834,7 +835,7 @@ main :: proc() {
             bullet, ok := game_state.air_bullet.?
             if ok {
                 dd := DebugDraw {
-                    world_from_model = translation_matrix(bullet.position) * uniform_scaling_matrix(bullet.radius),
+                    world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
                     color = {0.0, 1.0, 0.0, 0.8}
                 }
                 draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)

@@ -46,7 +46,8 @@ UniformBufferData :: struct {
     time: f32,
     distortion_strength: f32,
     triangle_vis: u32,
-    _pad0: [3]f32,
+    _pad0: f32,
+    acceleration_structures_ptr: vk.DeviceAddress,
 }
 
 Ps1PushConstants :: struct {

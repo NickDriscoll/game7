@@ -51,14 +51,20 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerHitSphere
 }]
 
+AirBullet :: struct {
+    collision: Sphere,
+    path_start: hlsl.float3,
+    path_end: hlsl.float3,
+    t: f32,
+}
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
     viewport_camera: Camera,
 
-    air_bullet: Maybe(Sphere),
-    bullet_time: f32,
-    bullet_endtime: f32,
+    air_bullet: Maybe(AirBullet),
+    bullet_travel_time: f32,
 
     // Scene/Level data
     terrain_pieces: [dynamic]TerrainPiece,
@@ -99,7 +105,7 @@ init_gamestate :: proc(
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
     game_state.timescale = 1.0
-    game_state.bullet_endtime = 0.144
+    game_state.bullet_travel_time = 0.144
 
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
@@ -121,6 +127,7 @@ init_gamestate :: proc(
         state = .Falling,
         facing = {0.0, 1.0, 0.0},
         move_speed = 7.0,
+        sprint_speed = 14.0,
         jump_speed = 8.0,
         remaining_jumps = 2,
         anim_speed = 0.856,
@@ -692,6 +699,7 @@ Character :: struct {
     deceleration_speed: f32,
     facing: hlsl.float3,
     move_speed: f32,
+    sprint_speed: f32,
     jump_speed: f32,
     remaining_jumps: u32,
     anim_t: f32,
@@ -709,6 +717,16 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
     GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
     TERMINAL_VELOCITY :: -100000.0                                  // m/s
+
+    // Handle sprint
+    this_frame_move_speed := game_state.character.move_speed
+    {
+        amount, ok := output_verbs.floats[.Sprint]
+        if ok {
+            char := &game_state.character
+            this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
+        }
+    }
 
     // Set current xy velocity (and character facing) to whatever user input is
     {
@@ -772,8 +790,8 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             game_state.character.velocity.xy += game_state.character.deceleration_speed * to_zero
         }
         game_state.character.velocity.xy += game_state.character.acceleration.xy
-        if math.abs(hlsl.length(game_state.character.velocity.xy)) > game_state.character.move_speed {
-            game_state.character.velocity.xy = game_state.character.move_speed * hlsl.normalize(game_state.character.velocity.xy)
+        if math.abs(hlsl.length(game_state.character.velocity.xy)) > this_frame_move_speed {
+            game_state.character.velocity.xy = this_frame_move_speed * hlsl.normalize(game_state.character.velocity.xy)
         }
         movement_dist := hlsl.length(game_state.character.velocity.xy)
         game_state.character.anim_t += game_state.character.anim_speed * dt * movement_dist
@@ -886,10 +904,25 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
     // Shoot bullet
     if output_verbs.bools[.PlayerShoot] {
-        game_state.bullet_time = 0.0
-        game_state.air_bullet = Sphere {
-            position = game_state.character.collision.position,
-            radius = 0.1
+        // game_state.bullet_time = 0.0
+        // game_state.air_bullet = Sphere {
+        //     position = game_state.character.collision.position,
+        //     radius = 0.1
+        // }
+        start_pos := game_state.character.collision.position
+        game_state.air_bullet = AirBullet {
+            collision = Sphere {
+                position = start_pos,
+                radius = 0.1
+            },
+
+            t = 0.0,
+            //end_t = 
+            // collision: Sphere,
+            // path_start: hlsl.float3,
+            // path_end: hlsl.float3,
+            // t: f32,
+            // end_t: f32
         }
     }
 
@@ -898,12 +931,12 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     if bok {
         // Bullet update
         col := game_state.character.collision
-        game_state.bullet_time += dt
-        if game_state.bullet_time > game_state.bullet_endtime {
+        bullet.t += dt
+        if bullet.t > game_state.bullet_travel_time {
             game_state.air_bullet = nil
         }
         endpoint := col.position + 1.5 * game_state.character.facing
-        bullet.position = linalg.lerp(col.position, endpoint, game_state.bullet_time / game_state.bullet_endtime)
+        bullet.collision.position = linalg.lerp(col.position, endpoint, bullet.t / game_state.bullet_travel_time)
     }
 
     // Camera follow point chases player
