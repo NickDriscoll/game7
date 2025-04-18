@@ -197,10 +197,6 @@ load_level_file :: proc(
     }
 
     // @TODO: Read this from level file
-
-    //game_state.bgm_id := open_music_file(&audio_system, "data/audio/ps1_startup_sony.ogg")
-    //game_state.bgm_id = open_music_file(audio_system, "data/audio/alumina.ogg")
-    //game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/1222626010.ogg")
     game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/rc2_museum.ogg")
 
     read_head : u32 = 0

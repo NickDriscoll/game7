@@ -1,11 +1,13 @@
 package main
 
 import "core:c"
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem"
 import "core:path/filepath"
 import "core:slice"
+import "core:strings"
 import "base:runtime"
 
 import "vendor:sdl2"
@@ -37,7 +39,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     //log.debugf("%v f32 samples (%v%% of static buffer size)", len(out_samples), f32(len(out_samples)) / STATIC_BUFFER_SIZE)
 
     for &playback in audio_system.music_files {
-        if playback.is_interacted do continue
+        if playback.is_interacted || playback.is_paused do continue
 
         file_stream_buffer: [STATIC_BUFFER_SIZE]f32
         has_ended := vorbis.get_samples_float_interleaved(
@@ -53,7 +55,6 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         for i in 0..<len(out_samples) {
             out_samples[i] += playback.volume * file_stream_buffer[i]
         }
-        //mem.copy(&out_samples[0], &file_stream_buffer[0], len(out_samples) * size_of(f32))
     }
     
 
@@ -80,6 +81,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
 FilePlayback :: struct {
     file: ^vorbis.vorbis,
     is_interacted: bool,
+    is_paused: bool,
     calculated_read_head: i32,
     volume: f32         // 1.0 == 100%
 }
@@ -159,26 +161,42 @@ open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, boo
     return len(audio_system.music_files) - 1, true
 }
 
-close_music_file :: proc(audio_system: ^AudioSystem, idx: int) {
+close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
     unordered_remove(&audio_system.music_files, idx)
 }
 
-audio_gui :: proc(audio_system: ^AudioSystem, open: ^bool) {
+audio_gui :: proc(game_state: ^GameState, audio_system: ^AudioSystem, input_system: InputSystem, open: ^bool) {
     if imgui.Begin("Audio panel", open) {
+        builder: strings.Builder
+        strings.builder_init(&builder, context.temp_allocator)
+
         imgui.SliderFloat("Master volume", &audio_system.volume, 0.0, 1.0)
         imgui.Separator()
 
         imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
         imgui.Checkbox("Play tone", &audio_system.play_tone)
+        imgui.Separator()
+
+        @static selected_item : c.int = 0
+        items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+        if gui_dropdown_files("data/audio", &items, &selected_item, "Choose bgm") {
+            close_music_file(audio_system, game_state.bgm_id)
+            fmt.sbprintf(&builder, "data/audio/%v", items[selected_item])
+            c, _ := strings.to_cstring(&builder)
+            game_state.bgm_id, _ = open_music_file(audio_system, c)
+        }
 
         for &file, i in audio_system.music_files {
             imgui.PushIDInt(c.int(i))
+            imgui.Text("Audio file #%i", i)
             imgui.SliderFloat("Volume", &file.volume, 0.0, 3.0)
             file.is_interacted = imgui.SliderInt("Scrub samples", &file.calculated_read_head, 0, i32(vorbis.stream_length_in_samples(file.file)))
+            file.is_interacted &= !input_system.mouse_clicked
+            imgui.Checkbox("Paused", &file.is_paused)
             if file.is_interacted {
                 vorbis.seek(file.file, c.uint(file.calculated_read_head))
-                log.info("yup")
             }
+            imgui.Separator()
             imgui.PopID()
         }
         

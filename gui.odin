@@ -304,6 +304,45 @@ gui_main_menu_bar :: proc(
     return retval
 }
 
+gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
+    filewalk_proc :: proc(
+        info: os.File_Info,
+        in_err: os.Error,
+        user_data: rawptr
+    ) -> (err: os.Error, skip_dir: bool) {
+        if !info.is_dir {
+            item_array := cast(^[dynamic]cstring)user_data
+            append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
+        }
+
+        err = nil
+        skip_dir = false
+        return
+    }
+
+    // @TODO: Is this a bug in the filepath package?
+    // The File_Info structs are supposed to be allocated
+    // with context.temp_allocator, but it appears that it
+    // actually uses context.allocator
+    old_alloc := context.allocator
+    context.allocator = context.temp_allocator
+    walk_error := filepath.walk(path, filewalk_proc, list_items)
+    context.allocator = old_alloc
+
+    ok := false
+    if imgui.BeginCombo(name, list_items[selected_item^], {.HeightLarge}) {
+        for item, i in list_items {
+    
+            if imgui.Selectable(item) {
+                selected_item^ = i32(i)
+                ok = true
+            }
+        }
+        imgui.EndCombo()
+    }
+    return ok
+}
+
 gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
     filewalk_proc :: proc(
         info: os.File_Info,
