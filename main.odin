@@ -264,7 +264,6 @@ main :: proc() {
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
     when ODIN_DEBUG do defer gui_cleanup(&vgd, &imgui_state)
-    ini_savename_buffer: [256]u8
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
     }
@@ -517,25 +516,32 @@ main :: proc() {
                 }
                 imgui.Separator()
 
-                ini_cstring := cstring(&ini_savename_buffer[0])
-                imgui.Text("Save current configuration of Dear ImGUI windows")
-                imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer) - 1)
-                if imgui.Button("Save current GUI configuration") {
-                    imgui.SaveIniSettingsToDisk(ini_cstring)
-                    log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                    ini_savename_buffer = {}
-                }
-                imgui.Separator()
+                // ini_cstring := cstring(&ini_savename_buffer[0])
+                // imgui.Text("Save current configuration of Dear ImGUI windows")
+                // imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer) - 1)
+                // if imgui.Button("Save current GUI configuration") {
+                //     imgui.SaveIniSettingsToDisk(ini_cstring)
+                //     log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
+                //     ini_savename_buffer = {}
+                // }
+                // imgui.Separator()
             }
             imgui.End()
         }
 
         // React to main menu bar interaction
         @static show_load_modal := false
+        @static show_save_modal := false
         switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
+            case .LoadLevel: {
+                show_load_modal = true
+            }
             case .SaveLevel: {
-                write_level_file(&game_state, "data/levels/hardcoded_test.lvl")
+                write_level_file(&game_state, game_state.current_level_path)
+            }
+            case .SaveLevelAs: {
+                show_save_modal = true
             }
             case .ToggleAlwaysOnTop: {
                 sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
@@ -586,9 +592,6 @@ main :: proc() {
 
                 vgd.resize_window = true
             }
-            case .ShowLoadModal: {
-                show_load_modal = true
-            }
             case .None: {}
         }
 
@@ -615,25 +618,69 @@ main :: proc() {
         }
 
         if show_load_modal {
-            level_select_text : cstring = "Level select"
-            imgui.OpenPopup(level_select_text)
+            popup_text : cstring = "Level select"
+            imgui.OpenPopup(popup_text)
 
             center := imgui.GetMainViewport().Size / 2.0
             imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
             imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-            if imgui.BeginPopupModal(level_select_text, nil, {.NoMove,.NoResize}) {
+            if imgui.BeginPopupModal(popup_text, &show_load_modal, {.NoMove,.NoResize}) {
                 selected_item: c.int
                 list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                if gui_list_files("./data/levels/", &list_items, &selected_item, "Level select") {
+                if gui_list_files("./data/levels/", &list_items, &selected_item, popup_text) {
                     // Load selected level
                     load_new_level = strings.clone(string(list_items[selected_item]), context.allocator)
                     show_load_modal = false
                     imgui.CloseCurrentPopup()
                 }
+                imgui.Separator()
                 if imgui.Button("Back") {
                     show_load_modal = false
                     imgui.CloseCurrentPopup()
                 }
+                imgui.EndPopup()
+            }
+        }
+
+        if show_save_modal {
+            popup_text : cstring = "Save level"
+            imgui.OpenPopup(popup_text)
+
+            center := imgui.GetMainViewport().Size / 2.0
+            imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+            imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+            if imgui.BeginPopupModal(popup_text, &show_save_modal, {.NoMove,.NoResize}) {
+                level_savename: string
+                builder: strings.Builder
+                strings.builder_init(&builder, context.temp_allocator)
+
+                selected_item: c.int
+                list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                if gui_list_files("./data/levels/", &list_items, &selected_item, popup_text) {
+                    // Save selected level
+                    level_savename = fmt.sbprintf(&builder, "data/levels/%v", list_items[selected_item])
+                    show_save_modal = false
+                    imgui.CloseCurrentPopup()
+                }
+                imgui.InputText("Level savename", cstring(&game_state.savename_buffer[0]), len(game_state.savename_buffer))
+                if imgui.Button("Save") {
+                    s := strings.string_from_null_terminated_ptr(&game_state.savename_buffer[0], len(game_state.savename_buffer))
+                    level_savename = fmt.sbprintf(&builder, "data/levels/%v", s)
+                    game_state.savename_buffer[0] = 0
+                    show_save_modal = false
+                    imgui.CloseCurrentPopup()
+                }
+                
+                imgui.Separator()
+                if imgui.Button("Back") {
+                    show_save_modal = false
+                    imgui.CloseCurrentPopup()
+                }
+
+                if len(level_savename) > 0 {
+                    write_level_file(&game_state, level_savename)
+                }
+
                 imgui.EndPopup()
             }
         }

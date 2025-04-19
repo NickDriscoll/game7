@@ -200,12 +200,13 @@ begin_gui :: proc(state: ^ImguiState) {
 
 MainMenuBarVerb :: enum {
     None,
+    LoadLevel,
     SaveLevel,
+    SaveLevelAs,
     Exit,
     ToggleAlwaysOnTop,
     ToggleBorderlessFullscreen,
     ToggleExclusiveFullscreen,
-    ShowLoadModal
 }
 
 gui_main_menu_bar :: proc(
@@ -224,14 +225,14 @@ gui_main_menu_bar :: proc(
                 
             }
             if imgui.MenuItem("Load") {
-                retval = .ShowLoadModal
+                retval = .LoadLevel
             }
             if imgui.MenuItem("Save") {
                 retval = .SaveLevel
             }
-            // if imgui.MenuItem("Save As") {
-                
-            // }
+            if imgui.MenuItem("Save As") {
+                retval = .SaveLevelAs
+            }
             if imgui.MenuItem("Save user config") {
                 update_user_cfg_camera(user_config, &game_state.viewport_camera)
                 save_user_config(user_config, USER_CONFIG_FILENAME)
