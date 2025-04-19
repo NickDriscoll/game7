@@ -32,23 +32,31 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
     if res != .success {
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
-    
+
     total_indices : uint = 0
-    out_positions := make([dynamic]f32)
+    for mesh in gltf_data.meshes {
+        for prim in mesh.primitives {
+            total_indices += prim.indices.count
+        }
+    }
+    out_positions := make([dynamic]f32, 3 * total_indices, allocator)
+    
+    head_index : uint = 0
     for mesh in gltf_data.meshes {
         for &prim in mesh.primitives {
             indices := load_gltf_indices_u16(&prim)
-            resize(&out_positions, len(out_positions) + len(indices) * 3)
+
             pos_attr: ^cgltf.attribute
             for &att in prim.attributes do if att.type == .position do pos_attr = &att
             positions_ptr := get_accessor_ptr(pos_attr.data, f32)
+
             for idx, i in indices {
-                out_idx := total_indices + uint(i)
+                out_idx := head_index + uint(i)
                 out_positions[3 * out_idx] = positions_ptr[3 * idx]
                 out_positions[3 * out_idx + 1] = positions_ptr[3 * idx + 1]
                 out_positions[3 * out_idx + 2] = positions_ptr[3 * idx + 2]
             }
-            total_indices += prim.indices.count
+            head_index += prim.indices.count
         }
     }
 

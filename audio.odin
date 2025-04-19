@@ -35,6 +35,9 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         out_samples_buf := cast([^]f32)stream
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
+
+    // SDL's streamout buffer isn't initialized to zero
+    mem.zero(&out_samples[0], len(out_samples) * size_of(f32))
     
     for &playback in audio_system.music_files {
         if playback.is_interacted || playback.is_paused do continue

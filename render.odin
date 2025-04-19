@@ -25,6 +25,8 @@ MAX_GLOBAL_ANIMATIONS :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
+MAX_UNIQUE_MODELS :: 4096
+
 // @TODO: Just make this zero somehow
 NULL_OFFSET :: 0xFFFFFFFF
 
@@ -274,8 +276,8 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
 
-    renderer.loaded_static_models = make(map[string]StaticModelData)
-    renderer.loaded_skinned_models = make(map[string]SkinnedModelData)
+    renderer.loaded_static_models = make(map[string]StaticModelData, MAX_UNIQUE_MODELS)
+    renderer.loaded_skinned_models = make(map[string]SkinnedModelData, MAX_UNIQUE_MODELS)
     strings.intern_init(&renderer._glb_name_interner)
 
     renderer.positions_head = 0
