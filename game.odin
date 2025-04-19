@@ -79,6 +79,8 @@ GameState :: struct {
 
     // Editor state
     editor_response: Maybe(EditorResponse),
+    current_level_path: string,
+    savename_buffer: [1024]c.char,
 
     bgm_id: uint,
 
@@ -287,6 +289,11 @@ load_level_file :: proc(
         })
     }
 
+    path_clone, err := strings.clone(path)
+    if err != nil {
+        log.errorf("Error allocating current_level_path string: %v", err)
+    }
+    game_state.current_level_path = path_clone
     return true
 }
 
@@ -393,7 +400,13 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         log.errorf("Error writing level data: %v", err)
     }
 
-    log.info("Finished saving level.")
+    path_clone, p_err := strings.clone(path)
+    if p_err != nil {
+        log.errorf("Error allocating current_level_path string: %v", err)
+    }
+    gamestate.current_level_path = path_clone
+
+    log.infof("Finished saving level to \"%v\"", path)
 }
 
 new_level :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
