@@ -189,7 +189,6 @@ main :: proc() {
     // Initialize graphics device
     init_params := vkw.Init_Parameters {
         app_name = "Game7",
-        api_version = .Vulkan13,
         frames_in_flight = FRAMES_IN_FLIGHT,
         window_support = true,
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
@@ -249,7 +248,8 @@ main :: proc() {
 
     // Initialize the state required for rendering to the window
     if !vkw.init_sdl2_window(&vgd, sdl_window) {
-        log.fatal("Couldn't init SDL2 surface.")
+        e := sdl2.GetError()
+        log.fatalf("Couldn't init SDL2 surface: %v", e)
         return
     }
 
@@ -710,8 +710,8 @@ main :: proc() {
                         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
                             selected_item: c.int
                             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                            if gui_list_files("./data/models", &list_items, &selected_item, "testing") {
-                                // Insert selected item into animated scenery list
+                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
+                                // Insert selected item into terrain piece list
                                 fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
                                 path_cstring, _ := strings.to_cstring(&builder)
                                 model := load_gltf_static_model(&vgd, &renderer, path_cstring)
@@ -736,7 +736,83 @@ main :: proc() {
                             }
                             imgui.Separator()
                             if imgui.Button("Return") {
-                                game_state.editor_response = {}
+                                game_state.editor_response = nil
+                                imgui.CloseCurrentPopup()
+                            }
+                            imgui.EndPopup()
+                        }
+                    }
+                    case .AddStaticScenery: {
+                        modal_title : cstring = "Add static scenery"
+                        imgui.OpenPopup(modal_title)
+            
+                        center := imgui.GetMainViewport().Size / 2.0
+                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+                        imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
+                            selected_item: c.int
+                            list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
+                                // Insert selected item into static scenery list
+                                fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
+                                path_cstring, _ := strings.to_cstring(&builder)
+                                model := load_gltf_static_model(&vgd, &renderer, path_cstring)
+
+                                position := hlsl.float3 {}
+                                rotation := quaternion128 {}
+                                scale : f32 = 1.0
+                                append(&game_state.static_scenery, StaticScenery {
+                                    position = position,
+                                    rotation = rotation,
+                                    scale = scale,
+                                    model = model,
+                                })
+                                
+                                game_state.editor_response = nil
+                                strings.builder_reset(&builder)
+                                imgui.CloseCurrentPopup()
+                            }
+                            imgui.Separator()
+                            if imgui.Button("Return") {
+                                game_state.editor_response = nil
+                                imgui.CloseCurrentPopup()
+                            }
+                            imgui.EndPopup()
+                        }
+                    }
+                    case .AddAnimatedScenery: {
+                        modal_title : cstring = "Add animated scenery"
+                        imgui.OpenPopup(modal_title)
+            
+                        center := imgui.GetMainViewport().Size / 2.0
+                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+                        imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
+                            selected_item: c.int
+                            list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
+                                // Insert selected item into animated scenery list
+                                fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
+                                path_cstring, _ := strings.to_cstring(&builder)
+                                model := load_gltf_skinned_model(&vgd, &renderer, path_cstring)
+
+                                position := hlsl.float3 {}
+                                rotation := quaternion128 {}
+                                scale : f32 = 1.0
+                                append(&game_state.animated_scenery, AnimatedScenery {
+                                    position = position,
+                                    rotation = rotation,
+                                    scale = scale,
+                                    model = model,
+                                })
+                                
+                                game_state.editor_response = nil
+                                strings.builder_reset(&builder)
+                                imgui.CloseCurrentPopup()
+                            }
+                            imgui.Separator()
+                            if imgui.Button("Return") {
+                                game_state.editor_response = nil
                                 imgui.CloseCurrentPopup()
                             }
                             imgui.EndPopup()

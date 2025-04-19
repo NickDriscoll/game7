@@ -25,7 +25,6 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     
     // Unpack userdata
     audio_system := cast(^AudioSystem)userdata
-    //context = audio_system.ctxt
     
     source_count := 0
     
@@ -36,9 +35,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         out_samples_buf := cast([^]f32)stream
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
-    //assert(STATIC_BUFFER_SIZE >= len(out_samples))
-    //log.debugf("%v f32 samples (%v%% of static buffer size)", len(out_samples), f32(len(out_samples)) / STATIC_BUFFER_SIZE)
-
+    
     for &playback in audio_system.music_files {
         if playback.is_interacted || playback.is_paused do continue
         source_count += 1
@@ -77,7 +74,6 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         }
 
         // Apply master volume
-        //out_samples[i] *= audio_system.volume / f32(source_count)
         out_samples[i] *= audio_system.volume
     }
 }
@@ -103,9 +99,7 @@ AudioSystem :: struct {
 
     music_files: [dynamic]FilePlayback,
 
-    local_mixing_buffer: [dynamic]f32,
-
-    ctxt: runtime.Context       // Copy of context for the callback proc
+    //local_mixing_buffer: [dynamic]f32,
 }
 
 init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
@@ -113,8 +107,6 @@ init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.alloc
     audio_system.tone_freq = MIDDLE_C_HZ
     audio_system.volume = 0.5
     audio_system.tone_volume = 0.1
-    audio_system.ctxt = context
-    audio_system.music_files = make([dynamic]FilePlayback, 0, 16, allocator)
 
     // Init audio system
     {
@@ -129,8 +121,12 @@ init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.alloc
         }
         audio_system.device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &audio_system.spec, false)
         log.debugf("Audio spec received from SDL2:\n%#v", audio_system.spec)
-
     }
+    audio_new_scene(audio_system, allocator)
+}
+
+audio_new_scene :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
+    audio_system.music_files = make([dynamic]FilePlayback, 0, 16, allocator)
 }
 
 destroy_audio_system :: proc(audio_system: ^AudioSystem) {
@@ -143,7 +139,7 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
 
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
-    playback.is_paused = true
+    //playback.is_paused = true
     playback.volume = 0.5
 
     glb_filename := filepath.base(string(path))
