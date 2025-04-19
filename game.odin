@@ -179,6 +179,7 @@ load_level_file :: proc(
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
 
     free_all(context.allocator)
+    audio_new_scene(audio_system)
     renderer_new_scene(renderer)
     game_state^ = init_gamestate(gd, renderer, user_config)
 
@@ -462,6 +463,7 @@ scene_editor :: proc(
             label: cstring,
             editor_response: ^Maybe(EditorResponse),
             response_type: EditorResponseType,
+            add_response_type: EditorResponseType,
             builder: ^strings.Builder
         ) -> Maybe(int) {
             clone_idx: Maybe(int)
@@ -469,6 +471,12 @@ scene_editor :: proc(
                 imgui.PushID(label)
                 if len(objects) == 0 {
                     imgui.Text("Nothing to see here!")
+                }
+                if imgui.Button("Add") {
+                    editor_response^ = EditorResponse {
+                        type = add_response_type,
+                        index = 0
+                    }
                 }
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
@@ -624,6 +632,7 @@ scene_editor :: proc(
             "Static scenery",
             &game_state.editor_response,
             .MoveStaticScenery,
+            .AddStaticScenery,
             &builder
         )
 
@@ -634,6 +643,7 @@ scene_editor :: proc(
             "Animated scenery",
             &game_state.editor_response,
             .MoveAnimatedScenery,
+            .AddAnimatedScenery,
             &builder
         )
 
@@ -917,26 +927,21 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             },
 
             t = 0.0,
-            //end_t = 
-            // collision: Sphere,
-            // path_start: hlsl.float3,
-            // path_end: hlsl.float3,
-            // t: f32,
-            // end_t: f32
+            path_start = start_pos,
+            path_end = start_pos + 2.0 * game_state.character.facing,
         }
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
     bullet, bok := &game_state.air_bullet.?
-    if bok {
+    if bok && bullet.t <= game_state.bullet_travel_time{
         // Bullet update
         col := game_state.character.collision
         bullet.t += dt
-        if bullet.t > game_state.bullet_travel_time {
-            game_state.air_bullet = nil
-        }
-        endpoint := col.position + 1.5 * game_state.character.facing
-        bullet.collision.position = linalg.lerp(col.position, endpoint, bullet.t / game_state.bullet_travel_time)
+        endpoint := col.position + 2.5 * game_state.character.facing
+        bullet.collision.position = linalg.lerp(bullet.path_start, bullet.path_end, bullet.t / game_state.bullet_travel_time)
+    } else {
+        game_state.air_bullet = nil
     }
 
     // Camera follow point chases player
