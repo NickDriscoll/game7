@@ -290,7 +290,7 @@ load_level_file :: proc(
     return true
 }
 
-write_level_file :: proc(gamestate: ^GameState) {
+write_level_file :: proc(gamestate: ^GameState, path: string) {
     // @TODO: Apply deduplication
 
     output_size := 0
@@ -382,7 +382,7 @@ write_level_file :: proc(gamestate: ^GameState) {
 
 
     //lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create,.Trunc})
-    lvl_file, lvl_err := create_write_file("data/levels/hardcoded_test.lvl")
+    lvl_file, lvl_err := create_write_file(path)
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
     }

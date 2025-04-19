@@ -29,7 +29,7 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 MAXIMUM_FRAME_DT :: 1.0 / 60.0
 
-SCENE_ARENA_SZIE :: 1024 * 1024         // Memory pool for per-scene allocations
+SCENE_ARENA_SZIE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
 TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
 
 IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
@@ -535,7 +535,7 @@ main :: proc() {
         switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
             case .SaveLevel: {
-                write_level_file(&game_state)
+                write_level_file(&game_state, "data/levels/hardcoded_test.lvl")
             }
             case .ToggleAlwaysOnTop: {
                 sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
