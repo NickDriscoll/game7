@@ -797,7 +797,7 @@ do_mouse_raycast :: proc(
     for &piece in terrain_pieces {
         candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
         if ok {
-            candidate_dist := hlsl.distance(collision_pt, viewport_camera.position)
+            candidate_dist := hlsl.distance(candidate, viewport_camera.position)
             if candidate_dist < closest_dist {
                 collision_pt = candidate
                 closest_dist = candidate_dist
