@@ -58,13 +58,13 @@ main :: proc() {
 
         defer {
             if len(global_track.allocation_map) > 0 {
-                fmt.eprintf("=== %v allocations not freed: ===\n", len(global_track.allocation_map))
+                fmt.eprintf("=== %v allocations not freed from global allocator: ===\n", len(global_track.allocation_map))
                 for _, entry in global_track.allocation_map {
                     fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
                 }
             }
             if len(global_track.bad_free_array) > 0 {
-                fmt.eprintf("=== %v incorrect frees: ===\n", len(global_track.bad_free_array))
+                fmt.eprintf("=== %v incorrect frees from global allocator: ===\n", len(global_track.bad_free_array))
                 for entry in global_track.bad_free_array {
                     fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
                 }
@@ -129,13 +129,13 @@ main :: proc() {
 
         defer {
             if len(scene_track.allocation_map) > 0 {
-                fmt.eprintf("=== %v allocations not freed: ===\n", len(scene_track.allocation_map))
+                fmt.eprintf("=== %v allocations not freed from scene allocator: ===\n", len(scene_track.allocation_map))
                 for _, entry in scene_track.allocation_map {
                     fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
                 }
             }
             if len(scene_track.bad_free_array) > 0 {
-                fmt.eprintf("=== %v incorrect frees: ===\n", len(scene_track.bad_free_array))
+                fmt.eprintf("=== %v incorrect frees from scene allocator: ===\n", len(scene_track.bad_free_array))
                 for entry in scene_track.bad_free_array {
                     fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
                 }
@@ -279,6 +279,7 @@ main :: proc() {
 
     load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/test02.lvl")
 
+    // @TODO: Keymappings need to be a part of GameState
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -892,6 +893,15 @@ main :: proc() {
                             game_state.animated_scenery[:]
                         )
                     }
+                    case .MoveEnemy: {
+                        move_thingy(
+                            &game_state,
+                            input_system,
+                            renderer.viewport_dimensions,
+                            resp,
+                            game_state.enemies[:]
+                        )
+                    }
                     case .MovePlayerSpawn: {
                         if !io.WantCaptureMouse {
                             collision_pt, hit := do_mouse_raycast(
@@ -951,8 +961,28 @@ main :: proc() {
         if do_this_frame {
             player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
         }
-
         player_draw(&game_state, &vgd, &renderer)
+
+        // Update and draw enemies
+        if do_this_frame {
+            for enemy in game_state.enemies {
+                // Update
+                col := Sphere {
+                    position = enemy.position,
+                    radius = enemy.collision_radius
+                }
+
+                
+
+                // Draw
+                rot := linalg.to_matrix4(enemy.rotation)
+                world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.scale)
+                dd := StaticDraw {
+                    world_from_model = world_mat
+                }
+                draw_ps1_static_mesh(&vgd, &renderer, game_state.enemy_mesh, &dd)
+            }
+        }
         
         {
             bullet, ok := game_state.air_bullet.?
@@ -963,18 +993,6 @@ main :: proc() {
                 }
                 draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)
             }
-        }
-
-        // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
-        projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
-        renderer.cpu_uniforms.clip_from_world =
-            projection_from_view *
-            current_view_from_world
-        {
-            vfw := hlsl.float3x3(current_view_from_world)
-            vfw4 := hlsl.float4x4(vfw)
-            renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
         }
 
         // Move player hackiness
@@ -994,11 +1012,23 @@ main :: proc() {
             if input_system.mouse_clicked do move_player = false
         }
 
+        // Camera update
+        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
+        projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
+        renderer.cpu_uniforms.clip_from_world =
+            projection_from_view *
+            current_view_from_world
+        {
+            vfw := hlsl.float3x3(current_view_from_world)
+            vfw4 := hlsl.float4x4(vfw)
+            renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
+        }
+
         // Update and draw static scenery
         for &mesh in game_state.static_scenery {
             rot := linalg.to_matrix4(mesh.rotation)
-
             world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
+
             dd := StaticDraw {
                 world_from_model = world_mat,
             }

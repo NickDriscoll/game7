@@ -46,6 +46,47 @@ AnimatedScenery :: struct {
     anim_speed: f32,
 }
 
+CHARACTER_TOTAL_JUMPS :: 2
+CharacterState :: enum {
+    Grounded,
+    Falling
+}
+CharacterFlags :: bit_set[enum {
+    MovingLeft,
+    MovingRight,
+    MovingBack,
+    MovingForward,
+}]
+Character :: struct {
+    collision: Sphere,
+    state: CharacterState,
+    velocity: hlsl.float3,
+    gravity_factor: f32,
+    acceleration: hlsl.float3,
+    deceleration_speed: f32,
+    facing: hlsl.float3,
+    move_speed: f32,
+    sprint_speed: f32,
+    jump_speed: f32,
+    remaining_jumps: u32,
+    anim_t: f32,
+    anim_speed: f32,
+    control_flags: CharacterFlags,
+    mesh_data: ^SkinnedModelData,
+}
+
+EnemyState :: enum {
+    Unbothered
+}
+Enemy :: struct {
+    position: hlsl.float3,
+    collision_radius: f32,
+    rotation: quaternion128,
+    scale: f32,
+
+    state: EnemyState,
+}
+
 DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerSpawn,
     ShowPlayerHitSphere
@@ -70,10 +111,13 @@ GameState :: struct {
     terrain_pieces: [dynamic]TerrainPiece,
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
+    enemies: [dynamic]Enemy,
     character_start: hlsl.float3,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: ^StaticModelData,
+
+    enemy_mesh: ^StaticModelData,
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -111,6 +155,9 @@ init_gamestate :: proc(
 
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
+
+    // Load enemy mesh
+    game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb")
     
     // Load animated test glTF model
     skinned_model: ^SkinnedModelData
@@ -125,6 +172,7 @@ init_gamestate :: proc(
             radius = 0.8
         },
         velocity = {},
+        gravity_factor = 1.0,
         deceleration_speed = 0.1,
         state = .Falling,
         facing = {0.0, 1.0, 0.0},
@@ -419,10 +467,11 @@ EditorResponseType :: enum {
     MoveTerrainPiece,
     MoveStaticScenery,
     MoveAnimatedScenery,
+    MoveEnemy,
     MovePlayerSpawn,
     AddTerrainPiece,
     AddStaticScenery,
-    AddAnimatedScenery
+    AddAnimatedScenery,
 }
 EditorResponse :: struct {
     type: EditorResponseType,
@@ -436,10 +485,9 @@ scene_editor :: proc(
     gui: ^ImguiState,
     user_config: ^UserConfiguration
 ) {
-    io := imgui.GetIO()
-
     builder: strings.Builder
     strings.builder_init(&builder, context.temp_allocator)
+    io := imgui.GetIO()
 
     show_editor := gui.show_gui && user_config.flags[.SceneEditor]
     if show_editor && imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
@@ -669,7 +717,7 @@ scene_editor :: proc(
                             move_text = "Moving..."
                         }
                     }
-        
+
                     imgui.BeginDisabled(disable_button)
                     if imgui.Button(move_text) {
                         editor_response^ = EditorResponse {
@@ -680,6 +728,78 @@ scene_editor :: proc(
                     imgui.SameLine()
                     if imgui.Button("Clone") {
                         anim_to_clone_idx = i
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Delete") {
+                        unordered_remove(objects, i)
+                        editor_response^ = nil
+                    }
+                    imgui.EndDisabled()
+                    imgui.Separator()
+        
+                    imgui.PopID()
+                }
+                imgui.PopID()
+            }
+        }
+
+
+        enemy_to_clone_idx: Maybe(int)
+        {
+            objects := &game_state.enemies
+            label : cstring = "Enemies"
+            editor_response := &game_state.editor_response
+            response_type := EditorResponseType.MoveEnemy
+            if imgui.CollapsingHeader(label) {
+                imgui.PushID(label)
+                if len(objects) == 0 {
+                    imgui.Text("Nothing to see here!")
+                }
+                if imgui.Button("Add") {
+                    new_enemy := Enemy {
+                        position = {},
+                        collision_radius = 0.8,
+                        rotation = {},
+                        scale = 1.0,
+                        state = .Unbothered
+                    }
+                    append(&game_state.enemies, new_enemy)
+                }
+                for &mesh, i in objects {
+                    imgui.PushIDInt(c.int(i))
+        
+                    fmt.sbprintf(&builder, "Position %v", mesh.position)
+                    imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
+                    
+                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
+                    strings.builder_reset(&builder)
+                    imgui.Text(strings.to_cstring(&builder))
+    
+                    imgui.DragFloat3("Position", &mesh.position, 0.1)
+    
+                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+        
+                    disable_button := false
+                    move_text : cstring = "Move"
+                    obj, obj_ok := editor_response.(EditorResponse)
+                    if obj_ok {
+                        if obj.type == response_type && obj.index == u32(i) {
+                            disable_button = true
+                            move_text = "Moving..."
+                        }
+                    }
+        
+                    imgui.BeginDisabled(disable_button)
+                    if imgui.Button(move_text) {
+                        editor_response^ = EditorResponse {
+                            type = response_type,
+                            index = u32(i)
+                        }
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Clone") {
+                        enemy_to_clone_idx = i
                     }
                     imgui.SameLine()
                     if imgui.Button("Delete") {
@@ -736,52 +856,23 @@ scene_editor :: proc(
     if show_editor do imgui.End()
 }
 
-
-
-CHARACTER_TOTAL_JUMPS :: 2
-CharacterState :: enum {
-    Grounded,
-    Falling
-}
-CharacterFlags :: bit_set[enum {
-    MovingLeft,
-    MovingRight,
-    MovingBack,
-    MovingForward,
-}]
-Character :: struct {
-    collision: Sphere,
-    state: CharacterState,
-    velocity: hlsl.float3,
-    acceleration: hlsl.float3,
-    deceleration_speed: f32,
-    facing: hlsl.float3,
-    move_speed: f32,
-    sprint_speed: f32,
-    jump_speed: f32,
-    remaining_jumps: u32,
-    anim_t: f32,
-    anim_speed: f32,
-    control_flags: CharacterFlags,
-    mesh_data: ^SkinnedModelData,
-}
-
 player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f32) {
+    char := &game_state.character
+
     if output_verbs.bools[.PlayerReset] {
-        game_state.character.collision.position = game_state.character_start
-        game_state.character.velocity = {}
-        game_state.character.acceleration = {}
+        char.collision.position = game_state.character_start
+        char.velocity = {}
+        char.acceleration = {}
     }
 
     GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
     TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
     // Handle sprint
-    this_frame_move_speed := game_state.character.move_speed
+    this_frame_move_speed := char.move_speed
     {
         amount, ok := output_verbs.floats[.Sprint]
         if ok {
-            char := &game_state.character
             this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
         }
     }
@@ -795,43 +886,45 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
         // Boolean input handling
         {
+            flags := &char.control_flags
+
             r, ok := output_verbs.bools[.PlayerTranslateLeft]
             if ok {
                 if r {
-                    game_state.character.control_flags += {.MovingLeft}
+                    flags^ += {.MovingLeft}
                 } else {
-                    game_state.character.control_flags -= {.MovingLeft}
+                    flags^ -= {.MovingLeft}
                 }
             }
             r, ok = output_verbs.bools[.PlayerTranslateRight]
             if ok {
                 if r {
-                    game_state.character.control_flags += {.MovingRight}
+                    flags^ += {.MovingRight}
                 } else {
-                    game_state.character.control_flags -= {.MovingRight}
+                    flags^ -= {.MovingRight}
                 }
             }
             r, ok = output_verbs.bools[.PlayerTranslateBack]
             if ok {
                 if r {
-                    game_state.character.control_flags += {.MovingBack}
+                    flags^ += {.MovingBack}
                 } else {
-                    game_state.character.control_flags -= {.MovingBack}
+                    flags^ -= {.MovingBack}
                 }
             }
             r, ok = output_verbs.bools[.PlayerTranslateForward]
             if ok {
                 if r {
-                    game_state.character.control_flags += {.MovingForward}
+                    flags^ += {.MovingForward}
                 } else {
-                    game_state.character.control_flags -= {.MovingForward}
+                    flags^ -= {.MovingForward}
                 }
             }
+            if .MovingLeft in flags^ do xv += -1.0
+            if .MovingRight in flags^ do xv += 1.0
+            if .MovingBack in flags^ do zv += -1.0
+            if .MovingForward in flags^ do zv += 1.0
         }
-        if .MovingLeft in game_state.character.control_flags do xv += -1.0
-        if .MovingRight in game_state.character.control_flags do xv += 1.0
-        if .MovingBack in game_state.character.control_flags do zv += -1.0
-        if .MovingForward in game_state.character.control_flags do zv += 1.0
 
         // Input vector is in view space, so we transform to world space
         world_invector := hlsl.float4 {-zv, xv, 0.0, 0.0}
@@ -842,127 +935,127 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
         // Now we have a representation of the player's input vector in world space
 
-        game_state.character.acceleration = {world_invector.x, world_invector.y, 0.0}
-        if hlsl.length(game_state.character.acceleration) == 0 {
-            to_zero := hlsl.float2 {0.0, 0.0} - game_state.character.velocity.xy
-            game_state.character.velocity.xy += game_state.character.deceleration_speed * to_zero
+        char.acceleration = {world_invector.x, world_invector.y, 0.0}
+        if hlsl.length(char.acceleration) == 0 {
+            to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
+            char.velocity.xy += char.deceleration_speed * to_zero
         }
-        game_state.character.velocity.xy += game_state.character.acceleration.xy
-        if math.abs(hlsl.length(game_state.character.velocity.xy)) > this_frame_move_speed {
-            game_state.character.velocity.xy = this_frame_move_speed * hlsl.normalize(game_state.character.velocity.xy)
+        char.velocity.xy += char.acceleration.xy
+        if math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
+            char.velocity.xy = this_frame_move_speed * hlsl.normalize(char.velocity.xy)
         }
-        movement_dist := hlsl.length(game_state.character.velocity.xy)
-        game_state.character.anim_t += game_state.character.anim_speed * dt * movement_dist
+        movement_dist := hlsl.length(char.velocity.xy)
+        char.anim_t += char.anim_speed * dt * movement_dist
 
         if xv != 0.0 || zv != 0.0 {
-            game_state.character.facing = hlsl.normalize(world_invector).xyz
+            char.facing = hlsl.normalize(world_invector).xyz
         }
     }
 
     // Handle jump command
-    if output_verbs.bools[.PlayerJump] && game_state.character.remaining_jumps > 0 {
-        game_state.character.velocity.z = game_state.character.jump_speed
-        game_state.character.state = .Falling
-        game_state.character.remaining_jumps -= 1
+    {
+        jumped, jump_ok := output_verbs.bools[.PlayerJump]
+        if jump_ok {
+            // If jump state changed...
+
+            if jumped {
+                // To jumping...
+                if char.remaining_jumps > 0 {
+                    char.velocity.z = char.jump_speed
+                    char.state = .Falling
+                    char.remaining_jumps -= 1
+                }
+                char.gravity_factor = 1.0
+            } else {
+                // To not jumping...
+                char.gravity_factor = 2.2
+            }
+        }
     }
 
+    // Apply gravity to velocity, clamping downward speed if necessary
+    char.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
+    if char.velocity.z < TERMINAL_VELOCITY {
+        char.velocity.z = TERMINAL_VELOCITY
+    }
+
+    // Compute motion interval
+    motion_endpoint := char.collision.position + dt * char.velocity
+    motion_interval := Segment {
+        start = char.collision.position,
+        end = motion_endpoint
+    }
+
+    // Compute closest point to terrain along with
+    // vector opposing player mo
+    closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+    collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+
     // Main player character state machine
-    switch game_state.character.state {
+    switch char.state {
         case .Grounded: {
+            // Push out of ground
+            dist := hlsl.distance(closest_pt, char.collision.position)
+            if dist < char.collision.radius {
+                remaining_dist := char.collision.radius - dist
+                if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                    char.collision.position = motion_endpoint + remaining_dist * collision_normal
+                } else {
+                    char.collision.position = motion_endpoint
+                    
+                }
+            } else {
+                char.collision.position = motion_endpoint
+            }
+    
             //Check if we need to bump ourselves up or down
-            if game_state.character.velocity.z <= 0.0 {
+            {
                 tolerance_segment := Segment {
-                    start = game_state.character.collision.position + {0.0, 0.0, 0.0},
-                    end = game_state.character.collision.position + {0.0, 0.0, -game_state.character.collision.radius - 0.1}
+                    start = char.collision.position + {0.0, 0.0, 0.0},
+                    end = char.collision.position + {0.0, 0.0, -char.collision.radius - 0.1}
                 }
                 tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
                 tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                 if okt {
-                    game_state.character.collision.position = tolerance_point + {0.0, 0.0, game_state.character.collision.radius}
+                    char.collision.position = tolerance_point + {0.0, 0.0, char.collision.radius}
                     if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        game_state.character.velocity.z = 0.0
-                        game_state.character.state = .Grounded
+                        char.velocity.z = 0.0
+                        char.state = .Grounded
                     }
                 } else {
-                    game_state.character.state = .Falling
+                    char.state = .Falling
                 }
-            }
-
-            // Compute motion interval
-            motion_endpoint := game_state.character.collision.position + dt * game_state.character.velocity
-            motion_interval := Segment {
-                start = game_state.character.collision.position,
-                end = motion_endpoint
-            }
-
-            // Push out of ground
-            //p, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
-            p := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
-            n := hlsl.normalize(motion_endpoint - p)
-            dist := hlsl.distance(p, game_state.character.collision.position)
-            if dist < game_state.character.collision.radius {
-                remaining_dist := game_state.character.collision.radius - dist
-                if hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                    game_state.character.collision.position = motion_endpoint + remaining_dist * n
-                } else {
-                    game_state.character.collision.position = motion_endpoint
-                    
-                }
-            } else {
-                game_state.character.collision.position = motion_endpoint
             }
         }
         case .Falling: {
-            // Apply gravity to velocity, clamping downward speed if necessary
-            game_state.character.velocity += dt * GRAVITY_ACCELERATION
-            if game_state.character.velocity.z < TERMINAL_VELOCITY {
-                game_state.character.velocity.z = TERMINAL_VELOCITY
-            }
-    
-            // Compute motion interval
-            motion_endpoint := game_state.character.collision.position + dt * game_state.character.velocity
-            motion_interval := Segment {
-                start = game_state.character.collision.position,
-                end = motion_endpoint
-            }
-
-            // Check if player canceled jump early
-            not_canceled, ok := output_verbs.bools[.PlayerJump]
-            if ok && !not_canceled && game_state.character.velocity.z > 0.0 {
-                game_state.character.velocity.z *= 0.1
-            }
-
             // Then do collision test against triangles
-            //closest_pt, n := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
-            closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
-            n := hlsl.normalize(motion_endpoint - closest_pt)
 
-            d := hlsl.distance(game_state.character.collision.position, closest_pt)
-            hit := d < game_state.character.collision.radius
+            d := hlsl.distance(char.collision.position, closest_pt)
+            hit := d < char.collision.radius
 
             if hit {
                 // Hit terrain
-                remaining_d := game_state.character.collision.radius - d
-                game_state.character.collision.position = motion_endpoint + remaining_d * n
-                n_dot := hlsl.dot(n, hlsl.float3{0.0, 0.0, 1.0})
-                if n_dot >= 0.5 && game_state.character.velocity.z < 0.0 {
+                remaining_d := char.collision.radius - d
+                char.collision.position = motion_endpoint + remaining_d * collision_normal
+                n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                if n_dot >= 0.5 && char.velocity.z < 0.0 {
                     // Floor
-                    game_state.character.remaining_jumps = CHARACTER_TOTAL_JUMPS
-                    game_state.character.state = .Grounded
-                } else if n_dot < -0.1 && game_state.character.velocity.z > 0.0 {
+                    char.remaining_jumps = CHARACTER_TOTAL_JUMPS
+                    char.state = .Grounded
+                } else if n_dot < -0.1 && char.velocity.z > 0.0 {
                     // Ceiling
-                    game_state.character.velocity.z = 0.0
+                    char.velocity.z = 0.0
                 }
             } else {
                 // Didn't hit anything, still falling.
-                game_state.character.collision.position = motion_endpoint
+                char.collision.position = motion_endpoint
             }
         }
     }
 
     // Shoot bullet
     if output_verbs.bools[.PlayerShoot] {
-        start_pos := game_state.character.collision.position
+        start_pos := char.collision.position
         game_state.air_bullet = AirBullet {
             collision = Sphere {
                 position = start_pos,
@@ -971,7 +1064,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
             t = 0.0,
             path_start = start_pos,
-            path_end = start_pos + 2.0 * game_state.character.facing,
+            path_end = start_pos + 2.0 * char.facing,
         }
     }
 
@@ -979,16 +1072,16 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     bullet, bok := &game_state.air_bullet.?
     if bok && bullet.t <= game_state.bullet_travel_time{
         // Bullet update
-        col := game_state.character.collision
+        col := char.collision
         bullet.t += dt
-        endpoint := col.position + 2.5 * game_state.character.facing
+        endpoint := col.position + 2.5 * char.facing
         bullet.collision.position = linalg.lerp(bullet.path_start, bullet.path_end, bullet.t / game_state.bullet_travel_time)
     } else {
         game_state.air_bullet = nil
     }
 
     // Camera follow point chases player
-    target_pt := game_state.character.collision.position
+    target_pt := char.collision.position
     game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
 }
 
@@ -1037,7 +1130,9 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
     }
 }
 
-
+enemies_update :: proc(game_state: ^GameState) {
+    
+}
 
 
 

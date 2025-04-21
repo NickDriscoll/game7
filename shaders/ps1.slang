@@ -82,15 +82,15 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
     //float3 sky_sample = sky_color(face_normal);
 
-    if (u_data.acceleration_structure_data != nullptr) {
+    // if (u_data.acceleration_structure_data != nullptr) {
         // Trace one shadow ray per-pixel
-        RayDesc ray;
-        ray.Direction = SUNLIGHT;
-        ray.Origin = input.world_pos;
-        ray.TMin = 0.0;
-        ray.TMax = 1000000.0;
+        // RayDesc ray;
+        // ray.Direction = SUNLIGHT;
+        // ray.Origin = input.world_pos;
+        // ray.TMin = 0.0;
+        // ray.TMax = 1000000.0;
         //TraceRay();
-    }
+    // }
 
     float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
     //final_color = lerp(final_color, sky_sample, 0.05);
