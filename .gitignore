@@ -5,6 +5,7 @@
 *.cfg
 .vscode/
 ols.json
+blender/
 data/shaders/*
 data/source_models/*
 game7

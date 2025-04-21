@@ -277,7 +277,7 @@ main :: proc() {
     // Main app structure storing the game's overall state
     game_state := init_gamestate(&vgd, &renderer, &user_config)
 
-    load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/hardcoded_test.lvl")
+    load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/test02.lvl")
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     defer delete(freecam_key_mappings)
