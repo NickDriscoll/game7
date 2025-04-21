@@ -50,5 +50,5 @@ struct UniformData {
     uint triangle_vis;
     
     float _pad0;
-    RaytracingAccelerationStructure* acceleration_structure_data;
+    //RaytracingAccelerationStructure* acceleration_structure_data;
 }
