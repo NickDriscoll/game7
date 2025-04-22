@@ -17,6 +17,9 @@ import "vendor:sdl2"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
+GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
+TERMINAL_VELOCITY :: -100000.0                                  // m/s
+
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
     position: hlsl.float3,
@@ -46,11 +49,12 @@ AnimatedScenery :: struct {
     anim_speed: f32,
 }
 
-CHARACTER_TOTAL_JUMPS :: 2
-CharacterState :: enum {
+CollisionState :: enum {
     Grounded,
     Falling
 }
+
+CHARACTER_TOTAL_JUMPS :: 2
 CharacterFlags :: bit_set[enum {
     MovingLeft,
     MovingRight,
@@ -59,7 +63,7 @@ CharacterFlags :: bit_set[enum {
 }]
 Character :: struct {
     collision: Sphere,
-    state: CharacterState,
+    state: CollisionState,
     velocity: hlsl.float3,
     gravity_factor: f32,
     acceleration: hlsl.float3,
@@ -80,11 +84,13 @@ EnemyState :: enum {
 }
 Enemy :: struct {
     position: hlsl.float3,
+    velocity: hlsl.float3,
     collision_radius: f32,
     rotation: quaternion128,
     scale: f32,
 
-    state: EnemyState,
+    ai_state: EnemyState,
+    collision_state: CollisionState,
 }
 
 DebugVisualizationFlags :: bit_set[enum {
@@ -255,7 +261,7 @@ load_level_file :: proc(
     }
 
     // @TODO: Read this from level file
-    game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/rc2_museum.ogg")
+    game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/manifold.ogg")
 
     read_head : u32 = 0
 
@@ -548,8 +554,8 @@ scene_editor :: proc(
                     strings.builder_reset(&builder)
                     
                     fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    strings.builder_reset(&builder)
                     imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
     
@@ -625,8 +631,8 @@ scene_editor :: proc(
                     strings.builder_reset(&builder)
                     
                     fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    strings.builder_reset(&builder)
                     imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
     
@@ -672,8 +678,8 @@ scene_editor :: proc(
             objects := &game_state.animated_scenery
             label : cstring = "Animated scenery"
             editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveStaticScenery
-            add_response_type := EditorResponseType.AddStaticScenery
+            response_type := EditorResponseType.MoveAnimatedScenery
+            add_response_type := EditorResponseType.AddAnimatedScenery
             if imgui.CollapsingHeader(label) {
                 imgui.PushID(label)
                 if len(objects) == 0 {
@@ -697,8 +703,8 @@ scene_editor :: proc(
                     strings.builder_reset(&builder)
                     
                     fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    strings.builder_reset(&builder)
                     imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
     
@@ -758,10 +764,12 @@ scene_editor :: proc(
                 if imgui.Button("Add") {
                     new_enemy := Enemy {
                         position = {},
+                        velocity = {},
                         collision_radius = 0.8,
                         rotation = {},
                         scale = 1.0,
-                        state = .Unbothered
+                        ai_state = .Unbothered,
+                        collision_state = .Grounded
                     }
                     append(&game_state.enemies, new_enemy)
                 }
@@ -773,10 +781,20 @@ scene_editor :: proc(
                     strings.builder_reset(&builder)
                     
                     fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    strings.builder_reset(&builder)
                     imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
+
+                    fmt.sbprintf(&builder, "AI state: %v", mesh.ai_state)
+                    imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
+
+                    fmt.sbprintf(&builder, "Collision state: %v", mesh.collision_state)
+                    imgui.Text(strings.to_cstring(&builder))
+                    strings.builder_reset(&builder)
     
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
+                    if imgui.DragFloat3("Position", &mesh.position, 0.1) {
+                        mesh.velocity = {}
+                    }
     
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
@@ -852,6 +870,17 @@ scene_editor :: proc(
                 }
             }
         }
+        {
+            clone_idx, clone_ok := enemy_to_clone_idx.?
+            if clone_ok {
+                append(&game_state.enemies, game_state.enemies[clone_idx])
+                new_idx := len(game_state.enemies) - 1
+                game_state.editor_response = EditorResponse {
+                    type = .MoveEnemy,
+                    index = u32(new_idx)
+                }
+            }
+        }
     }
     if show_editor do imgui.End()
 }
@@ -864,9 +893,6 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         char.velocity = {}
         char.acceleration = {}
     }
-
-    GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
-    TERMINAL_VELOCITY :: -100000.0                                  // m/s
 
     // Handle sprint
     this_frame_move_speed := char.move_speed
@@ -987,7 +1013,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     }
 
     // Compute closest point to terrain along with
-    // vector opposing player mo
+    // vector opposing player motion
     closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 

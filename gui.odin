@@ -333,7 +333,6 @@ gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected
     ok := false
     if imgui.BeginCombo(name, list_items[selected_item^], {.HeightLarge}) {
         for item, i in list_items {
-    
             if imgui.Selectable(item) {
                 selected_item^ = i32(i)
                 ok = true
