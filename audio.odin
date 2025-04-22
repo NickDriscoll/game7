@@ -37,6 +37,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     }
 
     // SDL's streamout buffer isn't initialized to zero
+    // @TODO: This is something dumb. Stop it.
     mem.zero(&out_samples[0], len(out_samples) * size_of(f32))
     
     for &playback in audio_system.music_files {
@@ -53,6 +54,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         playback.calculated_read_head += i32(len(out_samples))
         if has_ended {
             playback.calculated_read_head = 0
+            vorbis.seek(playback.file, c.uint(playback.calculated_read_head))
         }
         for i in 0..<len(out_samples) {
             out_samples[i] += playback.volume * file_stream_buffer[i]
@@ -142,8 +144,7 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
 
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
-    //playback.is_paused = true
-    playback.volume = 0.5
+    playback.volume = 1.0
 
     glb_filename := filepath.base(string(path))
     
