@@ -544,21 +544,11 @@ scene_editor :: proc(
                 imgui.Separator()
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
-        
-                    fmt.sbprintf(&builder, "%v", mesh.model.name)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-        
-                    fmt.sbprintf(&builder, "Position %v", mesh.position)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-                    
-                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
+
+                    gui_print_value(&builder, "Name", mesh.model.name)
+                    gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
-    
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
                     disable_button := false
@@ -622,20 +612,10 @@ scene_editor :: proc(
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
         
-                    fmt.sbprintf(&builder, "%v", mesh.model.name)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-        
-                    fmt.sbprintf(&builder, "Position %v", mesh.position)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-                    
-                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
+                    gui_print_value(&builder, "Name", mesh.model.name)
+                    gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
-    
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
                     disable_button := false
@@ -694,20 +674,10 @@ scene_editor :: proc(
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
         
-                    fmt.sbprintf(&builder, "%v", mesh.model.name)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-        
-                    fmt.sbprintf(&builder, "Position %v", mesh.position)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-                    
-                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
+                    gui_print_value(&builder, "Name", mesh.model.name)
+                    gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
-    
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
     
                     anim := &renderer.animations[mesh.model.first_animation_idx]
@@ -775,27 +745,14 @@ scene_editor :: proc(
                 }
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
-        
-                    fmt.sbprintf(&builder, "Position %v", mesh.position)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
                     
-                    fmt.sbprintf(&builder, "Rotation: %v", mesh.rotation)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-
-                    fmt.sbprintf(&builder, "AI state: %v", mesh.ai_state)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
-
-                    fmt.sbprintf(&builder, "Collision state: %v", mesh.collision_state)
-                    imgui.Text(strings.to_cstring(&builder))
-                    strings.builder_reset(&builder)
+                    gui_print_value(&builder, "Rotation", mesh.rotation)
+                    gui_print_value(&builder, "AI state", mesh.ai_state)
+                    gui_print_value(&builder, "Collision state", mesh.collision_state)
     
                     if imgui.DragFloat3("Position", &mesh.position, 0.1) {
                         mesh.velocity = {}
                     }
-    
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
                     disable_button := false
@@ -835,13 +792,14 @@ scene_editor :: proc(
 
         // Do object clone
         {
+            things := &game_state.terrain_pieces
             clone_idx, clone_ok := terrain_piece_clone_idx.?
             if clone_ok {
-                new_terrain_piece := game_state.terrain_pieces[clone_idx]
-                new_terrain_piece.collision = copy_static_triangle_mesh(game_state.terrain_pieces[clone_idx].collision)
+                new_terrain_piece := things[clone_idx]
+                new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
 
-                append(&game_state.terrain_pieces, new_terrain_piece)
-                new_idx := len(game_state.terrain_pieces) - 1
+                append(things, new_terrain_piece)
+                new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
                     type = .MoveTerrainPiece,
                     index = u32(new_idx)
@@ -849,10 +807,11 @@ scene_editor :: proc(
             }
         }
         {
+            things := &game_state.static_scenery
             clone_idx, clone_ok := static_to_clone_idx.?
             if clone_ok {
-                append(&game_state.static_scenery, game_state.static_scenery[clone_idx])
-                new_idx := len(game_state.static_scenery) - 1
+                append(things, things[clone_idx])
+                new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
                     type = .MoveStaticScenery,
                     index = u32(new_idx)
@@ -860,23 +819,25 @@ scene_editor :: proc(
             }
         }
         {
+            things := &game_state.animated_scenery
             clone_idx, clone_ok := anim_to_clone_idx.?
             if clone_ok {
-                append(&game_state.animated_scenery, game_state.animated_scenery[clone_idx])
-                new_idx := len(game_state.animated_scenery) - 1
+                append(things, things[clone_idx])
+                new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
-                    type = .MoveAnimatedScenery,
+                    type = .MoveStaticScenery,
                     index = u32(new_idx)
                 }
             }
         }
         {
+            things := &game_state.enemies
             clone_idx, clone_ok := enemy_to_clone_idx.?
             if clone_ok {
-                append(&game_state.enemies, game_state.enemies[clone_idx])
-                new_idx := len(game_state.enemies) - 1
+                append(things, things[clone_idx])
+                new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
-                    type = .MoveEnemy,
+                    type = .MoveStaticScenery,
                     index = u32(new_idx)
                 }
             }
@@ -1156,10 +1117,111 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
     }
 }
 
-enemies_update :: proc(game_state: ^GameState) {
-    
+enemies_update :: proc(game_state: ^GameState, dt: f32) {
+    for &enemy in game_state.enemies {
+        // Update
+        col := Sphere {
+            position = enemy.position,
+            radius = enemy.collision_radius
+        }
+
+        //world_invector := hlsl.float3 {0.0, 0.5, 0.0}
+        enemy.velocity.xy = {0.0, 0.5}
+
+        // Apply gravity to velocity, clamping downward speed if necessary
+        enemy.velocity += dt * GRAVITY_ACCELERATION
+        if enemy.velocity.z < TERMINAL_VELOCITY {
+            enemy.velocity.z = TERMINAL_VELOCITY
+        }
+
+        // Compute motion interval
+        motion_endpoint := col.position + dt * enemy.velocity
+        motion_interval := Segment {
+            start = col.position,
+            end = motion_endpoint
+        }
+        
+
+        // Compute closest point to terrain along with
+        // vector opposing enemy motion
+        closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+        collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+        switch enemy.collision_state {
+            case .Grounded: {
+                // Push out of ground
+                dist := hlsl.distance(closest_pt, col.position)
+                if dist < col.radius {
+                    remaining_dist := col.radius - dist
+                    if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                        col.position = motion_endpoint + remaining_dist * collision_normal
+                    } else {
+                        col.position = motion_endpoint
+                        
+                    }
+                } else {
+                    col.position = motion_endpoint
+                }
+        
+                //Check if we need to bump ourselves up or down
+                {
+                    tolerance_segment := Segment {
+                        start = col.position + {0.0, 0.0, 0.0},
+                        end = col.position + {0.0, 0.0, -col.radius - 0.1}
+                    }
+                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                    tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
+                    if okt {
+                        col.position = tolerance_point + {0.0, 0.0, col.radius}
+                        if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                            enemy.velocity.z = 0.0
+                            enemy.collision_state = .Grounded
+                        }
+                    } else {
+                        enemy.collision_state = .Falling
+                    }
+                }
+            }
+            case .Falling: {
+                // Then do collision test against triangles
+
+                d := hlsl.distance(col.position, closest_pt)
+                hit := d < col.radius
+
+                if hit {
+                    // Hit terrain
+                    remaining_d := col.radius - d
+                    col.position = motion_endpoint + remaining_d * collision_normal
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
+                        // Floor
+                        //char.remaining_jumps = CHARACTER_TOTAL_JUMPS
+                        enemy.collision_state = .Grounded
+                    } else if n_dot < -0.1 && enemy.velocity.z > 0.0 {
+                        // Ceiling
+                        enemy.velocity.z = 0.0
+                    }
+                } else {
+                    // Didn't hit anything, still falling.
+                    col.position = motion_endpoint
+                }
+            }
+        }
+
+        // Write updated position to enemy
+        enemy.position = col.position
+    }
 }
 
+enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+    for enemy in game_state.enemies {
+        rot := linalg.to_matrix4(enemy.rotation)
+        world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.scale)
+        dd := StaticDraw {
+            world_from_model = world_mat
+        }
+        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+    }
+}
 
 
 
