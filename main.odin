@@ -754,10 +754,10 @@ main :: proc() {
                     case .AddTerrainPiece: {
                         modal_title : cstring = "Add terrain piece"
                         imgui.OpenPopup(modal_title)
-            
                         center := imgui.GetMainViewport().Size / 2.0
                         imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
                         imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+
                         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
                             selected_item: c.int
                             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
@@ -796,10 +796,10 @@ main :: proc() {
                     case .AddStaticScenery: {
                         modal_title : cstring = "Add static scenery"
                         imgui.OpenPopup(modal_title)
-            
                         center := imgui.GetMainViewport().Size / 2.0
                         imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
                         imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+
                         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
                             selected_item: c.int
                             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
@@ -834,10 +834,10 @@ main :: proc() {
                     case .AddAnimatedScenery: {
                         modal_title : cstring = "Add animated scenery"
                         imgui.OpenPopup(modal_title)
-            
                         center := imgui.GetMainViewport().Size / 2.0
                         imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
                         imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+
                         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
                             selected_item: c.int
                             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
@@ -904,7 +904,9 @@ main :: proc() {
                             resp,
                             game_state.enemies[:]
                         ) {
-                            game_state.enemies[resp.index].velocity = {}
+                            e := &game_state.enemies[resp.index]
+                            e.velocity = {}
+                            e.position.z += 3.0
                         }
                     }
                     case .MovePlayerSpawn: {
@@ -969,109 +971,10 @@ main :: proc() {
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
-        for &enemy in game_state.enemies {
-            if do_this_frame {
-                // Update
-                dt := last_frame_dt * game_state.timescale
-                col := Sphere {
-                    position = enemy.position,
-                    radius = enemy.collision_radius
-                }
-
-                //world_invector := hlsl.float3 {0.0, 0.5, 0.0}
-                enemy.velocity.xy = {0.0, 0.5}
-
-                // Apply gravity to velocity, clamping downward speed if necessary
-                enemy.velocity += dt * GRAVITY_ACCELERATION
-                if enemy.velocity.z < TERMINAL_VELOCITY {
-                    enemy.velocity.z = TERMINAL_VELOCITY
-                }
-
-                // Compute motion interval
-                motion_endpoint := col.position + dt * enemy.velocity
-                motion_interval := Segment {
-                    start = col.position,
-                    end = motion_endpoint
-                }
-                
-
-                // Compute closest point to terrain along with
-                // vector opposing enemy motion
-                closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
-                collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-                switch enemy.collision_state {
-                    case .Grounded: {
-                        // Push out of ground
-                        dist := hlsl.distance(closest_pt, col.position)
-                        if dist < col.radius {
-                            remaining_dist := col.radius - dist
-                            if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                                col.position = motion_endpoint + remaining_dist * collision_normal
-                            } else {
-                                col.position = motion_endpoint
-                                
-                            }
-                        } else {
-                            col.position = motion_endpoint
-                        }
-                
-                        //Check if we need to bump ourselves up or down
-                        {
-                            tolerance_segment := Segment {
-                                start = col.position + {0.0, 0.0, 0.0},
-                                end = col.position + {0.0, 0.0, -col.radius - 0.1}
-                            }
-                            tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                            tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                            if okt {
-                                col.position = tolerance_point + {0.0, 0.0, col.radius}
-                                if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                                    enemy.velocity.z = 0.0
-                                    enemy.collision_state = .Grounded
-                                }
-                            } else {
-                                enemy.collision_state = .Falling
-                            }
-                        }
-                    }
-                    case .Falling: {
-                        // Then do collision test against triangles
-
-                        d := hlsl.distance(col.position, closest_pt)
-                        hit := d < col.radius
-
-                        if hit {
-                            // Hit terrain
-                            remaining_d := col.radius - d
-                            col.position = motion_endpoint + remaining_d * collision_normal
-                            n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                            if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
-                                // Floor
-                                //char.remaining_jumps = CHARACTER_TOTAL_JUMPS
-                                enemy.collision_state = .Grounded
-                            } else if n_dot < -0.1 && enemy.velocity.z > 0.0 {
-                                // Ceiling
-                                enemy.velocity.z = 0.0
-                            }
-                        } else {
-                            // Didn't hit anything, still falling.
-                            col.position = motion_endpoint
-                        }
-                    }
-                }
-
-                // Write updated position to enemy
-                enemy.position = col.position
-            }
-
-            // Draw
-            rot := linalg.to_matrix4(enemy.rotation)
-            world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.scale)
-            dd := StaticDraw {
-                world_from_model = world_mat
-            }
-            draw_ps1_static_mesh(&vgd, &renderer, game_state.enemy_mesh, &dd)
+        if do_this_frame {
+            enemies_update(&game_state, last_frame_dt * game_state.timescale)
         }
+        enemies_draw(&vgd, &renderer, game_state)
         
         {
             bullet, ok := game_state.air_bullet.?

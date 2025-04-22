@@ -305,6 +305,12 @@ gui_main_menu_bar :: proc(
     return retval
 }
 
+gui_print_value :: proc(builder: ^strings.Builder, label: string, value: any) {
+    fmt.sbprintf(builder, "%v: %v", label, value)
+    imgui.Text(strings.to_cstring(builder))
+    strings.builder_reset(builder)
+}
+
 gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
     filewalk_proc :: proc(
         info: os.File_Info,
