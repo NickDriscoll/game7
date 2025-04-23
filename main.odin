@@ -717,12 +717,11 @@ main :: proc() {
 
         // Handle current editor state
         {
-            move_thingy :: proc(
+            move_positionable :: proc(
                 game_state: ^GameState,
                 input_system: InputSystem,
                 viewport_dimensions: [4]f32,
-                resp: EditorResponse,
-                objects: []$T
+                position: ^hlsl.float3
             ) -> bool {
                 collision_pt: hlsl.float3
                 hit := false
@@ -735,8 +734,7 @@ main :: proc() {
                         viewport_dimensions
                     )
                     if hit {
-                        object := &objects[resp.index]
-                        object.position = collision_pt
+                        position^ = collision_pt
                     }
 
                     if input_system.mouse_clicked {
@@ -746,163 +744,135 @@ main :: proc() {
                 return hit
             }
 
+            pick_path :: proc(
+                modal_title: cstring,
+                path: string,
+                builder: ^strings.Builder,
+                resp: ^Maybe(EditorResponse)
+            ) -> (cstring, bool) {
+                result: cstring
+                ok := false
+
+                imgui.OpenPopup(modal_title)
+                center := imgui.GetMainViewport().Size / 2.0
+                imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+                imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+
+                if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
+                    selected_item: c.int
+                    list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                    if gui_list_files(path, &list_items, &selected_item, "models") {
+                        fmt.sbprintf(builder, "%v/%v", path, list_items[selected_item])
+                        path_cstring, _ := strings.to_cstring(builder)
+
+                        result = path_cstring
+                        ok = true
+                        resp^ = nil
+                        imgui.CloseCurrentPopup()
+                    }
+                    imgui.Separator()
+                    if imgui.Button("Return") {
+                        resp^ = nil
+                        imgui.CloseCurrentPopup()
+                    }
+                    imgui.EndPopup()
+                }
+                strings.builder_reset(builder)
+                return result, ok
+            }
+
             resp, edit_ok := game_state.editor_response.(EditorResponse)
             if edit_ok {
                 builder: strings.Builder
                 strings.builder_init(&builder, context.temp_allocator)
                 #partial switch resp.type {
                     case .AddTerrainPiece: {
-                        modal_title : cstring = "Add terrain piece"
-                        imgui.OpenPopup(modal_title)
-                        center := imgui.GetMainViewport().Size / 2.0
-                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-                        imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-
-                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
-                            selected_item: c.int
-                            list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
-                                // Insert selected item into terrain piece list
-                                fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
-                                path_cstring, _ := strings.to_cstring(&builder)
-                                model := load_gltf_static_model(&vgd, &renderer, path_cstring)
-
-                                position := hlsl.float3 {}
-                                rotation := quaternion128 {}
-                                scale : f32 = 1.0
-                                mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-                                positions := get_glb_positions(path_cstring)
-                                collision := new_static_triangle_mesh(positions[:], mmat)
-                                append(&game_state.terrain_pieces, TerrainPiece {
-                                    collision = collision,
-                                    position = position,
-                                    rotation = rotation,
-                                    scale = scale,
-                                    model = model,
-                                })
-                                
-                                game_state.editor_response = nil
-                                strings.builder_reset(&builder)
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.Separator()
-                            if imgui.Button("Return") {
-                                game_state.editor_response = nil
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.EndPopup()
+                        path, ok := pick_path("Add terrain piece", "data/models", &builder, &game_state.editor_response)
+                        if ok {
+                            position := hlsl.float3 {}
+                            rotation := quaternion128 {}
+                            scale : f32 = 1.0
+                            mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+                            model := load_gltf_static_model(&vgd, &renderer, path)
+                            
+                            positions := get_glb_positions(path)
+                            collision := new_static_triangle_mesh(positions[:], mmat)
+                            append(&game_state.terrain_pieces, TerrainPiece {
+                                collision = collision,
+                                position = position,
+                                rotation = rotation,
+                                scale = scale,
+                                model = model,
+                            })
                         }
                     }
                     case .AddStaticScenery: {
-                        modal_title : cstring = "Add static scenery"
-                        imgui.OpenPopup(modal_title)
-                        center := imgui.GetMainViewport().Size / 2.0
-                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-                        imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-
-                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
-                            selected_item: c.int
-                            list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
-                                // Insert selected item into static scenery list
-                                fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
-                                path_cstring, _ := strings.to_cstring(&builder)
-                                model := load_gltf_static_model(&vgd, &renderer, path_cstring)
-
-                                position := hlsl.float3 {}
-                                rotation := quaternion128 {}
-                                scale : f32 = 1.0
-                                append(&game_state.static_scenery, StaticScenery {
-                                    position = position,
-                                    rotation = rotation,
-                                    scale = scale,
-                                    model = model,
-                                })
-                                
-                                game_state.editor_response = nil
-                                strings.builder_reset(&builder)
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.Separator()
-                            if imgui.Button("Return") {
-                                game_state.editor_response = nil
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.EndPopup()
+                        path, ok := pick_path("Add static scenery", "data/models", &builder, &game_state.editor_response)
+                        if ok {
+                            position := hlsl.float3 {}
+                            rotation := quaternion128 {}
+                            scale : f32 = 1.0
+                            mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+                            model := load_gltf_static_model(&vgd, &renderer, path)
+                            
+                            append(&game_state.static_scenery, StaticScenery {
+                                position = position,
+                                rotation = rotation,
+                                scale = scale,
+                                model = model,
+                            })
                         }
                     }
                     case .AddAnimatedScenery: {
-                        modal_title : cstring = "Add animated scenery"
-                        imgui.OpenPopup(modal_title)
-                        center := imgui.GetMainViewport().Size / 2.0
-                        imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-                        imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-
-                        if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
-                            selected_item: c.int
-                            list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                            if gui_list_files("./data/models", &list_items, &selected_item, "models") {
-                                // Insert selected item into animated scenery list
-                                fmt.sbprintf(&builder, "data/models/%v", list_items[selected_item])
-                                path_cstring, _ := strings.to_cstring(&builder)
-                                model := load_gltf_skinned_model(&vgd, &renderer, path_cstring)
-
-                                position := hlsl.float3 {}
-                                rotation := quaternion128 {}
-                                scale : f32 = 1.0
-                                append(&game_state.animated_scenery, AnimatedScenery {
-                                    position = position,
-                                    rotation = rotation,
-                                    scale = scale,
-                                    model = model,
-                                })
-                                
-                                game_state.editor_response = nil
-                                strings.builder_reset(&builder)
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.Separator()
-                            if imgui.Button("Return") {
-                                game_state.editor_response = nil
-                                imgui.CloseCurrentPopup()
-                            }
-                            imgui.EndPopup()
+                        path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
+                        if ok {
+                            model := load_gltf_skinned_model(&vgd, &renderer, path)
+                            position := hlsl.float3 {}
+                            rotation := quaternion128 {}
+                            scale : f32 = 1.0
+                            append(&game_state.animated_scenery, AnimatedScenery {
+                                position = position,
+                                rotation = rotation,
+                                scale = scale,
+                                model = model,
+                                anim_speed = 1.0,
+                            })
                         }
                     }
                     case .MoveTerrainPiece: {
-                        move_thingy(
+                        position := &game_state.terrain_pieces[resp.index].position
+                        move_positionable(
                             &game_state,
                             input_system,
                             renderer.viewport_dimensions,
-                            resp,
-                            game_state.terrain_pieces[:]
+                            position
                         )
                     }
                     case .MoveStaticScenery: {
-                        move_thingy(
+                        position := &game_state.static_scenery[resp.index].position
+                        move_positionable(
                             &game_state,
                             input_system,
                             renderer.viewport_dimensions,
-                            resp,
-                            game_state.static_scenery[:]
+                            position
                         )
                     }
                     case .MoveAnimatedScenery: {
-                        move_thingy(
+                        position := &game_state.animated_scenery[resp.index].position
+                        move_positionable(
                             &game_state,
                             input_system,
                             renderer.viewport_dimensions,
-                            resp,
-                            game_state.animated_scenery[:]
+                            position
                         )
                     }
                     case .MoveEnemy: {
-                        if move_thingy(
+                        enemy := &game_state.enemies[resp.index]
+                        if move_positionable(
                             &game_state,
                             input_system,
                             renderer.viewport_dimensions,
-                            resp,
-                            game_state.enemies[:]
+                            &enemy.position
                         ) {
                             e := &game_state.enemies[resp.index]
                             e.velocity = {}
@@ -910,21 +880,7 @@ main :: proc() {
                         }
                     }
                     case .MovePlayerSpawn: {
-                        if !io.WantCaptureMouse {
-                            collision_pt, hit := do_mouse_raycast(
-                                game_state.viewport_camera,
-                                game_state.terrain_pieces[:],
-                                input_system.mouse_location,
-                                renderer.viewport_dimensions
-                            )
-                            if hit {
-                                game_state.character_start = collision_pt
-                            }
-
-                            if input_system.mouse_clicked {
-                                game_state.editor_response = nil
-                            }
-                        }
+                        move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
                     }
                     case: {}
                 }
