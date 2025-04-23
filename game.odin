@@ -442,7 +442,6 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
     }
 
 
-    //lvl_file, lvl_err := os2.open("data/levels/hardcoded_test.lvl", {.Write,.Create,.Trunc})
     lvl_file, lvl_err := create_write_file(path)
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
@@ -718,7 +717,6 @@ scene_editor :: proc(
                 imgui.PopID()
             }
         }
-
 
         enemy_to_clone_idx: Maybe(int)
         {
@@ -1209,6 +1207,12 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
 
         // Write updated position to enemy
         enemy.position = col.position
+
+        // Check if overlapping air bullet
+        bullet, ok := game_state.air_bullet.?
+        if ok {
+
+        }
     }
 }
 
