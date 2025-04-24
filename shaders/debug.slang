@@ -13,7 +13,8 @@ cbuffer push_constants {
 }
 
 [shader("vertex")]
-VertexOutput vertex_main(uint idx: SV_VertexID, uint inst_idx: SV_InstanceID) {
+VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint first_instance: SV_StartInstanceLocation) {
+    uint inst_idx = inst + first_instance;
     InstanceData inst = u_data.i_data[inst_idx];
     StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
 
