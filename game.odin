@@ -77,6 +77,10 @@ Character :: struct {
     anim_speed: f32,
     control_flags: CharacterFlags,
     mesh_data: ^SkinnedModelData,
+
+    air_bullet: Maybe(AirBullet),
+    bullet_travel_time: f32,
+    is_holding_enemy: bool,
 }
 
 EnemyState :: enum {
@@ -109,9 +113,6 @@ AirBullet :: struct {
 GameState :: struct {
     character: Character,
     viewport_camera: Camera,
-
-    air_bullet: Maybe(AirBullet),
-    bullet_travel_time: f32,
 
     // Scene/Level data
     terrain_pieces: [dynamic]TerrainPiece,
@@ -157,7 +158,6 @@ init_gamestate :: proc(
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
     game_state.timescale = 1.0
-    game_state.bullet_travel_time = 0.144
 
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
@@ -187,7 +187,9 @@ init_gamestate :: proc(
         jump_speed = 10.0,
         remaining_jumps = 2,
         anim_speed = 0.856,
-        mesh_data = skinned_model
+        mesh_data = skinned_model,
+
+        bullet_travel_time = 0.144,
     }
 
     // Initialize main viewport camera
@@ -1041,7 +1043,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     // Shoot bullet
     if output_verbs.bools[.PlayerShoot] {
         start_pos := char.collision.position
-        game_state.air_bullet = AirBullet {
+        char.air_bullet = AirBullet {
             collision = Sphere {
                 position = start_pos,
                 radius = 0.1
@@ -1054,15 +1056,15 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
-    bullet, bok := &game_state.air_bullet.?
-    if bok && bullet.t <= game_state.bullet_travel_time{
+    bullet, bok := &char.air_bullet.?
+    if bok && bullet.t <= char.bullet_travel_time{
         // Bullet update
         col := char.collision
         bullet.t += dt
         endpoint := col.position + 2.5 * char.facing
-        bullet.collision.position = linalg.lerp(bullet.path_start, bullet.path_end, bullet.t / game_state.bullet_travel_time)
+        bullet.collision.position = linalg.lerp(bullet.path_start, bullet.path_end, bullet.t / char.bullet_travel_time)
     } else {
-        game_state.air_bullet = nil
+        char.air_bullet = nil
     }
 
     // Camera follow point chases player
@@ -1070,7 +1072,9 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
 }
 
-player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    character := &game_state.character
+
     y := -character.facing
     z := hlsl.float3 {0.0, 0.0, 1.0}
     x := hlsl.cross(y, z)
@@ -1100,6 +1104,15 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
     ddata.world_from_model[3][2] = col.position.z - col.radius
     draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
 
+    if character.is_holding_enemy {
+        mat := ddata.world_from_model
+        mat[3][2] += 4.0
+        dd := StaticDraw {
+            world_from_model = mat
+        }
+        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+    }
+
     // Debug draw logic
     if .ShowPlayerHitSphere in game_state.debug_vis_flags {
         dd: DebugDraw
@@ -1116,7 +1129,8 @@ player_draw :: proc(using game_state: ^GameState, gd: ^vkw.Graphics_Device, rend
 }
 
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
-    for &enemy in game_state.enemies {
+    enemy_to_remove: Maybe(int)
+    for &enemy, i in game_state.enemies {
         // Update
         col := Sphere {
             position = enemy.position,
@@ -1209,10 +1223,20 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         enemy.position = col.position
 
         // Check if overlapping air bullet
-        bullet, ok := game_state.air_bullet.?
+        char := &game_state.character
+        bullet, ok := char.air_bullet.?
         if ok {
-
+            if are_spheres_overlapping(bullet.collision, col) {
+                char.is_holding_enemy = true
+                enemy_to_remove = i
+                char.air_bullet = nil
+            }
         }
+    }
+
+    idx, ok := enemy_to_remove.?
+    if ok {
+        unordered_remove(&game_state.enemies, idx)
     }
 }
 
