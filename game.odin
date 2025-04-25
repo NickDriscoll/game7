@@ -54,7 +54,6 @@ CollisionState :: enum {
     Falling
 }
 
-CHARACTER_TOTAL_JUMPS :: 2
 CharacterFlags :: bit_set[enum {
     MovingLeft,
     MovingRight,
@@ -72,7 +71,6 @@ Character :: struct {
     move_speed: f32,
     sprint_speed: f32,
     jump_speed: f32,
-    remaining_jumps: u32,
     anim_t: f32,
     anim_speed: f32,
     control_flags: CharacterFlags,
@@ -81,6 +79,7 @@ Character :: struct {
     air_bullet: Maybe(AirBullet),
     bullet_travel_time: f32,
     is_holding_enemy: bool,
+    held_enemy_last_coords: hlsl.float3,
 }
 
 EnemyState :: enum {
@@ -139,6 +138,7 @@ GameState :: struct {
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
+    time: f32,
 
     freecam_collision: bool,
     freecam_speed_multiplier: f32,
@@ -185,7 +185,6 @@ init_gamestate :: proc(
         move_speed = 7.0,
         sprint_speed = 14.0,
         jump_speed = 10.0,
-        remaining_jumps = 2,
         anim_speed = 0.856,
         mesh_data = skinned_model,
 
@@ -947,10 +946,12 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
             if jumped {
                 // To jumping...
-                if char.remaining_jumps > 0 {
+                if char.state == .Grounded || char.is_holding_enemy {
+                    if char.state == .Falling && char.is_holding_enemy {
+                        char.is_holding_enemy = false
+                    }
                     char.velocity.z = char.jump_speed
                     char.state = .Falling
-                    char.remaining_jumps -= 1
                 }
                 char.gravity_factor = 1.0
             } else {
@@ -995,7 +996,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 char.collision.position = motion_endpoint
             }
     
-            //Check if we need to bump ourselves up or down
+            // Check if we need to bump ourselves up or down
             {
                 tolerance_segment := Segment {
                     start = char.collision.position + {0.0, 0.0, 0.0},
@@ -1027,7 +1028,6 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
                 if n_dot >= 0.5 && char.velocity.z < 0.0 {
                     // Floor
-                    char.remaining_jumps = CHARACTER_TOTAL_JUMPS
                     char.state = .Grounded
                 } else if n_dot < -0.1 && char.velocity.z > 0.0 {
                     // Ceiling
@@ -1104,9 +1104,11 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     ddata.world_from_model[3][2] = col.position.z - col.radius
     draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
 
+    // Draw enemy above player head
     if character.is_holding_enemy {
-        mat := ddata.world_from_model
-        mat[3][2] += 4.0
+        bob := 0.2 * math.sin(game_state.time * 1.7)
+        mat := translation_matrix(character.collision.position + {0.0, 0.0, 2.0 + bob})
+        mat *= yaw_rotation_matrix(game_state.time)
         dd := StaticDraw {
             world_from_model = mat
         }
@@ -1174,7 +1176,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                     col.position = motion_endpoint
                 }
         
-                //Check if we need to bump ourselves up or down
+                // Check if we need to bump ourselves up or down
                 {
                     tolerance_segment := Segment {
                         start = col.position + {0.0, 0.0, 0.0},
@@ -1228,6 +1230,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         if ok {
             if are_spheres_overlapping(bullet.collision, col) {
                 char.is_holding_enemy = true
+                char.held_enemy_last_coords = col.position
                 enemy_to_remove = i
                 char.air_bullet = nil
             }
@@ -1394,7 +1397,7 @@ camera_update :: proc(
             camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
         }
     
-        //Compute temporary camera matrix for orienting player inputted direction vector
+        // Compute temporary camera matrix for orienting player inputted direction vector
         world_from_view := hlsl.inverse(camera_view_from_world(game_state.viewport_camera))
         camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
         game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
