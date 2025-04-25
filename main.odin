@@ -348,6 +348,9 @@ main :: proc() {
         last_frame_dt = min(last_frame_dt, MAXIMUM_FRAME_DT)
         previous_time = current_time
 
+        // @TODO: Wrap this value at some point?
+        game_state.time += last_frame_dt
+
         // Save user configuration every 100ms
         if user_config_autosave && time.diff(user_config_last_saved, current_time) >= 1_000_000 {
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
