@@ -36,9 +36,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
 
-    // SDL's streamout buffer isn't initialized to zero
-    // @TODO: This is something dumb. Stop it.
-    mem.zero(&out_samples[0], len(out_samples) * size_of(f32))
+    mix_buffer: [STATIC_BUFFER_SIZE]f32
     
     for &playback in audio_system.music_files {
         if playback.is_interacted || playback.is_paused do continue
@@ -57,7 +55,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
             vorbis.seek(playback.file, c.uint(playback.calculated_read_head))
         }
         for i in 0..<len(out_samples) {
-            out_samples[i] += playback.volume * file_stream_buffer[i]
+            mix_buffer[i] += playback.volume * file_stream_buffer[i]
         }
     }
     
@@ -67,7 +65,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     for i in 0..<len(out_samples) {
         // Generate pure sine wave tone
         if audio_system.play_tone {
-            out_samples[i] += audio_system.tone_volume * math.sin_f32(audio_system.sine_time)
+            mix_buffer[i] += audio_system.tone_volume * math.sin_f32(audio_system.sine_time)
 
             // Advance position on sine wave by 
             audio_system.sine_time += 2.0 * math.PI * (audio_system.tone_freq / f32(audio_system.spec.freq))
@@ -79,8 +77,10 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         }
 
         // Apply master volume
-        out_samples[i] *= audio_system.volume
+        mix_buffer[i] *= audio_system.volume
     }
+
+    mem.copy(&out_samples[0], &mix_buffer[0], size_of(f32) * len(out_samples))
 }
 
 FilePlayback :: struct {
