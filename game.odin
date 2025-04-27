@@ -949,6 +949,13 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 if char.state == .Grounded || char.is_holding_enemy {
                     if char.state == .Falling && char.is_holding_enemy {
                         char.is_holding_enemy = false
+
+                        // Respawn thrown enemy at position where we picked it up
+                        append(&game_state.enemies, Enemy {
+                            position = char.held_enemy_last_coords,
+                            collision_radius = 0.8,
+                            scale = 1.0,
+                        })
                     }
                     char.velocity.z = char.jump_speed
                     char.state = .Falling
