@@ -353,7 +353,15 @@ load_level_file :: proc(
 }
 
 write_level_file :: proc(gamestate: ^GameState, path: string) {
-    // @TODO: Apply deduplication
+    mesh_data_size :: proc(mesh: $T) -> int {
+        s := 0
+        s += size_of(u32)
+        s += len(mesh.model.name)
+        s += size_of(mesh.position)
+        s += size_of(mesh.rotation)
+        s += size_of(mesh.scale)
+        return s        
+    }
 
     output_size := 0
 
@@ -361,29 +369,17 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     output_size += size_of(u32)
     for piece in gamestate.terrain_pieces {
-        output_size += size_of(u32)
-        output_size += len(piece.model.name)
-        output_size += size_of(piece.position)
-        output_size += size_of(piece.rotation)
-        output_size += size_of(piece.scale)
+        output_size += mesh_data_size(piece)
     }
 
     output_size += size_of(u32)
     for scenery in gamestate.static_scenery {
-        output_size += size_of(u32)
-        output_size += len(scenery.model.name)
-        output_size += size_of(scenery.position)
-        output_size += size_of(scenery.rotation)
-        output_size += size_of(scenery.scale)
+        output_size += mesh_data_size(scenery)
     }
 
     output_size += size_of(u32)
     for scenery in gamestate.animated_scenery {
-        output_size += size_of(u32)
-        output_size += len(scenery.model.name)
-        output_size += size_of(scenery.position)
-        output_size += size_of(scenery.rotation)
-        output_size += size_of(scenery.scale)
+        output_size += mesh_data_size(scenery)
     }
     
     write_head : u32 = 0
@@ -395,51 +391,37 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         head^ += u32(amount)
     }
 
+    write_mesh_to_buffer :: proc(buffer: []byte, mesh: ^$T, head: ^u32) {
+        name := &mesh.model.name
+        name_len := u32(len(name))
+        write_thing_to_buffer(buffer, &name_len, head)
+        
+        mem.copy_non_overlapping(&buffer[head^], raw_data(name^), int(name_len))
+        head^ += name_len
+
+        write_thing_to_buffer(buffer, &mesh.position, head)
+        write_thing_to_buffer(buffer, &mesh.rotation, head)
+        write_thing_to_buffer(buffer, &mesh.scale, head)
+    }
+
     write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
 
     ter_len := u32(len(gamestate.terrain_pieces))
     write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
     for &piece in gamestate.terrain_pieces {
-        name := &piece.model.name
-        name_len := u32(len(name))
-        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
-        
-        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
-        write_head += name_len
-
-        write_thing_to_buffer(raw_output_buffer[:], &piece.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &piece.rotation, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &piece.scale, &write_head)
+        write_mesh_to_buffer(raw_output_buffer[:], &piece, &write_head)
     }
 
     static_len := u32(len(gamestate.static_scenery))
     write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
     for &scenery in gamestate.static_scenery {
-        name := &scenery.model.name
-        name_len := u32(len(name))
-        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
-        
-        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
-        write_head += name_len
-
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.rotation, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.scale, &write_head)
+        write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
     anim_len := u32(len(gamestate.animated_scenery))
     write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
     for &scenery in gamestate.animated_scenery {
-        name := &scenery.model.name
-        name_len := u32(len(name))
-        write_thing_to_buffer(raw_output_buffer[:], &name_len, &write_head)
-        
-        mem.copy_non_overlapping(&raw_output_buffer[write_head], raw_data(name^), int(name_len))
-        write_head += name_len
-
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.rotation, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &scenery.scale, &write_head)
+        write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
 
