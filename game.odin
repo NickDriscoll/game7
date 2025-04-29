@@ -108,6 +108,13 @@ AirBullet :: struct {
     t: f32,
 }
 
+LevelBlocks :: enum u8 {
+    Terrain,
+    StaticScenery,
+    AnimatedScenery,
+    Enemies
+}
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
@@ -264,6 +271,7 @@ load_level_file :: proc(
     // @TODO: Read this from level file
     game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/manifold.ogg")
 
+    file_size := u32(len(lvl_bytes))
     read_head : u32 = 0
 
     // Character start
@@ -271,77 +279,90 @@ load_level_file :: proc(
     game_state.character.collision.position = game_state.character_start
     game_state.camera_follow_point = game_state.character.collision.position
 
-    // Terrain pieces
-    ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-    for _ in 0..<ter_len {
-        name := read_string_from_buffer(lvl_bytes, &read_head)
-        path_builder: strings.Builder
-        strings.builder_init(&path_builder, context.temp_allocator)
-        fmt.sbprintf(&path_builder, "data/models/%v", name)
-        path, _ := strings.to_cstring(&path_builder)
-        model := load_gltf_static_model(gd, renderer, path)
+    // Repeatedly parse level blocks
+    for read_head < file_size {
+        block := read_thing_from_buffer(lvl_bytes, LevelBlocks, &read_head)
+        switch block {
+            case .Terrain: {
+                // Terrain pieces
+                ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                for _ in 0..<ter_len {
+                    name := read_string_from_buffer(lvl_bytes, &read_head)
+                    path_builder: strings.Builder
+                    strings.builder_init(&path_builder, context.temp_allocator)
+                    fmt.sbprintf(&path_builder, "data/models/%v", name)
+                    path, _ := strings.to_cstring(&path_builder)
+                    model := load_gltf_static_model(gd, renderer, path)
+            
+                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+                    mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+                    
+                    positions := get_glb_positions(path)
+                    collision := new_static_triangle_mesh(positions[:], mmat)
+                    append(&game_state.terrain_pieces, TerrainPiece {
+                        collision = collision,
+                        position = position,
+                        rotation = rotation,
+                        scale = scale,
+                        model = model,
+                    })
+                }
+            }
+            case .StaticScenery: {
+                // Static scenery
+                stat_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                for _ in 0..<stat_len {
+                    name := read_string_from_buffer(lvl_bytes, &read_head)
+                    path_builder: strings.Builder
+                    strings.builder_init(&path_builder, context.temp_allocator)
+                    fmt.sbprintf(&path_builder, "data/models/%v", name)
+                    path, _ := strings.to_cstring(&path_builder)
+                    model := load_gltf_static_model(gd, renderer, path)
+            
+                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+            
+                    append(&game_state.static_scenery, StaticScenery {
+                        model = model,
+                        position = position,
+                        rotation = rotation,
+                        scale = scale
+                    })
+                }
+            }
+            case .AnimatedScenery: {
+                // Animated scenery
+                anim_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                for _ in 0..<anim_len {
+                    name := read_string_from_buffer(lvl_bytes, &read_head)
+                    path_builder: strings.Builder
+                    strings.builder_init(&path_builder, context.temp_allocator)
+                    fmt.sbprintf(&path_builder, "data/models/%v", name)
+                    path, _ := strings.to_cstring(&path_builder)
+                    model := load_gltf_skinned_model(gd, renderer, path)
+            
+                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+                    
+                    append(&game_state.animated_scenery, AnimatedScenery {
+                        model = model,
+                        position = position,
+                        rotation = rotation,
+                        scale = scale,
+                        anim_idx = 0,
+                        anim_t = 0.0,
+                        anim_speed = 1.0,
+                    })
+                }
+            }
+            case .Enemies: {
 
-        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-        mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-        
-        positions := get_glb_positions(path)
-        collision := new_static_triangle_mesh(positions[:], mmat)
-        append(&game_state.terrain_pieces, TerrainPiece {
-            collision = collision,
-            position = position,
-            rotation = rotation,
-            scale = scale,
-            model = model,
-        })
-    }
-
-    // Static scenery
-    stat_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-    for _ in 0..<stat_len {
-        name := read_string_from_buffer(lvl_bytes, &read_head)
-        path_builder: strings.Builder
-        strings.builder_init(&path_builder, context.temp_allocator)
-        fmt.sbprintf(&path_builder, "data/models/%v", name)
-        path, _ := strings.to_cstring(&path_builder)
-        model := load_gltf_static_model(gd, renderer, path)
-
-        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-
-        append(&game_state.static_scenery, StaticScenery {
-            model = model,
-            position = position,
-            rotation = rotation,
-            scale = scale
-        })
-    }
-
-    // Animated scenery
-    anim_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-    for _ in 0..<anim_len {
-        name := read_string_from_buffer(lvl_bytes, &read_head)
-        path_builder: strings.Builder
-        strings.builder_init(&path_builder, context.temp_allocator)
-        fmt.sbprintf(&path_builder, "data/models/%v", name)
-        path, _ := strings.to_cstring(&path_builder)
-        model := load_gltf_skinned_model(gd, renderer, path)
-
-        position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-        rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-        scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-        
-        append(&game_state.animated_scenery, AnimatedScenery {
-            model = model,
-            position = position,
-            rotation = rotation,
-            scale = scale,
-            anim_idx = 0,
-            anim_t = 0.0,
-            anim_speed = 1.0,
-        })
+            }
+        }
     }
 
     path_clone, err := strings.clone(path)
@@ -367,19 +388,30 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     output_size += size_of(gamestate.character_start)
 
+    output_size += size_of(u8)
     output_size += size_of(u32)
     for piece in gamestate.terrain_pieces {
         output_size += mesh_data_size(piece)
     }
 
+    output_size += size_of(u8)
     output_size += size_of(u32)
     for scenery in gamestate.static_scenery {
         output_size += mesh_data_size(scenery)
     }
 
+    output_size += size_of(u8)
     output_size += size_of(u32)
     for scenery in gamestate.animated_scenery {
         output_size += mesh_data_size(scenery)
+    }
+
+    output_size += size_of(u8)
+    output_size += size_of(u32)
+    for enemy in gamestate.enemies {
+        output_size += size_of(enemy.position)
+        output_size += size_of(enemy.rotation)
+        output_size += size_of(enemy.scale)
     }
     
     write_head : u32 = 0
@@ -406,24 +438,38 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
 
+    block := LevelBlocks.Terrain
+
+    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
     ter_len := u32(len(gamestate.terrain_pieces))
     write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
     for &piece in gamestate.terrain_pieces {
         write_mesh_to_buffer(raw_output_buffer[:], &piece, &write_head)
     }
 
+    block = .StaticScenery
+    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
     static_len := u32(len(gamestate.static_scenery))
     write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
     for &scenery in gamestate.static_scenery {
         write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
+    block = .AnimatedScenery
+    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
     anim_len := u32(len(gamestate.animated_scenery))
     write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
     for &scenery in gamestate.animated_scenery {
         write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
+    // enemy_len := u32(len(gamestate.enemies))
+    // write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
+    // for &enemy in gamestate.enemies {
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.scale, &write_head)
+    // }
 
     lvl_file, lvl_err := create_write_file(path)
     if lvl_err != nil {
