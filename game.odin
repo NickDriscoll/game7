@@ -360,6 +360,22 @@ load_level_file :: proc(
                 }
             }
             case .Enemies: {
+                // Enemies
+                enemy_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                for _ in 0..<enemy_len {
+                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
+                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+            
+                    append(&game_state.enemies, Enemy {
+                        position = position,
+                        rotation = rotation,
+                        scale = scale,
+                        collision_radius = 0.8,
+                        ai_state = .Unbothered,
+                        collision_state = .Grounded
+                    })
+                }
 
             }
         }
@@ -388,26 +404,34 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     output_size += size_of(gamestate.character_start)
 
-    output_size += size_of(u8)
-    output_size += size_of(u32)
+    if len(gamestate.terrain_pieces) > 0 {
+        output_size += size_of(u8)
+        output_size += size_of(u32)
+    }
     for piece in gamestate.terrain_pieces {
         output_size += mesh_data_size(piece)
     }
 
-    output_size += size_of(u8)
-    output_size += size_of(u32)
+    if len(gamestate.static_scenery) > 0 {
+        output_size += size_of(u8)
+        output_size += size_of(u32)
+    }
     for scenery in gamestate.static_scenery {
         output_size += mesh_data_size(scenery)
     }
 
-    output_size += size_of(u8)
-    output_size += size_of(u32)
+    if len(gamestate.animated_scenery) > 0 {
+        output_size += size_of(u8)
+        output_size += size_of(u32)
+    }
     for scenery in gamestate.animated_scenery {
         output_size += mesh_data_size(scenery)
     }
 
-    output_size += size_of(u8)
-    output_size += size_of(u32)
+    if len(gamestate.enemies) > 0 {
+        output_size += size_of(u8)
+        output_size += size_of(u32)
+    }
     for enemy in gamestate.enemies {
         output_size += size_of(enemy.position)
         output_size += size_of(enemy.rotation)
@@ -440,36 +464,50 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     block := LevelBlocks.Terrain
 
-    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-    ter_len := u32(len(gamestate.terrain_pieces))
-    write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
+    if len(gamestate.terrain_pieces) > 0 {
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        ter_len := u32(len(gamestate.terrain_pieces))
+        write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
+    }
     for &piece in gamestate.terrain_pieces {
         write_mesh_to_buffer(raw_output_buffer[:], &piece, &write_head)
     }
 
-    block = .StaticScenery
-    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-    static_len := u32(len(gamestate.static_scenery))
-    write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
+    if len(gamestate.static_scenery) > 0 {
+        block = .StaticScenery
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        static_len := u32(len(gamestate.static_scenery))
+        write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
+    }
     for &scenery in gamestate.static_scenery {
         write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
-    block = .AnimatedScenery
-    write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-    anim_len := u32(len(gamestate.animated_scenery))
-    write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
+    if len(gamestate.animated_scenery) > 0 {
+        block = .AnimatedScenery
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        anim_len := u32(len(gamestate.animated_scenery))
+        write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
+    }
     for &scenery in gamestate.animated_scenery {
         write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
     }
 
-    // enemy_len := u32(len(gamestate.enemies))
-    // write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
-    // for &enemy in gamestate.enemies {
-    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
-    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
-    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.scale, &write_head)
-    // }
+    if len(gamestate.enemies) > 0 {
+        block = .Enemies
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        enemy_len := u32(len(gamestate.enemies))
+        write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
+    }
+    for &enemy in gamestate.enemies {
+        write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &enemy.scale, &write_head)
+    }
+
+    if write_head != u32(output_size) {
+        log.warnf("write_head (%v) not equal to output_size (%v)", write_head, output_size)
+    }
 
     lvl_file, lvl_err := create_write_file(path)
     if lvl_err != nil {
