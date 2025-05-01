@@ -96,6 +96,12 @@ Enemy :: struct {
     collision_state: CollisionState,
 }
 
+ThrownEnemy :: struct {
+    position: hlsl.float3,
+    velocity: hlsl.float3,
+    collision_radius: f32
+}
+
 DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerSpawn,
     ShowPlayerHitSphere
@@ -125,6 +131,7 @@ GameState :: struct {
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
     enemies: [dynamic]Enemy,
+    thrown_enemies: [dynamic]ThrownEnemy,
     character_start: hlsl.float3,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -1113,18 +1120,36 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         }
     }
 
-    // Shoot bullet
+    // Shoot command
     if output_verbs.bools[.PlayerShoot] {
-        start_pos := char.collision.position
-        char.air_bullet = AirBullet {
-            collision = Sphere {
-                position = start_pos,
-                radius = 0.1
-            },
+        if char.is_holding_enemy {
+            // Insert into thrown enemies array
+            append(&game_state.thrown_enemies, ThrownEnemy {
+                position = char.collision.position + char.facing,
+                velocity = 15.0 * char.facing,
+                collision_radius = 0.8
+            })
 
-            t = 0.0,
-            path_start = start_pos,
-            path_end = start_pos + 2.0 * char.facing,
+            // Respawn thrown enemy at position where we picked it up
+            append(&game_state.enemies, Enemy {
+                position = char.held_enemy_last_coords,
+                collision_radius = 0.8,
+                scale = 1.0,
+            })
+
+            char.is_holding_enemy = false
+        } else {
+            start_pos := char.collision.position
+            char.air_bullet = AirBullet {
+                collision = Sphere {
+                    position = start_pos,
+                    radius = 0.1
+                },
+    
+                t = 0.0,
+                path_start = start_pos,
+                path_end = start_pos + 2.0 * char.facing,
+            }
         }
     }
 
@@ -1314,14 +1339,32 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
     if ok {
         unordered_remove(&game_state.enemies, idx)
     }
+
+    // Simulate thrown enemies
+    for &enemy in game_state.thrown_enemies {
+        // Check if hitting terrain
+
+
+        enemy.position += dt * enemy.velocity
+    }
 }
 
 enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+    // Live enemies
     for enemy in game_state.enemies {
         rot := linalg.to_matrix4(enemy.rotation)
         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.scale)
         dd := StaticDraw {
             world_from_model = world_mat
+        }
+        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+    }
+
+    // Thrown enemies
+    for enemy in game_state.thrown_enemies {
+        mat := translation_matrix(enemy.position) * uniform_scaling_matrix(enemy.collision_radius)
+        dd := StaticDraw {
+            world_from_model = mat
         }
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
     }
