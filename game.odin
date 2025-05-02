@@ -1335,17 +1335,32 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         }
     }
 
-    idx, ok := enemy_to_remove.?
-    if ok {
-        unordered_remove(&game_state.enemies, idx)
+    // Remove enemy
+    {
+        idx, ok := enemy_to_remove.?
+        if ok {
+            unordered_remove(&game_state.enemies, idx)
+        }
     }
 
     // Simulate thrown enemies
-    for &enemy in game_state.thrown_enemies {
+    thrown_enemy_to_remove: Maybe(int)
+    for &enemy, i in game_state.thrown_enemies {
         // Check if hitting terrain
-
+        closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
+        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius {
+            thrown_enemy_to_remove = i
+        }
 
         enemy.position += dt * enemy.velocity
+    }
+
+    // Remove thrown enemy
+    {
+        idx, ok := thrown_enemy_to_remove.?
+        if ok {
+            unordered_remove(&game_state.thrown_enemies, idx)
+        }
     }
 }
 
