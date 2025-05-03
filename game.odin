@@ -90,7 +90,6 @@ Enemy :: struct {
     velocity: hlsl.float3,
     collision_radius: f32,
     rotation: quaternion128,
-    scale: f32,
 
     ai_state: EnemyState,
     collision_state: CollisionState,
@@ -99,6 +98,7 @@ Enemy :: struct {
 ThrownEnemy :: struct {
     position: hlsl.float3,
     velocity: hlsl.float3,
+    respawn_position: hlsl.float3,
     collision_radius: f32
 }
 
@@ -377,7 +377,6 @@ load_level_file :: proc(
                     append(&game_state.enemies, Enemy {
                         position = position,
                         rotation = rotation,
-                        scale = scale,
                         collision_radius = 0.8,
                         ai_state = .Unbothered,
                         collision_state = .Grounded
@@ -442,7 +441,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
     for enemy in gamestate.enemies {
         output_size += size_of(enemy.position)
         output_size += size_of(enemy.rotation)
-        output_size += size_of(enemy.scale)
+        output_size += size_of(enemy.collision_radius)
     }
     
     write_head : u32 = 0
@@ -509,7 +508,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
     for &enemy in gamestate.enemies {
         write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.scale, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
     }
 
     if write_head != u32(output_size) {
@@ -809,7 +808,6 @@ scene_editor :: proc(
                         velocity = {},
                         collision_radius = 0.8,
                         rotation = {},
-                        scale = 1.0,
                         ai_state = .Unbothered,
                         collision_state = .Grounded
                     }
@@ -825,7 +823,7 @@ scene_editor :: proc(
                     if imgui.DragFloat3("Position", &mesh.position, 0.1) {
                         mesh.velocity = {}
                     }
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+                    imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
         
                     disable_button := false
                     move_text : cstring = "Move"
@@ -1023,11 +1021,12 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                     if char.state == .Falling && char.is_holding_enemy {
                         char.is_holding_enemy = false
 
-                        // Respawn thrown enemy at position where we picked it up
-                        append(&game_state.enemies, Enemy {
-                            position = char.held_enemy_last_coords,
-                            collision_radius = 0.8,
-                            scale = 1.0,
+                        // Throw enemy downwards
+                        append(&game_state.thrown_enemies, ThrownEnemy {
+                            position = char.collision.position - {0.0, 0.0, 0.5},
+                            velocity = {0.0, 0.0, -15.0},
+                            respawn_position = char.held_enemy_last_coords,
+                            collision_radius = 0.8
                         })
                     }
                     char.velocity.z = char.jump_speed
@@ -1127,14 +1126,8 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             append(&game_state.thrown_enemies, ThrownEnemy {
                 position = char.collision.position + char.facing,
                 velocity = 15.0 * char.facing,
+                respawn_position = char.held_enemy_last_coords,
                 collision_radius = 0.8
-            })
-
-            // Respawn thrown enemy at position where we picked it up
-            append(&game_state.enemies, Enemy {
-                position = char.held_enemy_last_coords,
-                collision_radius = 0.8,
-                scale = 1.0,
             })
 
             char.is_holding_enemy = false
@@ -1229,6 +1222,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
 }
 
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
+    char := &game_state.character
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
         // Update
@@ -1323,7 +1317,6 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         enemy.position = col.position
 
         // Check if overlapping air bullet
-        char := &game_state.character
         bullet, ok := char.air_bullet.?
         if ok {
             if are_spheres_overlapping(bullet.collision, col) {
@@ -1348,8 +1341,14 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
     for &enemy, i in game_state.thrown_enemies {
         // Check if hitting terrain
         closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
-        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius {
+        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * 0.8 {
             thrown_enemy_to_remove = i
+            // Insert into thrown enemies array
+            append(&game_state.enemies, Enemy {
+                position = enemy.respawn_position,
+                velocity = {},
+                collision_radius = 0.8
+            })
         }
 
         enemy.position += dt * enemy.velocity
@@ -1368,7 +1367,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
     // Live enemies
     for enemy in game_state.enemies {
         rot := linalg.to_matrix4(enemy.rotation)
-        world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.scale)
+        world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
         dd := StaticDraw {
             world_from_model = world_mat
         }
