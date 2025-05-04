@@ -39,7 +39,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
     mix_buffer: [STATIC_BUFFER_SIZE]f32
     
     for &playback in audio_system.music_files {
-        if playback.is_interacted || playback.is_paused do continue
+        if playback.is_paused do continue
         source_count += 1
 
         file_stream_buffer: [STATIC_BUFFER_SIZE]f32
@@ -85,7 +85,6 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
 
 FilePlayback :: struct {
     file: ^vorbis.vorbis,
-    is_interacted: bool,
     is_paused: bool,
     calculated_read_head: i32,
     volume: f32         // 1.0 == 100%
@@ -195,10 +194,9 @@ audio_gui :: proc(game_state: ^GameState, audio_system: ^AudioSystem, input_syst
             imgui.PushIDInt(c.int(i))
             imgui.Text("Audio file #%i", i)
             imgui.SliderFloat("Volume", &file.volume, 0.0, 3.0)
-            file.is_interacted = imgui.SliderInt("Scrub samples", &file.calculated_read_head, 0, i32(vorbis.stream_length_in_samples(file.file)))
-            file.is_interacted &= !input_system.mouse_clicked
+            interacted := imgui.SliderInt("Scrub samples", &file.calculated_read_head, 0, i32(vorbis.stream_length_in_samples(file.file)))
             imgui.Checkbox("Paused", &file.is_paused)
-            if file.is_interacted {
+            if interacted {
                 vorbis.seek(file.file, c.uint(file.calculated_read_head))
             }
             imgui.Separator()
