@@ -33,6 +33,7 @@ ConfigKey :: enum {
     WindowHeight,
     WindowX,
     WindowY,
+    StartLevel,
 }
 
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
@@ -60,13 +61,17 @@ CONFIG_KEY_STRINGS : [ConfigKey]string : {
 	.WindowHeight = "window_height",
 	.WindowX = "window_x",
 	.WindowY = "window_y",
-    .CameraFOV = "camera_fov"
+    .CameraFOV = "camera_fov",
+    .StartLevel = "start_level"
 }
 
 UserConfiguration :: struct {
     flags: map[ConfigKey]bool,
     ints: map[ConfigKey]i64,
     floats: map[ConfigKey]f64,
+    strs: map[ConfigKey]string,
+
+    _interner: strings.Intern,
 }
 
 init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
@@ -74,6 +79,9 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     cfg.flags = make(map[ConfigKey]bool, allocator = allocator)
     cfg.ints = make(map[ConfigKey]i64, allocator = allocator)
     cfg.floats = make(map[ConfigKey]f64, allocator = allocator)
+    cfg.strs = make(map[ConfigKey]string, allocator = allocator)
+
+    strings.intern_init(&cfg._interner, allocator = allocator)
 
     return cfg
 }
@@ -114,6 +122,15 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
 
     // Saving floats
     for key, val in config.floats {
+        cs := CONFIG_KEY_STRINGS
+        s := cs[key]
+        st := fmt.sbprintfln(&sb, "%v = %v", s, val)
+        os.write_string(save_file, st)
+        strings.builder_reset(&sb)
+    }
+
+    // Saving strings
+    for key, val in config.strs {
         cs := CONFIG_KEY_STRINGS
         s := cs[key]
         st := fmt.sbprintfln(&sb, "%v = %v", s, val)
@@ -169,7 +186,7 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
     sc: scanner.Scanner
     scanner.init(&sc, string(file_text))
     log.debugf("Using scanner: %#v", sc)
-    
+
     // Consume tokens in groups of three
     // key, =, value
     key_tok := scanner.scan(&sc)
@@ -187,6 +204,7 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
         for k, e in CONFIG_KEY_STRINGS {
             if k == key_str do key = e
         }
+        assert(key != nil)
 
         scanner.scan(&sc)
         eq_tok := scanner.token_text(&sc)
@@ -203,13 +221,28 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
             scanner.scan(&sc)
             val_tok = scanner.token_text(&sc)
         }
-        if val_tok == "true"                            do u.flags[key.?] = true
-        else if val_tok == "false"                      do u.flags[key.?] = false
+        if val_tok == "true" {
+            u.flags[key.?] = true
+        }
+        else if val_tok == "false" {
+            u.flags[key.?] = false
+        }
         else if strings.contains(val_tok, ".") {
             i : f64 = -1 if negative_number else 1
             u.floats[key.?] = i * strconv.atof(val_tok)
         }
-        else                                            do u.ints[key.?] = i64(strconv.atoi(val_tok))
+        else {
+            i, oki := strconv.parse_i64(val_tok)
+            if oki {
+                u.ints[key.?] = i64(i)
+            } else {
+                its, err := strings.intern_get(&u._interner, val_tok)
+                if err != nil {
+                    log.errorf("Error interning config string: %v", err)
+                }
+                u.strs[key.?] = its
+            }
+        }
 
 
         key_tok = scanner.scan(&sc)

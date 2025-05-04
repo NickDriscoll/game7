@@ -277,7 +277,17 @@ main :: proc() {
     // Main app structure storing the game's overall state
     game_state := init_gamestate(&vgd, &renderer, &user_config)
 
-    load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/test02.lvl")
+    {
+        start_level := "test02"
+        s, ok := user_config.strs[.StartLevel]
+        if ok {
+            start_level = s
+        }
+        sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
+        start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
+        load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+    }
 
     // @TODO: Keymappings need to be a part of GameState
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -353,6 +363,7 @@ main :: proc() {
 
         // Save user configuration every 100ms
         if user_config_autosave && time.diff(user_config_last_saved, current_time) >= 1_000_000 {
+            user_config.strs[.StartLevel] = game_state.current_level_path
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config_last_saved = current_time

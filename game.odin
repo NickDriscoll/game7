@@ -19,6 +19,7 @@ import imgui "odin-imgui"
 
 GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
+ENEMY_THROW_SPEED :: 15.0
 
 TerrainPiece :: struct {
     collision: StaticTriangleCollision,
@@ -377,7 +378,7 @@ load_level_file :: proc(
                     append(&game_state.enemies, Enemy {
                         position = position,
                         rotation = rotation,
-                        collision_radius = 0.8,
+                        collision_radius = 0.5,
                         ai_state = .Unbothered,
                         collision_state = .Grounded
                     })
@@ -387,7 +388,8 @@ load_level_file :: proc(
         }
     }
 
-    path_clone, err := strings.clone(path)
+    path_base := filepath.stem(path)
+    path_clone, err := strings.clone(path_base)
     if err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
@@ -535,7 +537,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
     log.infof("Finished saving level to \"%v\"", path)
 }
 
-new_level :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
+gamestate_new_scene :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
     free_all(scene_allocator)
 
 
@@ -806,7 +808,7 @@ scene_editor :: proc(
                     new_enemy := Enemy {
                         position = {},
                         velocity = {},
-                        collision_radius = 0.8,
+                        collision_radius = 0.5,
                         rotation = {},
                         ai_state = .Unbothered,
                         collision_state = .Grounded
@@ -1024,9 +1026,9 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                         // Throw enemy downwards
                         append(&game_state.thrown_enemies, ThrownEnemy {
                             position = char.collision.position - {0.0, 0.0, 0.5},
-                            velocity = {0.0, 0.0, -15.0},
+                            velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
                             respawn_position = char.held_enemy_last_coords,
-                            collision_radius = 0.8
+                            collision_radius = 0.5
                         })
                     }
                     char.velocity.z = char.jump_speed
@@ -1125,9 +1127,9 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             // Insert into thrown enemies array
             append(&game_state.thrown_enemies, ThrownEnemy {
                 position = char.collision.position + char.facing,
-                velocity = 15.0 * char.facing,
+                velocity = ENEMY_THROW_SPEED * char.facing,
                 respawn_position = char.held_enemy_last_coords,
-                collision_radius = 0.8
+                collision_radius = 0.5
             })
 
             char.is_holding_enemy = false
@@ -1198,8 +1200,9 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     // Draw enemy above player head
     if character.is_holding_enemy {
         bob := 0.2 * math.sin(game_state.time * 1.7)
-        mat := translation_matrix(character.collision.position + {0.0, 0.0, 2.0 + bob})
+        mat := translation_matrix(character.collision.position + {0.0, 0.0, 1.5 + bob})
         mat *= yaw_rotation_matrix(game_state.time)
+        mat *= uniform_scaling_matrix(0.5)
         dd := StaticDraw {
             world_from_model = mat
         }
@@ -1347,7 +1350,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             append(&game_state.enemies, Enemy {
                 position = enemy.respawn_position,
                 velocity = {},
-                collision_radius = 0.8
+                collision_radius = 0.5
             })
         }
 
