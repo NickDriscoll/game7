@@ -437,12 +437,8 @@ main :: proc() {
         }
 
         // Check if window was minimized/maximized
-        if output_verbs.bools[.MinimizeWindow] {
-            window_minimized = true
-        }
-        if output_verbs.bools[.FocusWindow] {
-            window_minimized = false
-        }
+        window_minimized = output_verbs.bools[.MinimizeWindow]
+        window_minimized = output_verbs.bools[.FocusWindow]
 
         // Update
 
@@ -530,16 +526,6 @@ main :: proc() {
                     if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.triangle_vis ~= 1
                 }
                 imgui.Separator()
-
-                // ini_cstring := cstring(&ini_savename_buffer[0])
-                // imgui.Text("Save current configuration of Dear ImGUI windows")
-                // imgui.InputText(".ini filename", ini_cstring, len(ini_savename_buffer) - 1)
-                // if imgui.Button("Save current GUI configuration") {
-                //     imgui.SaveIniSettingsToDisk(ini_cstring)
-                //     log.debugf("Saved Dear ImGUI ini settings to \"%v\"", ini_cstring)
-                //     ini_savename_buffer = {}
-                // }
-                // imgui.Separator()
             }
             imgui.End()
         }
