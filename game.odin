@@ -1030,8 +1030,10 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                             respawn_position = char.held_enemy_last_coords,
                             collision_radius = 0.5
                         })
+                        char.velocity.z = 1.3 * char.jump_speed
+                    } else {
+                        char.velocity.z = char.jump_speed
                     }
-                    char.velocity.z = char.jump_speed
                     char.state = .Falling
                 }
                 char.gravity_factor = 1.0

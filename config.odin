@@ -6,6 +6,7 @@ import "core:os"
 import "core:text/scanner"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 
 ConfigKey :: enum {
     ShowDebugMenu,
@@ -71,6 +72,9 @@ UserConfiguration :: struct {
     floats: map[ConfigKey]f64,
     strs: map[ConfigKey]string,
 
+    last_saved: time.Time,
+    autosave: bool,
+
     _interner: strings.Intern,
 }
 
@@ -82,6 +86,8 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     cfg.strs = make(map[ConfigKey]string, allocator = allocator)
 
     strings.intern_init(&cfg._interner, allocator = allocator)
+    cfg.last_saved = time.now()
+    cfg.autosave = true
 
     return cfg
 }

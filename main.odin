@@ -163,11 +163,9 @@ main :: proc() {
 
 
     // Load user configuration
-    user_config_last_saved := time.now()
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
     if !config_ok do log.error("Failed to load user config.")
     defer delete_user_config(&user_config, context.allocator)
-    user_config_autosave := user_config.flags[.ConfigAutosave]
 
 
 
@@ -259,7 +257,6 @@ main :: proc() {
     // Initialize the renderer
     renderer := init_renderer(&vgd, resolution)
     when ODIN_DEBUG do defer delete_renderer(&vgd, &renderer)
-    renderer.main_framebuffer.clear_color = {0.1568627, 0.443137, 0.9176471, 1.0}
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, resolution)
@@ -362,11 +359,11 @@ main :: proc() {
         game_state.time += last_frame_dt
 
         // Save user configuration every 100ms
-        if user_config_autosave && time.diff(user_config_last_saved, current_time) >= 1_000_000 {
+        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
             user_config.strs[.StartLevel] = game_state.current_level_path
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
-            user_config_last_saved = current_time
+            user_config.last_saved = current_time
         }
 
         // Load new level before any other per-frame work begins
