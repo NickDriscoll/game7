@@ -481,9 +481,10 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             color_images = color_images,
             depth_image = depth_handle,
             resolution = screen_size,
-            clear_color = {1.0, 0.0, 1.0, 1.0},
-            color_load_op = .CLEAR,
+            // clear_color = {0.1568627, 0.443137, 0.9176471, 1.0},
+            // color_load_op = .CLEAR,
             depth_load_op = .CLEAR,
+            color_load_op = .DONT_CARE,
         }
     }
 
