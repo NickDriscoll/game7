@@ -234,7 +234,7 @@ gui_main_menu_bar :: proc(
                 retval = .SaveLevelAs
             }
             if imgui.MenuItem("Save user config") {
-                user_config.strs[.StartLevel] = game_state.current_level_path
+                user_config.strs[.StartLevel] = game_state.current_level
                 update_user_cfg_camera(user_config, &game_state.viewport_camera)
                 save_user_config(user_config, USER_CONFIG_FILENAME)
             }

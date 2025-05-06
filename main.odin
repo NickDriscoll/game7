@@ -360,7 +360,7 @@ main :: proc() {
 
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
-            user_config.strs[.StartLevel] = game_state.current_level_path
+            user_config.strs[.StartLevel] = game_state.current_level
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config.last_saved = current_time
@@ -536,7 +536,10 @@ main :: proc() {
                 show_load_modal = true
             }
             case .SaveLevel: {
-                write_level_file(&game_state, game_state.current_level_path)
+                sb: strings.Builder
+                strings.builder_init(&sb, context.temp_allocator)
+                path := fmt.sbprintf(&sb, "data/levels/%v.lvl", game_state.current_level)
+                write_level_file(&game_state, path)
             }
             case .SaveLevelAs: {
                 show_save_modal = true
