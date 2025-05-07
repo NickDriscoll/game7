@@ -528,7 +528,8 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         log.errorf("Error writing level data: %v", err)
     }
 
-    path_clone, p_err := strings.clone(path)
+    base_path := filepath.stem(path)
+    path_clone, p_err := strings.clone(base_path)
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
