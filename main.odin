@@ -440,10 +440,10 @@ main :: proc() {
         // Update
 
         docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
-        renderer.viewport_dimensions[0] = docknode.Pos.x
-        renderer.viewport_dimensions[1] = docknode.Pos.y
-        renderer.viewport_dimensions[2] = docknode.Size.x
-        renderer.viewport_dimensions[3] = docknode.Size.y
+        renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
+        renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
+        renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
+        renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
         game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
 
         @static cpu_limiter_ms : c.int = 100
@@ -720,18 +720,24 @@ main :: proc() {
             move_positionable :: proc(
                 game_state: ^GameState,
                 input_system: InputSystem,
-                viewport_dimensions: [4]f32,
+                viewport_dimensions: vk.Rect2D,
                 position: ^hlsl.float3
             ) -> bool {
                 collision_pt: hlsl.float3
                 hit := false
                 io := imgui.GetIO()
                 if !io.WantCaptureMouse {
+                    dims : [4]f32 = {
+                        cast(f32)viewport_dimensions.offset.x,
+                        cast(f32)viewport_dimensions.offset.y,
+                        cast(f32)viewport_dimensions.extent.width,
+                        cast(f32)viewport_dimensions.extent.height,
+                    }
                     collision_pt, hit = do_mouse_raycast(
                         game_state.viewport_camera,
                         game_state.terrain_pieces[:],
                         input_system.mouse_location,
-                        viewport_dimensions
+                        dims
                     )
                     if hit {
                         position^ = collision_pt
@@ -945,11 +951,17 @@ main :: proc() {
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
+            dims : [4]f32 = {
+                cast(f32)renderer.viewport_dimensions.offset.x,
+                cast(f32)renderer.viewport_dimensions.offset.y,
+                cast(f32)renderer.viewport_dimensions.extent.width,
+                cast(f32)renderer.viewport_dimensions.extent.height,
+            }
             collision_pt, hit := do_mouse_raycast(
                 game_state.viewport_camera,
                 game_state.terrain_pieces[:],
                 input_system.mouse_location,
-                renderer.viewport_dimensions
+                dims
             )
             if hit {
                 col := &game_state.character.collision
