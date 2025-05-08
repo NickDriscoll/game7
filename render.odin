@@ -260,7 +260,7 @@ Renderer :: struct {
     // Main viewport dimensions
     // Updated every frame with respect to the ImGUI dockspace's central node
     // @TODO: Replace [4]f32 with vk.Rect2D
-    viewport_dimensions: [4]f32,
+    viewport_dimensions: vk.Rect2D,
 }
 
 renderer_new_scene :: proc(renderer: ^Renderer) {
@@ -1438,10 +1438,10 @@ render :: proc(
 
     res := renderer.main_framebuffer.resolution
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        x = renderer.viewport_dimensions[0],
-        y = renderer.viewport_dimensions[1],
-        width = renderer.viewport_dimensions[2],
-        height = renderer.viewport_dimensions[3],
+        x = cast(f32)renderer.viewport_dimensions.offset.x,
+        y = cast(f32)renderer.viewport_dimensions.offset.y,
+        width = cast(f32)renderer.viewport_dimensions.extent.width,
+        height = cast(f32)renderer.viewport_dimensions.extent.height,
         minDepth = 0.0,
         maxDepth = 1.0
     }})
