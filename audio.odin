@@ -85,6 +85,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
 
 FilePlayback :: struct {
     file: ^vorbis.vorbis,
+    name: string,
     is_paused: bool,
     calculated_read_head: i32,
     volume: f32         // 1.0 == 100%
@@ -144,8 +145,7 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
     playback.volume = 1.0
-
-    glb_filename := filepath.base(string(path))
+    playback.name = filepath.stem(strings.clone_from_cstring(path))
     
     err: vorbis.Error
     alloc_buffer: vorbis.vorbis_alloc
@@ -166,7 +166,9 @@ open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, boo
 }
 
 close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
-    unordered_remove(&audio_system.music_files, idx)
+    if len(audio_system.music_files) > int(idx) {
+        unordered_remove(&audio_system.music_files, idx)
+    }
 }
 
 audio_gui :: proc(game_state: ^GameState, audio_system: ^AudioSystem, input_system: InputSystem, open: ^bool) {

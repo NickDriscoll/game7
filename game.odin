@@ -115,11 +115,12 @@ AirBullet :: struct {
     t: f32,
 }
 
-LevelBlocks :: enum u8 {
-    Terrain,
-    StaticScenery,
-    AnimatedScenery,
-    Enemies
+LevelBlock :: enum u8 {
+    Terrain = 0,
+    StaticScenery = 1,
+    AnimatedScenery = 2,
+    Enemies = 3,
+    BgmFile = 4,
 }
 
 // Megastruct for all game-specific data
@@ -276,9 +277,6 @@ load_level_file :: proc(
         return s
     }
 
-    // @TODO: Read this from level file
-    game_state.bgm_id, _ = open_music_file(audio_system, "data/audio/manifold.ogg")
-
     file_size := u32(len(lvl_bytes))
     read_head : u32 = 0
 
@@ -286,18 +284,26 @@ load_level_file :: proc(
     game_state.character_start = read_thing_from_buffer(lvl_bytes, type_of(game_state.character_start), &read_head)
     game_state.character.collision.position = game_state.character_start
     game_state.camera_follow_point = game_state.character.collision.position
+    
+    path_builder: strings.Builder
+    strings.builder_init(&path_builder, context.temp_allocator)
 
     // Repeatedly parse level blocks
     for read_head < file_size {
-        block := read_thing_from_buffer(lvl_bytes, LevelBlocks, &read_head)
+        block := read_thing_from_buffer(lvl_bytes, LevelBlock, &read_head)
         switch block {
+            case .BgmFile: {
+                bgm_name := read_string_from_buffer(lvl_bytes, &read_head)
+                fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
+                path, _ := strings.to_cstring(&path_builder)
+                game_state.bgm_id, _ = open_music_file(audio_system, path)
+                strings.builder_reset(&path_builder)
+            }
             case .Terrain: {
                 // Terrain pieces
                 ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
                 for _ in 0..<ter_len {
                     name := read_string_from_buffer(lvl_bytes, &read_head)
-                    path_builder: strings.Builder
-                    strings.builder_init(&path_builder, context.temp_allocator)
                     fmt.sbprintf(&path_builder, "data/models/%v", name)
                     path, _ := strings.to_cstring(&path_builder)
                     model := load_gltf_static_model(gd, renderer, path)
@@ -316,6 +322,7 @@ load_level_file :: proc(
                         scale = scale,
                         model = model,
                     })
+                    strings.builder_reset(&path_builder)
                 }
             }
             case .StaticScenery: {
@@ -323,8 +330,6 @@ load_level_file :: proc(
                 stat_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
                 for _ in 0..<stat_len {
                     name := read_string_from_buffer(lvl_bytes, &read_head)
-                    path_builder: strings.Builder
-                    strings.builder_init(&path_builder, context.temp_allocator)
                     fmt.sbprintf(&path_builder, "data/models/%v", name)
                     path, _ := strings.to_cstring(&path_builder)
                     model := load_gltf_static_model(gd, renderer, path)
@@ -339,6 +344,7 @@ load_level_file :: proc(
                         rotation = rotation,
                         scale = scale
                     })
+                    strings.builder_reset(&path_builder)
                 }
             }
             case .AnimatedScenery: {
@@ -346,8 +352,6 @@ load_level_file :: proc(
                 anim_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
                 for _ in 0..<anim_len {
                     name := read_string_from_buffer(lvl_bytes, &read_head)
-                    path_builder: strings.Builder
-                    strings.builder_init(&path_builder, context.temp_allocator)
                     fmt.sbprintf(&path_builder, "data/models/%v", name)
                     path, _ := strings.to_cstring(&path_builder)
                     model := load_gltf_skinned_model(gd, renderer, path)
@@ -365,6 +369,7 @@ load_level_file :: proc(
                         anim_t = 0.0,
                         anim_speed = 1.0,
                     })
+                    strings.builder_reset(&path_builder)
                 }
             }
             case .Enemies: {
@@ -397,7 +402,7 @@ load_level_file :: proc(
     return true
 }
 
-write_level_file :: proc(gamestate: ^GameState, path: string) {
+write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path: string) {
     mesh_data_size :: proc(mesh: $T) -> int {
         s := 0
         s += size_of(u32)
@@ -405,13 +410,22 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         s += size_of(mesh.position)
         s += size_of(mesh.rotation)
         s += size_of(mesh.scale)
-        return s        
+        return s
     }
+
+    bgm := &audio_system.music_files[gamestate.bgm_id]
 
     output_size := 0
 
+    // Character spawn
     output_size += size_of(gamestate.character_start)
+    
+    // BGM music file name
+    output_size += size_of(u8)
+    output_size += size_of(u32)
+    output_size += len(bgm.name)
 
+    // Terrain pieces
     if len(gamestate.terrain_pieces) > 0 {
         output_size += size_of(u8)
         output_size += size_of(u32)
@@ -420,6 +434,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         output_size += mesh_data_size(piece)
     }
 
+    // Static scenery
     if len(gamestate.static_scenery) > 0 {
         output_size += size_of(u8)
         output_size += size_of(u32)
@@ -428,6 +443,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         output_size += mesh_data_size(scenery)
     }
 
+    // Animated scenery
     if len(gamestate.animated_scenery) > 0 {
         output_size += size_of(u8)
         output_size += size_of(u32)
@@ -436,6 +452,7 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         output_size += mesh_data_size(scenery)
     }
 
+    // Enemies
     if len(gamestate.enemies) > 0 {
         output_size += size_of(u8)
         output_size += size_of(u32)
@@ -455,13 +472,15 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
         head^ += u32(amount)
     }
 
+    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
+        amount := u32(len(st))
+        write_thing_to_buffer(buffer, &amount, head)
+        mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
+        head^ += amount
+    }
+
     write_mesh_to_buffer :: proc(buffer: []byte, mesh: ^$T, head: ^u32) {
-        name := &mesh.model.name
-        name_len := u32(len(name))
-        write_thing_to_buffer(buffer, &name_len, head)
-        
-        mem.copy_non_overlapping(&buffer[head^], raw_data(name^), int(name_len))
-        head^ += name_len
+        write_string_to_buffer(buffer, mesh.model.name, head)
 
         write_thing_to_buffer(buffer, &mesh.position, head)
         write_thing_to_buffer(buffer, &mesh.rotation, head)
@@ -470,9 +489,16 @@ write_level_file :: proc(gamestate: ^GameState, path: string) {
 
     write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
 
-    block := LevelBlocks.Terrain
+    block: LevelBlock
+
+    {
+        block = .BgmFile
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        write_string_to_buffer(raw_output_buffer[:], bgm.name, &write_head)
+    }
 
     if len(gamestate.terrain_pieces) > 0 {
+        block = .Terrain
         write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
         ter_len := u32(len(gamestate.terrain_pieces))
         write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
