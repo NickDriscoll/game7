@@ -1,56 +1,6 @@
 import procs;
 import structs;
 
-static const float3 SKYBOX_POSITIONS[] = {
-    // Front
-    -1.0, -1.0, -1.0,
-    1.0, -1.0, -1.0,
-    -1.0, 1.0, -1.0,
-    1.0, 1.0, -1.0,
-    -1.0, 1.0, -1.0,
-    1.0, -1.0, -1.0,
-
-    // Left
-    -1.0, -1.0, -1.0,
-    -1.0, 1.0, -1.0,
-    -1.0, -1.0, 1.0,
-    -1.0, 1.0, -1.0,
-    -1.0, 1.0, 1.0,
-    -1.0, -1.0, 1.0,
-
-    // Right
-    1.0, 1.0, -1.0,
-    1.0, -1.0, -1.0,
-    1.0, -1.0, 1.0,
-    1.0, 1.0, 1.0,
-    1.0, 1.0, -1.0,
-    1.0, -1.0, 1.0,
-
-    // Back
-    -1.0, 1.0, 1.0,
-    1.0, 1.0, 1.0,
-    -1.0, -1.0, 1.0,
-    1.0, 1.0, 1.0,
-    1.0, -1.0, 1.0,
-    -1.0, -1.0, 1.0,
-
-    // Bottom
-    -1.0, -1.0, 1.0,
-    1.0, -1.0, -1.0,
-    -1.0, -1.0, -1.0,
-    -1.0, -1.0, 1.0,
-    1.0, -1.0, 1.0,
-    1.0, -1.0, -1.0,
-
-    // Top
-    1.0, 1.0, 1.0,
-    -1.0, 1.0, 1.0,
-    -1.0, 1.0, -1.0,
-    1.0, 1.0, 1.0,
-    -1.0, 1.0, -1.0,
-    1.0, 1.0, -1.0
-};
-
 struct VertexOutput {
     float4 clip_pos : SV_Position;
     float3 view_direciton;
@@ -65,7 +15,7 @@ cbuffer push_constants {
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID) {
     VertexOutput out;
-    float3 pos = SKYBOX_POSITIONS[idx];
+    float3 pos = INWARD_FACING_CUBE[idx];
     out.clip_pos = mul(u_data.clip_from_skybox, float4(pos, 1.0));
     out.clip_pos.z = 0.0;
 
