@@ -162,6 +162,9 @@ GameState :: struct {
 
     borderless_fullscreen: bool,
     exclusive_fullscreen: bool,
+
+    do_this_frame: bool,
+    paused: bool,
 }
 
 init_gamestate :: proc(
@@ -173,6 +176,8 @@ init_gamestate :: proc(
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
+    game_state.do_this_frame = true
+    game_state.paused = false
     game_state.timescale = 1.0
 
     // Load icosphere mesh for debug visualization

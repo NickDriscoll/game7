@@ -45,7 +45,13 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
 }
 
 // @TODO: Window grab bag struct? Just for figuring out what to do?
-
+SdlWindow :: struct {
+    position: [2]i32,
+    resolution: [2]u32,
+    display_resolution: [2]u32,
+    flags: sdl2.WindowFlags,
+    window: ^sdl2.Window,
+}
 
 main :: proc() {
     // Set up global allocator
@@ -194,58 +200,62 @@ main :: proc() {
     vgd := vkw.init_vulkan(&init_params)
     when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
 
-    // Make window 
-    desktop_display_mode: sdl2.DisplayMode
-    if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
-        log.error("Error getting desktop display mode.")
-    }
-    display_resolution := hlsl.uint2 {
-        u32(desktop_display_mode.w),
-        u32(desktop_display_mode.h),
+    // Make window
+    app_window: SdlWindow
+    
+    // Determine window resolution
+    {
+        desktop_display_mode: sdl2.DisplayMode
+        if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
+            log.error("Error getting desktop display mode.")
+        }
+        app_window.display_resolution = hlsl.uint2 {
+            u32(desktop_display_mode.w),
+            u32(desktop_display_mode.h),
+        }
+        app_window.resolution = DEFAULT_RESOLUTION
+        if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] do app_window.resolution = app_window.display_resolution
+        if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
+            x := user_config.ints[.WindowWidth]
+            y := user_config.ints[.WindowHeight]
+            app_window.resolution = {u32(x), u32(y)}
+        }
     }
 
-    // Determine window resolution
-    resolution : [2]u32 = DEFAULT_RESOLUTION
-    if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] do resolution = display_resolution
-    if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
-        x := user_config.ints[.WindowWidth]
-        y := user_config.ints[.WindowHeight]
-        resolution = {u32(x), u32(y)}
-    }
 
     // Determine SDL window flags
-    sdl_windowflags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
+    app_window.flags = {.VULKAN,.RESIZABLE}
     if user_config.flags[.ExclusiveFullscreen] {
-        sdl_windowflags += {.FULLSCREEN}
+        app_window.flags += {.FULLSCREEN}
     }
     if user_config.flags[.BorderlessFullscreen] {
-        sdl_windowflags += {.BORDERLESS}
+        app_window.flags += {.BORDERLESS}
     }
 
     // Determine SDL window position
-    window_x : i32 = sdl2.WINDOWPOS_CENTERED
-    window_y : i32 = sdl2.WINDOWPOS_CENTERED
+    app_window.position.x = sdl2.WINDOWPOS_CENTERED
+    app_window.position.y = sdl2.WINDOWPOS_CENTERED
     if .WindowX in user_config.ints && .WindowY in user_config.ints {
-        window_x = i32(user_config.ints[.WindowX])
-        window_y = i32(user_config.ints[.WindowY])
+        app_window.position.x = i32(user_config.ints[.WindowX])
+        app_window.position.y = i32(user_config.ints[.WindowY])
     } else {
         user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
         user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
     }
 
-    sdl_window := sdl2.CreateWindow(
+    app_window.window = sdl2.CreateWindow(
         TITLE_WITHOUT_IMGUI,
-        window_x,
-        window_y,
-        i32(resolution.x),
-        i32(resolution.y),
-        sdl_windowflags
+        app_window.position.x,
+        app_window.position.y,
+        i32(app_window.resolution.x),
+        i32(app_window.resolution.y),
+        app_window.flags
     )
-    when ODIN_DEBUG do defer sdl2.DestroyWindow(sdl_window)
-    sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
+    when ODIN_DEBUG do defer sdl2.DestroyWindow(app_window.window)
+    sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
 
     // Initialize the state required for rendering to the window
-    if !vkw.init_sdl2_window(&vgd, sdl_window) {
+    if !vkw.init_sdl2_window(&vgd, app_window.window) {
         e := sdl2.GetError()
         log.fatalf("Couldn't init SDL2 surface: %v", e)
         return
@@ -255,14 +265,14 @@ main :: proc() {
     context.allocator = scene_allocator
 
     // Initialize the renderer
-    renderer := init_renderer(&vgd, resolution)
+    renderer := init_renderer(&vgd, app_window.resolution)
     when ODIN_DEBUG do defer delete_renderer(&vgd, &renderer)
 
     //Dear ImGUI init
-    imgui_state := imgui_init(&vgd, resolution)
+    imgui_state := imgui_init(&vgd, app_window.resolution)
     when ODIN_DEBUG do defer gui_cleanup(&vgd, &imgui_state)
     if imgui_state.show_gui {
-        sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+        sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
     }
 
     // Init audio system
@@ -338,8 +348,6 @@ main :: proc() {
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
     window_minimized := false
     do_limit_cpu := false
-    paused := false
-    do_this_frame := true
     saved_mouse_coords := hlsl.int2 {0, 0}
     load_new_level: Maybe(string)
 
@@ -399,9 +407,9 @@ main :: proc() {
             if output_verbs.bools[.ToggleImgui] {
                 imgui_state.show_gui = !imgui_state.show_gui
                 if imgui_state.show_gui {
-                    sdl2.SetWindowTitle(sdl_window, TITLE_WITH_IMGUI)
+                    sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
                 } else {
-                    sdl2.SetWindowTitle(sdl_window, TITLE_WITHOUT_IMGUI)
+                    sdl2.SetWindowTitle(app_window.window, TITLE_WITHOUT_IMGUI)
                 }
             }
 
@@ -415,7 +423,7 @@ main :: proc() {
                         saved_mouse_coords.x = i32(mlook_coords.x)
                         saved_mouse_coords.y = i32(mlook_coords.y)
                     } else {
-                        sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                        sdl2.WarpMouseInWindow(app_window.window, saved_mouse_coords.x, saved_mouse_coords.y)
                     }
                     // The ~ is "symmetric difference" for bit_sets
                     // Basically like XOR
@@ -428,7 +436,7 @@ main :: proc() {
                 sdl2.GetMouseState(&x, &y)
                 imgui.IO_AddMousePosEvent(io, f32(x), f32(y))
             } else {
-                sdl2.WarpMouseInWindow(sdl_window, saved_mouse_coords.x, saved_mouse_coords.y)
+                sdl2.WarpMouseInWindow(app_window.window, saved_mouse_coords.x, saved_mouse_coords.y)
             }
 
         }
@@ -545,28 +553,28 @@ main :: proc() {
                 show_save_modal = true
             }
             case .ToggleAlwaysOnTop: {
-                sdl2.SetWindowAlwaysOnTop(sdl_window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
+                sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
             }
             case .ToggleBorderlessFullscreen: {
                 game_state.borderless_fullscreen = !game_state.borderless_fullscreen
                 game_state.exclusive_fullscreen = false
                 xpos, ypos: c.int
                 if game_state.borderless_fullscreen {
-                    resolution = display_resolution
+                    app_window.resolution = app_window.display_resolution
                 } else {
-                    resolution = DEFAULT_RESOLUTION
+                    app_window.resolution = DEFAULT_RESOLUTION
                     xpos = c.int(user_config.ints[.WindowX])
                     ypos = c.int(user_config.ints[.WindowY])
                 }
-                io.DisplaySize.x = f32(resolution.x)
-                io.DisplaySize.y = f32(resolution.y)
+                io.DisplaySize.x = f32(app_window.resolution.x)
+                io.DisplaySize.y = f32(app_window.resolution.y)
                 user_config.ints[.WindowX] = i64(xpos)
                 user_config.ints[.WindowY] = i64(ypos)
 
-                sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
-                sdl2.SetWindowPosition(sdl_window, xpos, ypos)
-                sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                sdl2.SetWindowResizable(sdl_window, !game_state.borderless_fullscreen)
+                sdl2.SetWindowBordered(app_window.window, !game_state.borderless_fullscreen)
+                sdl2.SetWindowPosition(app_window.window, xpos, ypos)
+                sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
+                sdl2.SetWindowResizable(app_window.window, !game_state.borderless_fullscreen)
 
                 vgd.resize_window = true
             }
@@ -575,21 +583,21 @@ main :: proc() {
                 game_state.borderless_fullscreen = false
                 xpos, ypos: c.int
                 flags : sdl2.WindowFlags = nil
-                resolution = DEFAULT_RESOLUTION
+                app_window.resolution = DEFAULT_RESOLUTION
                 if game_state.exclusive_fullscreen {
                     flags += {.FULLSCREEN}
-                    resolution = display_resolution
+                    app_window.resolution = app_window.display_resolution
                 } else {
-                    resolution = DEFAULT_RESOLUTION
+                    app_window.resolution = DEFAULT_RESOLUTION
                     xpos = c.int(user_config.ints[.WindowX])
                     ypos = c.int(user_config.ints[.WindowY])
                 }
-                io.DisplaySize.x = f32(resolution.x)
-                io.DisplaySize.y = f32(resolution.y)
+                io.DisplaySize.x = f32(app_window.resolution.x)
+                io.DisplaySize.y = f32(app_window.resolution.y)
 
-                sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-                sdl2.SetWindowFullscreen(sdl_window, flags)
-                sdl2.SetWindowResizable(sdl_window, !game_state.exclusive_fullscreen)
+                sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
+                sdl2.SetWindowFullscreen(app_window.window, flags)
+                sdl2.SetWindowResizable(app_window.window, !game_state.exclusive_fullscreen)
 
                 vgd.resize_window = true
             }
@@ -601,19 +609,19 @@ main :: proc() {
             game_state.exclusive_fullscreen = false
             xpos, ypos: c.int
             if game_state.borderless_fullscreen {
-                resolution = display_resolution
+                app_window.resolution = app_window.display_resolution
             } else {
-                resolution = {u32(user_config.ints[.WindowWidth]), u32(user_config.ints[.WindowHeight])}
+                app_window.resolution = {u32(user_config.ints[.WindowWidth]), u32(user_config.ints[.WindowHeight])}
                 xpos = c.int(user_config.ints[.WindowX])
                 ypos = c.int(user_config.ints[.WindowY])
             }
-            io.DisplaySize.x = f32(resolution.x)
-            io.DisplaySize.y = f32(resolution.y)
+            io.DisplaySize.x = f32(app_window.resolution.x)
+            io.DisplaySize.y = f32(app_window.resolution.y)
 
-            sdl2.SetWindowBordered(sdl_window, !game_state.borderless_fullscreen)
-            sdl2.SetWindowPosition(sdl_window, xpos, ypos)
-            sdl2.SetWindowSize(sdl_window, c.int(resolution.x), c.int(resolution.y))
-            sdl2.SetWindowResizable(sdl_window, !game_state.borderless_fullscreen)
+            sdl2.SetWindowBordered(app_window.window, !game_state.borderless_fullscreen)
+            sdl2.SetWindowPosition(app_window.window, xpos, ypos)
+            sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
+            sdl2.SetWindowResizable(app_window.window, !game_state.borderless_fullscreen)
 
             vgd.resize_window = true
         }
@@ -919,21 +927,21 @@ main :: proc() {
         }
 
         // Determine if we're simulating a tick of game logic this frame
-        do_this_frame = !paused
+        game_state.do_this_frame = !game_state.paused
         if output_verbs.bools[.FrameAdvance] {
-            do_this_frame = true
-            paused = true
+            game_state.do_this_frame = true
+            game_state.paused = true
         }
-        if output_verbs.bools[.Resume] do paused = !paused
+        if output_verbs.bools[.Resume] do game_state.paused = !game_state.paused
 
         // Update and draw player
-        if do_this_frame {
+        if game_state.do_this_frame {
             player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
         }
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
-        if do_this_frame {
+        if game_state.do_this_frame {
             enemies_update(&game_state, last_frame_dt * game_state.timescale)
         }
         enemies_draw(&vgd, &renderer, game_state)
@@ -997,7 +1005,7 @@ main :: proc() {
 
         // Update and draw animated scenery
         for &mesh in game_state.animated_scenery {
-            if do_this_frame {
+            if game_state.do_this_frame {
                 anim := &renderer.animations[mesh.anim_idx]
                 anim_end := get_animation_endtime(anim)
                 mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed
@@ -1031,8 +1039,8 @@ main :: proc() {
         {
             new_size, ok := output_verbs.int2s[.ResizeWindow]
             if ok {
-                resolution.x = u32(new_size.x)
-                resolution.y = u32(new_size.y)
+                app_window.resolution.x = u32(new_size.x)
+                app_window.resolution.y = u32(new_size.y)
                 vgd.resize_window = true
             }
 
@@ -1052,15 +1060,15 @@ main :: proc() {
         if !window_minimized {
             // Resize swapchain if necessary
             if vgd.resize_window {
-                if !vkw.resize_window(&vgd, resolution) do log.error("Failed to resize window")
-                resize_framebuffers(&vgd, &renderer, resolution)
+                if !vkw.resize_window(&vgd, app_window.resolution) do log.error("Failed to resize window")
+                resize_framebuffers(&vgd, &renderer, app_window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
-                    user_config.ints[.WindowWidth] = i64(resolution.x)
-                    user_config.ints[.WindowHeight] = i64(resolution.y)
+                    user_config.ints[.WindowWidth] = i64(app_window.resolution.x)
+                    user_config.ints[.WindowHeight] = i64(app_window.resolution.y)
                 }
-                io.DisplaySize.x = f32(resolution.x)
-                io.DisplaySize.y = f32(resolution.y)
+                io.DisplaySize.x = f32(app_window.resolution.x)
+                io.DisplaySize.y = f32(app_window.resolution.y)
 
                 vgd.resize_window = false
             }
@@ -1072,7 +1080,7 @@ main :: proc() {
 
             swapchain_image_idx, _ := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
 
-            framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, cast([2]u32)resolution)
+            framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, app_window.resolution)
 
             // Main render call
             render(
