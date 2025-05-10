@@ -96,6 +96,8 @@ delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.all
     delete(flags)
     delete(ints)
     delete(floats)
+    delete(strs)
+    strings.intern_destroy(&_interner)
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {

@@ -1273,7 +1273,6 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             radius = enemy.collision_radius
         }
 
-        //world_invector := hlsl.float3 {0.0, 0.5, 0.0}
         enemy.velocity.xy = {0.0, 0.5}
 
         // Apply gravity to velocity, clamping downward speed if necessary
