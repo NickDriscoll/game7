@@ -60,6 +60,7 @@ CharacterFlags :: bit_set[enum {
     MovingRight,
     MovingBack,
     MovingForward,
+    AlreadyJumped
 }]
 Character :: struct {
     collision: Sphere,
@@ -1048,11 +1049,11 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         jumped, jump_ok := output_verbs.bools[.PlayerJump]
         if jump_ok {
             // If jump state changed...
-
             if jumped {
                 // To jumping...
-                if char.state == .Grounded || char.is_holding_enemy {
-                    if char.state == .Falling && char.is_holding_enemy {
+                if .AlreadyJumped in char.control_flags {
+                    // Do thrown-enemy double-jump
+                    if char.is_holding_enemy {
                         char.is_holding_enemy = false
 
                         // Throw enemy downwards
@@ -1063,12 +1064,15 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                             collision_radius = 0.5
                         })
                         char.velocity.z = 1.3 * char.jump_speed
-                    } else {
-                        char.velocity.z = char.jump_speed
                     }
-                    char.state = .Falling
+                } else {
+                    // Do first jump
+                    char.velocity.z = char.jump_speed
+                    char.control_flags += {.AlreadyJumped}
                 }
+
                 char.gravity_factor = 1.0
+                char.state = .Falling
             } else {
                 // To not jumping...
                 char.gravity_factor = 2.2
@@ -1124,6 +1128,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                     if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
                         char.velocity.z = 0.0
                         char.state = .Grounded
+                        char.control_flags -= {.AlreadyJumped}
                     }
                 } else {
                     char.state = .Falling
