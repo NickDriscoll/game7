@@ -990,6 +990,9 @@ main :: proc() {
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
+            
+            renderer.cpu_uniforms.view_position.xyz = game_state.viewport_camera.position
+            renderer.cpu_uniforms.view_position.a = 1.0
         }
 
         // Update and draw static scenery

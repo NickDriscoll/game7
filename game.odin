@@ -81,11 +81,17 @@ Character :: struct {
     air_bullet: Maybe(AirBullet),
     bullet_travel_time: f32,
     is_holding_enemy: bool,
+    held_enemy_mesh: ^StaticModelData,
     held_enemy_last_coords: hlsl.float3,
 }
 
 EnemyState :: enum {
-    Unbothered
+    Wandering,
+    UpAndDown,
+
+    Alerted,
+    AlertedBounce,
+    AlertedCharge,
 }
 Enemy :: struct {
     position: hlsl.float3,
@@ -95,6 +101,7 @@ Enemy :: struct {
 
     ai_state: EnemyState,
     collision_state: CollisionState,
+    model: ^StaticModelData,
 }
 
 ThrownEnemy :: struct {
@@ -141,6 +148,7 @@ GameState :: struct {
     sphere_mesh: ^StaticModelData,
 
     enemy_mesh: ^StaticModelData,
+    selected_enemy: Maybe(int),
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -390,7 +398,7 @@ load_level_file :: proc(
                         position = position,
                         rotation = rotation,
                         collision_radius = 0.5,
-                        ai_state = .Unbothered,
+                        ai_state = .Wandering,
                         collision_state = .Grounded
                     })
                 }
@@ -843,13 +851,19 @@ scene_editor :: proc(
                         velocity = {},
                         collision_radius = 0.5,
                         rotation = {},
-                        ai_state = .Unbothered,
+                        ai_state = .Wandering,
                         collision_state = .Grounded
                     }
                     append(&game_state.enemies, new_enemy)
                 }
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
+
+                    enemy_models := make([dynamic]cstring, 0, 16, context.temp_allocator)
+                    selected_model: i32
+                    if gui_dropdown_files("data/models", &enemy_models, &selected_model, "Enemy model") {
+                        log.info("bing!")
+                    }
                     
                     gui_print_value(&builder, "Rotation", mesh.rotation)
                     gui_print_value(&builder, "AI state", mesh.ai_state)
@@ -887,6 +901,18 @@ scene_editor :: proc(
                         editor_response^ = nil
                     }
                     imgui.EndDisabled()
+                    {
+                        imgui.SameLine()
+                        idx, ok := game_state.selected_enemy.?
+                        h := ok && i == idx
+                        if imgui.Checkbox("Highlighted", &h) {
+                            if ok && i == idx {
+                                game_state.selected_enemy = nil
+                            } else {
+                                game_state.selected_enemy = i
+                            }
+                        }
+                    }
                     imgui.Separator()
         
                     imgui.PopID()
@@ -1406,11 +1432,16 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
 
 enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
     // Live enemies
-    for enemy in game_state.enemies {
+    for enemy, i in game_state.enemies {
         rot := linalg.to_matrix4(enemy.rotation)
         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
+
+        idx, ok := game_state.selected_enemy.?
+        highlighted := ok && i == idx
+
         dd := StaticDraw {
-            world_from_model = world_mat
+            world_from_model = world_mat,
+            highlighted = highlighted
         }
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
     }

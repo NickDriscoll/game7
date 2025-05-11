@@ -92,6 +92,15 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     // }
 
     float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+
+    if (inst.is_highlighted > 0) {
+        float3 pos_to_view = normalize(u_data.view_position.xyz - input.world_pos);
+        float fac = 1.0 - dot(face_normal, pos_to_view);
+
+        final_color = lerp(final_color, float3(0.0, 0.0, 1.0), fac);
+        //final_color = fac;
+    }
+
     if (u_data.triangle_vis == 1) {
         final_color *= id_to_color(primitive_id);
     }
