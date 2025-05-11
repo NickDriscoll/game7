@@ -36,6 +36,7 @@ UniformBufferData :: struct {
     clip_from_world: hlsl.float4x4,
     clip_from_skybox: hlsl.float4x4,
     clip_from_screen: hlsl.float4x4,
+
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
     material_ptr: vk.DeviceAddress,
@@ -45,11 +46,16 @@ UniformBufferData :: struct {
     joint_id_ptr: vk.DeviceAddress,
     joint_weight_ptr: vk.DeviceAddress,
     joint_mats_ptr: vk.DeviceAddress,
+
+    _pad1: hlsl.float4,
+    view_position: hlsl.float4,
+
     time: f32,
     distortion_strength: f32,
     triangle_vis: u32,
     _pad0: f32,
-    acceleration_structures_ptr: vk.DeviceAddress,
+
+    //acceleration_structures_ptr: vk.DeviceAddress,
 }
 
 Ps1PushConstants :: struct {
@@ -102,6 +108,7 @@ Material :: struct {
 
 StaticDraw :: struct {
     world_from_model: hlsl.float4x4,
+    highlighted: bool
 }
 
 CPUStaticMesh :: struct {
@@ -121,15 +128,17 @@ CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
+    is_highlighted: bool,
     gpu_mesh_idx: u32,
 }
 
-GPUStaticInstance :: struct {
+GPUInstance :: struct {
     world_from_model: hlsl.float4x4,
     normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
     material_idx: u32,
-    _pad0: hlsl.uint2,
+    is_highlighted: u32,          // @TODO: This should just be a flags field
+    _pad0: u32,
     color: hlsl.float4,
     _pad3: hlsl.float4x2,
 }
@@ -224,7 +233,7 @@ Renderer :: struct {
     debug_static_instances: [dynamic]DebugStaticInstance,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
 
-    gpu_static_instances: [dynamic]GPUStaticInstance,
+    gpu_static_instances: [dynamic]GPUInstance,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
 
@@ -381,7 +390,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         log.debugf("Allocated %v MB of VRAM for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
-        info.size = size_of(GPUStaticInstance) * MAX_GLOBAL_INSTANCES
+        info.size = size_of(GPUInstance) * MAX_GLOBAL_INSTANCES
         renderer.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
@@ -423,6 +432,19 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         joint_ids_buffer, _ := vkw.get_buffer(gd, renderer.joint_ids_buffer)
         joint_weights_buffer, _ := vkw.get_buffer(gd, renderer.joint_weights_buffer)
         joint_matrices_buffer, _ := vkw.get_buffer(gd, renderer.joint_matrices_buffer)
+
+        uniform_buffer, _ := vkw.get_buffer(gd, renderer.uniform_buffer)
+        log.debugf("uniform_buffer base pointer == 0x%X", uniform_buffer.address)
+
+        log.debugf("mesh_buffer base pointer == 0x%X", mesh_buffer.address)
+        log.debugf("material_buffer base pointer == 0x%X", material_buffer.address)
+        log.debugf("instance_buffer base pointer == 0x%X", instance_buffer.address)
+        log.debugf("position_buffer base pointer == 0x%X", position_buffer.address)
+        log.debugf("uv_buffer base pointer == 0x%X", uv_buffer.address)
+        log.debugf("color_buffer base pointer == 0x%X", color_buffer.address)
+        log.debugf("joint_ids_buffer base pointer == 0x%X", joint_ids_buffer.address)
+        log.debugf("joint_weights_buffer base pointer == 0x%X", joint_weights_buffer.address)
+        log.debugf("joint_matrices_buffer base pointer == 0x%X", joint_matrices_buffer.address)
     
         renderer.cpu_uniforms.mesh_ptr = mesh_buffer.address
         renderer.cpu_uniforms.material_ptr = material_buffer.address
@@ -952,7 +974,7 @@ add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle 
 new_frame :: proc(renderer: ^Renderer) {
     renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
     renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
-    renderer.gpu_static_instances = make([dynamic]GPUStaticInstance, allocator = context.temp_allocator)
+    renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
@@ -1026,6 +1048,7 @@ draw_ps1_static_primitive :: proc(
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         gpu_mesh_idx = mesh.gpu_mesh_idx,
+        is_highlighted = draw_data.highlighted,
         material_handle = material_handle
     }
     append(&renderer.ps1_static_instances, new_inst)
@@ -1346,8 +1369,12 @@ render :: proc(
                 inst := &instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
                     material_idx : u32 = 0
+                    is_highlighted: u32
                     when T == CPUStaticInstance {
                         material_idx = inst.material_handle.index
+                        if inst.is_highlighted {
+                            is_highlighted = 1
+                        }
                     }
 
                     color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
@@ -1355,11 +1382,12 @@ render :: proc(
                         color = inst.color
                     }
 
-                    g_inst := GPUStaticInstance {
+                    g_inst := GPUInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
                         mesh_idx = inst.gpu_mesh_idx,
                         material_idx = material_idx,
+                        is_highlighted = is_highlighted,
                         color = color
                     }
                     append(&renderer.gpu_static_instances, g_inst)

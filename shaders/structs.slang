@@ -14,7 +14,8 @@ struct InstanceData {
     float4x4 normal_matrix;
     uint mesh_idx;
     uint material_idx;
-    uint2 _pad0;
+    uint is_highlighted;
+    uint _pad0;
     float4 color;
     float4x2 _pad4;
 }
@@ -44,12 +45,16 @@ struct UniformData {
     uint4 *joint_ids;
     float4 *joint_weights;
     float4x4 *inv_bind_matrices;
-    
+
+    float4 _pad1;
+    float4 view_position;
+
     float time; // Periodic time value
     float distortion_strength;
     uint triangle_vis;
-    
+
     float _pad0;
+
     //RaytracingAccelerationStructure* acceleration_structure_data;
 }
 
