@@ -44,8 +44,7 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
-// @TODO: Window grab bag struct? Just for figuring out what to do?
-SdlWindow :: struct {
+Window :: struct {
     position: [2]i32,
     resolution: [2]u32,
     display_resolution: [2]u32,
@@ -201,7 +200,7 @@ main :: proc() {
     when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
 
     // Make window
-    app_window: SdlWindow
+    app_window: Window
     
     // Determine window resolution
     {

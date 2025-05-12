@@ -268,7 +268,6 @@ Renderer :: struct {
 
     // Main viewport dimensions
     // Updated every frame with respect to the ImGUI dockspace's central node
-    // @TODO: Replace [4]f32 with vk.Rect2D
     viewport_dimensions: vk.Rect2D,
 }
 
