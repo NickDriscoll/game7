@@ -276,7 +276,7 @@ main :: proc() {
 
     // Init audio system
     audio_system: AudioSystem
-    init_audio_system(&audio_system)
+    init_audio_system(&audio_system, user_config)
     when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
     toggle_device_playback(&audio_system, true)
 
@@ -714,7 +714,7 @@ main :: proc() {
             }
         }
 
-        if imgui_state.show_gui && user_config.flags[.AudioPanel] do audio_gui(&game_state, &audio_system, input_system, &user_config.flags[.AudioPanel])
+        if imgui_state.show_gui && user_config.flags[.AudioPanel] do audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
 
         // Input remapping GUI
         if imgui_state.show_gui && user_config.flags[.InputConfig] do input_gui(&input_system, &user_config.flags[.InputConfig])

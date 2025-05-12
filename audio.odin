@@ -107,11 +107,22 @@ AudioSystem :: struct {
     //local_mixing_buffer: [dynamic]f32,
 }
 
-init_audio_system :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
+init_audio_system :: proc(
+    audio_system: ^AudioSystem,
+    user_config: UserConfiguration,
+    allocator := context.allocator
+) {
     audio_system.out_channels = 1
     audio_system.tone_freq = MIDDLE_C_HZ
-    audio_system.volume = 0.5
     audio_system.tone_volume = 0.1
+    
+    {
+        audio_system.volume = 0.5
+        v, ok := user_config.floats[.AudioVolume]
+        if ok {
+            audio_system.volume = f32(v)
+        }
+    }
 
     // Init audio system
     {
@@ -171,12 +182,19 @@ close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
     }
 }
 
-audio_gui :: proc(game_state: ^GameState, audio_system: ^AudioSystem, input_system: InputSystem, open: ^bool) {
+audio_gui :: proc(
+    game_state: ^GameState,
+    audio_system: ^AudioSystem,
+    user_config: ^UserConfiguration,
+    open: ^bool
+) {
     if imgui.Begin("Audio panel", open) {
         builder: strings.Builder
         strings.builder_init(&builder, context.temp_allocator)
 
-        imgui.SliderFloat("Master volume", &audio_system.volume, 0.0, 1.0)
+        if imgui.SliderFloat("Master volume", &audio_system.volume, 0.0, 1.0) {
+            user_config.floats[.AudioVolume] = f64(audio_system.volume)
+        }
         imgui.Separator()
 
         imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
