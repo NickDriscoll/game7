@@ -11,6 +11,7 @@ import "core:time"
 ConfigKey :: enum {
     ShowDebugMenu,
     AudioPanel,
+    AudioVolume,
     ShowClosestPoint,
     ConfigAutosave,
     FollowCam,
@@ -40,6 +41,7 @@ ConfigKey :: enum {
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
     .ShowDebugMenu = "show_debug_menu",
     .AudioPanel = "audio_panel",
+    .AudioVolume = "audio_volume",
     .CameraConfig = "camera_config",
     .ShowAllocatorStats = "show_allocator_stats",
     .BorderlessFullscreen = "borderless_fullscreen",
@@ -132,7 +134,7 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
     for key, val in config.floats {
         cs := CONFIG_KEY_STRINGS
         s := cs[key]
-        st := fmt.sbprintfln(&sb, "%v = %v", s, val)
+        st := fmt.sbprintfln(&sb, "%v = %f", s, val)
         os.write_string(save_file, st)
         strings.builder_reset(&sb)
     }
