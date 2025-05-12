@@ -19,7 +19,6 @@ get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
 
 // Get the positions buffer of the first meshes first primitive
 // GLBs used with this should really only have one big triangle mesh
-// @TODO: Fix this awful, broken proc
 get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dynamic]f32 {
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
