@@ -80,24 +80,39 @@ Character :: struct {
 
     air_bullet: Maybe(AirBullet),
     bullet_travel_time: f32,
-    is_holding_enemy: bool,
-    held_enemy_mesh: ^StaticModelData,
-    held_enemy_last_coords: hlsl.float3,
+    held_enemy: Maybe(Enemy),
+    // is_holding_enemy: bool,
+    // held_enemy_mesh: ^StaticModelData,
+    // held_enemy_last_coords: hlsl.float3,
 }
 
 EnemyState :: enum {
+    BrainDead,
+
     Wandering,
+    Paused,
+
     UpAndDown,
 
     Alerted,
     AlertedBounce,
     AlertedCharge,
 }
+ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
+    .BrainDead = "Brain Dead",
+    .Wandering = "Wandering",
+    .Paused = "Paused",
+    .UpAndDown = "Up and Down",
+    .Alerted = "Alerted",
+    .AlertedBounce = "Alerted Bounce",
+    .AlertedCharge = "Alerted Charge"
+}
 Enemy :: struct {
     position: hlsl.float3,
     velocity: hlsl.float3,
     collision_radius: f32,
     rotation: quaternion128,
+    home_position: hlsl.float3,
 
     ai_state: EnemyState,
     collision_state: CollisionState,
@@ -107,8 +122,10 @@ Enemy :: struct {
 ThrownEnemy :: struct {
     position: hlsl.float3,
     velocity: hlsl.float3,
+    collision_radius: f32,
     respawn_position: hlsl.float3,
-    collision_radius: f32
+    respawn_home: hlsl.float3,
+    respawn_ai: EnemyState,
 }
 
 DebugVisualizationFlags :: bit_set[enum {
@@ -396,6 +413,7 @@ load_level_file :: proc(
             
                     append(&game_state.enemies, Enemy {
                         position = position,
+                        home_position = position,
                         rotation = rotation,
                         collision_radius = 0.5,
                         ai_state = .Wandering,
@@ -866,12 +884,28 @@ scene_editor :: proc(
                     }
                     
                     gui_print_value(&builder, "Rotation", mesh.rotation)
-                    gui_print_value(&builder, "AI state", mesh.ai_state)
                     gui_print_value(&builder, "Collision state", mesh.collision_state)
+                    
+                    // AI state dropdown box
+                    {
+                        cstrs := ENEMY_STATE_CSTRINGS
+                        selected := mesh.ai_state
+                        if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
+                            for item, i in cstrs {
+                                if imgui.Selectable(item) {
+                                    mesh.ai_state = EnemyState(i)
+                                    mesh.velocity = {}
+                                    mesh.home_position = mesh.position
+                                }
+                            }
+                            imgui.EndCombo()
+                        }
+                    }
     
                     if imgui.DragFloat3("Position", &mesh.position, 0.1) {
                         mesh.velocity = {}
                     }
+                    imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
                     imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
         
                     disable_button := false
@@ -1079,15 +1113,18 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 // To jumping...
                 if .AlreadyJumped in char.control_flags {
                     // Do thrown-enemy double-jump
-                    if char.is_holding_enemy {
-                        char.is_holding_enemy = false
+                    held_enemy, is_holding_enemy := char.held_enemy.?
+                    if is_holding_enemy {
+                        char.held_enemy = nil
 
                         // Throw enemy downwards
                         append(&game_state.thrown_enemies, ThrownEnemy {
                             position = char.collision.position - {0.0, 0.0, 0.5},
                             velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-                            respawn_position = char.held_enemy_last_coords,
-                            collision_radius = 0.5
+                            respawn_position = held_enemy.position,
+                            respawn_home = held_enemy.home_position,
+                            collision_radius = 0.5,
+                            respawn_ai = held_enemy.ai_state,
                         })
                         char.velocity.z = 1.3 * char.jump_speed
                     }
@@ -1188,16 +1225,19 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
     // Shoot command
     if output_verbs.bools[.PlayerShoot] {
-        if char.is_holding_enemy {
+        held_enemy, is_holding_enemy := char.held_enemy.?
+        if is_holding_enemy {
             // Insert into thrown enemies array
             append(&game_state.thrown_enemies, ThrownEnemy {
                 position = char.collision.position + char.facing,
                 velocity = ENEMY_THROW_SPEED * char.facing,
-                respawn_position = char.held_enemy_last_coords,
-                collision_radius = 0.5
+                respawn_position = held_enemy.position,
+                respawn_home = held_enemy.home_position,
+                collision_radius = 0.5,
+                respawn_ai = held_enemy.ai_state,
             })
 
-            char.is_holding_enemy = false
+            char.held_enemy = nil
         } else {
             start_pos := char.collision.position
             char.air_bullet = AirBullet {
@@ -1263,7 +1303,8 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
 
     // Draw enemy above player head
-    if character.is_holding_enemy {
+    held_enemy, is_holding_enemy := character.held_enemy.?
+    if is_holding_enemy {
         bob := 0.2 * math.sin(game_state.time * 1.7)
         mat := translation_matrix(character.collision.position + {0.0, 0.0, 1.5 + bob})
         mat *= yaw_rotation_matrix(game_state.time)
@@ -1294,101 +1335,132 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
         // Update
-        col := Sphere {
-            position = enemy.position,
-            radius = enemy.collision_radius
-        }
 
-        enemy.velocity.xy = {0.0, 0.5}
+        // AI state specific logic
+        #partial switch enemy.ai_state {
+            case .BrainDead: {
+                enemy.velocity.xy = {}
+            }
+            case .Wandering: {
+                enemy.velocity.xy = {0.0, 0.5}
+            }
+            case .UpAndDown: {
+                offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
+                enemy.position = enemy.home_position + offset
+            }
+        }
 
         // Apply gravity to velocity, clamping downward speed if necessary
-        enemy.velocity += dt * GRAVITY_ACCELERATION
-        if enemy.velocity.z < TERMINAL_VELOCITY {
-            enemy.velocity.z = TERMINAL_VELOCITY
+        is_affected_by_gravity := .BrainDead == enemy.ai_state || .Wandering == enemy.ai_state
+        if is_affected_by_gravity {
+            enemy.velocity += dt * GRAVITY_ACCELERATION
+            if enemy.velocity.z < TERMINAL_VELOCITY {
+                enemy.velocity.z = TERMINAL_VELOCITY
+            }
         }
-
-        // Compute motion interval
-        motion_endpoint := col.position + dt * enemy.velocity
-        motion_interval := Segment {
-            start = col.position,
-            end = motion_endpoint
-        }
-        
 
         // Compute closest point to terrain along with
         // vector opposing enemy motion
-        closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
-        collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-        switch enemy.collision_state {
-            case .Grounded: {
-                // Push out of ground
-                dist := hlsl.distance(closest_pt, col.position)
-                if dist < col.radius {
-                    remaining_dist := col.radius - dist
-                    if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                        col.position = motion_endpoint + remaining_dist * collision_normal
-                    } else {
-                        col.position = motion_endpoint
-                        
-                    }
-                } else {
-                    col.position = motion_endpoint
-                }
-        
-                // Check if we need to bump ourselves up or down
-                {
-                    tolerance_segment := Segment {
-                        start = col.position + {0.0, 0.0, 0.0},
-                        end = col.position + {0.0, 0.0, -col.radius - 0.1}
-                    }
-                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                    tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                    if okt {
-                        col.position = tolerance_point + {0.0, 0.0, col.radius}
-                        if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                            enemy.velocity.z = 0.0
-                            enemy.collision_state = .Grounded
+        // @TODO: This block should be factored into some kind of gravity_affected_sphere() proc
+        if is_affected_by_gravity {
+            col := Sphere {
+                position = enemy.position,
+                radius = enemy.collision_radius
+            }
+
+            // Compute motion interval
+            motion_endpoint := col.position + dt * enemy.velocity
+            motion_interval := Segment {
+                start = col.position,
+                end = motion_endpoint
+            }
+
+            closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+            collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+            switch enemy.collision_state {
+                case .Grounded: {
+                    // Push out of ground
+                    dist := hlsl.distance(closest_pt, col.position)
+                    if dist < col.radius {
+                        remaining_dist := col.radius - dist
+                        if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                            col.position = motion_endpoint + remaining_dist * collision_normal
+                        } else {
+                            col.position = motion_endpoint
+                            
                         }
                     } else {
-                        enemy.collision_state = .Falling
+                        col.position = motion_endpoint
+                    }
+            
+                    // Check if we need to bump ourselves up or down
+                    {
+                        tolerance_segment := Segment {
+                            start = col.position + {0.0, 0.0, 0.0},
+                            end = col.position + {0.0, 0.0, -col.radius - 0.1}
+                        }
+                        tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                        tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
+                        if okt {
+                            col.position = tolerance_point + {0.0, 0.0, col.radius}
+                            if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                                enemy.velocity.z = 0.0
+                                enemy.collision_state = .Grounded
+                            }
+                        } else {
+                            enemy.collision_state = .Falling
+                        }
+                    }
+                }
+                case .Falling: {
+                    // Then do collision test against triangles
+    
+                    d := hlsl.distance(col.position, closest_pt)
+                    hit := d < col.radius
+    
+                    if hit {
+                        // Hit terrain
+                        remaining_d := col.radius - d
+                        col.position = motion_endpoint + remaining_d * collision_normal
+                        n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                        if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
+                            // Floor
+                            //char.remaining_jumps = CHARACTER_TOTAL_JUMPS
+                            enemy.collision_state = .Grounded
+                        } else if n_dot < -0.1 && enemy.velocity.z > 0.0 {
+                            // Ceiling
+                            enemy.velocity.z = 0.0
+                        }
+                    } else {
+                        // Didn't hit anything, still falling.
+                        col.position = motion_endpoint
                     }
                 }
             }
-            case .Falling: {
-                // Then do collision test against triangles
 
-                d := hlsl.distance(col.position, closest_pt)
-                hit := d < col.radius
-
-                if hit {
-                    // Hit terrain
-                    remaining_d := col.radius - d
-                    col.position = motion_endpoint + remaining_d * collision_normal
-                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
-                        // Floor
-                        //char.remaining_jumps = CHARACTER_TOTAL_JUMPS
-                        enemy.collision_state = .Grounded
-                    } else if n_dot < -0.1 && enemy.velocity.z > 0.0 {
-                        // Ceiling
-                        enemy.velocity.z = 0.0
-                    }
-                } else {
-                    // Didn't hit anything, still falling.
-                    col.position = motion_endpoint
+            // Write updated position to enemy
+            enemy.position = col.position
+            
+            // Restrict enemy movement based on home position
+            {
+                disp := enemy.position - enemy.home_position
+                l := hlsl.length(disp)
+                if l > 5.0 {
+                    disp *= 5.0 / l
+                    enemy.position = enemy.home_position + disp
                 }
             }
         }
-
-        // Write updated position to enemy
-        enemy.position = col.position
 
         // Check if overlapping air bullet
         bullet, ok := char.air_bullet.?
         if ok {
+            col := Sphere {
+                position = enemy.position,
+                radius = enemy.collision_radius
+            }
             if are_spheres_overlapping(bullet.collision, col) {
-                char.is_holding_enemy = true
-                char.held_enemy_last_coords = col.position
+                char.held_enemy = game_state.enemies[i]
                 enemy_to_remove = i
                 char.air_bullet = nil
             }
@@ -1410,11 +1482,14 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
         if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * 0.8 {
             thrown_enemy_to_remove = i
-            // Insert into thrown enemies array
+            
+            // Respawn enemy
             append(&game_state.enemies, Enemy {
                 position = enemy.respawn_position,
+                home_position = enemy.respawn_home,
                 velocity = {},
-                collision_radius = 0.5
+                collision_radius = 0.5,
+                ai_state = enemy.respawn_ai
             })
         }
 
