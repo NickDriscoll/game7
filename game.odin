@@ -410,13 +410,14 @@ load_level_file :: proc(
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
+                    ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
             
                     append(&game_state.enemies, Enemy {
                         position = position,
                         home_position = position,
                         rotation = rotation,
                         collision_radius = 0.5,
-                        ai_state = .Wandering,
+                        ai_state = ai_state,
                         collision_state = .Grounded
                     })
                 }
@@ -493,6 +494,7 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
         output_size += size_of(enemy.position)
         output_size += size_of(enemy.rotation)
         output_size += size_of(enemy.collision_radius)
+        output_size += size_of(enemy.ai_state)
     }
     
     write_head : u32 = 0
@@ -569,6 +571,7 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
         write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
     }
 
     if write_head != u32(output_size) {
