@@ -889,7 +889,8 @@ main :: proc() {
                         ) {
                             e := &game_state.enemies[resp.index]
                             e.velocity = {}
-                            e.position.z += 3.0
+                            e.position.z += 1.0
+                            e.home_position = enemy.position
                         }
                     }
                     case .MovePlayerSpawn: {

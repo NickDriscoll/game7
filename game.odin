@@ -92,9 +92,8 @@ EnemyState :: enum {
     Wandering,
     Paused,
 
-    UpAndDown,
+    Hovering,
 
-    Alerted,
     AlertedBounce,
     AlertedCharge,
 }
@@ -102,8 +101,7 @@ ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
     .BrainDead = "Brain Dead",
     .Wandering = "Wandering",
     .Paused = "Paused",
-    .UpAndDown = "Up and Down",
-    .Alerted = "Alerted",
+    .Hovering = "Hovering",
     .AlertedBounce = "Alerted Bounce",
     .AlertedCharge = "Alerted Charge"
 }
@@ -1340,21 +1338,37 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         // Update
 
         // AI state specific logic
-        #partial switch enemy.ai_state {
+        switch enemy.ai_state {
             case .BrainDead: {
                 enemy.velocity.xy = {}
             }
             case .Wandering: {
                 enemy.velocity.xy = {0.0, 0.5}
+                if hlsl.distance(char.collision.position, enemy.position) < 4.0 {
+                    enemy.velocity = {0.0, 0.0, 6.0}
+                    enemy.ai_state = .AlertedBounce
+                    enemy.collision_state = .Falling
+                }
             }
-            case .UpAndDown: {
+            case .Hovering: {
                 offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
                 enemy.position = enemy.home_position + offset
             }
+            case .AlertedBounce: {
+                if enemy.collision_state == .Grounded {
+                    enemy.ai_state = .Wandering
+                }
+            }
+            case .AlertedCharge: {
+
+            }
+            case .Paused: {}
         }
 
         // Apply gravity to velocity, clamping downward speed if necessary
-        is_affected_by_gravity := .BrainDead == enemy.ai_state || .Wandering == enemy.ai_state
+        is_affected_by_gravity := .BrainDead == enemy.ai_state ||
+                                  .Wandering == enemy.ai_state ||
+                                  .AlertedBounce == enemy.ai_state
         if is_affected_by_gravity {
             enemy.velocity += dt * GRAVITY_ACCELERATION
             if enemy.velocity.z < TERMINAL_VELOCITY {

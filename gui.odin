@@ -252,6 +252,9 @@ gui_main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Config") {
+            if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
+                user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
+            }
             input_config := user_config.flags[.InputConfig]
             if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags[.InputConfig] = !user_config.flags[.InputConfig]
             camera_config := user_config.flags[.CameraConfig]
@@ -289,9 +292,6 @@ gui_main_menu_bar :: proc(
             }
             if imgui.MenuItem("Allocator stats", selected = user_config.flags[.ShowAllocatorStats]) {
                 user_config.flags[.ShowAllocatorStats] = !user_config.flags[.ShowAllocatorStats]
-            }
-            if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
-                user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
             }
             if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags[.ShowImguiDemo]) {
                 user_config.flags[.ShowImguiDemo] = !user_config.flags[.ShowImguiDemo]
