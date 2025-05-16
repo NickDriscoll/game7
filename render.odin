@@ -1901,14 +1901,14 @@ load_gltf_skinned_model :: proc(
         for &primitive, i in mesh.primitives {
             // Get indices
             index_data := load_gltf_indices_u16(&primitive)
-        
+
             // Get vertex data
             position_data: [dynamic]hlsl.float4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
             joint_ids: [dynamic]hlsl.uint4
             joint_weights: [dynamic]hlsl.float4
-        
+
             // @TODO: Use joint ids directly as u16 instead of converting to u32
             for &attrib in primitive.attributes {
                 #partial switch (attrib.type) {
@@ -1919,7 +1919,7 @@ load_gltf_skinned_model :: proc(
                     case .weights: joint_weights = load_gltf_float4(&attrib)
                 }
             }
-        
+
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
             mesh_handle := create_skinned_mesh(
