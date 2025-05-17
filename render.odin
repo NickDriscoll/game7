@@ -1304,7 +1304,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 
 // This is called once per frame to sync buffers with the GPU
 // and record the relevant commands into the frame's command buffer
-render :: proc(
+render_scene :: proc(
     gd: ^vkw.Graphics_Device,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     renderer: ^Renderer,
