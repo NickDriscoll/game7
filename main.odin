@@ -196,7 +196,10 @@ main :: proc() {
         window_support = true,
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
-    vgd := vkw.init_vulkan(&init_params)
+    vgd, res := vkw.init_vulkan(&init_params)
+    if res != .SUCCESS {
+        log.errorf("Failed to initialize Vulkan : %v", res)
+    }
     when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
 
     // Make window
@@ -1086,7 +1089,7 @@ main :: proc() {
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, app_window.resolution)
 
             // Main render call
-            render(
+            render_scene(
                 &vgd,
                 gfx_cb_idx,
                 &renderer,
@@ -1110,7 +1113,7 @@ main :: proc() {
         vkw.clear_sync_info(&renderer.compute_sync)
 
         // CPU limiter
-        // 100 mil nanoseconds == 100 milliseconds
+        // 1 millisecond == 1,000,00 nanoseconds
         if do_limit_cpu do time.sleep(time.Duration(1_000_000 * cpu_limiter_ms))
     }
 
