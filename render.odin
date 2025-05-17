@@ -117,6 +117,10 @@ CPUStaticMesh :: struct {
     gpu_mesh_idx: u32,
 }
 
+MeshRaytracingData :: struct {
+    
+}
+
 GPUStaticMesh :: struct {
     position_offset: u32,
     uv_offset: u32,
@@ -213,6 +217,7 @@ Renderer :: struct {
     static_mesh_buffer: vkw.Buffer_Handle,
     cpu_static_meshes: hm.Handle_Map(CPUStaticMesh),
     gpu_static_meshes: [dynamic]GPUStaticMesh,
+    mesh_raytracing_datas: [dynamic]MeshRaytracingData,
 
     // Separate global mesh buffer for skinned meshes
     cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMesh),
@@ -280,6 +285,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_parents = make([dynamic]u32, 0, 64)
     renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64)
     renderer.animations = make([dynamic]Animation, 0, 64)
+    renderer.mesh_raytracing_datas = make([dynamic]MeshRaytracingData, 0, 64)
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
@@ -704,7 +710,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 }
 
 delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
-    
+    // @TODO: This proc
 }
 
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
