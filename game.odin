@@ -111,6 +111,7 @@ Enemy :: struct {
     collision_radius: f32,
     rotation: quaternion128,
     home_position: hlsl.float3,
+    visualize_home: bool,
 
     ai_state: EnemyState,
     collision_state: CollisionState,
@@ -908,6 +909,9 @@ scene_editor :: proc(
                     }
                     imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
                     imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
+                    {
+                        imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
+                    }
         
                     disable_button := false
                     move_text : cstring = "Move"
@@ -1331,6 +1335,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     }
 }
 
+ENEMY_HOME_RADIUS :: 4.0
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
     char := &game_state.character
     enemy_to_remove: Maybe(int)
@@ -1344,7 +1349,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             }
             case .Wandering: {
                 enemy.velocity.xy = {0.0, 0.5}
-                if hlsl.distance(char.collision.position, enemy.position) < 4.0 {
+                if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
                     enemy.velocity = {0.0, 0.0, 6.0}
                     enemy.ai_state = .AlertedBounce
                     enemy.collision_state = .Falling
@@ -1462,8 +1467,8 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             {
                 disp := enemy.position - enemy.home_position
                 l := hlsl.length(disp)
-                if l > 5.0 {
-                    disp *= 5.0 / l
+                if l > ENEMY_HOME_RADIUS {
+                    disp *= ENEMY_HOME_RADIUS / l
                     enemy.position = enemy.home_position + disp
                 }
             }
@@ -1531,11 +1536,21 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         idx, ok := game_state.selected_enemy.?
         highlighted := ok && i == idx
 
-        dd := StaticDraw {
-            world_from_model = world_mat,
-            highlighted = highlighted
+        {
+            dd := StaticDraw {
+                world_from_model = world_mat,
+                highlighted = highlighted
+            }
+            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
         }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+
+        if enemy.visualize_home {
+            dd := DebugDraw {
+                world_from_model = translation_matrix(enemy.home_position) * uniform_scaling_matrix(ENEMY_HOME_RADIUS),
+                color = {0.5, 0.5, 0.0, 0.8}
+            }
+            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+        }
     }
 
     // Thrown enemies
