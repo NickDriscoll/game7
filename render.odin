@@ -308,7 +308,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
     renderer: Renderer
-    renderer.do_raytracing = gd.has_raytracing
+    renderer.do_raytracing = .Raytracing in gd.support_flags
 
     renderer_new_scene(&renderer)
 
