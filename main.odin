@@ -196,9 +196,10 @@ main :: proc() {
         support_flags = {.Window,.Raytracing},
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
-    vgd, res := vkw.init_vulkan(&init_params)
+    vgd, res := vkw.init_vulkan(init_params)
     if res != .SUCCESS {
         log.errorf("Failed to initialize Vulkan : %v", res)
+        return
     }
     when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
 
@@ -228,8 +229,7 @@ main :: proc() {
     app_window.flags = {.VULKAN,.RESIZABLE}
     if user_config.flags[.ExclusiveFullscreen] {
         app_window.flags += {.FULLSCREEN}
-    }
-    if user_config.flags[.BorderlessFullscreen] {
+    } else if user_config.flags[.BorderlessFullscreen] {
         app_window.flags += {.BORDERLESS}
     }
 
