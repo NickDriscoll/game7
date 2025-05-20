@@ -224,7 +224,6 @@ main :: proc() {
         }
     }
 
-
     // Determine SDL window flags
     app_window.flags = {.VULKAN,.RESIZABLE}
     if user_config.flags[.ExclusiveFullscreen] {
