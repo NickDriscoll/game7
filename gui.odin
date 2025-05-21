@@ -464,11 +464,15 @@ render_imgui :: proc(
         // Record commands into command buffer
         cmds := slice.from_ptr(cmd_list.CmdBuffer.Data, int(cmd_list.CmdBuffer.Size))
         for cmd in cmds {
+            // Have to clamp offsets to 0 as the x and y components
+            // can be -1 for some freaking reason
+            sc_offsetx := max(0, cmd.ClipRect.x)
+            sc_offsety := max(0, cmd.ClipRect.y)
             vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
                 {
                     offset = {
-                        x = i32(cmd.ClipRect.x),
-                        y = i32(cmd.ClipRect.y),
+                        x = i32(sc_offsetx),
+                        y = i32(sc_offsety),
                     },
                     extent = {
                         width = u32(cmd.ClipRect.z - cmd.ClipRect.x),
