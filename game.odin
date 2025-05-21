@@ -81,9 +81,6 @@ Character :: struct {
     air_bullet: Maybe(AirBullet),
     bullet_travel_time: f32,
     held_enemy: Maybe(Enemy),
-    // is_holding_enemy: bool,
-    // held_enemy_mesh: ^StaticModelData,
-    // held_enemy_last_coords: hlsl.float3,
 }
 
 EnemyState :: enum {

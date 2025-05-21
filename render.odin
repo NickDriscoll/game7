@@ -27,6 +27,8 @@ MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
 MAX_UNIQUE_MODELS :: 4096
 
+ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS :: 1024 * 1024
+
 // @TODO: Just make this zero somehow
 NULL_OFFSET :: 0xFFFFFFFF
 
@@ -201,6 +203,8 @@ Renderer :: struct {
     indices_head: u32,
 
     // Global buffers for vertex attributes
+    // @TODO: Maybe I should add a proper GPU bump allocator
+    // instead of doing it by hand with a buffer handle + head position
     positions_buffer: vkw.Buffer_Handle,        // Global GPU buffer of vertex positions
     positions_head: u32,
     uvs_buffer: vkw.Buffer_Handle,              // Global GPU buffer of vertex uvs
@@ -211,6 +215,8 @@ Renderer :: struct {
     joint_ids_head: u32,
     joint_weights_buffer: vkw.Buffer_Handle,
     joint_weights_head: u32,
+    accleration_structure_buffer: vkw.Buffer_Handle,
+    acceleration_structure_head: u32,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
@@ -235,8 +241,8 @@ Renderer :: struct {
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
     cpu_materials: hm.Handle_Map(Material),
-    
-    
+
+
     ps1_static_instances: [dynamic]CPUStaticInstance,
     debug_static_instances: [dynamic]DebugStaticInstance,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
@@ -261,6 +267,8 @@ Renderer :: struct {
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
     // Maps of string filenames to ModelData types
+    // @TODO: Pointers are a brittle reference type
+    // maybe switch to Handle_Map
     loaded_static_models: map[string]StaticModelData,
     loaded_skinned_models: map[string]SkinnedModelData,
     _glb_name_interner: strings.Intern,                     // String interner for registering .glb filenames
@@ -304,6 +312,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_weights_head = 0
     renderer.joint_matrices_head = 0
     renderer.uvs_head = 0
+    renderer.acceleration_structure_head = 0
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
@@ -402,6 +411,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.size = size_of(GPUInstance) * MAX_GLOBAL_INSTANCES
         renderer.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
+
+        info.name = "Acceleration structure buffer"
+        info.size = ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS
+        info.usage += {.ACCELERATION_STRUCTURE_STORAGE_KHR}
+        renderer.accleration_structure_buffer = vkw.create_buffer(gd, &info)
+        log.debugf("Allocated %v MB of VRAM for render_state.acceleration_structure_Buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create indirect draw buffer
@@ -826,18 +841,12 @@ create_static_mesh :: proc(
 
     // TEMP: Just trying to build a BLAS when I don't know how
     {
-        blas: vk.AccelerationStructureKHR
-        infos : []vkw.AccelerationStructureBuildInfo = {
-            {
-                type = .BOTTOM_LEVEL,
-                flags = {.PREFER_FAST_TRACE},
-                mode = .BUILD,
-                src = 0,
-                dst = blas,
-
-            }
-        }
-        //vkw.cmd_build_acceleration_structures(gd, infos)
+        // as_info := vkw.AccelerationStructureCreateInfo {
+        //     flags = nil,
+        //     buffer = renderer.accleration_structure_buffer,
+        //     offset = renderer.acceleration_structure_head * 
+        // }
+        // new_as := vkw.create_acceleration_structure(gd, as_info)
     }
 
     mesh := CPUStaticMesh {
