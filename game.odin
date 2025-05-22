@@ -106,7 +106,7 @@ Enemy :: struct {
     position: hlsl.float3,
     velocity: hlsl.float3,
     collision_radius: f32,
-    rotation: quaternion128,
+    facing: hlsl.float3,
     home_position: hlsl.float3,
     visualize_home: bool,
 
@@ -404,14 +404,13 @@ load_level_file :: proc(
                 enemy_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
                 for _ in 0..<enemy_len {
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
             
                     append(&game_state.enemies, Enemy {
                         position = position,
                         home_position = position,
-                        rotation = rotation,
+                        facing = {0.0, 1.0, 0.0},
                         collision_radius = 0.5,
                         ai_state = ai_state,
                         collision_state = .Grounded
@@ -488,7 +487,6 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
     }
     for enemy in gamestate.enemies {
         output_size += size_of(enemy.position)
-        output_size += size_of(enemy.rotation)
         output_size += size_of(enemy.collision_radius)
         output_size += size_of(enemy.ai_state)
     }
@@ -565,7 +563,6 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
     }
     for &enemy in gamestate.enemies {
         write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.rotation, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
     }
@@ -867,7 +864,6 @@ scene_editor :: proc(
                         position = {},
                         velocity = {},
                         collision_radius = 0.5,
-                        rotation = {},
                         ai_state = .Wandering,
                         collision_state = .Grounded
                     }
@@ -882,7 +878,6 @@ scene_editor :: proc(
                         log.info("bing!")
                     }
                     
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
                     gui_print_value(&builder, "Collision state", mesh.collision_state)
                     
                     // AI state dropdown box
@@ -1278,12 +1273,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     y := -character.facing
     z := hlsl.float3 {0.0, 0.0, 1.0}
     x := hlsl.cross(y, z)
-    rotate_mat := hlsl.float4x4 {
-        x[0], y[0], z[0], 0.0,
-        x[1], y[1], z[1], 0.0,
-        x[2], y[2], z[2], 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    }
+    rotate_mat := basis_matrix(x, y, z)
 
     // @TODO: Remove this matmul as this is just to correct an error with the model
     rotate_mat *= yaw_rotation_matrix(-math.PI / 2.0)
@@ -1348,6 +1338,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                 enemy.velocity.xy = {0.0, 0.5}
                 if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
                     enemy.velocity = {0.0, 0.0, 6.0}
+                    enemy.facing = hlsl.normalize(char.collision.position - enemy.position)
                     enemy.ai_state = .AlertedBounce
                     enemy.collision_state = .Falling
                 }
@@ -1527,13 +1518,18 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
 enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
     // Live enemies
     for enemy, i in game_state.enemies {
-        rot := linalg.to_matrix4(enemy.rotation)
+        rot: hlsl.float4x4
+        {
+            y := -enemy.facing
+            z := hlsl.float3 {0.0, 0.0, 1.0}
+            x := hlsl.cross(y, z)
+            rot = basis_matrix(x, y, z)
+        }
         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
 
-        idx, ok := game_state.selected_enemy.?
-        highlighted := ok && i == idx
-
         {
+            idx, ok := game_state.selected_enemy.?
+            highlighted := ok && i == idx
             dd := StaticDraw {
                 world_from_model = world_mat,
                 highlighted = highlighted
