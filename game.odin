@@ -115,6 +115,20 @@ Enemy :: struct {
     model: ^StaticModelData,
 }
 
+default_enemy :: proc(game_state: GameState) -> Enemy {
+    return {
+        position = {},
+        velocity = {},
+        collision_radius = 0.5,
+        facing = {0.0, 1.0, 0.0},
+        home_position = {},
+        visualize_home = false,
+        ai_state = .Wandering,
+        collision_state = .Grounded,
+        model = game_state.enemy_mesh
+    }
+}
+
 ThrownEnemy :: struct {
     position: hlsl.float3,
     velocity: hlsl.float3,
@@ -406,15 +420,11 @@ load_level_file :: proc(
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
-            
-                    append(&game_state.enemies, Enemy {
-                        position = position,
-                        home_position = position,
-                        facing = {0.0, 1.0, 0.0},
-                        collision_radius = 0.5,
-                        ai_state = ai_state,
-                        collision_state = .Grounded
-                    })
+
+                    new_enemy := default_enemy(game_state^)
+                    new_enemy.position = position
+                    new_enemy.home_position = position
+                    append(&game_state.enemies, new_enemy)
                 }
 
             }
@@ -860,13 +870,7 @@ scene_editor :: proc(
                     imgui.Text("Nothing to see here!")
                 }
                 if imgui.Button("Add") {
-                    new_enemy := Enemy {
-                        position = {},
-                        velocity = {},
-                        collision_radius = 0.5,
-                        ai_state = .Wandering,
-                        collision_state = .Grounded
-                    }
+                    new_enemy := default_enemy(game_state^)
                     append(&game_state.enemies, new_enemy)
                 }
                 for &mesh, i in objects {
@@ -1489,18 +1493,18 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
     thrown_enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.thrown_enemies {
         // Check if hitting terrain
+        THROWN_ENEMY_COLLISION_WEIGHT :: 0.8
         closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
-        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * 0.8 {
+        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * THROWN_ENEMY_COLLISION_WEIGHT {
             thrown_enemy_to_remove = i
             
             // Respawn enemy
-            append(&game_state.enemies, Enemy {
-                position = enemy.respawn_position,
-                home_position = enemy.respawn_home,
-                velocity = {},
-                collision_radius = 0.5,
-                ai_state = enemy.respawn_ai
-            })
+            e := default_enemy(game_state^)
+            e.position = enemy.respawn_position
+            e.home_position = enemy.respawn_home
+            e.ai_state = enemy.respawn_ai
+            e.collision_radius = enemy.collision_radius
+            append(&game_state.enemies, e)
         }
 
         enemy.position += dt * enemy.velocity
