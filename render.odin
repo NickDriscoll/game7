@@ -201,6 +201,7 @@ Material_Handle :: distinct hm.Handle
 Renderer :: struct {
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
     indices_head: u32,
+    indices_ptr: vk.DeviceAddress,
 
     // Global buffers for vertex attributes
     // @TODO: Maybe I should add a proper GPU bump allocator
@@ -457,6 +458,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         joint_weights_buffer, _ := vkw.get_buffer(gd, renderer.joint_weights_buffer)
         joint_matrices_buffer, _ := vkw.get_buffer(gd, renderer.joint_matrices_buffer)
 
+        indices_buffer, _ := vkw.get_buffer(gd, renderer.index_buffer)
+
         uniform_buffer, _ := vkw.get_buffer(gd, renderer.uniform_buffer)
         log.debugf("uniform_buffer base pointer == 0x%X", uniform_buffer.address)
 
@@ -479,6 +482,8 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         renderer.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
         renderer.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
         renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
+
+        renderer.indices_ptr = indices_buffer.address
     }
 
     // Create main rendertarget
@@ -809,8 +814,8 @@ create_static_mesh :: proc(
     indices: []u16
 ) -> Static_Mesh_Handle {
     position_start: u32
+    positions_len := u32(len(positions))
     {
-        positions_len := u32(len(positions))
         assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
     
@@ -840,7 +845,35 @@ create_static_mesh :: proc(
     append(&renderer.gpu_static_meshes, gpu_mesh)
 
     // TEMP: Just trying to build a BLAS when I don't know how
-    {
+    if renderer.do_raytracing {
+        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(f32) * position_start)
+        geos : []vkw.AccelerationStructureGeometry = {
+            {
+                type = .TRIANGLES,
+                geometry = vkw.ASTriangleData {
+                    vertex_format = .R32_SFLOAT,
+                    vertex_data = {
+                        deviceAddress = pos_addr
+                    },
+                    vertex_stride = 0,
+                    max_vertex = positions_len - 1,
+                    index_type = .UINT32,
+                    index_data = {
+                        deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
+                    },
+                    transform_data = {}
+                }
+            }
+        } 
+        build_info := vkw.AccelerationStructureBuildInfo {
+            type = .BOTTOM_LEVEL,
+            flags = nil,
+            mode = .BUILD,
+            src = 0,
+            dst = 0,
+
+        }
+
         // as_info := vkw.AccelerationStructureCreateInfo {
         //     flags = nil,
         //     buffer = renderer.accleration_structure_buffer,
