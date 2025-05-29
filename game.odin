@@ -1526,7 +1526,8 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         {
             y := -enemy.facing
             z := hlsl.float3 {0.0, 0.0, 1.0}
-            x := hlsl.cross(y, z)
+            x := hlsl.normalize(hlsl.cross(y, z))
+            z = hlsl.normalize(hlsl.cross(x, y))
             rot = basis_matrix(x, y, z)
         }
         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
