@@ -344,6 +344,41 @@ main :: proc() {
     }
     context.allocator = scene_allocator
 
+    // Just a test load of a DDS file
+    dds_test_mesh: Static_Mesh_Handle
+    dds_test_mat: Material_Handle
+    {
+        positions: []hlsl.float4 = {
+            {-1.0, -1.0, 0.0, 1.0,},
+            {1.0, -1.0, 0.0, 1.0,},
+            {1.0, 1.0, 0.0, 1.0,},
+            {-1.0, 1.0, 0.0, 1.0,},
+        }
+        indices: []u16 = {
+            0, 1, 2,
+            2, 3, 0
+        }
+        dds_test_mesh = create_static_mesh(&vgd, &renderer, positions, indices)
+        
+        // Load raw BC7 bytes
+        // image_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
+        // assert(image_ok, "what the fucl")
+
+        // image_info := vkw.Image_Create {
+        //     flags = nil,
+        //     image_type = .D2,
+        //     format = .BC7_SRGB_BLOCK,
+
+        // }
+        // vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
+
+        mat := Material {
+            color_texture = NULL_OFFSET,
+            base_color = {1.0, 0.0, 1.0, 1.0},
+        }
+        dds_test_mat = add_material(&renderer, &mat)
+    }
+
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
     free_all(context.temp_allocator)
@@ -1041,6 +1076,14 @@ main :: proc() {
                 world_from_model = mat
             }
             draw_ps1_static_mesh(&vgd, &renderer, piece.model, &tform)
+        }
+
+        // Draw DDS testing mesh
+        {
+            data := StaticDraw {
+                world_from_model = translation_matrix({0.0, 0.0, -10.0}) * uniform_scaling_matrix(10.0)
+            }
+            draw_ps1_static_primitive(&vgd, &renderer, dds_test_mesh, dds_test_mat, &data)
         }
 
         // Window update
