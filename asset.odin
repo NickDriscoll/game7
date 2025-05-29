@@ -3,6 +3,7 @@ package main
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:mem"
+import "core:os"
 import "vendor:cgltf"
     
 get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
@@ -121,3 +122,94 @@ load_gltf_joint_ids :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.uint4 {
     return data
 }
 
+// Old Rust code for getting data from DDS header
+
+// const TRUE_BC7_HEADER_SIZE: usize = 148;        //This is DDSHeader + DDSHeader_DXT10 + magic word
+
+// pub struct DDSHeader {
+//     pub magic_word: u32,        // 0x20534444
+//     pub size: u32,
+//     pub flags: u32,
+//     pub height: u32,
+//     pub width: u32,
+//     pub pitch_or_linear_size: u32,
+//     pub depth: u32,
+//     pub mipmap_count: u32,
+//     pub reserved_1: [u32; 11],
+//     pub spf: DDS_PixelFormat,
+//     pub caps: u32,
+//     pub caps2: u32,
+//     pub caps3: u32,
+//     pub caps4: u32,
+//     pub reserved2: u32,
+//     pub dx10_header: DDSHeader_DXT10
+// }
+
+// pub struct DDS_PixelFormat {
+//     pub size: u32,
+//     pub flags: u32,
+//     pub four_cc: u32,
+//     pub rgb_bitcount: u32,
+//     pub r_bitmask: u32,
+//     pub g_bitmask: u32,
+//     pub b_bitmask: u32,
+//     pub a_bitmask: u32,
+// }
+
+// pub fn from_file(dds_file: &mut File) -> Self {
+//     let mut header_buffer = vec![0u8; Self::TRUE_BC7_HEADER_SIZE];
+
+//     dds_file.read_exact(&mut header_buffer).unwrap();
+
+//     let height = read_u32_from_le_bytes(&header_buffer, 12);
+//     let width = read_u32_from_le_bytes(&header_buffer, 16);
+//     let pitch_or_linear_size = read_u32_from_le_bytes(&header_buffer, 20);
+//     let mipmap_count = read_u32_from_le_bytes(&header_buffer, 28);
+//     let pixel_format = DDS_PixelFormat::from_header_bytes(&header_buffer);
+
+//     let dx10_header = DDSHeader_DXT10::from_header_bytes(&header_buffer);
+
+//     DDSHeader {
+//         height,
+//         width,
+//         pitch_or_linear_size,
+//         mipmap_count,
+//         spf: pixel_format,
+//         dx10_header,
+//         ..Default::default()
+//     }
+// }
+
+DDSPixelFormat :: struct {
+    size: u32,
+    flags: u32,             // @TODO: Should be enum with u32 backing
+    four_cc: u32,
+    rgb_bitcount: u32,
+    r_bitmask: u32,
+    g_bitmask: u32,
+    b_bitmask: u32,
+    a_bitmask: u32,
+}
+
+DDSHeader :: struct {
+    //magic_word: u32,            // 0x20534444
+    size: u32,
+    flags: u32,                // @TODO: Should be enum with u32 backing
+    height: u32,
+    width: u32,
+    pitch_or_linear_size: u32,
+    depth: u32,
+    mipmap_count: u32,
+    reserved_1: [11]u32,
+    spf: DDSPixelFormat,
+
+}
+
+TRUE_DDS_HEADER_SIZE :: 148        //This is DDSHeader + DDSHeader_DXT10 + magic word in bytes
+dds_load_header :: proc(filename: string) -> DDSHeader {
+    header: DDSHeader
+
+    // @TODO: Implement
+
+    return header
+}
