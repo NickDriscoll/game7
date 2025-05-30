@@ -354,27 +354,59 @@ main :: proc() {
             {1.0, 1.0, 0.0, 1.0,},
             {-1.0, 1.0, 0.0, 1.0,},
         }
+        uvs: []hlsl.float2 = {
+            {0.0, 0.0,},
+            {1.0, 0.0,},
+            {1.0, 1.0,},
+            {0.0, 1.0,},
+        }
         indices: []u16 = {
             0, 1, 2,
             2, 3, 0
         }
         dds_test_mesh = create_static_mesh(&vgd, &renderer, positions, indices)
+        add_vertex_uvs(&vgd, &renderer, dds_test_mesh, uvs)
         
         // Load raw BC7 bytes
-        // image_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
-        // assert(image_ok, "what the fucl")
+        file_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
+        assert(image_ok, "what the fucl")
 
-        // image_info := vkw.Image_Create {
-        //     flags = nil,
-        //     image_type = .D2,
-        //     format = .BC7_SRGB_BLOCK,
+        // Read DDS header
+        dds_header, ok := dds_load_header(file_bytes)
+        if !ok {
+            log.error("Unable to read DDS header")
+        }
+        log.infof("%#v", dds_header)
 
-        // }
-        // vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
+        image_format := dxgi_to_vulkan(dds_header.dxgi_format)
+        image_info := vkw.Image_Create {
+            flags = nil,
+            image_type = .D2,
+            format = image_format,
+            extent = {
+                width = dds_header.width,
+                height = dds_header.height,
+                depth = dds_header.height,
+            },
+            supports_mipmaps = dds_header.mipmap_count > 1,
+            array_layers = dds_header.array_size,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED},
+            alloc_flags = nil,
+            name = "DDS test image"
+        }
+        image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
+        image_handle, create_ok := vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
+
+        tex : u32 = NULL_OFFSET
+        if create_ok {
+            tex = image_handle.index
+        }
 
         mat := Material {
-            color_texture = NULL_OFFSET,
-            base_color = {1.0, 0.0, 1.0, 1.0},
+            color_texture = tex,
+            base_color = {1.0, 1.0, 1.0, 1.0},
         }
         dds_test_mat = add_material(&renderer, &mat)
     }
@@ -1081,7 +1113,7 @@ main :: proc() {
         // Draw DDS testing mesh
         {
             data := StaticDraw {
-                world_from_model = translation_matrix({0.0, 0.0, -10.0}) * uniform_scaling_matrix(10.0)
+                world_from_model = translation_matrix({0.0, 0.0, -50.0}) * uniform_scaling_matrix(10.0)
             }
             draw_ps1_static_primitive(&vgd, &renderer, dds_test_mesh, dds_test_mat, &data)
         }
