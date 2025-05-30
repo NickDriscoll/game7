@@ -1084,10 +1084,14 @@ draw_debug_primtive :: proc(
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     draw_data: ^DebugDraw
-) {
+) -> bool {
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    if !ok {
+        log.warn("Unable to get static mesh from handle.")
+        return false
+    }
 
     new_inst := DebugStaticInstance {
         world_from_model = draw_data.world_from_model,
@@ -1096,6 +1100,7 @@ draw_debug_primtive :: proc(
         color = draw_data.color
     }
     append(&renderer.debug_static_instances, new_inst)
+    return true
 }
 
 // User code calls this to queue up draw calls
@@ -1108,7 +1113,11 @@ draw_ps1_static_primitive :: proc(
 ) -> bool {
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    if !ok {
+        log.warn("Unable to get static mesh from handle.")
+        return false
+    }
 
     // Append instance representing this primitive
     new_inst := CPUStaticInstance {
