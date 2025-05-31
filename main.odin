@@ -349,16 +349,16 @@ main :: proc() {
     dds_test_mat: Material_Handle
     {
         positions: []hlsl.float4 = {
-            {-1.0, -1.0, 0.0, 1.0,},
-            {1.0, -1.0, 0.0, 1.0,},
-            {1.0, 1.0, 0.0, 1.0,},
-            {-1.0, 1.0, 0.0, 1.0,},
+            {-10.0, -10.0, 0.0, 1.0,},
+            {10.0, -10.0, 0.0, 1.0,},
+            {10.0, 10.0, 0.0, 1.0,},
+            {-10.0, 10.0, 0.0, 1.0,},
         }
         uvs: []hlsl.float2 = {
             {0.0, 0.0,},
-            {1.0, 0.0,},
-            {1.0, 1.0,},
-            {0.0, 1.0,},
+            {60.0, 0.0,},
+            {60.0, 60.0,},
+            {0.0, 60.0,},
         }
         indices: []u16 = {
             0, 1, 2,
@@ -369,44 +369,47 @@ main :: proc() {
         
         // Load raw BC7 bytes
         file_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
-        assert(image_ok, "what the fucl")
 
-        // Read DDS header
-        dds_header, ok := dds_load_header(file_bytes)
-        if !ok {
-            log.error("Unable to read DDS header")
-        }
-        log.infof("%#v", dds_header)
+        tex : u32 = 0
+        if image_ok {
+            // Read DDS header
+            dds_header, ok := dds_load_header(file_bytes)
+            if !ok {
+                log.error("Unable to read DDS header")
+            }
+            log.infof("%#v", dds_header)
+    
+            image_format := dxgi_to_vulkan(dds_header.dxgi_format)
+            image_info := vkw.Image_Create {
+                flags = nil,
+                image_type = .D2,
+                format = image_format,
+                extent = {
+                    width = dds_header.width,
+                    height = dds_header.height,
+                    depth = dds_header.height,
+                },
+                supports_mipmaps = dds_header.mipmap_count > 1,
+                array_layers = dds_header.array_size,
+                samples = {._1},
+                tiling = .OPTIMAL,
+                usage = {.SAMPLED},
+                alloc_flags = nil,
+                name = "DDS test image"
+            }
+            image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
+            image_handle, create_ok := vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
 
-        image_format := dxgi_to_vulkan(dds_header.dxgi_format)
-        image_info := vkw.Image_Create {
-            flags = nil,
-            image_type = .D2,
-            format = image_format,
-            extent = {
-                width = dds_header.width,
-                height = dds_header.height,
-                depth = dds_header.height,
-            },
-            supports_mipmaps = dds_header.mipmap_count > 1,
-            array_layers = dds_header.array_size,
-            samples = {._1},
-            tiling = .OPTIMAL,
-            usage = {.SAMPLED},
-            alloc_flags = nil,
-            name = "DDS test image"
+            if create_ok {
+                tex = image_handle.index
+            }
         }
-        image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
-        image_handle, create_ok := vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
 
-        tex : u32 = NULL_OFFSET
-        if create_ok {
-            tex = image_handle.index
-        }
 
         mat := Material {
             color_texture = tex,
             base_color = {1.0, 1.0, 1.0, 1.0},
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
         }
         dds_test_mat = add_material(&renderer, &mat)
     }
