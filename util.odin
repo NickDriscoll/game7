@@ -111,3 +111,10 @@ basis_matrix :: proc(x, y, z: hlsl.float3) -> hlsl.float4x4 {
 exponential_smoothing :: proc(current: $VectorType, target: VectorType, speed: f32, dt: f32) -> VectorType {
     return current + (target - current) * (1.0 - math.exp(-speed * dt))
 }
+
+z_rotate_quaternion :: proc (angle: f32) -> quaternion128 {
+    half_angle := angle / 2.0
+    imag := hlsl.float3 {0.0, 0.0, 1.0} * math.sin(half_angle)
+
+    return quaternion(w = math.cos(half_angle), x = imag.x, y = imag.y, z = imag.z)
+}
