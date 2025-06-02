@@ -6,12 +6,14 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/linalg/hlsl"
+import "core:math/noise"
 import "core:mem"
 import "core:os"
 import "core:os/os2"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import "vendor:sdl2"
 
 import vkw "desktop_vulkan_wrapper"
@@ -87,7 +89,7 @@ EnemyState :: enum {
     BrainDead,
 
     Wandering,
-    Paused,
+    Resting,
 
     Hovering,
 
@@ -97,7 +99,7 @@ EnemyState :: enum {
 ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
     .BrainDead = "Brain Dead",
     .Wandering = "Wandering",
-    .Paused = "Paused",
+    .Resting = "Resting",
     .Hovering = "Hovering",
     .AlertedBounce = "Alerted Bounce",
     .AlertedCharge = "Alerted Charge"
@@ -112,6 +114,8 @@ Enemy :: struct {
 
     ai_state: EnemyState,
     collision_state: CollisionState,
+    timer_start: time.Time,
+
     model: ^StaticModelData,
 }
 
@@ -125,6 +129,7 @@ default_enemy :: proc(game_state: GameState) -> Enemy {
         visualize_home = false,
         ai_state = .Wandering,
         collision_state = .Grounded,
+        timer_start = time.now(),
         model = game_state.enemy_mesh
     }
 }
@@ -186,11 +191,16 @@ GameState :: struct {
 
     bgm_id: uint,
 
+    
+    dds_test_mesh: Static_Mesh_Handle,
+    dds_test_mat: Material_Handle,
+
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
     time: f32,
+    rng_seed: i64,
 
     freecam_collision: bool,
     freecam_speed_multiplier: f32,
@@ -271,6 +281,76 @@ init_gamestate :: proc(
 
     game_state.camera_follow_point = game_state.character.collision.position
     game_state.camera_follow_speed = 6.0
+
+    game_state.rng_seed = time.now()._nsec
+
+    // Just a test load of a DDS file
+    {
+        positions: []hlsl.float4 = {
+            {-10.0, -10.0, 0.0, 1.0,},
+            {10.0, -10.0, 0.0, 1.0,},
+            {10.0, 10.0, 0.0, 1.0,},
+            {-10.0, 10.0, 0.0, 1.0,},
+        }
+        uvs: []hlsl.float2 = {
+            {0.0, 0.0,},
+            {4.0, 0.0,},
+            {4.0, 4.0,},
+            {0.0, 4.0,},
+        }
+        indices: []u16 = {
+            0, 1, 2,
+            2, 3, 0
+        }
+        game_state.dds_test_mesh = create_static_mesh(gd, renderer, positions, indices)
+        add_vertex_uvs(gd, renderer, game_state.dds_test_mesh, uvs)
+        
+        // Load raw BC7 bytes
+        file_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
+
+        tex : u32 = 0
+        if image_ok {
+            // Read DDS header
+            dds_header, ok := dds_load_header(file_bytes)
+            if !ok {
+                log.error("Unable to read DDS header")
+            }
+            log.infof("%#v", dds_header)
+    
+            image_format := dxgi_to_vulkan(dds_header.dxgi_format)
+            image_info := vkw.Image_Create {
+                flags = nil,
+                image_type = .D2,
+                format = image_format,
+                extent = {
+                    width = dds_header.width,
+                    height = dds_header.height,
+                    depth = dds_header.height,
+                },
+                supports_mipmaps = dds_header.mipmap_count > 1,
+                array_layers = dds_header.array_size,
+                samples = {._1},
+                tiling = .OPTIMAL,
+                usage = {.SAMPLED},
+                alloc_flags = nil,
+                name = "DDS test image"
+            }
+            image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
+            image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
+
+            if create_ok {
+                tex = image_handle.index
+            }
+        }
+
+
+        mat := Material {
+            color_texture = tex,
+            base_color = {1.0, 1.0, 1.0, 1.0},
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
+        }
+        game_state.dds_test_mat = add_material(renderer, &mat)
+    }
 
     return game_state
 }
@@ -1339,12 +1419,17 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                 enemy.velocity.xy = {}
             }
             case .Wandering: {
-                enemy.velocity.xy = {0.0, 0.5}
-                if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
-                    enemy.velocity = {0.0, 0.0, 6.0}
-                    enemy.facing = hlsl.normalize(char.collision.position - enemy.position)
-                    enemy.ai_state = .AlertedBounce
-                    enemy.collision_state = .Falling
+                sample_point := [2]f64 {f64(game_state.time), f64(i)}
+                t := 0.05 * noise.noise_2d(game_state.rng_seed, sample_point)
+                rotq := z_rotate_quaternion(t)
+                enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
+
+                enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
+
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
+                    // Start resting
+                    enemy.timer_start = time.now()
+                    enemy.ai_state = .Resting
                 }
             }
             case .Hovering: {
@@ -1359,8 +1444,30 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             case .AlertedCharge: {
 
             }
-            case .Paused: {}
+            case .Resting: {
+
+
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
+                    // Start wandering
+                    enemy.timer_start = time.now()
+                    enemy.ai_state = .Wandering
+                }
+            }
         }
+
+        can_react_to_player := .Wandering == enemy.ai_state ||
+                               .Resting == enemy.ai_state
+        if can_react_to_player {
+            if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
+                enemy.velocity = {0.0, 0.0, 6.0}
+                enemy.facing = char.collision.position - enemy.position
+                enemy.facing.z = 0.0
+                enemy.facing = hlsl.normalize(enemy.facing)
+                enemy.ai_state = .AlertedBounce
+                enemy.collision_state = .Falling
+                enemy.timer_start = time.now()
+            }
+        }                               
 
         // Apply gravity to velocity, clamping downward speed if necessary
         is_affected_by_gravity := .BrainDead == enemy.ai_state ||

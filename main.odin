@@ -32,6 +32,9 @@ MAXIMUM_FRAME_DT :: 1.0 / 60.0
 SCENE_ARENA_SZIE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
 TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
 
+SECONDS_TO_NANOSECONDS :: 1_000_000_000
+MILLISECONDS_TO_NANOSECONDS :: 1_000_000
+
 IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
@@ -343,76 +346,6 @@ main :: proc() {
         input_system = init_input_system(&freecam_key_mappings)
     }
     context.allocator = scene_allocator
-
-    // Just a test load of a DDS file
-    dds_test_mesh: Static_Mesh_Handle
-    dds_test_mat: Material_Handle
-    {
-        positions: []hlsl.float4 = {
-            {-10.0, -10.0, 0.0, 1.0,},
-            {10.0, -10.0, 0.0, 1.0,},
-            {10.0, 10.0, 0.0, 1.0,},
-            {-10.0, 10.0, 0.0, 1.0,},
-        }
-        uvs: []hlsl.float2 = {
-            {0.0, 0.0,},
-            {60.0, 0.0,},
-            {60.0, 60.0,},
-            {0.0, 60.0,},
-        }
-        indices: []u16 = {
-            0, 1, 2,
-            2, 3, 0
-        }
-        dds_test_mesh = create_static_mesh(&vgd, &renderer, positions, indices)
-        add_vertex_uvs(&vgd, &renderer, dds_test_mesh, uvs)
-        
-        // Load raw BC7 bytes
-        file_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
-
-        tex : u32 = 0
-        if image_ok {
-            // Read DDS header
-            dds_header, ok := dds_load_header(file_bytes)
-            if !ok {
-                log.error("Unable to read DDS header")
-            }
-            log.infof("%#v", dds_header)
-    
-            image_format := dxgi_to_vulkan(dds_header.dxgi_format)
-            image_info := vkw.Image_Create {
-                flags = nil,
-                image_type = .D2,
-                format = image_format,
-                extent = {
-                    width = dds_header.width,
-                    height = dds_header.height,
-                    depth = dds_header.height,
-                },
-                supports_mipmaps = dds_header.mipmap_count > 1,
-                array_layers = dds_header.array_size,
-                samples = {._1},
-                tiling = .OPTIMAL,
-                usage = {.SAMPLED},
-                alloc_flags = nil,
-                name = "DDS test image"
-            }
-            image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
-            image_handle, create_ok := vkw.sync_create_image_with_data(&vgd, &image_info, image_bytes[:])
-
-            if create_ok {
-                tex = image_handle.index
-            }
-        }
-
-
-        mat := Material {
-            color_texture = tex,
-            base_color = {1.0, 1.0, 1.0, 1.0},
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
-        }
-        dds_test_mat = add_material(&renderer, &mat)
-    }
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
@@ -1118,7 +1051,7 @@ main :: proc() {
             data := StaticDraw {
                 world_from_model = translation_matrix({0.0, 0.0, -50.0}) * uniform_scaling_matrix(10.0)
             }
-            draw_ps1_static_primitive(&vgd, &renderer, dds_test_mesh, dds_test_mat, &data)
+            draw_ps1_static_primitive(&vgd, &renderer, game_state.dds_test_mesh, game_state.dds_test_mat, &data)
         }
 
         // Window update
@@ -1194,7 +1127,7 @@ main :: proc() {
 
         // CPU limiter
         // 1 millisecond == 1,000,00 nanoseconds
-        if do_limit_cpu do time.sleep(time.Duration(1_000_000 * cpu_limiter_ms))
+        if do_limit_cpu do time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
     }
 
     log.info("Returning from main()")
