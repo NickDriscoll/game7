@@ -306,7 +306,9 @@ init_gamestate :: proc(
         add_vertex_uvs(gd, renderer, game_state.dds_test_mesh, uvs)
         
         // Load raw BC7 bytes
-        file_bytes, image_ok := os.read_entire_file("data/images/idk.dds", context.temp_allocator)
+        //path := "data/images/idk.dds"
+        path := "data/images/test_cube.dds"
+        file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
         tex : u32 = 0
         if image_ok {
@@ -319,13 +321,13 @@ init_gamestate :: proc(
     
             image_format := dxgi_to_vulkan(dds_header.dxgi_format)
             image_info := vkw.Image_Create {
-                flags = nil,
+                flags = {.CUBE_COMPATIBLE},
                 image_type = .D2,
                 format = image_format,
                 extent = {
                     width = dds_header.width,
                     height = dds_header.height,
-                    depth = dds_header.height,
+                    depth = dds_header.depth,
                 },
                 supports_mipmaps = dds_header.mipmap_count > 1,
                 array_layers = dds_header.array_size,
@@ -333,7 +335,7 @@ init_gamestate :: proc(
                 tiling = .OPTIMAL,
                 usage = {.SAMPLED},
                 alloc_flags = nil,
-                name = "DDS test image"
+                name = "DDS test"
             }
             image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
