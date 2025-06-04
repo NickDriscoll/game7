@@ -52,8 +52,9 @@ struct UniformData {
     float time; // Periodic time value
     float distortion_strength;
     uint triangle_vis;
+    uint skybox_idx;
 
-    float _pad0;
+    //float _pad0;
 
     //RaytracingAccelerationStructure* acceleration_structure_data;
 }

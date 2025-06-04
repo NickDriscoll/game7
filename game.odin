@@ -329,7 +329,8 @@ init_gamestate :: proc(
                     height = dds_header.height,
                     depth = dds_header.depth,
                 },
-                supports_mipmaps = dds_header.mipmap_count > 1,
+                has_mipmaps = dds_header.mipmap_count > 1,
+                mip_count = dds_header.mipmap_count,
                 array_layers = dds_header.array_size,
                 samples = {._1},
                 tiling = .OPTIMAL,
@@ -342,6 +343,7 @@ init_gamestate :: proc(
 
             if create_ok {
                 tex = image_handle.index
+                renderer.cpu_uniforms.skybox_idx = image_handle.index
             }
         }
 
