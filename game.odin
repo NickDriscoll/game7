@@ -191,10 +191,6 @@ GameState :: struct {
 
     bgm_id: uint,
 
-    
-    dds_test_mesh: Static_Mesh_Handle,
-    dds_test_mat: Material_Handle,
-
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -285,39 +281,18 @@ init_gamestate :: proc(
     game_state.rng_seed = time.now()._nsec
 
     // Just a test load of a DDS file
-    {
-        positions: []hlsl.float4 = {
-            {-10.0, -10.0, 0.0, 1.0,},
-            {10.0, -10.0, 0.0, 1.0,},
-            {10.0, 10.0, 0.0, 1.0,},
-            {-10.0, 10.0, 0.0, 1.0,},
-        }
-        uvs: []hlsl.float2 = {
-            {0.0, 0.0,},
-            {4.0, 0.0,},
-            {4.0, 4.0,},
-            {0.0, 4.0,},
-        }
-        indices: []u16 = {
-            0, 1, 2,
-            2, 3, 0
-        }
-        game_state.dds_test_mesh = create_static_mesh(gd, renderer, positions, indices)
-        add_vertex_uvs(gd, renderer, game_state.dds_test_mesh, uvs)
-        
+    {   
         // Load raw BC7 bytes
         //path := "data/images/idk.dds"
         path := "data/images/test_cube.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
-        tex : u32 = 0
         if image_ok {
             // Read DDS header
             dds_header, ok := dds_load_header(file_bytes)
             if !ok {
                 log.error("Unable to read DDS header")
             }
-            log.infof("%#v", dds_header)
     
             image_format := dxgi_to_vulkan(dds_header.dxgi_format)
             image_info := vkw.Image_Create {
@@ -342,18 +317,9 @@ init_gamestate :: proc(
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
 
             if create_ok {
-                tex = image_handle.index
                 renderer.cpu_uniforms.skybox_idx = image_handle.index
             }
         }
-
-
-        mat := Material {
-            color_texture = tex,
-            base_color = {1.0, 1.0, 1.0, 1.0},
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16)
-        }
-        game_state.dds_test_mat = add_material(renderer, &mat)
     }
 
     return game_state

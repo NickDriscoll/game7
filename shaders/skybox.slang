@@ -28,7 +28,8 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 float4 fragment_main(VertexOutput input, uint primitive_id: SV_PrimitiveID) {
     float3 view_dir = normalize(input.view_direciton);
 
-    float3 skybox_sample = cubemaps[u_data.skybox_idx].Sample(samplers[sampler_idx], view_dir).rgb;
+    // Note the swizzling of the view_dir
+    float3 skybox_sample = cubemaps[u_data.skybox_idx].Sample(samplers[sampler_idx], view_dir.xzy).rgb;
 
     // float3 final_color = sky_color(view_dir);
     float3 final_color = skybox_sample;

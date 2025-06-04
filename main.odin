@@ -1046,14 +1046,6 @@ main :: proc() {
             draw_ps1_static_mesh(&vgd, &renderer, piece.model, &tform)
         }
 
-        // Draw DDS testing mesh
-        {
-            data := StaticDraw {
-                world_from_model = translation_matrix({0.0, 0.0, -50.0}) * uniform_scaling_matrix(10.0)
-            }
-            draw_ps1_static_primitive(&vgd, &renderer, game_state.dds_test_mesh, game_state.dds_test_mat, &data)
-        }
-
         // Window update
         {
             new_size, ok := output_verbs.int2s[.ResizeWindow]
