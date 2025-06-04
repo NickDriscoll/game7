@@ -1,5 +1,6 @@
 import procs;
 import structs;
+import tex_bindings;
 
 struct VertexOutput {
     float4 clip_pos : SV_Position;
@@ -27,7 +28,10 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 float4 fragment_main(VertexOutput input, uint primitive_id: SV_PrimitiveID) {
     float3 view_dir = normalize(input.view_direciton);
 
-    float3 final_color = sky_color(view_dir);
+    float3 skybox_sample = cubemaps[u_data.skybox_idx].Sample(samplers[sampler_idx], view_dir).rgb;
+
+    // float3 final_color = sky_color(view_dir);
+    float3 final_color = skybox_sample;
     float sun = smoothstep(0.995, 1.0, max(0.0, dot(view_dir, SUNLIGHT)));
     final_color += sun;
 

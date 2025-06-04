@@ -55,7 +55,8 @@ UniformBufferData :: struct {
     time: f32,
     distortion_strength: f32,
     triangle_vis: u32,
-    _pad0: f32,
+    skybox_idx: u32,
+    //_pad0: f32,
 
     //acceleration_structures_ptr: vk.DeviceAddress,
 }
@@ -497,7 +498,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 height = screen_size.y,
                 depth = 1,
             },
-            supports_mipmaps = false,
+            has_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
@@ -516,7 +517,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
                 height = screen_size.y,
                 depth = 1
             },
-            supports_mipmaps = false,
+            has_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
@@ -754,7 +755,7 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen
                 height = screen_size.y,
                 depth = 1
             },
-            supports_mipmaps = false,
+            has_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
@@ -773,7 +774,7 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen
                 height = screen_size.y,
                 depth = 1
             },
-            supports_mipmaps = false,
+            has_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,
@@ -1700,7 +1701,7 @@ load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> 
                 height = u32(height),
                 depth = 1
             },
-            supports_mipmaps = false,
+            has_mipmaps = false,
             array_layers = 1,
             samples = {._1},
             tiling = .OPTIMAL,

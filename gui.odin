@@ -64,7 +64,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiSta
             height = u32(height),
             depth = 1,
         },
-        supports_mipmaps = false,
+        has_mipmaps = false,
         array_layers = 1,
         samples = {._1},
         tiling = .OPTIMAL,
