@@ -50,7 +50,7 @@ when ODIN_DEBUG {
         "odin",
         "build",
         ".",
-        "-vet-shadowing"
+        "-vet-shadowing",
     }
 }
 
@@ -110,6 +110,7 @@ main :: proc() {
                 "-stage",
                 "vertex",
                 "-g3",
+                "-Wno-39001",   // Ignore shaders aliasing descriptor bindings
                 "-entry",
                 "vertex_main",
                 "-o",
@@ -139,6 +140,7 @@ main :: proc() {
                 "-stage",
                 "fragment",
                 "-g3",
+                "-Wno-39001",   // Ignore warning for shaders aliasing descriptor bindings
                 "-entry",
                 "fragment_main",
                 "-o",
@@ -168,6 +170,7 @@ main :: proc() {
                 "-stage",
                 "compute",
                 "-g3",
+                "-Wno-39001",   // Ignore warning for shaders aliasing descriptor bindings
                 "-O0",      // Some compute shaders have invalid SPIR-V when optimizations are on. See https://github.com/KhronosGroup/SPIRV-Tools/issues/5959
                 "-entry",
                 "compute_main",
