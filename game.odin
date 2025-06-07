@@ -286,7 +286,7 @@ init_gamestate :: proc(
     {   
         // Load raw BC7 bytes
         //path := "data/images/idk.dds"
-        path := "data/images/test_cube3.dds"
+        path := "data/images/blend_test_cube3.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
         if image_ok {
@@ -1076,15 +1076,6 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         char.acceleration = {}
     }
 
-    // Handle sprint
-    this_frame_move_speed := char.move_speed
-    {
-        amount, ok := output_verbs.floats[.Sprint]
-        if ok {
-            this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
-        }
-    }
-
     // Set current xy velocity (and character facing) to whatever user input is
     {
         // X and Z bc view space is x-right, y-up, z-back
@@ -1141,10 +1132,21 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             world_invector = hlsl.normalize(world_invector)
         }
 
+        // Handle sprint
+        this_frame_move_speed := char.move_speed
+        {
+            amount, ok := output_verbs.floats[.Sprint]
+            if ok {
+                this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
+            }
+        }
+
         // Now we have a representation of the player's input vector in world space
 
         char.acceleration = {world_invector.x, world_invector.y, 0.0}
-        if hlsl.length(char.acceleration) == 0 {
+        accel_len := hlsl.length(char.acceleration)
+        this_frame_move_speed *= accel_len
+        if accel_len == 0 {
             to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
             char.velocity.xy += char.deceleration_speed * to_zero
         }
