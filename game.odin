@@ -14,7 +14,9 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
+
 import "vendor:sdl2"
+import vk "vendor:vulkan"
 
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
@@ -284,7 +286,7 @@ init_gamestate :: proc(
     {   
         // Load raw BC7 bytes
         //path := "data/images/idk.dds"
-        path := "data/images/test_cube.dds"
+        path := "data/images/test_cube3.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
         if image_ok {
@@ -293,10 +295,13 @@ init_gamestate :: proc(
             if !ok {
                 log.error("Unable to read DDS header")
             }
+            log.debugf("%#v", dds_header)
     
-            image_format := dxgi_to_vulkan(dds_header.dxgi_format)
+            is_cubemap := .D3D11_RESOURCE_MISC_TEXTURECUBE in dds_header.misc_flag
+            image_flags : vk.ImageCreateFlags = {.CUBE_COMPATIBLE} if is_cubemap else {}
+            image_format := dxgi_to_vulkan_format(dds_header.dxgi_format)
             image_info := vkw.Image_Create {
-                flags = {.CUBE_COMPATIBLE},
+                flags = image_flags,
                 image_type = .D2,
                 format = image_format,
                 extent = {
@@ -306,7 +311,7 @@ init_gamestate :: proc(
                 },
                 has_mipmaps = dds_header.mipmap_count > 1,
                 mip_count = dds_header.mipmap_count,
-                array_layers = dds_header.array_size,
+                array_layers = 6,
                 samples = {._1},
                 tiling = .OPTIMAL,
                 usage = {.SAMPLED},
