@@ -502,6 +502,7 @@ main :: proc() {
                     if imgui.Button("Reset player") {
                         collision.position = game_state.character_start
                         velocity = {}
+                        acceleration = {}
                     }
                     imgui.SameLine()
                     imgui.BeginDisabled(move_player)
