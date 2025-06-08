@@ -1,6 +1,6 @@
 
-
-static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
+static const uint MAX_DIRECTIONAL_LIGHTS = 4;
+//static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
 
 struct StaticMeshData {
     uint position_offset;
@@ -29,9 +29,18 @@ struct MaterialData {
     float4 base_color;
 }
 
+struct DirectionalLight {
+    float3 direction;
+    float _pad0;
+    float3 color;
+    float _pad1;
+}
+
 struct UniformData {
     float4x4 clip_from_world;
+
     float4x4 clip_from_skybox;
+
     float4x4 clip_from_screen;
 
     StaticMeshData *mesh_data;
@@ -39,24 +48,29 @@ struct UniformData {
 
     MaterialData *mat_data;
     float4 *position_data;
-    
+
     float2 *uv_data;
     float4 *color_data;
+
     uint4 *joint_ids;
     float4 *joint_weights;
-    float4x4 *inv_bind_matrices;
 
+    float4x4 *inv_bind_matrices;
     float4 _pad1;
+
     float4 view_position;
 
+    DirectionalLight directional_lights[MAX_DIRECTIONAL_LIGHTS];
+
+    uint directional_light_count;
     float time; // Periodic time value
     float distortion_strength;
     uint triangle_vis;
+
     uint skybox_idx;
+    float3 _pad0;
 
-    //float _pad0;
-
-    //RaytracingAccelerationStructure* acceleration_structure_data;
+    // RaytracingAccelerationStructure* acceleration_structure_data;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {
@@ -107,4 +121,54 @@ static const float3 INWARD_FACING_CUBE[] = {
     1.0, 1.0, 1.0,
     -1.0, 1.0, -1.0,
     1.0, 1.0, -1.0
+};
+
+static const float3 OUTWARD_FACING_CUBE[] = {
+    // Front
+    -1.0, -1.0, -1.0,
+    -1.0, 1.0, -1.0,
+    1.0, -1.0, -1.0,
+    1.0, 1.0, -1.0,
+    1.0, -1.0, -1.0,
+    -1.0, 1.0, -1.0,
+
+    // Left
+    -1.0, -1.0, -1.0,
+    -1.0, -1.0, 1.0,
+    -1.0, 1.0, -1.0,
+    -1.0, 1.0, -1.0,
+    -1.0, -1.0, 1.0,
+    -1.0, 1.0, 1.0,
+
+    // Right
+    1.0, 1.0, -1.0,
+    1.0, -1.0, 1.0,
+    1.0, -1.0, -1.0,
+    1.0, 1.0, 1.0,
+    1.0, -1.0, 1.0,
+    1.0, 1.0, -1.0,
+
+    // Back
+    -1.0, 1.0, 1.0,
+    -1.0, -1.0, 1.0,
+    1.0, 1.0, 1.0,
+    1.0, 1.0, 1.0,
+    -1.0, -1.0, 1.0,
+    1.0, -1.0, 1.0,
+
+    // Bottom
+    -1.0, -1.0, 1.0,
+    -1.0, -1.0, -1.0,
+    1.0, -1.0, -1.0,
+    -1.0, -1.0, 1.0,
+    1.0, -1.0, -1.0,
+    1.0, -1.0, 1.0,
+
+    // Top
+    1.0, 1.0, 1.0,
+    -1.0, 1.0, -1.0,
+    -1.0, 1.0, 1.0,
+    1.0, 1.0, 1.0,
+    1.0, 1.0, -1.0,
+    -1.0, 1.0, -1.0,
 };

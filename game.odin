@@ -282,11 +282,19 @@ init_gamestate :: proc(
 
     game_state.rng_seed = time.now()._nsec
 
+    // Set up sun
+    renderer.cpu_uniforms.directional_light_count = 1
+    renderer.cpu_uniforms.directional_lights[0] = DirectionalLight {
+        direction = hlsl.normalize(hlsl.float3{-1.2, 1.3, 1.0}),
+        color = {1.0, 1.0, 1.0},
+    }
+
     // Just a test load of a DDS file
     {   
         // Load raw BC7 bytes
         //path := "data/images/idk.dds"
-        path := "data/images/blend_test_cube3.dds"
+        path := "data/images/totality.dds"
+        //path := "data/images/beach.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
         if image_ok {

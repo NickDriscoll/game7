@@ -10,6 +10,7 @@ import "core:time"
 
 ConfigKey :: enum {
     ShowDebugMenu,
+    GraphicsSettings,
     AudioPanel,
     AudioVolume,
     ShowClosestPoint,
@@ -40,6 +41,7 @@ ConfigKey :: enum {
 
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
     .ShowDebugMenu = "show_debug_menu",
+    .GraphicsSettings = "graphics_settings",
     .AudioPanel = "audio_panel",
     .AudioVolume = "audio_volume",
     .CameraConfig = "camera_config",
