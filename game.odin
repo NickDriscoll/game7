@@ -293,8 +293,8 @@ init_gamestate :: proc(
     {   
         // Load raw BC7 bytes
         //path := "data/images/idk.dds"
-        path := "data/images/totality.dds"
-        //path := "data/images/beach.dds"
+        //path := "data/images/totality.dds"
+        path := "data/images/beach.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
         if image_ok {
@@ -1287,6 +1287,13 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 char.collision.position = motion_endpoint
             }
         }
+    }
+
+    // Teleport player back to spawn if hit death plane
+    if char.collision.position.z < -100.0 {
+        char.collision.position = game_state.character_start
+        char.velocity = {}
+        char.acceleration = {}
     }
 
     // Shoot command
