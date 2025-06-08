@@ -33,9 +33,13 @@ float4 fragment_main(VertexOutput input, uint primitive_id: SV_PrimitiveID) {
 
     // float3 final_color = sky_color(view_dir);
     float3 final_color = skybox_sample;
-    float sun = smoothstep(0.995, 1.0, max(0.0, dot(view_dir, SUNLIGHT)));
-    final_color += sun;
 
+    float3 suns = {};
+    for (int i = 0; i < u_data.directional_light_count; ++i) {
+        DirectionalLight light = u_data.directional_lights[i];
+        suns += light.color * smoothstep(0.995, 1.0, max(0.0, dot(view_dir, light.direction)));
+    }
+    final_color += suns;
 
     return float4(final_color, 1.0);
 }

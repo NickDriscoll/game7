@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:path/filepath"
 import "core:fmt"
 import "core:log"
@@ -26,6 +27,7 @@ MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
 MAX_UNIQUE_MODELS :: 4096
+MAX_DIRECTIONAL_LIGHTS :: 4
 
 ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS :: 1024 * 1024
 
@@ -36,29 +38,46 @@ FRAMES_IN_FLIGHT :: 2
 
 UniformBufferData :: struct {
     clip_from_world: hlsl.float4x4,
+    
     clip_from_skybox: hlsl.float4x4,
+
     clip_from_screen: hlsl.float4x4,
 
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
+
     material_ptr: vk.DeviceAddress,
     position_ptr: vk.DeviceAddress,
+
     uv_ptr: vk.DeviceAddress,
     color_ptr: vk.DeviceAddress,
+
     joint_id_ptr: vk.DeviceAddress,
     joint_weight_ptr: vk.DeviceAddress,
-    joint_mats_ptr: vk.DeviceAddress,
 
+    joint_mats_ptr: vk.DeviceAddress,
     _pad1: hlsl.float4,
+    
     view_position: hlsl.float4,
 
+    directional_lights: [MAX_DIRECTIONAL_LIGHTS]DirectionalLight,
+
+    directional_light_count: u32,
     time: f32,
     distortion_strength: f32,
     triangle_vis: u32,
+
     skybox_idx: u32,
-    //_pad0: f32,
+    _pad0: [3]f32,
 
     //acceleration_structures_ptr: vk.DeviceAddress,
+}
+
+DirectionalLight :: struct {
+    direction: hlsl.float3,
+    _pad0: f32,
+    color: hlsl.float3,
+    _pad1: f32,
 }
 
 Ps1PushConstants :: struct {
@@ -2054,4 +2073,34 @@ load_gltf_skinned_model :: proc(
     }
 
     return &render_data.loaded_skinned_models[interned_filename]
+}
+
+
+
+graphics_gui :: proc(renderer: ^Renderer, gui: ^ImguiState, do_window: ^bool) {
+    if do_window^ {
+        if imgui.Begin("Graphics settings", do_window) {
+            imgui.Text("Directional lights")
+            for i in 0..<renderer.cpu_uniforms.directional_light_count {
+                light := &renderer.cpu_uniforms.directional_lights[i]
+                imgui.PushIDInt(c.int(i))
+                imgui.ColorPicker3("Color", &light.color)
+                imgui.PopID()
+            }
+
+            light_count := &renderer.cpu_uniforms.directional_light_count
+            can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
+            imgui.BeginDisabled(can_add)
+            if imgui.Button("Add") {
+                l := DirectionalLight {
+                    direction = {0.0, 0.0, 1.0},
+                    color = {1.0, 1.0, 1.0},
+                }
+                renderer.cpu_uniforms.directional_lights[light_count^] = l
+                light_count^ += 1
+            }
+            imgui.EndDisabled()
+        }
+        imgui.End()
+    }
 }

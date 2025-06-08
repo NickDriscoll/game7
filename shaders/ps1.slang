@@ -32,6 +32,12 @@ float3 id_to_color(uint id) {
     return ID_COLORS[r];
 }
 
+float3 simple_diffuse_brdf(float3 normal, float3 light_dir, float3 light_color) {
+    float r = dot(normal, light_dir);
+    r = 0.5 * r + 0.5;
+    return r * r * light_color;
+}
+
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint first_instance: SV_StartInstanceLocation) {
     uint inst_idx = inst + first_instance;
@@ -67,18 +73,21 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     MaterialData material = u_data.mat_data[inst.material_idx];
 
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
-    float diffuse_contribution = dot(normalize(face_normal), SUNLIGHT);
     
-    // Half lambert
-    diffuse_contribution = 0.5 * diffuse_contribution + 0.5;
-    diffuse_contribution *= diffuse_contribution;
-    diffuse_contribution = max(0.05, diffuse_contribution);
-
     float4 vtx_color = input.color;
-
+    
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
     if (material.color_texture != NULL_OFFSET) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
+    }
+    
+    float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+
+    // Directional lighting
+    float3 diffuse_contribution = {};
+    for (uint i = 0; i < u_data.directional_light_count; ++i) {
+        DirectionalLight light = u_data.directional_lights[i];
+        diffuse_contribution += simple_diffuse_brdf(normalize(face_normal), light.direction, light.color);
     }
 
     // if (u_data.acceleration_structure_data != nullptr) {
@@ -91,7 +100,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         //TraceRay();
     // }
 
-    float3 final_color = diffuse_contribution * vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+    float3 final_color = diffuse_contribution * material_albedo;
 
     if (inst.is_highlighted > 0) {
         float3 pos_to_view = normalize(u_data.view_position.xyz - input.world_pos);

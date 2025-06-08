@@ -255,6 +255,9 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
                 user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
             }
+            if imgui.MenuItem("Graphics", "erm", user_config.flags[.GraphicsSettings]) {
+                user_config.flags[.GraphicsSettings] = !user_config.flags[.GraphicsSettings]
+            }
             input_config := user_config.flags[.InputConfig]
             if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags[.InputConfig] = !user_config.flags[.InputConfig]
             camera_config := user_config.flags[.CameraConfig]
