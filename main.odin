@@ -555,7 +555,7 @@ main :: proc() {
                 sb: strings.Builder
                 strings.builder_init(&sb, context.temp_allocator)
                 path := fmt.sbprintf(&sb, "data/levels/%v.lvl", game_state.current_level)
-                write_level_file(&game_state, audio_system, path)
+                write_level_file(&game_state, &renderer, audio_system, path)
             }
             case .SaveLevelAs: {
                 show_save_modal = true
@@ -695,7 +695,7 @@ main :: proc() {
                 }
 
                 if len(level_savename) > 0 {
-                    write_level_file(&game_state, audio_system, level_savename)
+                    write_level_file(&game_state, &renderer, audio_system, level_savename)
                 }
 
                 imgui.EndPopup()

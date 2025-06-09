@@ -334,6 +334,8 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_matrices_head = 0
     renderer.uvs_head = 0
     renderer.acceleration_structure_head = 0
+
+    renderer.cpu_uniforms.directional_light_count = 0
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {

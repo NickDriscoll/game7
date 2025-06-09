@@ -163,6 +163,7 @@ LevelBlock :: enum u8 {
     AnimatedScenery = 2,
     Enemies = 3,
     BgmFile = 4,
+    DirectionalLights = 5,
 }
 
 // Megastruct for all game-specific data
@@ -282,13 +283,6 @@ init_gamestate :: proc(
 
     game_state.rng_seed = time.now()._nsec
 
-    // Set up sun
-    renderer.cpu_uniforms.directional_light_count = 1
-    renderer.cpu_uniforms.directional_lights[0] = DirectionalLight {
-        direction = hlsl.normalize(hlsl.float3{-1.2, 1.3, 1.0}),
-        color = {1.0, 1.0, 1.0},
-    }
-
     // Just a test load of a DDS file
     {   
         // Load raw BC7 bytes
@@ -403,6 +397,16 @@ load_level_file :: proc(
                 game_state.bgm_id, _ = open_music_file(audio_system, path)
                 strings.builder_reset(&path_builder)
             }
+            case .DirectionalLights: {
+                count := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                renderer.cpu_uniforms.directional_light_count = count
+                for i in 0..<count {
+                    light: DirectionalLight
+                    light.direction = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    light.color = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    renderer.cpu_uniforms.directional_lights[i] = light
+                }
+            }
             case .Terrain: {
                 // Terrain pieces
                 ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
@@ -503,7 +507,7 @@ load_level_file :: proc(
     return true
 }
 
-write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path: string) {
+write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
     mesh_data_size :: proc(mesh: $T) -> int {
         s := 0
         s += size_of(u32)
@@ -522,9 +526,14 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
     output_size += size_of(gamestate.character_start)
     
     // BGM music file name
-    output_size += size_of(u8)
+    output_size += size_of(u8)      //block
     output_size += size_of(u32)
     output_size += len(bgm.name)
+
+    // Directional lights
+    output_size += size_of(u8)      //block
+    output_size += size_of(u32)     // Directional light count
+    output_size += 2 * size_of(hlsl.float3) * int(renderer.cpu_uniforms.directional_light_count)
 
     // Terrain pieces
     if len(gamestate.terrain_pieces) > 0 {
@@ -596,6 +605,17 @@ write_level_file :: proc(gamestate: ^GameState, audio_system: AudioSystem, path:
         block = .BgmFile
         write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
         write_string_to_buffer(raw_output_buffer[:], bgm.name, &write_head)
+    }
+
+    {
+        block = .DirectionalLights
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        write_thing_to_buffer(raw_output_buffer[:], &renderer.cpu_uniforms.directional_light_count, &write_head)
+        for i in 0..<renderer.cpu_uniforms.directional_light_count {
+            light := &renderer.cpu_uniforms.directional_lights[i]
+            write_thing_to_buffer(raw_output_buffer[:], &light.direction, &write_head)
+            write_thing_to_buffer(raw_output_buffer[:], &light.color, &write_head)
+        }
     }
 
     if len(gamestate.terrain_pieces) > 0 {
