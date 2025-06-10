@@ -155,6 +155,10 @@ camera_gui :: proc(
         imgui.Text("Camera pitch: %f", camera.pitch)
         imgui.SliderFloat("Camera fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
         imgui.SliderFloat("Camera slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
+        imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
+        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+            user_config.flags[.FreecamCollision] = game_state.freecam_collision
+        }
     
         freecam := .Follow not_in camera.control_flags
         if imgui.Checkbox("Freecam", &freecam) {

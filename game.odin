@@ -1419,6 +1419,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
 }
 
 ENEMY_HOME_RADIUS :: 4.0
+ENEMY_LUNGE_SPEED :: 10.0
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
     char := &game_state.character
     enemy_to_remove: Maybe(int)
@@ -1450,11 +1451,17 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             }
             case .AlertedBounce: {
                 if enemy.collision_state == .Grounded {
-                    enemy.ai_state = .Wandering
+                    enemy.ai_state = .AlertedCharge
+                    enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+                    enemy.velocity.z = 6.0
+                    enemy.collision_state = .Falling
                 }
             }
             case .AlertedCharge: {
-
+                enemy.home_position = enemy.position
+                if enemy.collision_state == .Grounded {
+                    enemy.ai_state = .Wandering
+                }
             }
             case .Resting: {
 
@@ -1471,20 +1478,22 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                                .Resting == enemy.ai_state
         if can_react_to_player {
             if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
-                enemy.velocity = {0.0, 0.0, 6.0}
                 enemy.facing = char.collision.position - enemy.position
                 enemy.facing.z = 0.0
                 enemy.facing = hlsl.normalize(enemy.facing)
+                enemy.velocity = {0.0, 0.0, 6.0}
                 enemy.ai_state = .AlertedBounce
                 enemy.collision_state = .Falling
                 enemy.timer_start = time.now()
+                enemy.home_position = enemy.position
             }
         }                               
 
         // Apply gravity to velocity, clamping downward speed if necessary
         is_affected_by_gravity := .BrainDead == enemy.ai_state ||
                                   .Wandering == enemy.ai_state ||
-                                  .AlertedBounce == enemy.ai_state
+                                  .AlertedBounce == enemy.ai_state ||
+                                  .AlertedCharge == enemy.ai_state
         if is_affected_by_gravity {
             enemy.velocity += dt * GRAVITY_ACCELERATION
             if enemy.velocity.z < TERMINAL_VELOCITY {

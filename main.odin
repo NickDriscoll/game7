@@ -471,11 +471,6 @@ main :: proc() {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Separator()
-                imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
-                if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                    user_config.flags[.FreecamCollision] = game_state.freecam_collision
-                }
-                imgui.Separator()
 
                 {
                     using game_state.character
