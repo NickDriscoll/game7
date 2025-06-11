@@ -322,6 +322,7 @@ main :: proc() {
         freecam_key_mappings[.BACKSLASH] = .FrameAdvance
         freecam_key_mappings[.PAUSE] = .Resume
         freecam_key_mappings[.F] = .FullscreenHotkey
+        character_key_mappings[.R] = .PlayerReset
 
         character_key_mappings[.ESCAPE] = .ToggleImgui
         character_key_mappings[.W] = .PlayerTranslateForward
@@ -334,6 +335,7 @@ main :: proc() {
         character_key_mappings[.BACKSLASH] = .FrameAdvance
         character_key_mappings[.PAUSE] = .Resume
         character_key_mappings[.F] = .FullscreenHotkey
+        character_key_mappings[.R] = .PlayerReset
     }
 
     // Init input system
@@ -481,6 +483,8 @@ main :: proc() {
 
                     flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                    flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
+                    if imgui.Checkbox("Show player activity radius", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
@@ -495,9 +499,7 @@ main :: proc() {
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
                     imgui.SliderFloat("Bullet travel time", &game_state.character.bullet_travel_time, 0.0, 1.0)
                     if imgui.Button("Reset player") {
-                        collision.position = game_state.character_start
-                        velocity = {}
-                        acceleration = {}
+                        output_verbs.bools[.PlayerReset] = true
                     }
                     imgui.SameLine()
                     imgui.BeginDisabled(move_player)

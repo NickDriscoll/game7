@@ -150,12 +150,16 @@ camera_gui :: proc(
 ) -> (response: CameraGuiResponse, ok: bool) {
     ok = false
     if imgui.Begin("Camera controls", close) {
-        imgui.Text("Camera position: (%f, %f, %f)", camera.position.x, camera.position.y, camera.position.z)
-        imgui.Text("Camera yaw: %f", camera.yaw)
-        imgui.Text("Camera pitch: %f", camera.pitch)
-        imgui.SliderFloat("Camera fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
-        imgui.SliderFloat("Camera slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
-        imgui.SliderFloat("Camera smoothing speed", &game_state.camera_follow_speed, 0.1, 50.0)
+        imgui.Text("Position: (%f, %f, %f)", camera.position.x, camera.position.y, camera.position.z)
+        imgui.Text("Yaw: %f", camera.yaw)
+        imgui.Text("Pitch: %f", camera.pitch)
+        imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
+        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 500.0)
+        imgui.SameLine()
+        if imgui.Button("Reset") {
+            game_state.camera_follow_speed = 6.0
+        }
         if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
             user_config.flags[.FreecamCollision] = game_state.freecam_collision
         }
@@ -171,7 +175,7 @@ camera_gui :: proc(
         imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
         imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
         imgui.SameLine()
-        if imgui.Button("Default") do camera.fov_radians = math.PI / 2.0
+        if imgui.Button("Reset") do camera.fov_radians = math.PI / 2.0
     }
     imgui.End()
 
