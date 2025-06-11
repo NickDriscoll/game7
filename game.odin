@@ -1244,6 +1244,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
 
     // Compute closest point to terrain along with
     // vector opposing player motion
+    //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
     closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
@@ -1286,14 +1287,17 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         }
         case .Falling: {
             // Then do collision test against triangles
-
+            //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
+ 
             d := hlsl.distance(char.collision.position, closest_pt)
-            hit := d < char.collision.radius
+            collided := d < char.collision.radius
 
-            if hit {
+            if collided {
                 // Hit terrain
                 remaining_d := char.collision.radius - d
                 char.collision.position = motion_endpoint + remaining_d * collision_normal
+                //char.collision.position = motion_interval.start + collision_t * (motion_interval.end - motion_interval.start)
+                
                 n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
                 if n_dot >= 0.5 && char.velocity.z < 0.0 {
                     // Floor
@@ -1301,6 +1305,11 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 } else if n_dot < -0.1 && char.velocity.z > 0.0 {
                     // Ceiling
                     char.velocity.z = 0.0
+                } else {
+                    // Wall
+                    // Let player pass through, then adjust by moving along triangle normal
+                    char.collision.position = closest_pt
+                    char.collision.position += collision_normal * char.collision.radius
                 }
             } else {
                 // Didn't hit anything, still falling.
@@ -1310,7 +1319,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     }
 
     // Teleport player back to spawn if hit death plane
-    if char.collision.position.z < -100.0 {
+    if char.collision.position.z < -50.0 {
         char.collision.position = game_state.character_start
         char.velocity = {}
         char.acceleration = {}
@@ -1419,7 +1428,8 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
 }
 
 ENEMY_HOME_RADIUS :: 4.0
-ENEMY_LUNGE_SPEED :: 10.0
+ENEMY_LUNGE_SPEED :: 20.0
+ENEMY_JUMP_SPEED :: 6.0
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
     char := &game_state.character
     enemy_to_remove: Maybe(int)
@@ -1427,11 +1437,15 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         // Update
 
         // AI state specific logic
+        can_react_to_player := false
+        is_affected_by_gravity := false
         switch enemy.ai_state {
             case .BrainDead: {
                 enemy.velocity.xy = {}
             }
             case .Wandering: {
+                can_react_to_player = true
+                is_affected_by_gravity = true
                 sample_point := [2]f64 {f64(game_state.time), f64(i)}
                 t := 0.05 * noise.noise_2d(game_state.rng_seed, sample_point)
                 rotq := z_rotate_quaternion(t)
@@ -1450,22 +1464,23 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                 enemy.position = enemy.home_position + offset
             }
             case .AlertedBounce: {
+                is_affected_by_gravity = true
                 if enemy.collision_state == .Grounded {
                     enemy.ai_state = .AlertedCharge
                     enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                    enemy.velocity.z = 6.0
+                    enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
                     enemy.collision_state = .Falling
                 }
             }
             case .AlertedCharge: {
+                is_affected_by_gravity = true
                 enemy.home_position = enemy.position
                 if enemy.collision_state == .Grounded {
-                    enemy.ai_state = .Wandering
+                    enemy.ai_state = .Resting
+                    enemy.timer_start = time.now()
                 }
             }
             case .Resting: {
-
-
                 if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
                     // Start wandering
                     enemy.timer_start = time.now()
@@ -1474,14 +1489,12 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
             }
         }
 
-        can_react_to_player := .Wandering == enemy.ai_state ||
-                               .Resting == enemy.ai_state
         if can_react_to_player {
             if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
                 enemy.facing = char.collision.position - enemy.position
                 enemy.facing.z = 0.0
                 enemy.facing = hlsl.normalize(enemy.facing)
-                enemy.velocity = {0.0, 0.0, 6.0}
+                enemy.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
                 enemy.ai_state = .AlertedBounce
                 enemy.collision_state = .Falling
                 enemy.timer_start = time.now()
@@ -1490,10 +1503,6 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         }                               
 
         // Apply gravity to velocity, clamping downward speed if necessary
-        is_affected_by_gravity := .BrainDead == enemy.ai_state ||
-                                  .Wandering == enemy.ai_state ||
-                                  .AlertedBounce == enemy.ai_state ||
-                                  .AlertedCharge == enemy.ai_state
         if is_affected_by_gravity {
             enemy.velocity += dt * GRAVITY_ACCELERATION
             if enemy.velocity.z < TERMINAL_VELOCITY {
