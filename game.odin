@@ -64,7 +64,8 @@ CharacterFlags :: bit_set[enum {
     MovingRight,
     MovingBack,
     MovingForward,
-    AlreadyJumped
+    AlreadyJumped,
+    Sprinting,
 }]
 Character :: struct {
     collision: Sphere,
@@ -147,7 +148,8 @@ ThrownEnemy :: struct {
 
 DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerSpawn,
-    ShowPlayerHitSphere
+    ShowPlayerHitSphere,
+    ShowPlayerActivityRadius,
 }]
 
 AirBullet :: struct {
@@ -1098,12 +1100,6 @@ scene_editor :: proc(
 player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f32) {
     char := &game_state.character
 
-    if output_verbs.bools[.PlayerReset] {
-        char.collision.position = game_state.character_start
-        char.velocity = {}
-        char.acceleration = {}
-    }
-
     // Set current xy velocity (and character facing) to whatever user input is
     {
         // X and Z bc view space is x-right, y-up, z-back
@@ -1166,6 +1162,16 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             amount, ok := output_verbs.floats[.Sprint]
             if ok {
                 this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
+            }
+            if .Sprint in output_verbs.bools {
+                if output_verbs.bools[.Sprint] {
+                    char.control_flags += {.Sprinting}
+                } else {
+                    char.control_flags -= {.Sprinting}
+                }
+            }
+            if .Sprinting in char.control_flags {
+                this_frame_move_speed = char.sprint_speed
             }
         }
 
@@ -1245,6 +1251,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     // Compute closest point to terrain along with
     // vector opposing player motion
     //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
+
     closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
@@ -1287,39 +1294,44 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
         }
         case .Falling: {
             // Then do collision test against triangles
-            //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
  
-            d := hlsl.distance(char.collision.position, closest_pt)
-            collided := d < char.collision.radius
-
-            if collided {
-                // Hit terrain
-                remaining_d := char.collision.radius - d
-                char.collision.position = motion_endpoint + remaining_d * collision_normal
-                //char.collision.position = motion_interval.start + collision_t * (motion_interval.end - motion_interval.start)
-                
-                n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                if n_dot >= 0.5 && char.velocity.z < 0.0 {
-                    // Floor
-                    char.state = .Grounded
-                } else if n_dot < -0.1 && char.velocity.z > 0.0 {
-                    // Ceiling
-                    char.velocity.z = 0.0
-                } else {
-                    // Wall
-                    // Let player pass through, then adjust by moving along triangle normal
-                    char.collision.position = closest_pt
-                    char.collision.position += collision_normal * char.collision.radius
-                }
+            collided := false
+            segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.terrain_pieces[:])
+            if segment_ok {
+                char.collision.position = segment_pt
+                char.collision.position += collision_normal * char.collision.radius
+                char.velocity.z = 0
+                char.state = .Grounded
             } else {
-                // Didn't hit anything, still falling.
-                char.collision.position = motion_endpoint
+
+                d := hlsl.distance(char.collision.position, closest_pt)
+                collided = d < char.collision.radius
+    
+                if collided {
+                    // Hit terrain
+                    remaining_d := char.collision.radius - d
+                    char.collision.position = motion_endpoint + remaining_d * collision_normal
+                    
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 && char.velocity.z < 0.0 {
+                        // Floor
+                        char.velocity.z = 0
+                        char.state = .Grounded
+                    } else if n_dot < -0.1 && char.velocity.z > 0.0 {
+                        // Ceiling
+                        char.velocity.z = 0.0
+                    }
+                } else {
+                    // Didn't hit anything, still falling.
+                    char.collision.position = motion_endpoint
+                }
             }
+
         }
     }
 
     // Teleport player back to spawn if hit death plane
-    if char.collision.position.z < -50.0 {
+    if output_verbs.bools[.PlayerReset] || char.collision.position.z < -50.0 {
         char.collision.position = game_state.character_start
         char.velocity = {}
         char.acceleration = {}
@@ -1425,15 +1437,28 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         dd.color = {0.0, 1.0, 0.0, 0.5}
         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
     }
+    if .ShowPlayerActivityRadius in game_state.debug_vis_flags {
+        dd: DebugDraw
+        dd.world_from_model = translation_matrix(col.position) * scaling_matrix(ENEMY_PLAYER_MIN_DISTANCE)
+        dd.color = {0.0, 1.0, 0.5, 0.2}
+        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+    }
 }
 
 ENEMY_HOME_RADIUS :: 4.0
 ENEMY_LUNGE_SPEED :: 20.0
-ENEMY_JUMP_SPEED :: 6.0
+ENEMY_JUMP_SPEED :: 6.0                 // m/s
+ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 enemies_update :: proc(game_state: ^GameState, dt: f32) {
     char := &game_state.character
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
+        dist_to_player := hlsl.distance(char.collision.position, enemy.position)
+        // Early out if not close enough to player
+        // if dist_to_player > ENEMY_PLAYER_MIN_DISTANCE {
+        //     continue
+        // }
+
         // Update
 
         // AI state specific logic
@@ -1490,7 +1515,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
         }
 
         if can_react_to_player {
-            if hlsl.distance(char.collision.position, enemy.position) < ENEMY_HOME_RADIUS {
+            if dist_to_player < ENEMY_HOME_RADIUS {
                 enemy.facing = char.collision.position - enemy.position
                 enemy.facing.z = 0.0
                 enemy.facing = hlsl.normalize(enemy.facing)
@@ -1528,10 +1553,10 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
 
             closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
             collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+            dist := hlsl.distance(closest_pt, col.position)
             switch enemy.collision_state {
                 case .Grounded: {
                     // Push out of ground
-                    dist := hlsl.distance(closest_pt, col.position)
                     if dist < col.radius {
                         remaining_dist := col.radius - dist
                         if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
@@ -1566,12 +1591,11 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                 case .Falling: {
                     // Then do collision test against triangles
     
-                    d := hlsl.distance(col.position, closest_pt)
-                    hit := d < col.radius
+                    hit := dist < col.radius
     
                     if hit {
                         // Hit terrain
-                        remaining_d := col.radius - d
+                        remaining_d := col.radius - dist
                         col.position = motion_endpoint + remaining_d * collision_normal
                         n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
                         if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
