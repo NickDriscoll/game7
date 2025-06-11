@@ -367,11 +367,11 @@ main :: proc() {
         current_time = time.now()
         nanosecond_dt := time.diff(previous_time, current_time)
         last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
-        last_frame_dt = min(last_frame_dt, MAXIMUM_FRAME_DT)
+        dt := min(last_frame_dt, MAXIMUM_FRAME_DT)
         previous_time = current_time
 
         // @TODO: Wrap this value at some point?
-        game_state.time += last_frame_dt
+        game_state.time += dt
 
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
@@ -942,13 +942,13 @@ main :: proc() {
 
         // Update and draw player
         if game_state.do_this_frame {
-            player_update(&game_state, &output_verbs, game_state.timescale * last_frame_dt)
+            player_update(&game_state, &output_verbs, game_state.timescale * dt)
         }
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
         if game_state.do_this_frame {
-            enemies_update(&game_state, last_frame_dt * game_state.timescale)
+            enemies_update(&game_state, dt * game_state.timescale)
         }
         enemies_draw(&vgd, &renderer, game_state)
         
@@ -987,7 +987,7 @@ main :: proc() {
         }
 
         // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, last_frame_dt)
+        current_view_from_world := camera_update(&game_state, &output_verbs, dt)
         projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
         renderer.cpu_uniforms.clip_from_world =
             projection_from_view *
@@ -1017,7 +1017,7 @@ main :: proc() {
             if game_state.do_this_frame {
                 anim := &renderer.animations[mesh.anim_idx]
                 anim_end := get_animation_endtime(anim)
-                mesh.anim_t += last_frame_dt * game_state.timescale * mesh.anim_speed
+                mesh.anim_t += dt * game_state.timescale * mesh.anim_speed
                 mesh.anim_t = math.mod(mesh.anim_t, anim_end)
             }
 
