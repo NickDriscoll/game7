@@ -19,15 +19,11 @@ STANDARD_CD_AUDIO :: 44100 //Hz
 MIDDLE_C_HZ :: 278.4375
 STATIC_BUFFER_SIZE :: 2048
 
-// NOTE: This callback runs on an independent thread
-// T
-audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]u8, samples_size: c.int) {
-    
+// NOTE: This callback runs on an independent thread managed by SDL2
+audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]u8, samples_size: c.int) {
     // Unpack userdata
     audio_system := cast(^AudioSystem)userdata
-    
-    source_count := 0
-    
+
     // SLice for output samples to get mixed into
     out_samples: []f32
     {
@@ -35,9 +31,10 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         out_samples_buf := cast([^]f32)stream
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
+    source_count := 0
 
     mix_buffer: [STATIC_BUFFER_SIZE]f32
-    
+
     for &playback in audio_system.music_files {
         if playback.is_paused do continue
         source_count += 1
@@ -55,10 +52,19 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
             vorbis.seek(playback.file, c.uint(playback.calculated_read_head))
         }
         for i in 0..<len(out_samples) {
-            mix_buffer[i] += playback.volume * file_stream_buffer[i]
+            mix_buffer[i] += audio_system.music_volume * file_stream_buffer[i]
         }
     }
-    
+
+    for i in 0..<len(audio_system.playing_sound_effects) {
+        playback := &audio_system.playing_sound_effects[i]
+        effect := &audio_system.sound_effects[playback.idx]
+        count := min(i32(len(out_samples)), i32(len(effect.samples)) - playback.read_head)
+        for i in 0..<count {
+            mix_buffer[i] += audio_system.sfx_volume * effect.samples[playback.read_head + i32(i)]
+        }
+        playback.read_head += count
+    }
 
 
 
@@ -77,7 +83,7 @@ audio_system_tick : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]
         }
 
         // Apply master volume
-        mix_buffer[i] *= audio_system.volume
+        mix_buffer[i] *= audio_system.master_volume
     }
 
     mem.copy(&out_samples[0], &mix_buffer[0], size_of(f32) * len(out_samples))
@@ -88,14 +94,23 @@ FilePlayback :: struct {
     name: string,
     is_paused: bool,
     calculated_read_head: i32,
-    volume: f32         // 1.0 == 100%
+}
+
+SoundEffect :: struct {
+    samples: [dynamic]f32,
+    name: string,
+}
+
+SoundEffectPlayback :: struct {
+    idx: uint,
+    read_head: i32,
 }
 
 AudioSystem :: struct {
     device_id: sdl2.AudioDeviceID,
     spec: sdl2.AudioSpec,
     out_channels: u8,
-    volume: f32,            // Between 0.0 and 1.0
+    master_volume: f32,            // Between 0.0 and 1.0
     
     sine_time: f32,
     play_tone: bool,
@@ -103,26 +118,46 @@ AudioSystem :: struct {
     tone_volume: f32,
 
     music_files: [dynamic]FilePlayback,
+    music_volume: f32,      // 1.0 == 100%
 
-    //local_mixing_buffer: [dynamic]f32,
+    sound_effects: [dynamic]SoundEffect,
+    playing_sound_effects: [dynamic]SoundEffectPlayback,
+    sfx_volume: f32,
 }
 
 init_audio_system :: proc(
     audio_system: ^AudioSystem,
     user_config: UserConfiguration,
-    allocator := context.allocator
+    global_allocator: runtime.Allocator,
+    scene_allocator := context.allocator
 ) {
     audio_system.out_channels = 1
     audio_system.tone_freq = MIDDLE_C_HZ
     audio_system.tone_volume = 0.1
-    
+
     {
-        audio_system.volume = 0.5
-        v, ok := user_config.floats[.AudioVolume]
+        audio_system.master_volume = 0.5
+        v, ok := user_config.floats[.MasterVolume]
         if ok {
-            audio_system.volume = f32(v)
+            audio_system.master_volume = f32(v)
         }
     }
+    {
+        audio_system.music_volume = 0.5
+        v, ok := user_config.floats[.MusicVolume]
+        if ok {
+            audio_system.music_volume = f32(v)
+        }
+    }
+    {
+        audio_system.sfx_volume = 0.5
+        v, ok := user_config.floats[.SFXVolume]
+        if ok {
+            audio_system.sfx_volume = f32(v)
+        }
+    }
+
+    audio_system.sound_effects = make([dynamic]SoundEffect, 0, 16, global_allocator)
 
     // Init audio system
     {
@@ -132,17 +167,21 @@ init_audio_system :: proc(
             format = sdl2.AUDIO_F32,
             samples = desired_samples,
             channels = audio_system.out_channels,
-            callback = audio_system_tick,
+            callback = audio_system_callback,
             userdata = audio_system
         }
         audio_system.device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &audio_system.spec, false)
         log.debugf("Audio spec received from SDL2:\n%#v", audio_system.spec)
     }
-    audio_new_scene(audio_system, allocator)
+    audio_new_scene(audio_system, scene_allocator)
 }
 
 audio_new_scene :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
     audio_system.music_files = make([dynamic]FilePlayback, 0, 16, allocator)
+    audio_system.playing_sound_effects = make([dynamic]SoundEffectPlayback, 0, 16, allocator)
+    
+    // Sound effects should have global lifetime
+    //audio_system.sound_effects = make([dynamic]SoundEffect, 0, 16, allocator)
 }
 
 destroy_audio_system :: proc(audio_system: ^AudioSystem) {
@@ -153,14 +192,50 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
     sdl2.PauseAudioDevice(audio_system.device_id, sdl2.bool(!playing))
 }
 
+load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allocator: runtime.Allocator) -> (uint, bool) {
+    err: vorbis.Error
+    file := vorbis.open_filename(path, &err, nil)
+    if err != nil {
+        log.errorf("Error loading sound effect: %v", err)
+        return 0, false
+    }
+
+    file_info := vorbis.get_info(file)
+
+    // Assumption is that sound effects will be mono
+    assert(file_info.channels == 1, "Sound effects must be mono.")
+
+    sound_effect := SoundEffect {
+        samples = make([dynamic]f32, global_allocator),
+        name = filepath.stem(strings.clone_from_cstring(path, global_allocator))
+    }
+    temp_sample_buffer: [44100]f32 
+    sample_head : i32 = 0
+    samples_read := vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
+    for samples_read > 0 {
+        resize(&sound_effect.samples, sample_head + samples_read)
+        mem.copy_non_overlapping(raw_data(sound_effect.samples), &temp_sample_buffer, int(samples_read * size_of(f32)))
+        sample_head += samples_read
+        samples_read = vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
+    }
+    append(&audio_system.sound_effects, sound_effect)
+    idx : uint = len(audio_system.sound_effects) - 1
+
+    return idx, true
+}
+
+play_sound_effect :: proc(audio_system: ^AudioSystem, i: uint) {
+    append(&audio_system.playing_sound_effects, SoundEffectPlayback {
+        idx = i,
+        read_head = 0
+    })
+}
+
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
-    playback.volume = 1.0
     playback.name = filepath.stem(strings.clone_from_cstring(path))
     
     err: vorbis.Error
-    alloc_buffer: vorbis.vorbis_alloc
-    
     playback.file = vorbis.open_filename(path, &err, nil)
     if err != nil {
         log.errorf("Error opening vorbis file: %v", err)
@@ -182,6 +257,19 @@ close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
     }
 }
 
+audio_tick :: proc(audio_system: ^AudioSystem) {
+    i := 0
+    for i < len(audio_system.playing_sound_effects) {
+        playback := &audio_system.playing_sound_effects[i]
+        effect := audio_system.sound_effects[playback.idx]
+        if playback.read_head == i32(len(effect.samples)) {
+            unordered_remove(&audio_system.playing_sound_effects, i)
+            i -= 1
+        }
+        i += 1
+    }
+}
+
 audio_gui :: proc(
     game_state: ^GameState,
     audio_system: ^AudioSystem,
@@ -192,8 +280,14 @@ audio_gui :: proc(
         builder: strings.Builder
         strings.builder_init(&builder, context.temp_allocator)
 
-        if imgui.SliderFloat("Master volume", &audio_system.volume, 0.0, 1.0) {
-            user_config.floats[.AudioVolume] = f64(audio_system.volume)
+        if imgui.SliderFloat("Master volume", &audio_system.master_volume, 0.0, 1.0) {
+            user_config.floats[.MasterVolume] = f64(audio_system.master_volume)
+        }
+        if imgui.SliderFloat("Music volume", &audio_system.music_volume, 0.0, 5.0) {
+            user_config.floats[.MusicVolume] = f64(audio_system.music_volume)
+        }
+        if imgui.SliderFloat("SFX volume", &audio_system.sfx_volume, 0.0, 5.0) {
+            user_config.floats[.SFXVolume] = f64(audio_system.sfx_volume)
         }
         imgui.Separator()
 
@@ -208,18 +302,32 @@ audio_gui :: proc(
             fmt.sbprintf(&builder, "data/audio/%v", items[selected_item])
             c, _ := strings.to_cstring(&builder)
             game_state.bgm_id, _ = open_music_file(audio_system, c)
+            strings.builder_reset(&builder)
         }
 
         for &file, i in audio_system.music_files {
             imgui.PushIDInt(c.int(i))
             imgui.Text("Audio file #%i", i)
-            imgui.SliderFloat("Volume", &file.volume, 0.0, 3.0)
             interacted := imgui.SliderInt("Scrub samples", &file.calculated_read_head, 0, i32(vorbis.stream_length_in_samples(file.file)))
             imgui.Checkbox("Paused", &file.is_paused)
             if interacted {
                 vorbis.seek(file.file, c.uint(file.calculated_read_head))
             }
             imgui.Separator()
+            imgui.PopID()
+        }
+
+        imgui.Text("Sound effects:")
+        for fx, i in audio_system.sound_effects {
+            imgui.PushIDInt(c.int(i))
+            fmt.sbprintf(&builder, "%v", fx.name)
+            cname, _ := strings.to_cstring(&builder)
+            imgui.Text("%s", cname)
+            if imgui.Button("Play") {
+                play_sound_effect(audio_system, uint(i))
+            }
+            
+            strings.builder_reset(&builder)
             imgui.PopID()
         }
         
