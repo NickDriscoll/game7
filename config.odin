@@ -12,7 +12,9 @@ ConfigKey :: enum {
     ShowDebugMenu,
     GraphicsSettings,
     AudioPanel,
-    AudioVolume,
+    MasterVolume,
+    MusicVolume,
+    SFXVolume,
     ShowClosestPoint,
     ConfigAutosave,
     FollowCam,
@@ -38,12 +40,13 @@ ConfigKey :: enum {
     WindowY,
     StartLevel,
 }
-
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
     .ShowDebugMenu = "show_debug_menu",
     .GraphicsSettings = "graphics_settings",
     .AudioPanel = "audio_panel",
-    .AudioVolume = "audio_volume",
+    .MasterVolume = "master_volume",
+    .MusicVolume = "music_volume",
+    .SFXVolume = "sfx_volume",
     .CameraConfig = "camera_config",
     .ShowAllocatorStats = "show_allocator_stats",
     .BorderlessFullscreen = "borderless_fullscreen",

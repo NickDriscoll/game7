@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
@@ -195,7 +196,8 @@ GameState :: struct {
     savename_buffer: [1024]c.char,
 
     bgm_id: uint,
-
+    jump_sound: uint,
+    shoot_sound: uint,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -217,7 +219,9 @@ GameState :: struct {
 init_gamestate :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
+    audio_system: ^AudioSystem,
     user_config: ^UserConfiguration,
+    global_allocator: runtime.Allocator,
 ) -> GameState {
     game_state: GameState
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
@@ -226,38 +230,6 @@ init_gamestate :: proc(
     game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
-
-    // Load icosphere mesh for debug visualization
-    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
-
-    // Load enemy mesh
-    game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb")
-    
-    // Load animated test glTF model
-    skinned_model: ^SkinnedModelData
-    {
-        path : cstring = "data/models/CesiumMan.glb"
-        skinned_model = load_gltf_skinned_model(gd, renderer, path)
-    }
-
-    game_state.character = Character {
-        collision = {
-            position = game_state.character_start,
-            radius = 0.8
-        },
-        velocity = {},
-        gravity_factor = 1.0,
-        deceleration_speed = 0.1,
-        state = .Falling,
-        facing = {0.0, 1.0, 0.0},
-        move_speed = 7.0,
-        sprint_speed = 14.0,
-        jump_speed = 10.0,
-        anim_speed = 0.856,
-        mesh_data = skinned_model,
-
-        bullet_travel_time = 0.144,
-    }
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -285,11 +257,23 @@ init_gamestate :: proc(
 
     game_state.rng_seed = time.now()._nsec
 
+    {
+        idx, ok := load_sound_effect(audio_system, "data/audio/boing.ogg", global_allocator)
+        if !ok {
+            log.error("Failed to load sound effect")
+        }
+        game_state.jump_sound = idx
+    }
+    {
+        idx, ok := load_sound_effect(audio_system, "data/audio/shoot.ogg", global_allocator)
+        if !ok {
+            log.error("Failed to load sound effect")
+        }
+        game_state.shoot_sound = idx
+    }
+
     // Just a test load of a DDS file
-    {   
-        // Load raw BC7 bytes
-        //path := "data/images/idk.dds"
-        //path := "data/images/totality.dds"
+    {
         path := "data/images/beach.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
@@ -334,9 +318,51 @@ init_gamestate :: proc(
     return game_state
 }
 
-delete_game :: proc(using g: ^GameState) {
-    for &piece in terrain_pieces do delete_terrain_piece(&piece)
-    delete(terrain_pieces)
+gamestate_new_scene :: proc(
+    game_state: ^GameState,
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    scene_allocator := context.allocator
+) {
+
+    game_state.terrain_pieces = make([dynamic]TerrainPiece)
+
+    game_state.static_scenery = make([dynamic]StaticScenery)
+    game_state.animated_scenery = make([dynamic]AnimatedScenery)
+    game_state.enemies = make([dynamic]Enemy)
+    game_state.thrown_enemies = make([dynamic]ThrownEnemy)
+    
+    // Load icosphere mesh for debug visualization
+    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
+
+    // Load enemy mesh
+    game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb")
+    
+    // Load animated test glTF model
+    skinned_model: ^SkinnedModelData
+    {
+        path : cstring = "data/models/CesiumMan.glb"
+        skinned_model = load_gltf_skinned_model(gd, renderer, path)
+    }
+
+    game_state.character = Character {
+        collision = {
+            position = game_state.character_start,
+            radius = 0.8
+        },
+        velocity = {},
+        gravity_factor = 1.0,
+        deceleration_speed = 0.1,
+        state = .Falling,
+        facing = {0.0, 1.0, 0.0},
+        move_speed = 7.0,
+        sprint_speed = 14.0,
+        jump_speed = 10.0,
+        anim_speed = 0.856,
+        mesh_data = skinned_model,
+
+        bullet_travel_time = 0.144,
+    }
 }
 
 load_level_file :: proc(
@@ -345,7 +371,8 @@ load_level_file :: proc(
     audio_system: ^AudioSystem,
     game_state: ^GameState,
     user_config: ^UserConfiguration,
-    path: string
+    path: string,
+    global_allocator: runtime.Allocator,
 ) -> bool {
     // Audio lock while loading level data
     sdl2.LockAudioDevice(audio_system.device_id)
@@ -354,7 +381,8 @@ load_level_file :: proc(
     free_all(context.allocator)
     audio_new_scene(audio_system)
     renderer_new_scene(renderer)
-    game_state^ = init_gamestate(gd, renderer, user_config)
+    //game_state^ = init_gamestate(gd, renderer, audio_system, user_config, global_allocator)
+    gamestate_new_scene(game_state, gd, renderer)
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
@@ -685,12 +713,6 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     gamestate.current_level = path_clone
 
     log.infof("Finished saving level to \"%v\"", path)
-}
-
-gamestate_new_scene :: proc(game_state: ^GameState, scene_allocator := context.allocator) {
-    free_all(scene_allocator)
-
-
 }
 
 EditorResponseType :: enum {
@@ -1097,7 +1119,7 @@ scene_editor :: proc(
     if show_editor do imgui.End()
 }
 
-player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f32) {
+player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
     char := &game_state.character
 
     // Set current xy velocity (and character facing) to whatever user input is
@@ -1219,11 +1241,15 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                             respawn_ai = held_enemy.ai_state,
                         })
                         char.velocity.z = 1.3 * char.jump_speed
+
+                        play_sound_effect(audio_system, game_state.jump_sound)
                     }
                 } else {
                     // Do first jump
                     char.velocity.z = char.jump_speed
                     char.control_flags += {.AlreadyJumped}
+
+                    play_sound_effect(audio_system, game_state.jump_sound)
                 }
 
                 char.gravity_factor = 1.0
@@ -1252,7 +1278,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
     // vector opposing player motion
     //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
 
-    closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+    closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
     // Main player character state machine
@@ -1298,8 +1324,9 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
             collided := false
             segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.terrain_pieces[:])
             if segment_ok {
+                log.info("Player center passed through ground")
                 char.collision.position = segment_pt
-                char.collision.position += collision_normal * char.collision.radius
+                char.collision.position += triangle_normal * char.collision.radius
                 char.velocity.z = 0
                 char.state = .Grounded
             } else {
@@ -1365,6 +1392,7 @@ player_update :: proc(game_state: ^GameState, output_verbs: ^OutputVerbs, dt: f3
                 path_end = start_pos + 2.0 * char.facing,
             }
         }
+        play_sound_effect(audio_system, game_state.shoot_sound)
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
@@ -1449,7 +1477,7 @@ ENEMY_HOME_RADIUS :: 4.0
 ENEMY_LUNGE_SPEED :: 20.0
 ENEMY_JUMP_SPEED :: 6.0                 // m/s
 ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
-enemies_update :: proc(game_state: ^GameState, dt: f32) {
+enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
     char := &game_state.character
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
@@ -1495,6 +1523,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                     enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
                     enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
                     enemy.collision_state = .Falling
+                    play_sound_effect(audio_system, game_state.jump_sound)
                 }
             }
             case .AlertedCharge: {
@@ -1524,6 +1553,7 @@ enemies_update :: proc(game_state: ^GameState, dt: f32) {
                 enemy.collision_state = .Falling
                 enemy.timer_start = time.now()
                 enemy.home_position = enemy.position
+                play_sound_effect(audio_system, game_state.jump_sound)
             }
         }                               
 

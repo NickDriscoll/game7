@@ -284,12 +284,12 @@ main :: proc() {
 
     // Init audio system
     audio_system: AudioSystem
-    init_audio_system(&audio_system, user_config)
+    init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
     when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
     toggle_device_playback(&audio_system, true)
 
     // Main app structure storing the game's overall state
-    game_state := init_gamestate(&vgd, &renderer, &user_config)
+    game_state := init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
 
     {
         start_level := "test02"
@@ -300,7 +300,7 @@ main :: proc() {
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
         start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-        load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+        load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path, global_allocator)
     }
 
     // @TODO: Keymappings need to be a part of GameState
@@ -391,7 +391,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
+                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path, global_allocator)
                 load_new_level = nil
             }
         }
@@ -944,13 +944,13 @@ main :: proc() {
 
         // Update and draw player
         if game_state.do_this_frame {
-            player_update(&game_state, &output_verbs, game_state.timescale * dt)
+            player_update(&game_state, &audio_system, &output_verbs, game_state.timescale * dt)
         }
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
         if game_state.do_this_frame {
-            enemies_update(&game_state, dt * game_state.timescale)
+            enemies_update(&game_state, &audio_system, dt * game_state.timescale)
         }
         enemies_draw(&vgd, &renderer, game_state)
         
@@ -1061,6 +1061,8 @@ main :: proc() {
                 user_config.ints[.WindowY] = i64(new_pos.y)
             }
         }
+
+        audio_tick(&audio_system)
 
         // If the window is minimized, we have to end the current imgui frame here
         if window_minimized {
