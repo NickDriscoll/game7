@@ -144,7 +144,6 @@ ThrownEnemy :: struct {
     collision_radius: f32,
     respawn_position: hlsl.float3,
     respawn_home: hlsl.float3,
-    respawn_ai: EnemyState,
 }
 
 DebugVisualizationFlags :: bit_set[enum {
@@ -1238,7 +1237,6 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                             respawn_position = held_enemy.position,
                             respawn_home = held_enemy.home_position,
                             collision_radius = 0.5,
-                            respawn_ai = held_enemy.ai_state,
                         })
                         char.velocity.z = 1.3 * char.jump_speed
 
@@ -1375,7 +1373,6 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 respawn_position = held_enemy.position,
                 respawn_home = held_enemy.home_position,
                 collision_radius = 0.5,
-                respawn_ai = held_enemy.ai_state,
             })
 
             char.held_enemy = nil
@@ -1693,7 +1690,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
             e := default_enemy(game_state^)
             e.position = enemy.respawn_position
             e.home_position = enemy.respawn_home
-            e.ai_state = enemy.respawn_ai
+            e.ai_state = .Wandering
             e.collision_radius = enemy.collision_radius
             append(&game_state.enemies, e)
         }
