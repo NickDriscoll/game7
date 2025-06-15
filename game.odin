@@ -1642,7 +1642,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
 
             // Write updated position to enemy
             enemy.position = col.position
-            
+
             // Restrict enemy movement based on home position
             {
                 disp := enemy.position - enemy.home_position

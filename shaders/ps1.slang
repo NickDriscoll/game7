@@ -20,15 +20,17 @@ cbuffer push_constants {
 static const uint NULL_OFFSET = 0xFFFFFFFF;
 
 static const float3 ID_COLORS[] = {
+    float3(0.1, 0.1, 0.1),
     float3(1.0, 0.0, 0.0),
     float3(0.0, 1.0, 0.0),
     float3(0.0, 0.0, 1.0),
     float3(0.0, 1.0, 1.0),
     float3(1.0, 0.0, 1.0),
     float3(1.0, 1.0, 0.0),
+    float3(2.0, 2.0, 2.0),
 };
 float3 id_to_color(uint id) {
-    uint r = id % 6;
+    uint r = id % 8;
     return ID_COLORS[r];
 }
 
