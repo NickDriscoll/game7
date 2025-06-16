@@ -450,15 +450,6 @@ main :: proc() {
 
         }
 
-        // Check if window was minimized/maximized
-        {
-            minied, ok := output_verbs.bools[.MinimizeWindow]
-            _, ok2 := output_verbs.bools[.FocusWindow]
-            if ok || ok2 {
-                window_minimized = minied
-            }
-        }
-
         // Update
 
         docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
@@ -1069,25 +1060,25 @@ main :: proc() {
 
         audio_tick(&audio_system)
 
-        // If the window is minimized, we have to end the current imgui frame here
-        if window_minimized {
-            gui_cancel_frame(&imgui_state)
-        }
-
         // Render
-        if !window_minimized {
-            // Resize swapchain if necessary
-            if vgd.resize_window {
-                if !vkw.resize_window(&vgd, app_window.resolution) do log.error("Failed to resize window")
-                resize_framebuffers(&vgd, &renderer, app_window.resolution)
+        {
+            full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
+                io := imgui.GetIO()
+
+                if !vkw.resize_window(gd, window.resolution) do log.error("Failed to resize window")
+                resize_framebuffers(gd, renderer, window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
-                    user_config.ints[.WindowWidth] = i64(app_window.resolution.x)
-                    user_config.ints[.WindowHeight] = i64(app_window.resolution.y)
+                    user_config.ints[.WindowWidth] = i64(window.resolution.x)
+                    user_config.ints[.WindowHeight] = i64(window.resolution.y)
                 }
-                io.DisplaySize.x = f32(app_window.resolution.x)
-                io.DisplaySize.y = f32(app_window.resolution.y)
+                io.DisplaySize.x = f32(window.resolution.x)
+                io.DisplaySize.y = f32(window.resolution.y)
+            }
 
+            // Resize swapchain if necessary
+            if vgd.resize_window {
+                full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
                 vgd.resize_window = false
             }
 
@@ -1096,7 +1087,17 @@ main :: proc() {
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
 
-            swapchain_image_idx, _ := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
+            // Acquire swapchain image and try to handle result
+            swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
+            #partial switch acquire_result {
+                case .SUCCESS: {}
+                case .SUBOPTIMAL_KHR, .ERROR_OUT_OF_DATE_KHR: {
+                    full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+                }
+                case: {
+                    log.errorf("Swapchain image acquire failed: %v", acquire_result)
+                }
+            }
 
             framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, app_window.resolution)
 
@@ -1114,7 +1115,10 @@ main :: proc() {
             render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
 
             // Submit gfx command buffer and present swapchain image
-            vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
+            present_res := vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
+            if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
+                full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+            }
         }
 
         // CLear temp allocator for next frame
