@@ -258,6 +258,9 @@ close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
 }
 
 audio_tick :: proc(audio_system: ^AudioSystem) {
+    sdl2.LockAudioDevice(audio_system.device_id)
+    defer sdl2.UnlockAudioDevice(audio_system.device_id)
+
     i := 0
     for i < len(audio_system.playing_sound_effects) {
         playback := &audio_system.playing_sound_effects[i]

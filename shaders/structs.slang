@@ -1,6 +1,6 @@
 
 static const uint MAX_DIRECTIONAL_LIGHTS = 4;
-//static const float3 SUNLIGHT = normalize(float3(-1.2, 1.3, 1.0));
+static const uint MAX_POINT_LIGHTS = 8;
 
 struct StaticMeshData {
     uint position_offset;
@@ -36,6 +36,13 @@ struct DirectionalLight {
     float _pad1;
 }
 
+struct PointLight {
+    float3 world_position;
+    float _pad0;
+    float3 color;
+    float _pad1;
+}
+
 struct UniformData {
     float4x4 clip_from_world;
 
@@ -61,14 +68,16 @@ struct UniformData {
     float4 view_position;
 
     DirectionalLight directional_lights[MAX_DIRECTIONAL_LIGHTS];
+    PointLight point_lights[MAX_POINT_LIGHTS];
 
     uint directional_light_count;
+    uint point_light_count;
     float time; // Periodic time value
     float distortion_strength;
+    
     uint triangle_vis;
-
     uint skybox_idx;
-    float3 _pad0;
+    float2 _pad0;
 
     // RaytracingAccelerationStructure* acceleration_structure_data;
 }

@@ -28,6 +28,7 @@ MAX_GLOBAL_INSTANCES :: 1024 * 1024
 
 MAX_UNIQUE_MODELS :: 4096
 MAX_DIRECTIONAL_LIGHTS :: 4
+MAX_POINT_LIGHTS :: 8
 
 ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS :: 1024 * 1024
 
@@ -61,20 +62,29 @@ UniformBufferData :: struct {
     view_position: hlsl.float4,
 
     directional_lights: [MAX_DIRECTIONAL_LIGHTS]DirectionalLight,
+    point_lights: [MAX_POINT_LIGHTS]PointLight,
 
     directional_light_count: u32,
+    point_light_count: u32,
     time: f32,
     distortion_strength: f32,
-    triangle_vis: u32,
 
+    triangle_vis: u32,
     skybox_idx: u32,
-    _pad0: [3]f32,
+    _pad0: [2]f32,
 
     //acceleration_structures_ptr: vk.DeviceAddress,
 }
 
 DirectionalLight :: struct {
     direction: hlsl.float3,
+    _pad0: f32,
+    color: hlsl.float3,
+    _pad1: f32,
+}
+
+PointLight :: struct {
+    world_position: hlsl.float3,
     _pad0: f32,
     color: hlsl.float3,
     _pad1: f32,
@@ -1666,6 +1676,8 @@ render_scene :: proc(
     vkw.cmd_draw(gd, gfx_cb_idx, 3, 1, 0, 0)
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+
+    renderer.cpu_uniforms.point_light_count = 0
 }
 
 

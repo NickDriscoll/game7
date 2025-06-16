@@ -355,7 +355,6 @@ main :: proc() {
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
-    window_minimized := false
     do_limit_cpu := false
     saved_mouse_coords := hlsl.int2 {0, 0}
     load_new_level: Maybe(string)
@@ -950,6 +949,7 @@ main :: proc() {
         }
         enemies_draw(&vgd, &renderer, game_state)
         
+        // Air bullet draw
         {
             bullet, ok := game_state.character.air_bullet.?
             if ok {
@@ -958,6 +958,15 @@ main :: proc() {
                     color = {0.0, 1.0, 0.0, 0.8}
                 }
                 draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)
+
+                // Make air bullet a point light source
+                id := renderer.cpu_uniforms.point_light_count
+                if id < MAX_POINT_LIGHTS {
+                    renderer.cpu_uniforms.point_light_count += 1
+                    light := &renderer.cpu_uniforms.point_lights[id]
+                    light.color = {0.0, 1.0, 0.0}
+                    light.world_position = bullet.collision.position
+                }
             }
         }
 
