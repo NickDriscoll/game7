@@ -235,6 +235,9 @@ poll_sdl2_events :: proc(
                     case .MINIMIZED: {
                         bools[.MinimizeWindow] = true
                     }
+                    case .MAXIMIZED: {
+                        bools[.MinimizeWindow] = false
+                    }
                 }
             }
             case .TEXTINPUT: {
