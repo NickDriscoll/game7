@@ -451,8 +451,13 @@ main :: proc() {
         }
 
         // Check if window was minimized/maximized
-        window_minimized = output_verbs.bools[.MinimizeWindow]
-        window_minimized = output_verbs.bools[.FocusWindow]
+        {
+            minied, ok := output_verbs.bools[.MinimizeWindow]
+            _, ok2 := output_verbs.bools[.FocusWindow]
+            if ok || ok2 {
+                window_minimized = minied
+            }
+        }
 
         // Update
 
