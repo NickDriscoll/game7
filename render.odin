@@ -1804,7 +1804,19 @@ load_gltf_static_model :: proc(
             for &attrib in primitive.attributes {
                 #partial switch (attrib.type) {
                     case .position: position_data = load_gltf_float3_to_float4(&attrib)
-                    case .color: color_data = load_gltf_float3_to_float4(&attrib)
+                    case .color: {
+                        raw_data := load_gltf_u8x4(&attrib)
+                        reserve(&color_data, len(raw_data))
+                        for col in raw_data {
+                            // @TODO: Do not do this! Just use the bytes as is with no conversion
+                            c: hlsl.float4
+                            c.r = f32(col[0]) / 255.0
+                            c.g = f32(col[1]) / 255.0
+                            c.b = f32(col[2]) / 255.0
+                            c.a = f32(col[3]) / 255.0
+                            append(&color_data, c)
+                        }
+                    }
                     case .texcoord: uv_data = load_gltf_float2(&attrib)
                 }
             }
