@@ -111,6 +111,16 @@ load_gltf_float4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.float4 {
     return data
 }
 
+load_gltf_u8x4 :: proc(attrib: ^cgltf.attribute) -> [dynamic][4]u8 {
+    data := make([dynamic][4]u8, attrib.data.count, context.temp_allocator)
+    ptr := get_accessor_ptr(attrib.data, [4]u8)
+    bytes := attrib.data.count * size_of([4]u8)
+
+    mem.copy(&data[0], ptr, int(bytes))
+
+    return data
+}
+
 load_gltf_joint_ids :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.uint4 {
     data := make([dynamic]hlsl.uint4, attrib.data.count, context.temp_allocator)
     ptr := get_accessor_ptr(attrib.data, [4]u16)
