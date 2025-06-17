@@ -480,6 +480,8 @@ main :: proc() {
                     if imgui.Checkbox("Show player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
                     flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player activity radius", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
+                    flag = .ShowCoinRadius in game_state.debug_vis_flags
+                    if imgui.Checkbox("Show coin radius", &flag) do game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
@@ -896,6 +898,10 @@ main :: proc() {
                             e.home_position = enemy.position
                         }
                     }
+                    case .MoveCoin: {
+                        coin := &game_state.coins[resp.index]
+                        move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position)
+                    }
                     case .MovePlayerSpawn: {
                         move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
                     }
@@ -969,6 +975,8 @@ main :: proc() {
                 }
             }
         }
+
+        coins_draw(&vgd, &renderer, game_state)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {

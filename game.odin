@@ -146,10 +146,15 @@ ThrownEnemy :: struct {
     respawn_home: hlsl.float3,
 }
 
+Coin :: struct {
+    position: hlsl.float3,
+}
+
 DebugVisualizationFlags :: bit_set[enum {
     ShowPlayerSpawn,
     ShowPlayerHitSphere,
     ShowPlayerActivityRadius,
+    ShowCoinRadius,
 }]
 
 AirBullet :: struct {
@@ -179,10 +184,14 @@ GameState :: struct {
     animated_scenery: [dynamic]AnimatedScenery,
     enemies: [dynamic]Enemy,
     thrown_enemies: [dynamic]ThrownEnemy,
+    coins: [dynamic]Coin,
     character_start: hlsl.float3,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: ^StaticModelData,
+    
+    coin_mesh: ^StaticModelData,
+    coin_collision_radius: f32,
 
     enemy_mesh: ^StaticModelData,
     selected_enemy: Maybe(int),
@@ -229,6 +238,7 @@ init_gamestate :: proc(
     game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
+    game_state.coin_collision_radius = 1.0
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -336,6 +346,8 @@ gamestate_new_scene :: proc(
 
     // Load enemy mesh
     game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb")
+    
+    game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb")
     
     // Load animated test glTF model
     skinned_model: ^SkinnedModelData
@@ -719,10 +731,12 @@ EditorResponseType :: enum {
     MoveStaticScenery,
     MoveAnimatedScenery,
     MoveEnemy,
+    MoveCoin,
     MovePlayerSpawn,
     AddTerrainPiece,
     AddStaticScenery,
     AddAnimatedScenery,
+    AddCoin
 }
 EditorResponse :: struct {
     type: EditorResponseType,
@@ -1062,6 +1076,60 @@ scene_editor :: proc(
             }
         }
 
+        coin_to_clone_idx: Maybe(int)
+        {
+            objects := &game_state.coins
+            label : cstring = "Coins"
+            editor_response := &game_state.editor_response
+            response_type := EditorResponseType.MoveCoin
+            if imgui.CollapsingHeader(label) {
+                imgui.PushID(label)
+                if len(objects) == 0 {
+                    imgui.Text("Nothing to see here!")
+                }
+                if imgui.Button("Add") {
+                    append(&game_state.coins, Coin {})
+                }
+                for &mesh, i in objects {
+                    imgui.PushIDInt(c.int(i))
+    
+                    imgui.DragFloat3("Position", &mesh.position, 0.1)
+        
+                    disable_button := false
+                    move_text : cstring = "Move"
+                    obj, obj_ok := editor_response.(EditorResponse)
+                    if obj_ok {
+                        if obj.type == response_type && obj.index == u32(i) {
+                            disable_button = true
+                            move_text = "Moving..."
+                        }
+                    }
+        
+                    imgui.BeginDisabled(disable_button)
+                    if imgui.Button(move_text) {
+                        editor_response^ = EditorResponse {
+                            type = response_type,
+                            index = u32(i)
+                        }
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Clone") {
+                        coin_to_clone_idx = i
+                    }
+                    imgui.SameLine()
+                    if imgui.Button("Delete") {
+                        unordered_remove(objects, i)
+                        editor_response^ = nil
+                    }
+                    imgui.EndDisabled()
+                    imgui.Separator()
+        
+                    imgui.PopID()
+                }
+                imgui.PopID()
+            }
+        }
+
         // Do object clone
         {
             things := &game_state.terrain_pieces
@@ -1097,7 +1165,7 @@ scene_editor :: proc(
                 append(things, things[clone_idx])
                 new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
-                    type = .MoveStaticScenery,
+                    type = .MoveAnimatedScenery,
                     index = u32(new_idx)
                 }
             }
@@ -1109,7 +1177,19 @@ scene_editor :: proc(
                 append(things, things[clone_idx])
                 new_idx := len(things) - 1
                 game_state.editor_response = EditorResponse {
-                    type = .MoveStaticScenery,
+                    type = .MoveEnemy,
+                    index = u32(new_idx)
+                }
+            }
+        }
+        {
+            things := &game_state.coins
+            clone_idx, clone_ok := coin_to_clone_idx.?
+            if clone_ok {
+                append(things, things[clone_idx])
+                new_idx := len(things) - 1
+                game_state.editor_response = EditorResponse {
+                    type = .MoveCoin,
                     index = u32(new_idx)
                 }
             }
@@ -1749,7 +1829,21 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
     }
 }
 
-
+coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+    for coin in game_state.coins {
+        dd := StaticDraw {
+            world_from_model = translation_matrix(coin.position)
+        }
+        draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, &dd)
+        
+        if .ShowCoinRadius in game_state.debug_vis_flags {
+            dd: DebugDraw
+            dd.world_from_model = translation_matrix(coin.position) * scaling_matrix(game_state.coin_collision_radius)
+            dd.color = {0.0, 0.0, 1.0, 0.4}
+            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+        }
+    }
+}
 
 
 
