@@ -900,7 +900,9 @@ main :: proc() {
                     }
                     case .MoveCoin: {
                         coin := &game_state.coins[resp.index]
-                        move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position)
+                        if move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position) {
+                            coin.position.z += 1.0
+                        }
                     }
                     case .MovePlayerSpawn: {
                         move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
