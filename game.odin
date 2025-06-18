@@ -116,6 +116,7 @@ Enemy :: struct {
     home_position: hlsl.float3,
     visualize_home: bool,
 
+    init_ai_state: EnemyState,
     ai_state: EnemyState,
     collision_state: CollisionState,
     timer_start: time.Time,
@@ -131,6 +132,7 @@ default_enemy :: proc(game_state: GameState) -> Enemy {
         facing = {0.0, 1.0, 0.0},
         home_position = {},
         visualize_home = false,
+        init_ai_state = .Wandering,
         ai_state = .Wandering,
         collision_state = .Grounded,
         timer_start = time.now(),
@@ -144,6 +146,7 @@ ThrownEnemy :: struct {
     collision_radius: f32,
     respawn_position: hlsl.float3,
     respawn_home: hlsl.float3,
+    respawn_ai_state: EnemyState,
 }
 
 Coin :: struct {
@@ -171,6 +174,7 @@ LevelBlock :: enum u8 {
     Enemies = 3,
     BgmFile = 4,
     DirectionalLights = 5,
+    Coins = 6,
 }
 
 // Megastruct for all game-specific data
@@ -206,6 +210,7 @@ GameState :: struct {
     bgm_id: uint,
     jump_sound: uint,
     shoot_sound: uint,
+    coin_sound: uint,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -238,7 +243,7 @@ init_gamestate :: proc(
     game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
-    game_state.coin_collision_radius = 1.0
+    game_state.coin_collision_radius = 0.6
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -279,6 +284,13 @@ init_gamestate :: proc(
             log.error("Failed to load sound effect")
         }
         game_state.shoot_sound = idx
+    }
+    {
+        idx, ok := load_sound_effect(audio_system, "data/audio/orb_final.ogg", global_allocator)
+        if !ok {
+            log.error("Failed to load sound effect")
+        }
+        game_state.coin_sound = idx
     }
 
     // Just a test load of a DDS file
@@ -334,12 +346,12 @@ gamestate_new_scene :: proc(
     scene_allocator := context.allocator
 ) {
 
-    game_state.terrain_pieces = make([dynamic]TerrainPiece)
-
-    game_state.static_scenery = make([dynamic]StaticScenery)
-    game_state.animated_scenery = make([dynamic]AnimatedScenery)
-    game_state.enemies = make([dynamic]Enemy)
-    game_state.thrown_enemies = make([dynamic]ThrownEnemy)
+    game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
+    game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
+    game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
+    game_state.enemies = make([dynamic]Enemy, scene_allocator)
+    game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
+    game_state.coins = make([dynamic]Coin, scene_allocator)
     
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
@@ -532,9 +544,20 @@ load_level_file :: proc(
                     new_enemy := default_enemy(game_state^)
                     new_enemy.position = position
                     new_enemy.home_position = position
+                    new_enemy.ai_state = ai_state
+                    new_enemy.init_ai_state = ai_state
                     append(&game_state.enemies, new_enemy)
                 }
 
+            }
+            case .Coins: {
+                coin_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
+                for _ in 0..<coin_len {
+                    p := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
+                    append(&game_state.coins, Coin {
+                        position = p
+                    })
+                }
             }
         }
     }
@@ -612,6 +635,15 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         output_size += size_of(enemy.position)
         output_size += size_of(enemy.collision_radius)
         output_size += size_of(enemy.ai_state)
+    }
+
+    // Coins
+    if len(gamestate.coins) > 0 {
+        output_size += size_of(u8)
+        output_size += size_of(u32)
+    }
+    for coin in gamestate.coins {
+        output_size += size_of(coin.position)
     }
     
     write_head : u32 = 0
@@ -699,6 +731,16 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
         write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
+    }
+
+    if len(gamestate.coins) > 0 {
+        block = .Coins
+        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+        l := u32(len(gamestate.coins))
+        write_thing_to_buffer(raw_output_buffer[:], &l, &write_head)
+    }
+    for &coin in gamestate.coins {
+        write_thing_to_buffer(raw_output_buffer[:], &coin.position, &write_head)
     }
 
     if write_head != u32(output_size) {
@@ -995,12 +1037,6 @@ scene_editor :: proc(
                 }
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
-
-                    enemy_models := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                    selected_model: i32
-                    if gui_dropdown_files("data/models", &enemy_models, &selected_model, "Enemy model") {
-                        log.info("bing!")
-                    }
                     
                     gui_print_value(&builder, "Collision state", mesh.collision_state)
                     
@@ -1012,6 +1048,7 @@ scene_editor :: proc(
                             for item, i in cstrs {
                                 if imgui.Selectable(item) {
                                     mesh.ai_state = EnemyState(i)
+                                    mesh.init_ai_state = mesh.ai_state
                                     mesh.velocity = {}
                                     mesh.home_position = mesh.position
                                 }
@@ -1316,6 +1353,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                             velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
                             respawn_position = held_enemy.position,
                             respawn_home = held_enemy.home_position,
+                            respawn_ai_state = held_enemy.init_ai_state,
                             collision_radius = 0.5,
                         })
                         char.velocity.z = 1.3 * char.jump_speed
@@ -1452,6 +1490,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 velocity = ENEMY_THROW_SPEED * char.facing,
                 respawn_position = held_enemy.position,
                 respawn_home = held_enemy.home_position,
+                respawn_ai_state = held_enemy.init_ai_state,
                 collision_radius = 0.5,
             })
 
@@ -1470,6 +1509,23 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             }
         }
         play_sound_effect(audio_system, game_state.shoot_sound)
+    }
+
+    // Check if we collected any coins
+    coin_to_remove: Maybe(int)
+    for coin, i in game_state.coins {
+        s := Sphere {
+            position = coin.position,
+            radius = game_state.coin_collision_radius
+        }
+        if are_spheres_overlapping(s, char.collision) {
+            play_sound_effect(audio_system, game_state.coin_sound)
+            coin_to_remove = i
+        }
+    }
+    cr, crok := coin_to_remove.?
+    if crok {
+        unordered_remove(&game_state.coins, cr)
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
@@ -1739,7 +1795,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         if ok {
             col := Sphere {
                 position = enemy.position,
-                radius = enemy.collision_radius
+                radius = enemy.collision_radius * 10.0
             }
             if are_spheres_overlapping(bullet.collision, col) {
                 char.held_enemy = game_state.enemies[i]
@@ -1770,7 +1826,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
             e := default_enemy(game_state^)
             e.position = enemy.respawn_position
             e.home_position = enemy.respawn_home
-            e.ai_state = .Wandering
+            e.ai_state = enemy.respawn_ai_state
             e.collision_radius = enemy.collision_radius
             append(&game_state.enemies, e)
         }
@@ -1831,8 +1887,10 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
 
 coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
     for coin in game_state.coins {
+        pos := coin.position
+        pos.z += 0.25 * math.sin(game_state.time)
         dd := StaticDraw {
-            world_from_model = translation_matrix(coin.position)
+            world_from_model = translation_matrix(pos) * yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(game_state.coin_collision_radius)
         }
         draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, &dd)
         

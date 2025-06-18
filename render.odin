@@ -1809,6 +1809,7 @@ load_gltf_static_model :: proc(
                         reserve(&color_data, len(raw_data))
                         for col in raw_data {
                             // @TODO: Do not do this! Just use the bytes as is with no conversion
+                            // In other words, un-stupify the vertex format of color data
                             c: hlsl.float4
                             c.r = f32(col[0]) / 255.0
                             c.g = f32(col[1]) / 255.0
