@@ -27,7 +27,7 @@ TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
-MAXIMUM_FRAME_DT :: 1.0 / 60.0
+MAXIMUM_FRAME_DT :: 1.0 / 5.0
 
 SCENE_ARENA_SZIE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
 TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
@@ -186,7 +186,7 @@ main :: proc() {
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     if sdl2.Vulkan_LoadLibrary(nil) != 0 {
         s := sdl2.GetErrorString()
-        log.fatal("Failed to link Vulkan loader: %v", s)
+        log.fatalf("Failed to link Vulkan loader: %v", s)
         return
     }
 

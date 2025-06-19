@@ -1782,10 +1782,9 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
             // Restrict enemy movement based on home position
             {
                 disp := enemy.position - enemy.home_position
-                l := hlsl.length(disp)
+                l := hlsl.length(disp.xy)
                 if l > ENEMY_HOME_RADIUS {
-                    disp *= ENEMY_HOME_RADIUS / l
-                    enemy.position = enemy.home_position + disp
+                    enemy.position += ENEMY_HOME_RADIUS * hlsl.normalize(enemy.home_position - enemy.position)
                 }
             }
         }
