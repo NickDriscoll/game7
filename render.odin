@@ -57,7 +57,7 @@ UniformBufferData :: struct {
     joint_weight_ptr: vk.DeviceAddress,
 
     joint_mats_ptr: vk.DeviceAddress,
-    _pad1: hlsl.float4,
+    decals_ptr: vk.DeviceAddress,
     
     view_position: hlsl.float4,
 

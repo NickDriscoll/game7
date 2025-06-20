@@ -29,6 +29,10 @@ struct MaterialData {
     float4 base_color;
 }
 
+struct DecalData {
+
+}
+
 struct DirectionalLight {
     float3 direction;
     float _pad0;
@@ -63,7 +67,7 @@ struct UniformData {
     float4 *joint_weights;
 
     float4x4 *inv_bind_matrices;
-    float4 _pad1;
+    DecalData *decals;
 
     float4 view_position;
 
