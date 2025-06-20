@@ -205,6 +205,10 @@ load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allo
     // Assumption is that sound effects will be mono
     assert(file_info.channels == 1, "Sound effects must be mono.")
 
+    if file_info.sample_rate != c.uint(audio_system.spec.freq) {
+        log.warnf("Audio file sample rate (%v Hz) doesn't match audio spec (%v Hz)", file_info.sample_rate, audio_system.spec.freq)
+    }
+
     sound_effect := SoundEffect {
         samples = make([dynamic]f32, global_allocator),
         name = filepath.stem(strings.clone_from_cstring(path, global_allocator))
