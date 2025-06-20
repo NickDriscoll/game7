@@ -495,6 +495,7 @@ main :: proc() {
                     imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
                     imgui.SliderFloat("Bullet travel time", &game_state.character.bullet_travel_time, 0.0, 1.0)
+                    imgui.SliderFloat("Coin radius", &game_state.coin_collision_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {
                         output_verbs.bools[.PlayerReset] = true
                     }
