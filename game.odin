@@ -260,7 +260,7 @@ init_gamestate :: proc(
         farplane = 1_000_000.0,
         collision_radius = 0.1,
         target = {
-            distance = 8.0
+            distance = 5.0
         },
     }
     game_state.freecam_speed_multiplier = 5.0
@@ -1850,6 +1850,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
             e.position = enemy.respawn_position
             e.home_position = enemy.respawn_home
             e.ai_state = enemy.respawn_ai_state
+            e.init_ai_state = enemy.respawn_ai_state
             e.collision_radius = enemy.collision_radius
             append(&game_state.enemies, e)
         }
@@ -1944,6 +1945,7 @@ camera_update :: proc(
         target.distance = math.clamp(target.distance, 1.0, 100.0)
 
         game_state.viewport_camera.target.position = game_state.camera_follow_point
+        game_state.viewport_camera.target.position.z += 1.0
 
         camera_rotation += output_verbs.float2s[.RotateCamera] * dt
 
