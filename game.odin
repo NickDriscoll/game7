@@ -82,6 +82,7 @@ Character :: struct {
     anim_t: f32,
     anim_speed: f32,
     control_flags: CharacterFlags,
+    damage_timer: time.Time,
     mesh_data: ^SkinnedModelData,
 
     air_bullet: Maybe(AirBullet),
@@ -243,7 +244,7 @@ init_gamestate :: proc(
     game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
-    game_state.coin_collision_radius = 0.6
+    game_state.coin_collision_radius = 0.1
 
     // Initialize main viewport camera
     game_state.viewport_camera = Camera {
@@ -1238,6 +1239,9 @@ scene_editor :: proc(
 player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
     char := &game_state.character
 
+    // Is character taking damage
+    taking_damage := time.diff(char.damage_timer, time.now()) < time.Duration(0.75 * SECONDS_TO_NANOSECONDS)
+
     // Set current xy velocity (and character facing) to whatever user input is
     {
         // X and Z bc view space is x-right, y-up, z-back
@@ -1318,12 +1322,12 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
         char.acceleration = {world_invector.x, world_invector.y, 0.0}
         accel_len := hlsl.length(char.acceleration)
         this_frame_move_speed *= accel_len
-        if accel_len == 0 {
+        if !taking_damage && accel_len == 0 {
             to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
             char.velocity.xy += char.deceleration_speed * to_zero
         }
         char.velocity.xy += char.acceleration.xy
-        if math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
+        if !taking_damage && math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
             char.velocity.xy = this_frame_move_speed * hlsl.normalize(char.velocity.xy)
         }
         movement_dist := hlsl.length(char.velocity.xy)
@@ -1464,6 +1468,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                         // Ceiling
                         char.velocity.z = 0.0
                     }
+                    char.damage_timer._nsec = 0
                 } else {
                     // Didn't hit anything, still falling.
                     char.collision.position = motion_endpoint
@@ -1526,6 +1531,25 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     cr, crok := coin_to_remove.?
     if crok {
         unordered_remove(&game_state.coins, cr)
+    }
+
+    // Check if we're being hit by an enemy
+    if !taking_damage {
+        for enemy in game_state.enemies {
+            s := Sphere {
+                position = enemy.position,
+                radius = enemy.collision_radius
+            }
+            if are_spheres_overlapping(s, char.collision) {
+                //out := hlsl.normalize(char.collision.position - enemy.position).xy
+                out := char.collision.position - enemy.position
+                d := hlsl.normalize(hlsl.cross(out, hlsl.float3{0.0, 0.0, 1.0}))
+                char.velocity.xy = 10.0 * d.xy
+                char.velocity.z = 3.0
+                char.state = .Falling
+                char.damage_timer = time.now()
+            }
+        }
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
@@ -1794,7 +1818,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         if ok {
             col := Sphere {
                 position = enemy.position,
-                radius = enemy.collision_radius * 10.0
+                radius = enemy.collision_radius * 2.0
             }
             if are_spheres_overlapping(bullet.collision, col) {
                 char.held_enemy = game_state.enemies[i]
@@ -1889,7 +1913,7 @@ coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: Ga
         pos := coin.position
         pos.z += 0.25 * math.sin(game_state.time)
         dd := StaticDraw {
-            world_from_model = translation_matrix(pos) * yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(game_state.coin_collision_radius)
+            world_from_model = translation_matrix(pos) * yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
         }
         draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, &dd)
         
