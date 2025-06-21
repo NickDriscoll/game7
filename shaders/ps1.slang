@@ -89,7 +89,16 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     float3 diffuse_contribution = {};
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
-        diffuse_contribution += simple_diffuse_brdf(normalize(face_normal), light.direction, light.color);
+        diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
+    }
+
+    // Point lights
+    for (uint i = 0; i < u_data.point_light_count; ++i) {
+        PointLight light = u_data.point_lights[i];
+        float3 direction = light.world_position - input.world_pos;
+        float d = length(direction);
+        float falloff = 1.0 / (d * d);
+        diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, normalize(direction), light.color);
     }
 
     // if (u_data.acceleration_structure_data != nullptr) {
