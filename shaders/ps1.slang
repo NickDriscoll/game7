@@ -93,12 +93,17 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     // Point lights
+    float3 specular_contribution = {};
     for (uint i = 0; i < u_data.point_light_count; ++i) {
         PointLight light = u_data.point_lights[i];
         float3 direction = light.world_position - input.world_pos;
         float d = length(direction);
         float falloff = 1.0 / (d * d);
         diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, normalize(direction), light.color);
+
+        float3 view_dir = u_data.view_position.xyz - input.world_pos;
+        float3 h = normalize(view_dir);
+        specular_contribution += falloff * max(0.0, dot(h, direction));
     }
 
     // if (u_data.acceleration_structure_data != nullptr) {
@@ -111,7 +116,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         //TraceRay();
     // }
 
-    float3 final_color = diffuse_contribution * material_albedo;
+    float3 final_color = (specular_contribution + diffuse_contribution) * material_albedo;
 
     if (inst.is_highlighted > 0) {
         float3 pos_to_view = normalize(u_data.view_position.xyz - input.world_pos);
