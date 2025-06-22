@@ -102,7 +102,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, normalize(direction), light.color);
 
         float3 view_dir = u_data.view_position.xyz - input.world_pos;
-        float3 h = normalize(view_dir);
+        float3 h = normalize(view_dir + face_normal);
         specular_contribution += falloff * max(0.0, dot(h, direction));
     }
 
