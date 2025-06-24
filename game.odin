@@ -60,14 +60,15 @@ CollisionState :: enum {
     Falling
 }
 
-CharacterFlags :: bit_set[enum {
+CharacterFlag :: enum {
     MovingLeft,
     MovingRight,
     MovingBack,
     MovingForward,
     AlreadyJumped,
     Sprinting,
-}]
+}
+CharacterFlags :: bit_set[CharacterFlag]
 Character :: struct {
     collision: Sphere,
     state: CollisionState,
@@ -1253,38 +1254,22 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
         {
             flags := &char.control_flags
 
-            r, ok := output_verbs.bools[.PlayerTranslateLeft]
-            if ok {
-                if r {
-                    flags^ += {.MovingLeft}
-                } else {
-                    flags^ -= {.MovingLeft}
+            fn_thing :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
+                r, ok := d[verb]
+                if ok {
+                    if r {
+                        flags^ += {action}
+                    } else {
+                        flags^ -= {action}
+                    }
                 }
             }
-            r, ok = output_verbs.bools[.PlayerTranslateRight]
-            if ok {
-                if r {
-                    flags^ += {.MovingRight}
-                } else {
-                    flags^ -= {.MovingRight}
-                }
-            }
-            r, ok = output_verbs.bools[.PlayerTranslateBack]
-            if ok {
-                if r {
-                    flags^ += {.MovingBack}
-                } else {
-                    flags^ -= {.MovingBack}
-                }
-            }
-            r, ok = output_verbs.bools[.PlayerTranslateForward]
-            if ok {
-                if r {
-                    flags^ += {.MovingForward}
-                } else {
-                    flags^ -= {.MovingForward}
-                }
-            }
+
+            fn_thing(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
+            fn_thing(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
+            fn_thing(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
+            fn_thing(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
+            
             if .MovingLeft in flags^ do xv += -1.0
             if .MovingRight in flags^ do xv += 1.0
             if .MovingBack in flags^ do zv += -1.0
@@ -1319,19 +1304,21 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 
         // Now we have a representation of the player's input vector in world space
 
-        char.acceleration = {world_invector.x, world_invector.y, 0.0}
-        accel_len := hlsl.length(char.acceleration)
-        this_frame_move_speed *= accel_len
-        if !taking_damage && accel_len == 0 {
-            to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
-            char.velocity.xy += char.deceleration_speed * to_zero
+        if !taking_damage {
+            char.acceleration = {world_invector.x, world_invector.y, 0.0}
+            accel_len := hlsl.length(char.acceleration)
+            this_frame_move_speed *= accel_len
+            if accel_len == 0 && char.state == .Grounded {
+                to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
+                char.velocity.xy += char.deceleration_speed * to_zero
+            }
+            char.velocity.xy += char.acceleration.xy
+            if math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
+                char.velocity.xy = this_frame_move_speed * hlsl.normalize(char.velocity.xy)
+            }
+            movement_dist := hlsl.length(char.velocity.xy)
+            char.anim_t += char.anim_speed * dt * movement_dist
         }
-        char.velocity.xy += char.acceleration.xy
-        if !taking_damage && math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
-            char.velocity.xy = this_frame_move_speed * hlsl.normalize(char.velocity.xy)
-        }
-        movement_dist := hlsl.length(char.velocity.xy)
-        char.anim_t += char.anim_speed * dt * movement_dist
 
         if xv != 0.0 || zv != 0.0 {
             char.facing = hlsl.normalize(world_invector).xyz
@@ -1542,10 +1529,11 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             }
             if are_spheres_overlapping(s, char.collision) {
                 //out := hlsl.normalize(char.collision.position - enemy.position).xy
-                out := char.collision.position - enemy.position
-                d := hlsl.normalize(hlsl.cross(out, hlsl.float3{0.0, 0.0, 1.0}))
-                char.velocity.xy = 10.0 * d.xy
-                char.velocity.z = 3.0
+                // out := char.collision.position - enemy.position
+                // d := hlsl.normalize(hlsl.cross(out, hlsl.float3{0.0, 0.0, 1.0}))
+                d := hlsl.normalize(enemy.facing).xy
+                char.velocity.xy = 10.0 * d
+                char.velocity.z = 13.0
                 char.state = .Falling
                 char.damage_timer = time.now()
             }
