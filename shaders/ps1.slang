@@ -103,7 +103,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
         float3 view_dir = u_data.view_position.xyz - input.world_pos;
         float3 h = normalize(view_dir + face_normal);
-        specular_contribution += falloff * max(0.0, dot(h, direction));
+        //specular_contribution += falloff * max(0.0, dot(h, direction));
     }
 
     // if (u_data.acceleration_structure_data != nullptr) {
