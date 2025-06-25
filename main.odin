@@ -360,7 +360,6 @@ main :: proc() {
     load_new_level: Maybe(string)
 
     log.info("App initialization complete. Entering main loop")
-    defer vkw.device_wait_idle(&vgd)
 
     do_main_loop := true
     for do_main_loop {
@@ -372,7 +371,7 @@ main :: proc() {
         previous_time = current_time
 
         // @TODO: Wrap this value at some point?
-        game_state.time += dt
+        game_state.time += dt * game_state.timescale
 
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
@@ -1153,5 +1152,6 @@ main :: proc() {
         if do_limit_cpu do time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
     }
 
+    vkw.device_wait_idle(&vgd)
     log.info("Returning from main()")
 }
