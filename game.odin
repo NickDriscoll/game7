@@ -69,6 +69,7 @@ CharacterFlag :: enum {
     Sprinting,
 }
 CharacterFlags :: bit_set[CharacterFlag]
+CHARACTER_MAX_HEALTH :: 3
 Character :: struct {
     collision: Sphere,
     state: CollisionState,
@@ -82,6 +83,7 @@ Character :: struct {
     jump_speed: f32,
     anim_t: f32,
     anim_speed: f32,
+    health: u32,
     control_flags: CharacterFlags,
     damage_timer: time.Time,
     mesh_data: ^SkinnedModelData,
@@ -1466,10 +1468,14 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     }
 
     // Teleport player back to spawn if hit death plane
-    if output_verbs.bools[.PlayerReset] || char.collision.position.z < -50.0 {
+    respawn := output_verbs.bools[.PlayerReset]
+    respawn |= char.collision.position.z < -50.0
+    respawn |= char.health == 0
+    if respawn {
         char.collision.position = game_state.character_start
         char.velocity = {}
         char.acceleration = {}
+        char.health = CHARACTER_MAX_HEALTH
     }
 
     // Shoot command
@@ -1536,6 +1542,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 char.velocity.z = 13.0
                 char.state = .Falling
                 char.damage_timer = time.now()
+                char.health -= 1
             }
         }
     }
