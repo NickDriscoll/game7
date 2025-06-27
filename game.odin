@@ -70,6 +70,7 @@ CharacterFlag :: enum {
 }
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
+CHARACTER_INVULNERABILITY_DURATION :: 0.25
 Character :: struct {
     collision: Sphere,
     state: CollisionState,
@@ -1243,16 +1244,16 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     char := &game_state.character
 
     // Is character taking damage
-    taking_damage := time.diff(char.damage_timer, time.now()) < time.Duration(0.75 * SECONDS_TO_NANOSECONDS)
+    taking_damage := !the_time_has_come(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
 
     // Set current xy velocity (and character facing) to whatever user input is
     {
         // X and Z bc view space is x-right, y-up, z-back
-        v := output_verbs.float2s[.PlayerTranslate]
-        xv := v.x
-        zv := v.y
+        translate_vector := output_verbs.float2s[.PlayerTranslate]
+        translate_vector_x := translate_vector.x
+        translate_vector_z := translate_vector.y
 
-        // Boolean input handling
+        // Boolean (keyboard) input handling
         {
             flags := &char.control_flags
 
@@ -1272,14 +1273,14 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             fn_thing(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
             fn_thing(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
             
-            if .MovingLeft in flags^ do xv += -1.0
-            if .MovingRight in flags^ do xv += 1.0
-            if .MovingBack in flags^ do zv += -1.0
-            if .MovingForward in flags^ do zv += 1.0
+            if .MovingLeft in flags^ do translate_vector_x += -1.0
+            if .MovingRight in flags^ do translate_vector_x += 1.0
+            if .MovingBack in flags^ do translate_vector_z += -1.0
+            if .MovingForward in flags^ do translate_vector_z += 1.0
         }
 
         // Input vector is in view space, so we transform to world space
-        world_invector := hlsl.float4 {-zv, xv, 0.0, 0.0}
+        world_invector := hlsl.float4 {-translate_vector_z, translate_vector_x, 0.0, 0.0}
         world_invector = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_invector
         if hlsl.length(world_invector) > 1.0 {
             world_invector = hlsl.normalize(world_invector)
@@ -1322,7 +1323,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             char.anim_t += char.anim_speed * dt * movement_dist
         }
 
-        if xv != 0.0 || zv != 0.0 {
+        if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
             char.facing = hlsl.normalize(world_invector).xyz
         }
     }
@@ -1584,12 +1585,22 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         anim_idx = 0,
         anim_t = character.anim_t,
     }
-
     col := &game_state.character.collision
-    ddata.world_from_model[3][0] = col.position.x
-    ddata.world_from_model[3][1] = col.position.y
-    ddata.world_from_model[3][2] = col.position.z - col.radius
-    draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
+
+    // Blink if taking damage
+    if !the_time_has_come(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) {
+        if gd.frame_count & 0xF == 0 {
+            ddata.world_from_model[3][0] = col.position.x
+            ddata.world_from_model[3][1] = col.position.y
+            ddata.world_from_model[3][2] = col.position.z - col.radius
+            draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
+        }
+    } else {
+        ddata.world_from_model[3][0] = col.position.x
+        ddata.world_from_model[3][1] = col.position.y
+        ddata.world_from_model[3][2] = col.position.z - col.radius
+        draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
+    }
 
     // Draw enemy above player head
     held_enemy, is_holding_enemy := character.held_enemy.?
