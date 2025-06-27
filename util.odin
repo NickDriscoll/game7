@@ -2,6 +2,7 @@ package main
 
 import "core:math/linalg/hlsl"
 import "core:math"
+import "core:time"
 import hm "desktop_vulkan_wrapper/handlemap"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
@@ -117,4 +118,10 @@ z_rotate_quaternion :: proc (angle: f32) -> quaternion128 {
     imag := hlsl.float3 {0.0, 0.0, 1.0} * math.sin(half_angle)
 
     return quaternion(w = math.cos(half_angle), x = imag.x, y = imag.y, z = imag.z)
+}
+
+
+
+the_time_has_come  :: proc (timer: time.Time, d: $T/time.Duration) -> bool {
+    return time.diff(timer, time.now()) > time.Duration(d)
 }
