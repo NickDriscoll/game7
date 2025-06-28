@@ -70,7 +70,7 @@ CharacterFlag :: enum {
 }
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
-CHARACTER_INVULNERABILITY_DURATION :: 0.25
+CHARACTER_INVULNERABILITY_DURATION :: 0.5
 Character :: struct {
     collision: Sphere,
     state: CollisionState,
@@ -216,6 +216,7 @@ GameState :: struct {
     jump_sound: uint,
     shoot_sound: uint,
     coin_sound: uint,
+    ow_sound: uint,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -296,6 +297,13 @@ init_gamestate :: proc(
             log.error("Failed to load sound effect")
         }
         game_state.coin_sound = idx
+    }
+    {
+        idx, ok := load_sound_effect(audio_system, "data/audio/ow.ogg", global_allocator)
+        if !ok {
+            log.error("Failed to load sound effect")
+        }
+        game_state.ow_sound = idx
     }
 
     // Just a test load of a DDS file
@@ -1535,15 +1543,13 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 radius = enemy.collision_radius
             }
             if are_spheres_overlapping(s, char.collision) {
-                //out := hlsl.normalize(char.collision.position - enemy.position).xy
-                // out := char.collision.position - enemy.position
-                // d := hlsl.normalize(hlsl.cross(out, hlsl.float3{0.0, 0.0, 1.0}))
                 d := hlsl.normalize(enemy.facing).xy
                 char.velocity.xy = 10.0 * d
                 char.velocity.z = 13.0
                 char.state = .Falling
                 char.damage_timer = time.now()
                 char.health -= 1
+                play_sound_effect(audio_system, game_state.ow_sound)
             }
         }
     }
@@ -1589,7 +1595,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
 
     // Blink if taking damage
     if !the_time_has_come(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) {
-        if gd.frame_count & 0xF == 0 {
+        if (gd.frame_count / 20) % 2 == 0 {
             ddata.world_from_model[3][0] = col.position.x
             ddata.world_from_model[3][1] = col.position.y
             ddata.world_from_model[3][2] = col.position.z - col.radius
