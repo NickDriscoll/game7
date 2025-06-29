@@ -106,6 +106,12 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         //specular_contribution += falloff * max(0.0, dot(h, direction));
     }
 
+    // Glowing
+    float3 glow = {};
+    if ((inst.flags & InstanceFlags.Glowing) != 0) {
+        glow = float3(0.0, 1.0, 0.0);
+    }
+
     // if (u_data.acceleration_structure_data != nullptr) {
         // Trace one shadow ray per-pixel
         // RayDesc ray;
@@ -116,9 +122,9 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         //TraceRay();
     // }
 
-    float3 final_color = (specular_contribution + diffuse_contribution) * material_albedo;
+    float3 final_color = (glow + specular_contribution + diffuse_contribution) * material_albedo;
 
-    if (inst.is_highlighted > 0) {
+    if ((inst.flags & InstanceFlags.Highlighted) != 0) {
         float3 pos_to_view = normalize(u_data.view_position.xyz - input.world_pos);
         float fac = smoothstep(0.5, 1.0, 1.0 - dot(face_normal, pos_to_view));
 

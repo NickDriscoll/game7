@@ -968,13 +968,10 @@ main :: proc() {
                 draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)
 
                 // Make air bullet a point light source
-                id := renderer.cpu_uniforms.point_light_count
-                if id < MAX_POINT_LIGHTS {
-                    renderer.cpu_uniforms.point_light_count += 1
-                    light := &renderer.cpu_uniforms.point_lights[id]
-                    light.color = {0.0, 1.0, 0.0}
-                    light.world_position = bullet.collision.position
-                }
+                add_point_light(&renderer, PointLight {
+                    color = {0.0, 1.0, 0.0},
+                    world_position = bullet.collision.position
+                })
             }
         }
 

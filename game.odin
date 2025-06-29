@@ -1543,9 +1543,9 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 radius = enemy.collision_radius
             }
             if are_spheres_overlapping(s, char.collision) {
-                d := hlsl.normalize(enemy.facing).xy
-                char.velocity.xy = 10.0 * d
-                char.velocity.z = 13.0
+                // d := hlsl.normalize(enemy.facing).xy
+                // char.velocity.xy = 10.0 * d
+                char.velocity.z = 3.0
                 char.state = .Falling
                 char.damage_timer = time.now()
                 char.health -= 1
@@ -1595,7 +1595,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
 
     // Blink if taking damage
     if !the_time_has_come(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) {
-        if (gd.frame_count / 20) % 2 == 0 {
+        if (gd.frame_count >> 4) % 2 == 0 {
             ddata.world_from_model[3][0] = col.position.x
             ddata.world_from_model[3][1] = col.position.y
             ddata.world_from_model[3][2] = col.position.z - col.radius
@@ -1612,13 +1612,21 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     held_enemy, is_holding_enemy := character.held_enemy.?
     if is_holding_enemy {
         bob := 0.2 * math.sin(game_state.time * 1.7)
-        mat := translation_matrix(character.collision.position + {0.0, 0.0, 1.5 + bob})
+        pos := character.collision.position + {0.0, 0.0, 1.5 + bob}
+        mat := translation_matrix(pos)
         mat *= yaw_rotation_matrix(game_state.time)
         mat *= uniform_scaling_matrix(0.5)
         dd := StaticDraw {
-            world_from_model = mat
+            world_from_model = mat,
+            flags = {.Glowing}
         }
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+
+        // Light source
+        add_point_light(renderer, PointLight {
+            color = {0.0, 1.0, 0.0},
+            world_position = pos
+        })
     }
 
     // Debug draw logic
@@ -1893,11 +1901,15 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
 
         {
+            flags: InstanceFlags
             idx, ok := game_state.selected_enemy.?
             highlighted := ok && i == idx
+            if highlighted {
+                flags += {.Highlighted}
+            }
             dd := StaticDraw {
                 world_from_model = world_mat,
-                highlighted = highlighted
+                flags = flags
             }
             draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
         }
@@ -1915,9 +1927,16 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
     for enemy in game_state.thrown_enemies {
         mat := translation_matrix(enemy.position) * uniform_scaling_matrix(enemy.collision_radius)
         dd := StaticDraw {
-            world_from_model = mat
+            world_from_model = mat,
+            flags = {.Glowing}
         }
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+
+        // Light source
+        add_point_light(renderer, PointLight {
+            color = {0.0, 1.0, 0.0},
+            world_position = enemy.position
+        })
     }
 }
 
