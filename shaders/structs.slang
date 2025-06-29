@@ -9,12 +9,16 @@ struct StaticMeshData {
     uint _pad0;
 }
 
+enum InstanceFlags {
+    Highlighted = 1,
+    Glowing = 2,
+}
 struct InstanceData {
     float4x4 world_from_model;
     float4x4 normal_matrix;
     uint mesh_idx;
     uint material_idx;
-    uint is_highlighted;
+    uint flags;
     uint _pad0;
     float4 color;
     float4x2 _pad4;

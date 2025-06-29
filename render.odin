@@ -140,7 +140,7 @@ Material :: struct {
 
 StaticDraw :: struct {
     world_from_model: hlsl.float4x4,
-    highlighted: bool
+    flags: InstanceFlags
 }
 
 CPUStaticMesh :: struct {
@@ -164,16 +164,21 @@ CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
-    is_highlighted: bool,
+    flags: InstanceFlags,
     gpu_mesh_idx: u32,
 }
 
+InstanceFlag :: enum u32 {
+    Highlighted = 1,
+    Glowing = 2,
+}
+InstanceFlags :: bit_set[InstanceFlag]
 GPUInstance :: struct {
     world_from_model: hlsl.float4x4,
     normal_matrix: hlsl.float4x4, // cofactor matrix of above
     mesh_idx: u32,
     material_idx: u32,
-    is_highlighted: u32,          // @TODO: This should just be a flags field
+    flags: InstanceFlags,
     _pad0: u32,
     color: hlsl.float4,
     _pad3: hlsl.float4x2,
@@ -184,6 +189,7 @@ DebugStaticInstance :: struct {
     mesh_handle: Static_Mesh_Handle,
     gpu_mesh_idx: u32,
     color: hlsl.float4,
+    flags: InstanceFlags,
 }
 
 DebugDraw :: struct {
@@ -1068,6 +1074,13 @@ add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle 
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
 
+add_point_light :: proc(renderer: ^Renderer, light: PointLight) {
+    id := renderer.cpu_uniforms.point_light_count
+    if id < MAX_POINT_LIGHTS {
+        renderer.cpu_uniforms.point_light_count += 1
+        renderer.cpu_uniforms.point_lights[id] = light
+    }
+}
 
 // Per-frame work that needs to happen at the beginning of the frame
 new_frame :: proc(renderer: ^Renderer) {
@@ -1156,7 +1169,7 @@ draw_ps1_static_primitive :: proc(
         world_from_model = draw_data.world_from_model,
         mesh_handle = mesh_handle,
         gpu_mesh_idx = mesh.gpu_mesh_idx,
-        is_highlighted = draw_data.highlighted,
+        flags = draw_data.flags,
         material_handle = material_handle
     }
     append(&renderer.ps1_static_instances, new_inst)
@@ -1477,12 +1490,9 @@ render_scene :: proc(
                 inst := &instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
                     material_idx : u32 = 0
-                    is_highlighted: u32
+                    flags: InstanceFlags
                     when T == CPUStaticInstance {
                         material_idx = inst.material_handle.index
-                        if inst.is_highlighted {
-                            is_highlighted = 1
-                        }
                     }
 
                     color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
@@ -1495,7 +1505,7 @@ render_scene :: proc(
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
                         mesh_idx = inst.gpu_mesh_idx,
                         material_idx = material_idx,
-                        is_highlighted = is_highlighted,
+                        flags = inst.flags,
                         color = color
                     }
                     append(&renderer.gpu_static_instances, g_inst)
