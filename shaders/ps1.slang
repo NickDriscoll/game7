@@ -98,7 +98,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         PointLight light = u_data.point_lights[i];
         float3 direction = light.world_position - input.world_pos;
         float d = length(direction);
-        float falloff = 1.0 / (d * d);
+        float falloff = light.intensity / (d * d);
         diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, normalize(direction), light.color);
 
         float3 view_dir = u_data.view_position.xyz - input.world_pos;

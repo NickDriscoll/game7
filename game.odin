@@ -1623,10 +1623,12 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
 
         // Light source
-        add_point_light(renderer, PointLight {
-            color = {0.0, 1.0, 0.0},
-            world_position = pos
-        })
+        l := default_point_light()
+        l.color = {0.0, 1.0, 0.0}
+        l.world_position = pos
+        sample_point := [2]f64 {f64(game_state.time), 128}
+        l.intensity = 3.0 * noise.noise_2d(game_state.rng_seed, sample_point) + 3.0
+        add_point_light(renderer, l)
     }
 
     // Debug draw logic
@@ -1933,10 +1935,13 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
 
         // Light source
-        add_point_light(renderer, PointLight {
-            color = {0.0, 1.0, 0.0},
-            world_position = enemy.position
-        })
+        l := default_point_light()
+        l.world_position = enemy.position
+        l.color = {0.0, 1.0, 0.0}
+
+        sample_point := [2]f64 {f64(game_state.time), 128}
+        l.intensity = 3.0 * noise.noise_2d(game_state.rng_seed, sample_point) + 3.0
+        add_point_light(renderer, l)
     }
 }
 

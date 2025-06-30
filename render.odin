@@ -85,9 +85,16 @@ DirectionalLight :: struct {
 
 PointLight :: struct {
     world_position: hlsl.float3,
-    _pad0: f32,
+    intensity: f32,
     color: hlsl.float3,
     _pad1: f32,
+}
+default_point_light :: proc() -> PointLight {
+    return {
+        world_position = {},
+        color = {1.0, 1.0, 1.0},
+        intensity = 1.0,
+    }
 }
 
 Ps1PushConstants :: struct {
