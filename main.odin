@@ -204,7 +204,7 @@ main :: proc() {
         log.errorf("Failed to initialize Vulkan : %v", res)
         return
     }
-    when ODIN_DEBUG do defer vkw.quit_vulkan(&vgd)
+    defer vkw.quit_vulkan(&vgd)
 
     // Make window
     app_window: Window
