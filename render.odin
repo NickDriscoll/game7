@@ -907,24 +907,26 @@ create_static_mesh :: proc(
                         deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
                     },
                     transform_data = {}
-                }
+                },
+                flags = nil
             }
-        } 
+        }
+        prim_counts: []u32 = { indices_len / 3 }
         build_info := vkw.AccelerationStructureBuildInfo {
             type = .BOTTOM_LEVEL,
             flags = nil,
             mode = .BUILD,
             src = 0,
             dst = 0,
-
+            geometries = geos,
+            prim_counts = prim_counts,
         }
 
-        // as_info := vkw.AccelerationStructureCreateInfo {
-        //     flags = nil,
-        //     buffer = renderer.accleration_structure_buffer,
-        //     offset = renderer.acceleration_structure_head * 
-        // }
-        // new_as := vkw.create_acceleration_structure(gd, as_info)
+        as_info := vkw.AccelerationStructureCreateInfo {
+            flags = nil,
+            type = .BOTTOM_LEVEL
+        }
+        new_as := vkw.create_acceleration_structure(gd, as_info, build_info)
     }
 
     mesh := CPUStaticMesh {
