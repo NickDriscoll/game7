@@ -902,7 +902,7 @@ create_static_mesh :: proc(
                     },
                     vertex_stride = 0,
                     max_vertex = positions_len - 1,
-                    index_type = .UINT32,
+                    index_type = .UINT16,
                     index_data = {
                         deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
                     },
@@ -920,13 +920,19 @@ create_static_mesh :: proc(
             dst = 0,
             geometries = geos,
             prim_counts = prim_counts,
+            range_info = {
+                primitiveCount = indices_len / 3,
+                primitiveOffset = 0,
+                firstVertex = 0,
+                transformOffset = 0
+            }
         }
 
         as_info := vkw.AccelerationStructureCreateInfo {
             flags = nil,
             type = .BOTTOM_LEVEL
         }
-        new_as := vkw.create_acceleration_structure(gd, as_info, build_info)
+        //new_as := vkw.create_acceleration_structure(gd, as_info, build_info)
     }
 
     mesh := CPUStaticMesh {
