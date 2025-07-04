@@ -401,8 +401,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             required_flags = {.DEVICE_LOCAL},
             name = "Global index buffer",
         }
+        if renderer.do_raytracing {
+            info.usage += {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
+        }
         renderer.index_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.index_buffer", f32(info.size) / 1024 / 1024)
+        info.usage -= {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
     }
 
     // Create device-local storage buffers
@@ -412,11 +416,15 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL},
         }
+        if renderer.do_raytracing {
+            info.usage += {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
+        }
 
         info.name = "Global vertex positions buffer"
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
+        info.usage -= {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
 
         info.name = "Global vertex UVs buffer"
         info.size = size_of(hlsl.float2) * MAX_GLOBAL_VERTICES
@@ -892,25 +900,24 @@ create_static_mesh :: proc(
     // TEMP: Just trying to build a BLAS when I don't know how
     if renderer.do_raytracing {
         pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(f32) * position_start)
-        geos : []vkw.AccelerationStructureGeometry = {
-            {
-                type = .TRIANGLES,
-                geometry = vkw.ASTriangleData {
-                    vertex_format = .R32_SFLOAT,
-                    vertex_data = {
-                        deviceAddress = pos_addr
-                    },
-                    vertex_stride = 0,
-                    max_vertex = positions_len - 1,
-                    index_type = .UINT16,
-                    index_data = {
-                        deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
-                    },
-                    transform_data = {}
+        geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
+        append(&geos, vkw.AccelerationStructureGeometry {
+            type = .TRIANGLES,
+            geometry = vkw.ASTriangleData {
+                vertex_format = .R8G8B8A8_UNORM,
+                vertex_data = {
+                    deviceAddress = pos_addr
                 },
-                flags = nil
-            }
-        }
+                vertex_stride = 0,
+                max_vertex = positions_len - 1,
+                index_type = .UINT16,
+                index_data = {
+                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
+                },
+                transform_data = {}
+            },
+            flags = nil
+        })
         prim_counts: []u32 = { indices_len / 3 }
         build_info := vkw.AccelerationStructureBuildInfo {
             type = .BOTTOM_LEVEL,
@@ -932,7 +939,7 @@ create_static_mesh :: proc(
             flags = nil,
             type = .BOTTOM_LEVEL
         }
-        //new_as := vkw.create_acceleration_structure(gd, as_info, build_info)
+        //new_as := vkw.create_acceleration_structure(gd, as_info, &build_info)
     }
 
     mesh := CPUStaticMesh {
