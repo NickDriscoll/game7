@@ -241,6 +241,8 @@ Static_Mesh_Handle :: distinct hm.Handle
 Skinned_Mesh_Handle :: distinct hm.Handle
 Material_Handle :: distinct hm.Handle
 
+// @TODO: Add good inline documentation for each field of Renderer
+// This is probably the most confusing part of the codebase
 Renderer :: struct {
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
     indices_head: u32,
@@ -259,8 +261,8 @@ Renderer :: struct {
     joint_ids_head: u32,
     joint_weights_buffer: vkw.Buffer_Handle,
     joint_weights_head: u32,
-    accleration_structure_buffer: vkw.Buffer_Handle,
-    acceleration_structure_head: u32,
+
+    scene_acceleration_structure: vkw.AccelerationStructure,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
@@ -356,7 +358,6 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_weights_head = 0
     renderer.joint_matrices_head = 0
     renderer.uvs_head = 0
-    renderer.acceleration_structure_head = 0
 
     renderer.cpu_uniforms.directional_light_count = 0
 }
@@ -465,12 +466,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.size = size_of(GPUInstance) * MAX_GLOBAL_INSTANCES
         renderer.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
-
-        info.name = "Acceleration structure buffer"
-        info.size = ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS
-        info.usage += {.ACCELERATION_STRUCTURE_STORAGE_KHR}
-        renderer.accleration_structure_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of VRAM for render_state.acceleration_structure_Buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Create indirect draw buffer
@@ -496,7 +491,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
             name = "Global uniforms buffer"
         }
         renderer.uniform_buffer = vkw.create_buffer(gd, &info)
-        log.debugf("Allocated %v MB of VRAM for render_state.uniform", f32(info.size) / 1024 / 1024)
+        log.debugf("Allocated %v MB of VRAM for render_state.uniform_buffer", f32(info.size) / 1024 / 1024)
     }
 
     // Initialize the buffer pointers in the uniforms struct
@@ -537,6 +532,22 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
 
         renderer.indices_ptr = indices_buffer.address
+    }
+
+    // Create scene TLAS
+    {
+        create_info := vkw.AccelerationStructureCreateInfo {
+            flags = nil,
+            type = .TOP_LEVEL
+        }
+        build_info := vkw.AccelerationStructureBuildInfo {
+            type = .TOP_LEVEL,
+            flags = nil,
+            mode = .BUILD,
+            src = 0,
+            dst = 0,
+            
+        }
     }
 
     // Create main rendertarget
@@ -899,7 +910,8 @@ create_static_mesh :: proc(
 
     // TEMP: Just trying to build a BLAS when I don't know how
     if renderer.do_raytracing {
-        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(f32) * position_start)
+        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * position_start)
+        // @TODO: This allocation yikes
         geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
         append(&geos, vkw.AccelerationStructureGeometry {
             type = .TRIANGLES,
@@ -939,7 +951,7 @@ create_static_mesh :: proc(
             flags = nil,
             type = .BOTTOM_LEVEL
         }
-        //new_as := vkw.create_acceleration_structure(gd, as_info, &build_info)
+        new_as := vkw.create_acceleration_structure(gd, as_info, &build_info)
     }
 
     mesh := CPUStaticMesh {
@@ -1473,6 +1485,11 @@ render_scene :: proc(
     // Material buffer
     if .Material in renderer.dirty_flags {
         vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
+    }
+
+    // Update scene TLAS
+    if renderer.do_raytracing {
+
     }
 
     draw_instances :: proc(
