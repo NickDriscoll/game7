@@ -1462,7 +1462,7 @@ render_scene :: proc(
     compute_skinning(gd, renderer)
 
     // Recreate scene TLAS
-    {
+    if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
         for static_instance in renderer.ps1_static_instances {
             tform: vk.TransformMatrixKHR
@@ -1539,11 +1539,6 @@ render_scene :: proc(
     // Material buffer
     if .Material in renderer.dirty_flags {
         vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
-    }
-
-    // Update scene TLAS
-    if renderer.do_raytracing {
-
     }
 
     draw_instances :: proc(
