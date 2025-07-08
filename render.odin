@@ -154,6 +154,7 @@ CPUStaticMesh :: struct {
     indices_start: u32,
     indices_len: u32,
     gpu_mesh_idx: u32,
+    blas: vkw.Acceleration_Structure_Handle,
 }
 
 MeshRaytracingData :: struct {
@@ -173,11 +174,12 @@ CPUStaticInstance :: struct {
     material_handle: Material_Handle,
     flags: InstanceFlags,
     gpu_mesh_idx: u32,
+    blas: vkw.Acceleration_Structure_Handle,
 }
 
 InstanceFlag :: enum u32 {
-    Highlighted = 1,
-    Glowing = 2,
+    Highlighted,
+    Glowing,
 }
 InstanceFlags :: bit_set[InstanceFlag]
 GPUInstance :: struct {
@@ -262,7 +264,7 @@ Renderer :: struct {
     joint_weights_buffer: vkw.Buffer_Handle,
     joint_weights_head: u32,
 
-    scene_acceleration_structure: vkw.AccelerationStructure,
+    scene_TLAS: vkw.Acceleration_Structure_Handle,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
@@ -365,6 +367,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
     renderer: Renderer
     renderer.do_raytracing = .Raytracing in gd.support_flags
+    renderer.scene_TLAS.generation = 0xFFFFFFFF
 
     renderer_new_scene(&renderer)
 
@@ -425,6 +428,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
+
         info.usage -= {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
 
         info.name = "Global vertex UVs buffer"
@@ -532,22 +536,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
 
         renderer.indices_ptr = indices_buffer.address
-    }
-
-    // Create scene TLAS
-    {
-        create_info := vkw.AccelerationStructureCreateInfo {
-            flags = nil,
-            type = .TOP_LEVEL
-        }
-        build_info := vkw.AccelerationStructureBuildInfo {
-            type = .TOP_LEVEL,
-            flags = nil,
-            mode = .BUILD,
-            src = 0,
-            dst = 0,
-            
-        }
     }
 
     // Create main rendertarget
@@ -909,13 +897,14 @@ create_static_mesh :: proc(
     append(&renderer.gpu_static_meshes, gpu_mesh)
 
     // TEMP: Just trying to build a BLAS when I don't know how
+    new_as: vkw.Acceleration_Structure_Handle
     if renderer.do_raytracing {
         pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * position_start)
         // @TODO: This allocation yikes
         geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
         append(&geos, vkw.AccelerationStructureGeometry {
             type = .TRIANGLES,
-            geometry = vkw.ASTriangleData {
+            geometry = vkw.ASTrianglesData {
                 vertex_format = .R8G8B8A8_UNORM,
                 vertex_data = {
                     deviceAddress = pos_addr
@@ -951,13 +940,14 @@ create_static_mesh :: proc(
             flags = nil,
             type = .BOTTOM_LEVEL
         }
-        new_as := vkw.create_acceleration_structure(gd, as_info, &build_info)
+        new_as = vkw.create_acceleration_structure(gd, as_info, &build_info)
     }
 
     mesh := CPUStaticMesh {
         indices_start = indices_start,
         indices_len = indices_len,
         gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
+        blas = new_as,
     }
     handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
 
@@ -1204,7 +1194,8 @@ draw_ps1_static_primitive :: proc(
         mesh_handle = mesh_handle,
         gpu_mesh_idx = mesh.gpu_mesh_idx,
         flags = draw_data.flags,
-        material_handle = material_handle
+        material_handle = material_handle,
+        blas = mesh.blas,
     }
     append(&renderer.ps1_static_instances, new_inst)
 
@@ -1469,6 +1460,69 @@ render_scene :: proc(
 ) {
     // Do compute skinning work
     compute_skinning(gd, renderer)
+
+    // Recreate scene TLAS
+    {
+        instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
+        for static_instance in renderer.ps1_static_instances {
+            tform: vk.TransformMatrixKHR
+            tform.mat[0] = static_instance.world_from_model[0]
+            tform.mat[1] = static_instance.world_from_model[1]
+            tform.mat[2] = static_instance.world_from_model[2]
+
+            blas, _ := hm.get(&gd.acceleration_structures, static_instance.blas)
+            inst := vk.AccelerationStructureInstanceKHR {
+                transform = tform,
+                
+                // @TODO: Use these fields
+                instanceCustomIndex = 0,
+                mask = 0,
+                instanceShaderBindingTableRecordOffset = 0,
+                flags = nil,
+
+                accelerationStructureReference = u64(blas.handle)
+            }
+            append(&instances, inst)
+        }
+
+        geo_data := vkw.ASInstancesData {
+            array_of_pointers = false,
+            data = raw_data(instances)
+        }
+        geos := make([dynamic]vkw.AccelerationStructureGeometry, 1, context.temp_allocator)
+        geos[0] = vkw.AccelerationStructureGeometry {
+            type = .INSTANCES,
+            geometry = geo_data,
+            flags = nil,
+        }
+
+        prim_counts: []u32 = {u32(len(renderer.ps1_static_instances))}
+        create_info := vkw.AccelerationStructureCreateInfo {
+            flags = nil,
+            type = .TOP_LEVEL
+        }
+        build_info := vkw.AccelerationStructureBuildInfo {
+            type = .TOP_LEVEL,
+            flags = nil,
+            mode = .BUILD,
+            src = 0,
+            dst = 0,
+            geometries = geos,
+            prim_counts = prim_counts,
+            range_info = {
+                primitiveCount = u32(len(renderer.ps1_static_instances)),
+                primitiveOffset = 0,
+                firstVertex = 0,
+                transformOffset = 0,
+            }
+        }
+
+        vkw.destroy_acceleration_structure(gd, renderer.scene_TLAS)
+
+        renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &build_info)
+
+
+    }
 
     // Sync CPU and GPU buffers
 
