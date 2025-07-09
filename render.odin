@@ -1501,27 +1501,29 @@ render_scene :: proc(
             flags = nil,
             type = .TOP_LEVEL
         }
-        build_info := vkw.AccelerationStructureBuildInfo {
-            type = .TOP_LEVEL,
-            flags = nil,
-            mode = .BUILD,
-            src = 0,
-            dst = 0,
-            geometries = geos,
-            prim_counts = prim_counts,
-            range_info = {
-                primitiveCount = u32(len(renderer.ps1_static_instances)),
-                primitiveOffset = 0,
-                firstVertex = 0,
-                transformOffset = 0,
+        bis : []vkw.AccelerationStructureBuildInfo = {
+            vkw.AccelerationStructureBuildInfo {
+                type = .TOP_LEVEL,
+                flags = nil,
+                mode = .BUILD,
+                src = 0,
+                dst = 0,
+                geometries = geos,
+                prim_counts = prim_counts,
+                range_info = {
+                    primitiveCount = u32(len(renderer.ps1_static_instances)),
+                    primitiveOffset = 0,
+                    firstVertex = 0,
+                    transformOffset = 0,
+                }
             }
         }
 
-        vkw.destroy_acceleration_structure(gd, renderer.scene_TLAS)
+        vkw.delete_acceleration_structure(gd, renderer.scene_TLAS)
 
-        renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &build_info)
+        renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
 
-
+        vkw.cmd_build_acceleration_structures(gd, bis)
     }
 
     // Sync CPU and GPU buffers
