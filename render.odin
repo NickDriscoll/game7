@@ -1523,7 +1523,7 @@ render_scene :: proc(
 
         renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
 
-        vkw.cmd_build_acceleration_structures(gd, bis)
+        //vkw.cmd_build_acceleration_structures(gd, bis)
     }
 
     // Sync CPU and GPU buffers

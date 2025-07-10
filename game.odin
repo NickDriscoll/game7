@@ -182,6 +182,106 @@ LevelBlock :: enum u8 {
     Coins = 6,
 }
 
+CollisionResponse :: enum {
+    None,
+    HitFloor,
+    HitCeiling,
+    PassedThroughGround,
+    Bump,
+}
+gravity_affected_sphere :: proc(
+    game_state: GameState,
+    collision_state: ^CollisionState,
+    closest_pt: hlsl.float3,
+    collision_normal: hlsl.float3,
+    triangle_normal: hlsl.float3,
+    velocity: hlsl.float3,
+    sphere: ^Sphere,
+    motion_interval: Segment
+) -> CollisionResponse {
+    resp: CollisionResponse
+    switch collision_state^ {
+        case .Grounded: {
+            // Push out of ground
+            dist := hlsl.distance(closest_pt, sphere.position)
+            if dist < sphere.radius {
+                remaining_dist := sphere.radius - dist
+                if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                    sphere.position = motion_interval.end + remaining_dist * collision_normal
+                } else {
+                    sphere.position = motion_interval.end
+                    
+                }
+            } else {
+                sphere.position = motion_interval.end
+            }
+
+            // Check if we need to bump ourselves up or down
+            {
+                tolerance_segment := Segment {
+                    start = sphere.position + {0.0, 0.0, 0.0},
+                    end = sphere.position + {0.0, 0.0, -sphere.radius - 0.1}
+                }
+                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
+                if okt {
+                    sphere.position = tolerance_point + {0.0, 0.0, sphere.radius}
+                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                        // char.velocity.z = 0.0
+                        // char.control_flags -= {.AlreadyJumped}
+                        collision_state^ = .Grounded
+                        resp = .Bump
+                    }
+                } else {
+                    collision_state^ = .Falling
+                }
+            }
+        }
+        case .Falling: {
+            // Then do collision test against triangles
+
+            collided := false
+            inv := motion_interval
+            segment_pt, segment_ok := intersect_segment_terrain(&inv, game_state.terrain_pieces[:])
+            if segment_ok {
+                log.info("Player center passed through ground")
+                sphere.position = segment_pt
+                sphere.position += triangle_normal * sphere.radius
+                // char.velocity.z = 0
+                collision_state^ = .Grounded
+            } else {
+
+                d := hlsl.distance(sphere.position, closest_pt)
+                collided = d < sphere.radius
+    
+                if collided {
+                    // Hit terrain
+                    remaining_d := sphere.radius - d
+                    sphere.position = motion_interval.end + remaining_d * collision_normal
+                    
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 && velocity.z < 0.0 {
+                        // Floor
+                        // char.velocity.z = 0
+                        // char.state = .Grounded
+                        resp = .HitFloor
+                    } else if n_dot < -0.1 && velocity.z > 0.0 {
+                        // Ceiling
+                        //char.velocity.z = 0.0
+                        resp = .HitCeiling
+                    }
+                    //char.damage_timer._nsec = 0
+                } else {
+                    // Didn't hit anything, still falling.
+                    sphere.position = motion_interval.end
+                }
+            }
+
+        }
+    }
+    return resp
+}
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
@@ -1400,79 +1500,30 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
     // Main player character state machine
-    switch char.state {
-        case .Grounded: {
-            // Push out of ground
-            dist := hlsl.distance(closest_pt, char.collision.position)
-            if dist < char.collision.radius {
-                remaining_dist := char.collision.radius - dist
-                if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                    char.collision.position = motion_endpoint + remaining_dist * collision_normal
-                } else {
-                    char.collision.position = motion_endpoint
-                    
-                }
-            } else {
-                char.collision.position = motion_endpoint
-            }
-    
-            // Check if we need to bump ourselves up or down
-            {
-                tolerance_segment := Segment {
-                    start = char.collision.position + {0.0, 0.0, 0.0},
-                    end = char.collision.position + {0.0, 0.0, -char.collision.radius - 0.1}
-                }
-                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                if okt {
-                    char.collision.position = tolerance_point + {0.0, 0.0, char.collision.radius}
-                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        char.velocity.z = 0.0
-                        char.state = .Grounded
-                        char.control_flags -= {.AlreadyJumped}
-                    }
-                } else {
-                    char.state = .Falling
-                }
-            }
+    switch gravity_affected_sphere(
+        game_state^,
+        &char.state,
+        closest_pt,
+        collision_normal,
+        triangle_normal,
+        char.velocity,
+        &char.collision,
+        motion_interval
+    ) {
+        case .None: {}
+        case .Bump: {
+            char.velocity.z = 0.0
+            char.control_flags -= {.AlreadyJumped}
         }
-        case .Falling: {
-            // Then do collision test against triangles
- 
-            collided := false
-            segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.terrain_pieces[:])
-            if segment_ok {
-                log.info("Player center passed through ground")
-                char.collision.position = segment_pt
-                char.collision.position += triangle_normal * char.collision.radius
-                char.velocity.z = 0
-                char.state = .Grounded
-            } else {
-
-                d := hlsl.distance(char.collision.position, closest_pt)
-                collided = d < char.collision.radius
-    
-                if collided {
-                    // Hit terrain
-                    remaining_d := char.collision.radius - d
-                    char.collision.position = motion_endpoint + remaining_d * collision_normal
-                    
-                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && char.velocity.z < 0.0 {
-                        // Floor
-                        char.velocity.z = 0
-                        char.state = .Grounded
-                    } else if n_dot < -0.1 && char.velocity.z > 0.0 {
-                        // Ceiling
-                        char.velocity.z = 0.0
-                    }
-                    char.damage_timer._nsec = 0
-                } else {
-                    // Didn't hit anything, still falling.
-                    char.collision.position = motion_endpoint
-                }
-            }
-
+        case .HitCeiling: {
+            char.velocity.z = 0.0
+        }
+        case .HitFloor: {
+            char.state = .Grounded
+            char.velocity.z = 0.0
+        }
+        case .PassedThroughGround: {
+            char.velocity.z = 0
         }
     }
 
@@ -1760,9 +1811,33 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 end = motion_endpoint
             }
 
-            closest_pt := closest_pt_terrain(motion_endpoint, game_state.terrain_pieces[:])
+            closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
             collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
             dist := hlsl.distance(closest_pt, col.position)
+
+            // switch gravity_affected_sphere(
+            //     game_state^,
+            //     &enemy.collision_state,
+            //     closest_pt,
+            //     collision_normal,
+            //     triangle_normal,
+            //     enemy.velocity,
+            //     &col,
+            //     motion_interval
+            // ) {
+            //     case .None: {}
+            //     case .Bump: {
+            //         enemy.velocity.z = 0.0
+            //     }
+            //     case .HitCeiling: {
+            //         enemy.velocity.z = 0.0
+            //     }
+            //     case .HitFloor: {}
+            //     case .PassedThroughGround: {
+            //         enemy.velocity.z = 0.0
+            //     }
+            // }
+
             switch enemy.collision_state {
                 case .Grounded: {
                     // Push out of ground
