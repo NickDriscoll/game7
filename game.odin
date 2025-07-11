@@ -60,6 +60,12 @@ CollisionState :: enum {
     Falling
 }
 
+PhysicsSphere :: struct {
+    using s: Sphere,
+    velocity: hlsl.float3,
+    state: CollisionState,
+}
+
 CharacterFlag :: enum {
     MovingLeft,
     MovingRight,
@@ -72,9 +78,7 @@ CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
 Character :: struct {
-    collision: Sphere,
-    state: CollisionState,
-    velocity: hlsl.float3,
+    collision: PhysicsSphere,
     gravity_factor: f32,
     acceleration: hlsl.float3,
     deceleration_speed: f32,
@@ -191,16 +195,14 @@ CollisionResponse :: enum {
 }
 gravity_affected_sphere :: proc(
     game_state: GameState,
-    collision_state: ^CollisionState,
+    sphere: ^PhysicsSphere,
     closest_pt: hlsl.float3,
     collision_normal: hlsl.float3,
     triangle_normal: hlsl.float3,
-    velocity: hlsl.float3,
-    sphere: ^Sphere,
     motion_interval: Segment
 ) -> CollisionResponse {
     resp: CollisionResponse
-    switch collision_state^ {
+    switch sphere.state {
         case .Grounded: {
             // Push out of ground
             dist := hlsl.distance(closest_pt, sphere.position)
@@ -210,8 +212,8 @@ gravity_affected_sphere :: proc(
                     sphere.position = motion_interval.end + remaining_dist * collision_normal
                 } else {
                     sphere.position = motion_interval.end
-                    
                 }
+                sphere.state = .Grounded
             } else {
                 sphere.position = motion_interval.end
             }
@@ -223,17 +225,16 @@ gravity_affected_sphere :: proc(
                     end = sphere.position + {0.0, 0.0, -sphere.radius - 0.1}
                 }
                 tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                 if okt {
+                    tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                     sphere.position = tolerance_point + {0.0, 0.0, sphere.radius}
                     if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        // char.velocity.z = 0.0
-                        // char.control_flags -= {.AlreadyJumped}
-                        collision_state^ = .Grounded
+                        sphere.velocity.z = 0.0
+                        sphere.state = .Grounded
                         resp = .Bump
                     }
                 } else {
-                    collision_state^ = .Falling
+                    sphere.state = .Falling
                 }
             }
         }
@@ -247,8 +248,8 @@ gravity_affected_sphere :: proc(
                 log.info("Player center passed through ground")
                 sphere.position = segment_pt
                 sphere.position += triangle_normal * sphere.radius
-                // char.velocity.z = 0
-                collision_state^ = .Grounded
+                sphere.velocity.z = 0
+                sphere.state = .Grounded
             } else {
 
                 d := hlsl.distance(sphere.position, closest_pt)
@@ -260,17 +261,16 @@ gravity_affected_sphere :: proc(
                     sphere.position = motion_interval.end + remaining_d * collision_normal
                     
                     n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && velocity.z < 0.0 {
+                    if n_dot >= 0.5 && sphere.velocity.z < 0.0 {
                         // Floor
-                        // char.velocity.z = 0
-                        // char.state = .Grounded
+                        sphere.velocity.z = 0
+                        sphere.state = .Grounded
                         resp = .HitFloor
-                    } else if n_dot < -0.1 && velocity.z > 0.0 {
+                    } else if n_dot < -0.1 && sphere.velocity.z > 0.0 {
                         // Ceiling
-                        //char.velocity.z = 0.0
+                        sphere.velocity.z = 0.0
                         resp = .HitCeiling
                     }
-                    //char.damage_timer._nsec = 0
                 } else {
                     // Didn't hit anything, still falling.
                     sphere.position = motion_interval.end
@@ -486,10 +486,8 @@ gamestate_new_scene :: proc(
             position = game_state.character_start,
             radius = 0.8
         },
-        velocity = {},
         gravity_factor = 1.0,
         deceleration_speed = 0.1,
-        state = .Falling,
         facing = {0.0, 1.0, 0.0},
         move_speed = 7.0,
         sprint_speed = 14.0,
@@ -1419,15 +1417,15 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             char.acceleration = {world_invector.x, world_invector.y, 0.0}
             accel_len := hlsl.length(char.acceleration)
             this_frame_move_speed *= accel_len
-            if accel_len == 0 && char.state == .Grounded {
-                to_zero := hlsl.float2 {0.0, 0.0} - char.velocity.xy
-                char.velocity.xy += char.deceleration_speed * to_zero
+            if accel_len == 0 && char.collision.state == .Grounded {
+                to_zero := hlsl.float2 {0.0, 0.0} - char.collision.velocity.xy
+                char.collision.velocity.xy += char.deceleration_speed * to_zero
             }
-            char.velocity.xy += char.acceleration.xy
-            if math.abs(hlsl.length(char.velocity.xy)) > this_frame_move_speed {
-                char.velocity.xy = this_frame_move_speed * hlsl.normalize(char.velocity.xy)
+            char.collision.velocity.xy += char.acceleration.xy
+            if math.abs(hlsl.length(char.collision.velocity.xy)) > this_frame_move_speed {
+                char.collision.velocity.xy = this_frame_move_speed * hlsl.normalize(char.collision.velocity.xy)
             }
-            movement_dist := hlsl.length(char.velocity.xy)
+            movement_dist := hlsl.length(char.collision.velocity.xy)
             char.anim_t += char.anim_speed * dt * movement_dist
         }
 
@@ -1458,20 +1456,20 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                             respawn_ai_state = held_enemy.init_ai_state,
                             collision_radius = 0.5,
                         })
-                        char.velocity.z = 1.3 * char.jump_speed
+                        char.collision.velocity.z = 1.3 * char.jump_speed
 
                         play_sound_effect(audio_system, game_state.jump_sound)
                     }
                 } else {
                     // Do first jump
-                    char.velocity.z = char.jump_speed
+                    char.collision.velocity.z = char.jump_speed
                     char.control_flags += {.AlreadyJumped}
 
                     play_sound_effect(audio_system, game_state.jump_sound)
                 }
 
                 char.gravity_factor = 1.0
-                char.state = .Falling
+                char.collision.state = .Falling
             } else {
                 // To not jumping...
                 char.gravity_factor = 2.2
@@ -1480,13 +1478,13 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     }
 
     // Apply gravity to velocity, clamping downward speed if necessary
-    char.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
-    if char.velocity.z < TERMINAL_VELOCITY {
-        char.velocity.z = TERMINAL_VELOCITY
+    char.collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
+    if char.collision.velocity.z < TERMINAL_VELOCITY {
+        char.collision.velocity.z = TERMINAL_VELOCITY
     }
 
     // Compute motion interval
-    motion_endpoint := char.collision.position + dt * char.velocity
+    motion_endpoint := char.collision.position + dt * char.collision.velocity
     motion_interval := Segment {
         start = char.collision.position,
         end = motion_endpoint
@@ -1502,28 +1500,21 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     // Main player character state machine
     switch gravity_affected_sphere(
         game_state^,
-        &char.state,
+        &char.collision,
         closest_pt,
         collision_normal,
         triangle_normal,
-        char.velocity,
-        &char.collision,
         motion_interval
     ) {
         case .None: {}
         case .Bump: {
-            char.velocity.z = 0.0
             char.control_flags -= {.AlreadyJumped}
         }
         case .HitCeiling: {
-            char.velocity.z = 0.0
         }
         case .HitFloor: {
-            char.state = .Grounded
-            char.velocity.z = 0.0
         }
         case .PassedThroughGround: {
-            char.velocity.z = 0
         }
     }
 
@@ -1533,7 +1524,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     respawn |= char.health == 0
     if respawn {
         char.collision.position = game_state.character_start
-        char.velocity = {}
+        char.collision.velocity = {}
         char.acceleration = {}
         char.health = CHARACTER_MAX_HEALTH
     }
@@ -1596,8 +1587,8 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             if are_spheres_overlapping(s, char.collision) {
                 // d := hlsl.normalize(enemy.facing).xy
                 // char.velocity.xy = 10.0 * d
-                char.velocity.z = 3.0
-                char.state = .Falling
+                char.collision.velocity.z = 3.0
+                char.collision.state = .Falling
                 char.damage_timer = time.now()
                 char.health -= 1
                 play_sound_effect(audio_system, game_state.ow_sound)
