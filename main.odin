@@ -482,9 +482,9 @@ main :: proc() {
                     flag = .ShowCoinRadius in game_state.debug_vis_flags
                     if imgui.Checkbox("Show coin radius", &flag) do game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
-                    imgui.Text("Player collider velocity: (%f, %f, %f)", velocity.x, velocity.y, velocity.z)
+                    imgui.Text("Player collider velocity: (%f, %f, %f)", collision.velocity.x, collision.velocity.y, collision.velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
-                    fmt.sbprintf(&sb, "Player state: %v", state)
+                    fmt.sbprintf(&sb, "Player state: %v", collision.state)
                     state_str, _ := strings.to_cstring(&sb)
                     strings.builder_reset(&sb)
                     imgui.Text(state_str)
