@@ -1487,7 +1487,7 @@ render_scene :: proc(
 
         geo_data := vkw.ASInstancesData {
             array_of_pointers = false,
-            data = raw_data(instances)
+            data = instances
         }
         geos := make([dynamic]vkw.AccelerationStructureGeometry, 1, context.temp_allocator)
         geos[0] = vkw.AccelerationStructureGeometry {
