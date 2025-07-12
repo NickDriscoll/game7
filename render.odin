@@ -1523,7 +1523,7 @@ render_scene :: proc(
 
         renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
 
-        //vkw.cmd_build_acceleration_structures(gd, bis)
+        vkw.cmd_build_acceleration_structures(gd, bis)
     }
 
     // Sync CPU and GPU buffers
@@ -1648,7 +1648,7 @@ render_scene :: proc(
 
     // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
     color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
-    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
+    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
         vkw.Image_Barrier {
             src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
             src_access_mask = {.MEMORY_WRITE},
@@ -1731,7 +1731,7 @@ render_scene :: proc(
     framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
 
     // Transition internal framebuffer to be sampled from
-    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx,
+    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
         {
             {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
