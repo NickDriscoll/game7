@@ -1471,6 +1471,12 @@ render_scene :: proc(
             tform.mat[2] = static_instance.world_from_model[2]
 
             blas, _ := hm.get(&gd.acceleration_structures, static_instance.blas)
+            addr_info := vk.AccelerationStructureDeviceAddressInfoKHR {
+                sType = .ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+                pNext = nil,
+                accelerationStructure = blas.handle
+            }
+            blas_addr := vk.GetAccelerationStructureDeviceAddressKHR(gd.device, &addr_info)
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
                 
@@ -1480,7 +1486,7 @@ render_scene :: proc(
                 instanceShaderBindingTableRecordOffset = 0,
                 flags = nil,
 
-                accelerationStructureReference = u64(blas.handle)
+                accelerationStructureReference = u64(blas_addr)
             }
             append(&instances, inst)
         }
