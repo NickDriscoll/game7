@@ -7,6 +7,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/linalg/hlsl"
+import "core:math/noise"
 import "core:mem"
 import "core:slice"
 import "core:strings"
@@ -95,6 +96,11 @@ default_point_light :: proc() -> PointLight {
         color = {1.0, 1.0, 1.0},
         intensity = 1.0,
     }
+}
+
+light_flicker :: proc(seed: i64, t: f32) -> f32 {
+    sample_point := [2]f64 {f64(2.4 * t), 128}
+    return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
 Ps1PushConstants :: struct {
@@ -1470,13 +1476,7 @@ render_scene :: proc(
             tform.mat[1] = static_instance.world_from_model[1]
             tform.mat[2] = static_instance.world_from_model[2]
 
-            blas, _ := hm.get(&gd.acceleration_structures, static_instance.blas)
-            addr_info := vk.AccelerationStructureDeviceAddressInfoKHR {
-                sType = .ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-                pNext = nil,
-                accelerationStructure = blas.handle
-            }
-            blas_addr := vk.GetAccelerationStructureDeviceAddressKHR(gd.device, &addr_info)
+            blas_addr := vkw.get_acceleration_structure_address(gd, static_instance.blas)
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
                 
