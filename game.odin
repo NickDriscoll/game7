@@ -1668,8 +1668,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         l := default_point_light()
         l.color = {0.0, 1.0, 0.0}
         l.world_position = pos
-        sample_point := [2]f64 {f64(game_state.time), 128}
-        l.intensity = 3.0 * noise.noise_2d(game_state.rng_seed, sample_point) + 3.0
+        l.intensity = light_flicker(game_state.rng_seed, game_state.time)
         add_point_light(renderer, l)
     }
 
@@ -2004,9 +2003,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         l := default_point_light()
         l.world_position = enemy.position
         l.color = {0.0, 1.0, 0.0}
-
-        sample_point := [2]f64 {f64(game_state.time), 128}
-        l.intensity = 3.0 * noise.noise_2d(game_state.rng_seed, sample_point) + 3.0
+        l.intensity = light_flicker(game_state.rng_seed, game_state.time)
         add_point_light(renderer, l)
     }
 }
