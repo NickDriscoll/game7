@@ -51,6 +51,7 @@ Window :: struct {
     position: [2]i32,
     resolution: [2]u32,
     display_resolution: [2]u32,
+    present_mode: vk.PresentModeKHR,
     flags: sdl2.WindowFlags,
     window: ^sdl2.Window,
 }
@@ -226,6 +227,7 @@ main :: proc() {
             y := user_config.ints[.WindowHeight]
             app_window.resolution = {u32(x), u32(y)}
         }
+        app_window.present_mode = .FIFO
     }
 
     // Determine SDL window flags
@@ -1081,7 +1083,14 @@ main :: proc() {
             full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 io := imgui.GetIO()
 
-                if !vkw.resize_window(gd, window.resolution) do log.error("Failed to resize window")
+                info := vkw.SwapchainInfo {
+                    dimensions = {
+                        uint(window.resolution.x),
+                        uint(window.resolution.y)
+                    },
+                    present_mode = window.present_mode
+                }
+                if !vkw.resize_window(gd, info) do log.error("Failed to resize window")
                 resize_framebuffers(gd, renderer, window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
