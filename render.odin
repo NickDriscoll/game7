@@ -74,7 +74,8 @@ UniformBufferData :: struct {
     skybox_idx: u32,
     _pad0: [2]f32,
 
-    //acceleration_structures_ptr: vk.DeviceAddress,
+    acceleration_structures_ptr: vk.DeviceAddress,
+    _pad1: [2]f32,
 }
 
 DirectionalLight :: struct {
@@ -1530,6 +1531,9 @@ render_scene :: proc(
         renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
 
         vkw.cmd_build_acceleration_structures(gd, bis)
+
+        // Put new TLAS address in uniform buffer
+        renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
 
     // Sync CPU and GPU buffers
