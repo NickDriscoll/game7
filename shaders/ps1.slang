@@ -89,6 +89,31 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     float3 diffuse_contribution = {};
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
+
+        if (u_data.acceleration_structure_data != nullptr) {
+            // Trace one shadow ray per-pixel
+            RayDesc ray;
+            ray.Direction = light.direction;
+            ray.Origin = input.world_pos;
+            ray.TMin = 0.0;
+            ray.TMax = 1000000.0;
+
+            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+            query.TraceRayInline(
+                *u_data.acceleration_structure_data,
+                0,
+                0xFFFFFFFF,
+                ray
+            );
+            bool there_was_any_hit_at_all = false;
+            //there_was_any_hit_at_all = query.Proceed();
+
+            // If we hit something, just `continue` this loop
+            if (there_was_any_hit_at_all) {
+                continue;
+            }
+        }
+
         diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
     }
 
@@ -111,16 +136,6 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     if ((inst.flags & InstanceFlags.Glowing) != 0) {
         glow = float3(0.0, 1.0, 0.0);
     }
-
-    // if (u_data.acceleration_structure_data != nullptr) {
-        // Trace one shadow ray per-pixel
-        // RayDesc ray;
-        // ray.Direction = SUNLIGHT;
-        // ray.Origin = input.world_pos;
-        // ray.TMin = 0.0;
-        // ray.TMax = 1000000.0;
-        //TraceRay();
-    // }
 
     float3 final_color = (glow + specular_contribution + diffuse_contribution) * material_albedo;
 
