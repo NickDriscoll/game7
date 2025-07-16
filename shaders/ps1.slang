@@ -108,7 +108,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
             bool there_was_any_hit_at_all = false;
             //there_was_any_hit_at_all = query.Proceed();
 
-            // If we hit something, just `continue` this loop
+            // If we hit something, skip this light
             if (there_was_any_hit_at_all) {
                 continue;
             }

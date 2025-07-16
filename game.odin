@@ -1787,108 +1787,46 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
 
         // Compute closest point to terrain along with
         // vector opposing enemy motion
-        // @TODO: This block should be factored into some kind of gravity_affected_sphere() proc
         if is_affected_by_gravity {
-            col := Sphere {
-                position = enemy.position,
-                radius = enemy.collision_radius
+            phys_sphere := PhysicsSphere {
+                Sphere {
+                    position = enemy.position,
+                    radius = enemy.collision_radius
+                },
+                enemy.velocity,
+                .Falling
             }
 
             // Compute motion interval
-            motion_endpoint := col.position + dt * enemy.velocity
+            motion_endpoint := phys_sphere.position + dt * enemy.velocity
             motion_interval := Segment {
-                start = col.position,
+                start = phys_sphere.position,
                 end = motion_endpoint
             }
 
             closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
             collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-            dist := hlsl.distance(closest_pt, col.position)
+            dist := hlsl.distance(closest_pt, phys_sphere.position)
 
-            // switch gravity_affected_sphere(
-            //     game_state^,
-            //     &enemy.collision_state,
-            //     closest_pt,
-            //     collision_normal,
-            //     triangle_normal,
-            //     enemy.velocity,
-            //     &col,
-            //     motion_interval
-            // ) {
-            //     case .None: {}
-            //     case .Bump: {
-            //         enemy.velocity.z = 0.0
-            //     }
-            //     case .HitCeiling: {
-            //         enemy.velocity.z = 0.0
-            //     }
-            //     case .HitFloor: {}
-            //     case .PassedThroughGround: {
-            //         enemy.velocity.z = 0.0
-            //     }
-            // }
-
-            switch enemy.collision_state {
-                case .Grounded: {
-                    // Push out of ground
-                    if dist < col.radius {
-                        remaining_dist := col.radius - dist
-                        if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                            col.position = motion_endpoint + remaining_dist * collision_normal
-                        } else {
-                            col.position = motion_endpoint
-                            
-                        }
-                    } else {
-                        col.position = motion_endpoint
-                    }
-            
-                    // Check if we need to bump ourselves up or down
-                    {
-                        tolerance_segment := Segment {
-                            start = col.position + {0.0, 0.0, 0.0},
-                            end = col.position + {0.0, 0.0, -col.radius - 0.1}
-                        }
-                        tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                        tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                        if okt {
-                            col.position = tolerance_point + {0.0, 0.0, col.radius}
-                            if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                                enemy.velocity.z = 0.0
-                                enemy.collision_state = .Grounded
-                            }
-                        } else {
-                            enemy.collision_state = .Falling
-                        }
-                    }
-                }
-                case .Falling: {
-                    // Then do collision test against triangles
-    
-                    hit := dist < col.radius
-    
-                    if hit {
-                        // Hit terrain
-                        remaining_d := col.radius - dist
-                        col.position = motion_endpoint + remaining_d * collision_normal
-                        n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                        if n_dot >= 0.5 && enemy.velocity.z < 0.0 {
-                            // Floor
-                            //char.remaining_jumps = CHARACTER_TOTAL_JUMPS
-                            enemy.collision_state = .Grounded
-                        } else if n_dot < -0.1 && enemy.velocity.z > 0.0 {
-                            // Ceiling
-                            enemy.velocity.z = 0.0
-                        }
-                    } else {
-                        // Didn't hit anything, still falling.
-                        col.position = motion_endpoint
-                    }
-                }
+            switch gravity_affected_sphere(
+                game_state^,
+                &phys_sphere,
+                closest_pt,
+                collision_normal,
+                triangle_normal,
+                motion_interval
+            ) {
+                case .None: {}
+                case .Bump: {}
+                case .HitCeiling: {}
+                case .HitFloor: {}
+                case .PassedThroughGround: {}
             }
 
             // Write updated position to enemy
-            enemy.position = col.position
+            enemy.position = phys_sphere.position
+            enemy.velocity = phys_sphere.velocity
+            enemy.collision_state = phys_sphere.state
 
             // Restrict enemy movement based on home position
             {
