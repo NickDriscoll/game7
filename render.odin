@@ -912,7 +912,7 @@ create_static_mesh :: proc(
         append(&geos, vkw.AccelerationStructureGeometry {
             type = .TRIANGLES,
             geometry = vkw.ASTrianglesData {
-                vertex_format = .R8G8B8A8_UNORM,
+                vertex_format = .R32G32B32A32_SFLOAT,
                 vertex_data = {
                     deviceAddress = pos_addr
                 },
@@ -920,7 +920,7 @@ create_static_mesh :: proc(
                 max_vertex = positions_len - 1,
                 index_type = .UINT16,
                 index_data = {
-                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u32) * indices_len)
+                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_len)
                 },
                 transform_data = {}
             },
@@ -1483,7 +1483,7 @@ render_scene :: proc(
                 
                 // @TODO: Use these fields
                 instanceCustomIndex = 0,
-                mask = 0,
+                mask = 0xFF,
                 instanceShaderBindingTableRecordOffset = 0,
                 flags = nil,
 
