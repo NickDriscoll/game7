@@ -87,8 +87,8 @@ struct UniformData {
     uint skybox_idx;
     float2 _pad0;
 
-    // RaytracingAccelerationStructure *acceleration_structure_data;
-    // float2 _pad1;
+    RaytracingAccelerationStructure *acceleration_structure_data;
+    float2 _pad1;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {

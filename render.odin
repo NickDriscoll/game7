@@ -39,6 +39,32 @@ NULL_OFFSET :: 0xFFFFFFFF
 
 FRAMES_IN_FLIGHT :: 2
 
+DirectionalLight :: struct {
+    direction: hlsl.float3,
+    _pad0: f32,
+    color: hlsl.float3,
+    _pad1: f32,
+}
+
+PointLight :: struct {
+    world_position: hlsl.float3,
+    intensity: f32,
+    color: hlsl.float3,
+    _pad1: f32,
+}
+default_point_light :: proc() -> PointLight {
+    return {
+        world_position = {},
+        color = {1.0, 1.0, 1.0},
+        intensity = 1.0,
+    }
+}
+
+light_flicker :: proc(seed: i64, t: f32) -> f32 {
+    sample_point := [2]f64 {f64(2.4 * t), 128}
+    return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
+}
+
 UniformBufferData :: struct {
     clip_from_world: hlsl.float4x4,
     
@@ -77,32 +103,6 @@ UniformBufferData :: struct {
 
     acceleration_structures_ptr: vk.DeviceAddress,
     _pad1: [2]f32,
-}
-
-DirectionalLight :: struct {
-    direction: hlsl.float3,
-    _pad0: f32,
-    color: hlsl.float3,
-    _pad1: f32,
-}
-
-PointLight :: struct {
-    world_position: hlsl.float3,
-    intensity: f32,
-    color: hlsl.float3,
-    _pad1: f32,
-}
-default_point_light :: proc() -> PointLight {
-    return {
-        world_position = {},
-        color = {1.0, 1.0, 1.0},
-        intensity = 1.0,
-    }
-}
-
-light_flicker :: proc(seed: i64, t: f32) -> f32 {
-    sample_point := [2]f64 {f64(2.4 * t), 128}
-    return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
 Ps1PushConstants :: struct {
@@ -907,13 +907,13 @@ create_static_mesh :: proc(
     // TEMP: Just trying to build a BLAS when I don't know how
     new_as: vkw.Acceleration_Structure_Handle
     if renderer.do_raytracing {
-        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * position_start)
+        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
         // @TODO: This allocation yikes
         geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
         append(&geos, vkw.AccelerationStructureGeometry {
             type = .TRIANGLES,
             geometry = vkw.ASTrianglesData {
-                vertex_format = .R32G32B32A32_SFLOAT,
+                vertex_format = .R16G16B16A16_SFLOAT,
                 vertex_data = {
                     deviceAddress = pos_addr
                 },
