@@ -62,7 +62,7 @@ struct UniformData {
     InstanceData *i_data;
 
     MaterialData *mat_data;
-    float4 *position_data;
+    half4 *position_data;
 
     float2 *uv_data;
     float4 *color_data;

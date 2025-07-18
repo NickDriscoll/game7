@@ -32,8 +32,8 @@
 
 [[vk::push_constant]]
 cbuffer push_constants {
-    float4 *in_positions;           // Pointer to first input position
-    float4 *out_positions;          // Pointer to first output position
+    half4 *in_positions;           // Pointer to first input position
+    half4 *out_positions;          // Pointer to first output position
     uint4 *joint_ids;               // Pointer to first joint ids vector
     float4 *joint_weights;          // Pointer to first joint weights vector
     float4x4 *joint_transforms;     // Pointer to first joint transform
@@ -58,7 +58,6 @@ void compute_main(uint3 thread_id: SV_DispatchThreadID) {
     }
 
     // Apply skinning matrix to model position and write it out
-    float4 model_pos = in_positions[vtx_id];
-    out_positions[vtx_id] = mul(joint_matrix, model_pos);
-    //out_positions[vtx_id] = model_pos;
+    half4 model_pos = in_positions[vtx_id];
+    out_positions[vtx_id] = half4(mul(joint_matrix, model_pos));
 }
