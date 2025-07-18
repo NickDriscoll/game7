@@ -18,6 +18,8 @@ import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 
+half4 :: [4]f16
+
 MAX_GLOBAL_DRAW_CMDS :: 4 * 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
 MAX_GLOBAL_INDICES :: 1024*1024
@@ -26,12 +28,11 @@ MAX_GLOBAL_JOINTS :: 64 * 1024
 MAX_GLOBAL_ANIMATIONS :: 64 * 1024
 MAX_GLOBAL_MATERIALS :: 64 * 1024
 MAX_GLOBAL_INSTANCES :: 1024 * 1024
-
 MAX_UNIQUE_MODELS :: 4096
+
+// @TODO: Pump these numbers up
 MAX_DIRECTIONAL_LIGHTS :: 4
 MAX_POINT_LIGHTS :: 8
-
-ACCELERATION_STRUCTURE_BUFFER_SIZE_GUESS :: 1024 * 1024
 
 // @TODO: Just make this zero somehow
 NULL_OFFSET :: 0xFFFFFFFF
@@ -432,7 +433,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         }
 
         info.name = "Global vertex positions buffer"
-        info.size = size_of(hlsl.float4) * MAX_GLOBAL_VERTICES
+        info.size = size_of(half4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
@@ -869,7 +870,7 @@ swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, reso
 create_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
-    positions: []hlsl.float4,
+    positions: []half4,
     indices: []u16
 ) -> Static_Mesh_Handle {
     position_start: u32
@@ -966,7 +967,7 @@ create_static_mesh :: proc(
 create_skinned_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
-    positions: []hlsl.float4,
+    positions: [][4]f16,
     indices: []u16,
     joint_ids: []hlsl.uint4,
     joint_weights: []hlsl.float4,
@@ -1025,7 +1026,7 @@ create_skinned_mesh :: proc(
     }
     static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
 
-    //assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
+    //assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
@@ -1372,10 +1373,10 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
 
             // Insert another compute shader dispatch
-            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.in_positions_offset)
+            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
 
             // @TODO: use a different buffer for vertex stream-out
-            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.float4) * vtx_positions_out_offset)
+            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
 
             joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
             joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
@@ -1907,13 +1908,13 @@ load_gltf_static_model :: proc(
             index_data := load_gltf_indices_u16(&primitive)
         
             // Get vertex data
-            position_data: [dynamic]hlsl.float4
+            position_data: [dynamic]half4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
     
             for &attrib in primitive.attributes {
                 #partial switch (attrib.type) {
-                    case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                    case .position: position_data = load_gltf_float3_to_half4(&attrib)
                     case .color: {
                         raw_data := load_gltf_u8x4(&attrib)
                         reserve(&color_data, len(raw_data))
@@ -2137,7 +2138,7 @@ load_gltf_skinned_model :: proc(
             index_data := load_gltf_indices_u16(&primitive)
 
             // Get vertex data
-            position_data: [dynamic]hlsl.float4
+            position_data: [dynamic]half4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
             joint_ids: [dynamic]hlsl.uint4
@@ -2146,7 +2147,7 @@ load_gltf_skinned_model :: proc(
             // @TODO: Use joint ids directly as u16 instead of converting to u32
             for &attrib in primitive.attributes {
                 #partial switch (attrib.type) {
-                    case .position: position_data = load_gltf_float3_to_float4(&attrib)
+                    case .position: position_data = load_gltf_float3_to_half4(&attrib)
                     case .color: color_data = load_gltf_float3_to_float4(&attrib)
                     case .texcoord: uv_data = load_gltf_float2(&attrib)
                     case .joints: joint_ids = load_gltf_joint_ids(&attrib)
@@ -2172,7 +2173,6 @@ load_gltf_skinned_model :: proc(
     
             // Now get material data
             loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
-            defer delete(loaded_glb_materials)
             glb_material := primitive.material
             has_material := glb_material != nil
     

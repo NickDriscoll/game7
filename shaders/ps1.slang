@@ -48,7 +48,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
 
     VertexOutput out;
 
-    float4 model_position = u_data.position_data[idx + mesh.position_offset];
+    half4 model_position = u_data.position_data[idx + mesh.position_offset];
     float4 world_position = mul(inst.world_from_model, model_position);
 
     out.world_pos = world_position.xyz;
