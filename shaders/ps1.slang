@@ -74,6 +74,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
+    float3 view_dir = normalize(u_data.view_position.xyz - input.world_pos);
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
     
     float4 vtx_color = input.color;
@@ -82,15 +83,15 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     if (material.color_texture != NULL_OFFSET) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
-    
-    float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
 
     // Directional lighting
     float3 diffuse_contribution = {};
+    float3 specular_contribution = {};
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
 
-        if (u_data.acceleration_structure_data != nullptr) {
+        // if (u_data.acceleration_structure_data != nullptr) {
+        {
             // Trace one shadow ray per-pixel
             RayDesc ray;
             ray.Direction = light.direction;
@@ -115,20 +116,22 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         }
 
         diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
+
+        float3 h = normalize(light.direction + face_normal);
+        specular_contribution += light.color * max(0.0, pow(dot(h, light.direction), 64.0));
     }
 
     // Point lights
-    float3 specular_contribution = {};
     for (uint i = 0; i < u_data.point_light_count; ++i) {
         PointLight light = u_data.point_lights[i];
         float3 direction = light.world_position - input.world_pos;
         float d = length(direction);
+        direction /= d;
         float falloff = light.intensity / (d * d);
-        diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, normalize(direction), light.color);
+        diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, direction, light.color);
 
-        float3 view_dir = u_data.view_position.xyz - input.world_pos;
-        float3 h = normalize(view_dir + face_normal);
-        //specular_contribution += falloff * max(0.0, dot(h, direction));
+        float3 h = normalize(direction + face_normal);
+        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, direction), 64.0));
     }
 
     // Glowing
@@ -137,14 +140,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         glow = float3(0.0, 1.0, 0.0);
     }
 
+    float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
+
     float3 final_color = (glow + specular_contribution + diffuse_contribution) * material_albedo;
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
-        float3 pos_to_view = normalize(u_data.view_position.xyz - input.world_pos);
-        float fac = smoothstep(0.5, 1.0, 1.0 - dot(face_normal, pos_to_view));
+        float fac = smoothstep(0.5, 1.0, 1.0 - dot(face_normal, view_dir));
 
         final_color = lerp(final_color, float3(0.0, 0.0, 1.0), fac);
-        //final_color = fac;
     }
 
     if (u_data.triangle_vis == 1) {
