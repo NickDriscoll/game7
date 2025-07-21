@@ -38,6 +38,7 @@ ConfigKey :: enum {
     WindowHeight,
     WindowX,
     WindowY,
+    WindowConfig,
     StartLevel,
 }
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
@@ -69,6 +70,7 @@ CONFIG_KEY_STRINGS : [ConfigKey]string : {
 	.WindowHeight = "window_height",
 	.WindowX = "window_x",
 	.WindowY = "window_y",
+    .WindowConfig = "window_config",
     .CameraFOV = "camera_fov",
     .StartLevel = "start_level"
 }

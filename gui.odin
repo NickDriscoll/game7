@@ -1,5 +1,6 @@
 package main
 
+import "core:slice/heap"
 import "core:c"
 import "core:fmt"
 import "core:math/linalg/hlsl"
@@ -252,6 +253,8 @@ gui_main_menu_bar :: proc(
         }
 
         if imgui.BeginMenu("Config") {
+            config_autosave := user_config.flags[.ConfigAutosave]
+            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags[.ConfigAutosave] = !user_config.flags[.ConfigAutosave]
             if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
                 user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
             }
@@ -259,11 +262,17 @@ gui_main_menu_bar :: proc(
                 user_config.flags[.GraphicsSettings] = !user_config.flags[.GraphicsSettings]
             }
             input_config := user_config.flags[.InputConfig]
-            if imgui.MenuItem("Input", "porque?", input_config) do user_config.flags[.InputConfig] = !user_config.flags[.InputConfig]
+            if imgui.MenuItem("Input", "porque?", input_config) {
+                user_config.flags[.InputConfig] = !user_config.flags[.InputConfig]
+            }
             camera_config := user_config.flags[.CameraConfig]
-            if imgui.MenuItem("Camera", selected = camera_config) do user_config.flags[.CameraConfig] = !user_config.flags[.CameraConfig]
-            config_autosave := user_config.flags[.ConfigAutosave]
-            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags[.ConfigAutosave] = !user_config.flags[.ConfigAutosave]
+            if imgui.MenuItem("Camera", selected = camera_config) {
+                user_config.flags[.CameraConfig] = !user_config.flags[.CameraConfig]
+            }
+            window_config := user_config.flags[.WindowConfig]
+            if imgui.MenuItem("Window", selected = window_config) {
+                user_config.flags[.WindowConfig] = !user_config.flags[.WindowConfig]
+            }
 
             imgui.EndMenu()
         }
@@ -385,6 +394,30 @@ gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_ite
     // Show listbox
     selected_item^ = 0
     return imgui.ListBox(name, selected_item, &list_items[0], c.int(len(list_items)), 15)
+}
+
+window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfiguration) -> bool {
+    resize := false
+    if imgui.Begin("Window", &user_config.flags[.WindowConfig]) {
+        // Present mode switcher
+        item: c.int = c.int(window.present_mode)
+        modes : []cstring = {"Immediate","Mailbox","FIFO"}
+
+        if imgui.BeginCombo("Present mode", modes[item]) {
+            for mode, i in modes {
+                if imgui.Selectable(mode) {
+                    item = i32(i)
+                    log.info("bazinga")
+                    window.present_mode = vk.PresentModeKHR(item)
+                    resize = true
+                }
+            }
+            imgui.EndCombo()
+        }
+    }
+    imgui.End()
+
+    return resize
 }
 
 // Once-per-frame call to update imgui vtx/idx/uniform buffers
