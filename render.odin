@@ -101,8 +101,8 @@ UniformBufferData :: struct {
     skybox_idx: u32,
     _pad0: [2]f32,
 
-    acceleration_structures_ptr: vk.DeviceAddress,
-    _pad1: [2]f32,
+    // acceleration_structures_ptr: vk.DeviceAddress,
+    // _pad1: [2]f32,
 }
 
 Ps1PushConstants :: struct {
@@ -1534,7 +1534,7 @@ render_scene :: proc(
         vkw.cmd_build_acceleration_structures(gd, bis)
 
         // Put new TLAS address in uniform buffer
-        renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
+        //renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
 
     // Sync CPU and GPU buffers

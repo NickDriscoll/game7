@@ -1115,33 +1115,42 @@ main :: proc() {
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, renderer.gfx_timeline)
             
             // Barrier for BLAS builds
-            {
+            if renderer.do_raytracing {
                 vb, _ := vkw.get_buffer(&vgd, renderer.positions_buffer)
                 ib, _ := vkw.get_buffer(&vgd, renderer.index_buffer)
 
                 vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {
                     {
-                        src_stage_mask = {.TRANSFER},
-                        src_access_mask = {.TRANSFER_WRITE},
-                        dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
-                        dst_access_mask = {.SHADER_READ},
+                        // src_stage_mask = {.TRANSFER},
+                        // src_access_mask = {.TRANSFER_WRITE},
+                        // dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
+                        // dst_access_mask = {.SHADER_READ},
+                        src_stage_mask = {.ALL_COMMANDS},
+                        src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                        dst_stage_mask = {.ALL_COMMANDS},
+                        dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
                         buffer = vb.buffer,
                         offset = 0,
                         size = vk.DeviceSize(vk.WHOLE_SIZE),
                     },
                     {
-                        src_stage_mask = {.TRANSFER},
-                        src_access_mask = {.TRANSFER_WRITE},
-                        dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
-                        dst_access_mask = {.SHADER_READ},
+                        // src_stage_mask = {.TRANSFER},
+                        // src_access_mask = {.TRANSFER_WRITE},
+                        // dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
+                        // dst_access_mask = {.SHADER_READ},
+                        src_stage_mask = {.ALL_COMMANDS},
+                        src_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                        dst_stage_mask = {.ALL_COMMANDS},
+                        dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
                         buffer = ib.buffer,
                         offset = 0,
                         size = vk.DeviceSize(vk.WHOLE_SIZE),
                     }
                 }, {})
+
+                vkw.build_queued_blases(&vgd)
             }
 
-            vkw.build_queued_blases(&vgd)
 
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
