@@ -1350,7 +1350,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     char := &game_state.character
 
     // Is character taking damage
-    taking_damage := !the_time_has_come(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
+    taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
 
     // Set current xy velocity (and character facing) to whatever user input is
     {
@@ -1636,14 +1636,9 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
     col := &game_state.character.collision
 
     // Blink if taking damage
-    if !the_time_has_come(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) {
-        if (gd.frame_count >> 4) % 2 == 0 {
-            ddata.world_from_model[3][0] = col.position.x
-            ddata.world_from_model[3][1] = col.position.y
-            ddata.world_from_model[3][2] = col.position.z - col.radius
-            draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
-        }
-    } else {
+    do_draw := timer_expired(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) ||
+             (gd.frame_count >> 4) % 2 == 0
+    if do_draw {
         ddata.world_from_model[3][0] = col.position.x
         ddata.world_from_model[3][1] = col.position.y
         ddata.world_from_model[3][2] = col.position.z - col.radius

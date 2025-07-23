@@ -122,6 +122,6 @@ z_rotate_quaternion :: proc (angle: f32) -> quaternion128 {
 
 
 
-the_time_has_come  :: proc (timer: time.Time, d: $T/time.Duration) -> bool {
+timer_expired  :: proc (timer: time.Time, d: $T/time.Duration) -> bool {
     return time.diff(timer, time.now()) > time.Duration(d)
 }

@@ -87,7 +87,7 @@ struct UniformData {
     uint skybox_idx;
     float2 _pad0;
 
-    // RaytracingAccelerationStructure *acceleration_structure_data;
+    // RaytracingAccelerationStructure *acceleration_structure;
     // float2 _pad1;
 }
 
