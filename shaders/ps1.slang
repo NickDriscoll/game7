@@ -90,7 +90,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
 
-        // if (u_data.acceleration_structure_data != nullptr) {
+        // if (u_data.acceleration_structure != nullptr) {
         // {
         //     // Trace one shadow ray per-pixel
         //     RayDesc ray;
@@ -101,7 +101,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
         //     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
         //     query.TraceRayInline(
-        //         *u_data.acceleration_structure_data,
+        //         *u_data.acceleration_structure,
         //         0,
         //         0xFF,
         //         ray
@@ -118,7 +118,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
 
         float3 h = normalize(light.direction + face_normal);
-        specular_contribution += light.color * max(0.0, pow(dot(h, light.direction), 64.0));
+        specular_contribution += light.color * max(0.0, pow(dot(h, light.direction), 256.0));
     }
 
     // Point lights
@@ -131,7 +131,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, direction, light.color);
 
         float3 h = normalize(direction + face_normal);
-        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, direction), 64.0));
+        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, direction), 256.0));
     }
 
     // Glowing

@@ -27,7 +27,7 @@ TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
-MAXIMUM_FRAME_DT :: 1.0 / 5.0
+MAXIMUM_FRAME_DT :: 1.0 / 30.0
 
 SCENE_ARENA_SZIE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
 TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
@@ -197,8 +197,8 @@ main :: proc() {
     init_params := vkw.Init_Parameters {
         app_name = "Game7",
         frames_in_flight = FRAMES_IN_FLIGHT,
-        support_flags = {.Window,.Raytracing},
-        //support_flags = {.Window},
+        //support_flags = {.Window,.Raytracing},
+        support_flags = {.Window},
         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
     }
     vgd, res := vkw.init_vulkan(init_params)
