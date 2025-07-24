@@ -1533,6 +1533,27 @@ render_scene :: proc(
 
         vkw.cmd_build_acceleration_structures(gd, bis)
 
+        // Update TLAS descriptor
+        {
+            tlas := vkw.get_acceleration_structure_handle(gd, renderer.scene_TLAS)
+            as_write := vk.WriteDescriptorSetAccelerationStructureKHR {
+                sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+                pNext = nil,
+                accelerationStructureCount = 1,
+                pAccelerationStructures = &tlas
+            }
+            descriptor_write := vk.WriteDescriptorSet {
+                sType = .WRITE_DESCRIPTOR_SET,
+                pNext = &as_write,
+                dstSet = gd.descriptor_set,
+                dstBinding = u32(vkw.Bindless_Descriptor_Bindings.AccelerationStructures),
+                dstArrayElement = 0,
+                descriptorCount = 1,
+                descriptorType = .ACCELERATION_STRUCTURE_KHR
+            }
+            vk.UpdateDescriptorSets(gd.device, 1, &descriptor_write, 0, nil)
+        }
+
         // Put new TLAS address in uniform buffer
         //renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
