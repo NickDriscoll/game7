@@ -300,6 +300,7 @@ Renderer :: struct {
 
 
     ps1_static_instances: [dynamic]CPUStaticInstance,
+    ps1_static_instance_count: u32,                         // Number of true static instances (i.e. instances that are not the output of compute skinning)
     debug_static_instances: [dynamic]DebugStaticInstance,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
 
@@ -917,11 +918,11 @@ create_static_mesh :: proc(
                 vertex_data = {
                     deviceAddress = pos_addr
                 },
-                vertex_stride = 0,
+                vertex_stride = size_of(half4),
                 max_vertex = positions_len - 1,
                 index_type = .UINT16,
                 index_data = {
-                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_len)
+                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_start)
                 },
                 transform_data = {}
             },
@@ -933,7 +934,7 @@ create_static_mesh :: proc(
             flags = nil,
             mode = .BUILD,
             src = 0,
-            dst = 0,
+            dst = 0,        // Filled in by vkw.create_acceleration_structure()
             geometries = geos,
             prim_counts = prim_counts,
             range_info = {
@@ -1117,6 +1118,7 @@ add_point_light :: proc(renderer: ^Renderer, light: PointLight) {
 // Per-frame work that needs to happen at the beginning of the frame
 new_frame :: proc(renderer: ^Renderer) {
     renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.ps1_static_instance_count = 0
     renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
     renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
@@ -1206,6 +1208,7 @@ draw_ps1_static_primitive :: proc(
         blas = mesh.blas,
     }
     append(&renderer.ps1_static_instances, new_inst)
+    renderer.ps1_static_instance_count += 1
 
     return true
 }
@@ -1472,11 +1475,15 @@ render_scene :: proc(
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
-        for static_instance in renderer.ps1_static_instances {
+        for i in 0..<renderer.ps1_static_instance_count {
+            static_instance := &renderer.ps1_static_instances[i]
+            
             tform: vk.TransformMatrixKHR
-            tform.mat[0] = static_instance.world_from_model[0]
-            tform.mat[1] = static_instance.world_from_model[1]
-            tform.mat[2] = static_instance.world_from_model[2]
+            for row in 0..<3 {
+                for column in 0..<4 {
+                    tform.mat[row][column] = static_instance.world_from_model[column][row]
+                }
+            }
 
             blas_addr := vkw.get_acceleration_structure_address(gd, static_instance.blas)
             inst := vk.AccelerationStructureInstanceKHR {
@@ -1956,6 +1963,7 @@ load_gltf_static_model :: proc(
     
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
+            log.infof("%v has %v triangles", interned_filename, len(index_data) / 3)
             mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
             if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
             if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])

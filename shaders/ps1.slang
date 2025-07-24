@@ -43,6 +43,14 @@ float3 simple_diffuse_brdf(float3 normal, float3 light_dir, float3 light_color) 
     return r * r * light_color;
 }
 
+float3x3 z_vector_rotate(float angle) {
+    return float3x3(
+        cos(angle), -sin(angle), 0.0,
+        sin(angle), cos(angle), 0.0,
+        0.0, 0.0, 1.0
+    );
+}
+
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint first_instance: SV_StartInstanceLocation) {
     uint inst_idx = inst + first_instance;
@@ -88,10 +96,12 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     // Directional lighting
+    float3 ambient_contribution = {};
     float3 diffuse_contribution = {};
     float3 specular_contribution = {};
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
+        ambient_contribution = 0.1 * light.color;
 
         //if (u_data.acceleration_structure != nullptr) {
         {
@@ -100,7 +110,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
             ray.Direction = light.direction;
             ray.Origin = input.world_pos;
             ray.TMin = 0.01;
-            ray.TMax = 1000.0;
+            ray.TMax = 1000000.0;
 
             RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
             query.TraceRayInline(
@@ -146,7 +156,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
     float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
 
-    float3 final_color = (glow + specular_contribution + diffuse_contribution) * material_albedo;
+    float3 final_color = (glow + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
         float fac = smoothstep(0.5, 1.0, 1.0 - dot(face_normal, view_dir));
