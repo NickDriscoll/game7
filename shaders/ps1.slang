@@ -2,6 +2,9 @@ import procs;
 import structs;
 import tex_bindings;
 
+[[vk_binding(2, 0)]]
+RaytracingAccelerationStructure tlas;
+
 struct VertexOutput {
     float4 clip_pos : SV_Position;
     float3 world_pos;
@@ -90,30 +93,31 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
 
-        // if (u_data.acceleration_structure != nullptr) {
-        // {
-        //     // Trace one shadow ray per-pixel
-        //     RayDesc ray;
-        //     ray.Direction = light.direction;
-        //     ray.Origin = input.world_pos;
-        //     ray.TMin = 0.0;
-        //     ray.TMax = 1000000.0;
+        //if (u_data.acceleration_structure != nullptr) {
+        {
+            // Trace one shadow ray per-pixel
+            RayDesc ray;
+            ray.Direction = light.direction;
+            ray.Origin = input.world_pos;
+            ray.TMin = 0.01;
+            ray.TMax = 1000.0;
 
-        //     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
-        //     query.TraceRayInline(
-        //         *u_data.acceleration_structure,
-        //         0,
-        //         0xFF,
-        //         ray
-        //     );
-        //     bool there_was_any_hit_at_all = false;
-        //     //there_was_any_hit_at_all = query.Proceed();
+            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+            query.TraceRayInline(
+                //*u_data.acceleration_structure,
+                tlas,
+                0,
+                0xFF,
+                ray
+            );
+            bool there_was_any_hit_at_all = false;
+            there_was_any_hit_at_all = query.Proceed();
 
-        //     // If we hit something, skip this light
-        //     if (there_was_any_hit_at_all) {
-        //         continue;
-        //     }
-        // }
+            // If we hit something, skip this light
+            if (there_was_any_hit_at_all) {
+                continue;
+            }
+        }
 
         diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
 
