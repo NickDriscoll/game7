@@ -37,10 +37,14 @@ float3 id_to_color(uint id) {
     return ID_COLORS[r];
 }
 
-float3 simple_diffuse_brdf(float3 normal, float3 light_dir, float3 light_color) {
+float3 half_lambert(float3 normal, float3 light_dir, float3 light_color) {
     float r = dot(normal, light_dir);
     r = 0.5 * r + 0.5;
     return r * r * light_color;
+}
+
+float3 lambert(float3 normal, float3 light_dir, float3 light_color) {
+    return light_color * max(0.0, dot(normal, light_dir));
 }
 
 float3x3 z_vector_rotate(float angle) {
@@ -49,6 +53,25 @@ float3x3 z_vector_rotate(float angle) {
         sin(angle), cos(angle), 0.0,
         0.0, 0.0, 1.0
     );
+}
+
+bool trace_shadow_ray(float3 origin, float3 direction, float length) {
+    // Trace one shadow ray per-pixel
+    RayDesc ray;
+    ray.Direction = direction;
+    ray.Origin = origin;
+    ray.TMin = 0.0001;
+    ray.TMax = length;
+
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+    query.TraceRayInline(
+        //*u_data.acceleration_structure,
+        tlas,
+        0,
+        0xFF,
+        ray
+    );
+    return query.Proceed();
 }
 
 [shader("vertex")]
@@ -95,41 +118,21 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
 
-    // Directional lighting
+    // These terms represent the incoming light at a point
     float3 ambient_contribution = {};
     float3 diffuse_contribution = {};
     float3 specular_contribution = {};
+
+    // Directional lighting
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution = 0.1 * light.color;
 
-        //if (u_data.acceleration_structure != nullptr) {
-        {
-            // Trace one shadow ray per-pixel
-            RayDesc ray;
-            ray.Direction = light.direction;
-            ray.Origin = input.world_pos;
-            ray.TMin = 0.01;
-            ray.TMax = 1000000.0;
-
-            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
-            query.TraceRayInline(
-                //*u_data.acceleration_structure,
-                tlas,
-                0,
-                0xFF,
-                ray
-            );
-            bool there_was_any_hit_at_all = false;
-            there_was_any_hit_at_all = query.Proceed();
-
-            // If we hit something, skip this light
-            if (there_was_any_hit_at_all) {
-                continue;
-            }
+        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
+            continue;
         }
 
-        diffuse_contribution += simple_diffuse_brdf(face_normal, light.direction, light.color);
+        diffuse_contribution += lambert(face_normal, light.direction, light.color);
 
         float3 h = normalize(light.direction + face_normal);
         specular_contribution += light.color * max(0.0, pow(dot(h, light.direction), 256.0));
@@ -141,8 +144,13 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         float3 direction = light.world_position - input.world_pos;
         float d = length(direction);
         direction /= d;
+
+        if (trace_shadow_ray(input.world_pos, direction, d)) {
+            continue;
+        }
+
         float falloff = light.intensity / (d * d);
-        diffuse_contribution += falloff * simple_diffuse_brdf(face_normal, direction, light.color);
+        diffuse_contribution += falloff * lambert(face_normal, direction, light.color);
 
         float3 h = normalize(direction + face_normal);
         specular_contribution += falloff * light.color * max(0.0, pow(dot(h, direction), 256.0));
