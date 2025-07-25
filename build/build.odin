@@ -104,95 +104,44 @@ main :: proc() {
     processes: [dynamic]os2.Process
     defer delete(processes)
 
-    log.info("building vertex shaders...")
-    for path in VERTEX_SHADERS {
-        out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.vert.spv", path)
-        in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
+    shader_types : []string = {"vertex", "fragment", "compute"}
+    entry_points: []string = {"vertex_main", "fragment_main", "compute_main"}
+    shader_lists : [][]string = {VERTEX_SHADERS, FRAGMENT_SHADERS, COMPUTE_SHADERS}
 
-        slangc_command := os2.Process_Desc {
-            command = {
-                "slangc",
-                "-stage",
-                "vertex",
-                "-g3",
-                "-Wno-39001",   // Ignore shaders aliasing descriptor bindings
-                "-entry",
-                "vertex_main",
-                "-o",
-                out_path,
-                in_path
+    for i in 0..<3 {
+        list := shader_lists[i]
+        type := shader_types[i]
+        entry_point := entry_points[i]
+
+        log.infof("building %v shaders...", type)
+        for shader in list {
+            out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
+            in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
+    
+            slangc_command := os2.Process_Desc {
+                command = {
+                    "slangc",
+                    "-stage",
+                    type,
+                    "-g3",
+                    "-Wno-39001",   // Ignore shaders aliasing descriptor bindings
+                    "-entry",
+                    entry_point,
+                    "-o",
+                    out_path,
+                    in_path
+                }
             }
-        }
-
-        process, error := os2.process_start(slangc_command)
-        if error != nil {
-            log.errorf("%#v", error)
-            return
-        }
-        append(&processes, process)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
-    }
-
-    log.info("building fragment shaders...")
-    for path in FRAGMENT_SHADERS {
-        out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.frag.spv", path)
-        in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
-
-        slangc_command := os2.Process_Desc {
-            command = {
-                "slangc",
-                "-stage",
-                "fragment",
-                "-g3",
-                "-Wno-39001",   // Ignore warning for shaders aliasing descriptor bindings
-                "-entry",
-                "fragment_main",
-                "-o",
-                out_path,
-                in_path
+    
+            process, error := os2.process_start(slangc_command)
+            if error != nil {
+                log.errorf("%#v", error)
+                return
             }
+            append(&processes, process)
+            strings.builder_reset(&in_sb)
+            strings.builder_reset(&out_sb)
         }
-
-        process, error := os2.process_start(slangc_command)
-        if error != nil {
-            log.errorf("%#v", error)
-            return
-        }
-        append(&processes, process)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
-    }
-
-    log.info("building compute shaders...")
-    for path in COMPUTE_SHADERS {
-        out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.comp.spv", path)
-        in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", path)
-
-        slangc_command := os2.Process_Desc {
-            command = {
-                "slangc",
-                "-stage",
-                "compute",
-                "-g3",
-                "-Wno-39001",   // Ignore warning for shaders aliasing descriptor bindings
-                "-O0",          // @TODO: Some compute shaders have invalid SPIR-V when optimizations are on. See https://github.com/KhronosGroup/SPIRV-Tools/issues/5959
-                "-entry",
-                "compute_main",
-                "-o",
-                out_path,
-                in_path
-            }
-        }
-
-        process, error := os2.process_start(slangc_command)
-        if error != nil {
-            fmt.printfln("%#v", error)
-            return
-        }
-        append(&processes, process)
-        strings.builder_reset(&in_sb)
-        strings.builder_reset(&out_sb)
     }
 
     // Wait on the shader compilers
