@@ -3,7 +3,7 @@ import structs;
 import tex_bindings;
 
 [[vk_binding(2, 0)]]
-RaytracingAccelerationStructure tlas;
+RaytracingAccelerationStructure scene_tlas;
 
 struct VertexOutput {
     float4 clip_pos : SV_Position;
@@ -55,17 +55,15 @@ float3x3 z_vector_rotate(float angle) {
     );
 }
 
-bool trace_shadow_ray(float3 origin, float3 direction, float length) {
-    // Trace one shadow ray per-pixel
+bool trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 origin, float3 direction, float length) {
     RayDesc ray;
     ray.Direction = direction;
     ray.Origin = origin;
-    ray.TMin = 0.0001;
+    ray.TMin = 0.001;
     ray.TMax = length;
 
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
     query.TraceRayInline(
-        //*u_data.acceleration_structure,
         tlas,
         0,
         0xFF,
@@ -128,14 +126,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution = 0.1 * light.color;
 
-        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
+        if (trace_shadow_ray(scene_tlas, input.world_pos, light.direction, 1000000.0)) {
             continue;
         }
 
         diffuse_contribution += lambert(face_normal, light.direction, light.color);
 
         float3 h = normalize(light.direction + face_normal);
-        specular_contribution += light.color * max(0.0, pow(dot(h, light.direction), 256.0));
+        specular_contribution += light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
     // Point lights
@@ -145,7 +143,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         float d = length(direction);
         direction /= d;
 
-        if (trace_shadow_ray(input.world_pos, direction, d)) {
+        if (trace_shadow_ray(scene_tlas, input.world_pos, direction, d - 1.0)) {
             continue;
         }
 
@@ -153,7 +151,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         diffuse_contribution += falloff * lambert(face_normal, direction, light.color);
 
         float3 h = normalize(direction + face_normal);
-        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, direction), 256.0));
+        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
     // Glowing
