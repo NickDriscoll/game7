@@ -36,7 +36,6 @@ COMPUTE_SHADERS : []string : {
 }
 
 when ODIN_DEBUG {
-    //ODIN_COMMAND : []string : {"odin", "build", ".", "-debug", "-vet-shadowing", "-strict-style"}
     ODIN_COMMAND : []string : {
         "odin",
         "build",
@@ -45,12 +44,14 @@ when ODIN_DEBUG {
         "-vet-shadowing",
     }
 } else {
-    //ODIN_COMMAND : []string : {"odin", "build", ".", "-vet-shadowing", "-strict-style"}
     ODIN_COMMAND : []string : {
         "odin",
         "build",
         ".",
+        "-o:speed",
         "-vet-shadowing",
+        "-disable-assert",
+        "-no-bounds-check",
     }
 }
 
@@ -85,7 +86,11 @@ main :: proc() {
     }
     context.logger = log.create_console_logger(log_level)
 
-    log.info("starting program build...")
+    when ODIN_DEBUG {
+        log.info("starting program build in debug mode...")
+    } else {
+        log.info("starting program build in release mode...")
+    }
 
     // String builders for formatting input and output path strings
     in_sb: strings.Builder
@@ -171,7 +176,7 @@ main :: proc() {
                 "compute",
                 "-g3",
                 "-Wno-39001",   // Ignore warning for shaders aliasing descriptor bindings
-                "-O0",      // Some compute shaders have invalid SPIR-V when optimizations are on. See https://github.com/KhronosGroup/SPIRV-Tools/issues/5959
+                "-O0",          // @TODO: Some compute shaders have invalid SPIR-V when optimizations are on. See https://github.com/KhronosGroup/SPIRV-Tools/issues/5959
                 "-entry",
                 "compute_main",
                 "-o",
