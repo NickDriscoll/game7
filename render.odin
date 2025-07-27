@@ -1481,6 +1481,7 @@ render_scene :: proc(
             tform: vk.TransformMatrixKHR
             for row in 0..<3 {
                 for column in 0..<4 {
+                    // vkTransformMatrixKHR is row-major but Odin matrices are column-major
                     tform.mat[row][column] = static_instance.world_from_model[column][row]
                 }
             }
