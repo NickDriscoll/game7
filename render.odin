@@ -1460,18 +1460,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
 }
 
-// This is called once per frame to sync buffers with the GPU
-// and record the relevant commands into the frame's command buffer
-render_scene :: proc(
-    gd: ^vkw.Graphics_Device,
-    gfx_cb_idx: vkw.CommandBuffer_Index,
-    renderer: ^Renderer,
-    viewport_camera: ^Camera,
-    framebuffer: ^vkw.Framebuffer,
-) {
-    // Do compute skinning work
-    compute_skinning(gd, renderer)
-
+make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
@@ -1565,6 +1554,22 @@ render_scene :: proc(
         // Put new TLAS address in uniform buffer
         //renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
+}
+
+// This is called once per frame to sync buffers with the GPU
+// and record the relevant commands into the frame's command buffer
+render_scene :: proc(
+    gd: ^vkw.Graphics_Device,
+    gfx_cb_idx: vkw.CommandBuffer_Index,
+    renderer: ^Renderer,
+    viewport_camera: ^Camera,
+    framebuffer: ^vkw.Framebuffer,
+) {
+    // Do compute skinning work
+    compute_skinning(gd, renderer)
+
+    // Recreate scene TLAS
+    make_tlas_from_instances(gd, renderer)
 
     // Sync CPU and GPU buffers
 
