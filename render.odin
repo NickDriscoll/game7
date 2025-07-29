@@ -871,14 +871,14 @@ swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, reso
 queue_blas_build :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: Renderer,
-    src_AS: vk.AccelerationStructureKHR,
     position_start: u32,
     positions_len: u32,
     indices_start: u32,
     indices_len: u32,
+    src_blas_handle: vkw.Acceleration_Structure_Handle
 ) -> vkw.Acceleration_Structure_Handle {
     pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
-    
+
     // @TODO: This allocation yikes
     geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
     append(&geos, vkw.AccelerationStructureGeometry {
@@ -901,9 +901,9 @@ queue_blas_build :: proc(
     prim_counts: []u32 = { indices_len / 3 }
     build_info := vkw.AccelerationStructureBuildInfo {
         type = .BOTTOM_LEVEL,
-        flags = nil,
-        mode = .BUILD,
-        src = src_AS,
+        // flags = build_flags,
+        // mode = mode,
+        src = src_blas_handle,
         dst = 0,        // Filled in by vkw.create_acceleration_structure()
         geometries = geos,
         prim_counts = prim_counts,
@@ -912,7 +912,7 @@ queue_blas_build :: proc(
             primitiveOffset = 0,
             firstVertex = 0,
             transformOffset = 0
-        }
+        },
     }
 
     as_info := vkw.AccelerationStructureCreateInfo {
@@ -962,7 +962,7 @@ create_static_mesh :: proc(
     // TEMP: Just trying to build a BLAS when I don't know how
     new_as: vkw.Acceleration_Structure_Handle
     if renderer.do_raytracing {
-        new_as = queue_blas_build(gd, renderer^, 0, position_start, positions_len, indices_start, indices_len)
+        new_as = queue_blas_build(gd, renderer^, position_start, positions_len, indices_start, indices_len, { index = 0xFFFFFFFF })
     }
 
     mesh := CPUStaticMesh {
@@ -1435,15 +1435,15 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             if renderer.do_raytracing {
                 static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
                 instance := &renderer.ps1_static_instances[len(renderer.ps1_static_instances) - 1]
-                blas := vkw.get_acceleration_structure_handle(gd, instance.blas)
+                //blas_addr, _ := vkw.get_acceleration_structure(gd, instance.blas)
                 // instance.blas = queue_blas_build(
                 //     gd,
                 //     renderer^,
-                //     0,
                 //     vtx_positions_out_offset,
                 //     mesh.vertices_len,
                 //     static_mesh.indices_start,
-                //     static_mesh.indices_len
+                //     static_mesh.indices_len,
+                //     instance.blas
                 // )
             }
         }
@@ -1541,8 +1541,8 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
                 type = .TOP_LEVEL,
                 flags = nil,
                 mode = .BUILD,
-                src = 0,
-                dst = 0,
+                src = { index = 0xFFFFFFFF },
+                // dst = 0,
                 geometries = geos,
                 prim_counts = prim_counts,
                 range_info = {
@@ -1562,12 +1562,12 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
 
         // Update TLAS descriptor
         {
-            tlas := vkw.get_acceleration_structure_handle(gd, renderer.scene_TLAS)
+            tlas, _1 := vkw.get_acceleration_structure(gd, renderer.scene_TLAS)
             as_write := vk.WriteDescriptorSetAccelerationStructureKHR {
                 sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
                 pNext = nil,
                 accelerationStructureCount = 1,
-                pAccelerationStructures = &tlas
+                pAccelerationStructures = &tlas.handle
             }
             descriptor_write := vk.WriteDescriptorSet {
                 sType = .WRITE_DESCRIPTOR_SET,
@@ -2028,7 +2028,6 @@ load_gltf_static_model :: proc(
     
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
-            log.infof("%v has %v triangles", interned_filename, len(index_data) / 3)
             mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
             if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
             if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
