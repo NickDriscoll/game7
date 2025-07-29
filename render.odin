@@ -868,6 +868,60 @@ swapchain_framebuffer :: proc(gd: ^vkw.Graphics_Device, swapchain_idx: u32, reso
     return fb
 }
 
+queue_blas_build :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: Renderer,
+    src_AS: vk.AccelerationStructureKHR,
+    position_start: u32,
+    positions_len: u32,
+    indices_start: u32,
+    indices_len: u32,
+) -> vkw.Acceleration_Structure_Handle {
+    pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
+    
+    // @TODO: This allocation yikes
+    geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
+    append(&geos, vkw.AccelerationStructureGeometry {
+        type = .TRIANGLES,
+        geometry = vkw.ASTrianglesData {
+            vertex_format = .R16G16B16A16_SFLOAT,
+            vertex_data = {
+                deviceAddress = pos_addr
+            },
+            vertex_stride = size_of(half4),
+            max_vertex = positions_len - 1,
+            index_type = .UINT16,
+            index_data = {
+                deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_start)
+            },
+            transform_data = {}
+        },
+        flags = nil
+    })
+    prim_counts: []u32 = { indices_len / 3 }
+    build_info := vkw.AccelerationStructureBuildInfo {
+        type = .BOTTOM_LEVEL,
+        flags = nil,
+        mode = .BUILD,
+        src = src_AS,
+        dst = 0,        // Filled in by vkw.create_acceleration_structure()
+        geometries = geos,
+        prim_counts = prim_counts,
+        range_info = {
+            primitiveCount = indices_len / 3,
+            primitiveOffset = 0,
+            firstVertex = 0,
+            transformOffset = 0
+        }
+    }
+
+    as_info := vkw.AccelerationStructureCreateInfo {
+        flags = nil,
+        type = .BOTTOM_LEVEL
+    }
+    return vkw.create_acceleration_structure(gd, as_info, &build_info)
+}
+
 create_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
@@ -908,48 +962,7 @@ create_static_mesh :: proc(
     // TEMP: Just trying to build a BLAS when I don't know how
     new_as: vkw.Acceleration_Structure_Handle
     if renderer.do_raytracing {
-        pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
-        // @TODO: This allocation yikes
-        geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
-        append(&geos, vkw.AccelerationStructureGeometry {
-            type = .TRIANGLES,
-            geometry = vkw.ASTrianglesData {
-                vertex_format = .R16G16B16A16_SFLOAT,
-                vertex_data = {
-                    deviceAddress = pos_addr
-                },
-                vertex_stride = size_of(half4),
-                max_vertex = positions_len - 1,
-                index_type = .UINT16,
-                index_data = {
-                    deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_start)
-                },
-                transform_data = {}
-            },
-            flags = nil
-        })
-        prim_counts: []u32 = { indices_len / 3 }
-        build_info := vkw.AccelerationStructureBuildInfo {
-            type = .BOTTOM_LEVEL,
-            flags = nil,
-            mode = .BUILD,
-            src = 0,
-            dst = 0,        // Filled in by vkw.create_acceleration_structure()
-            geometries = geos,
-            prim_counts = prim_counts,
-            range_info = {
-                primitiveCount = indices_len / 3,
-                primitiveOffset = 0,
-                firstVertex = 0,
-                transformOffset = 0
-            }
-        }
-
-        as_info := vkw.AccelerationStructureCreateInfo {
-            flags = nil,
-            type = .BOTTOM_LEVEL
-        }
-        new_as = vkw.create_acceleration_structure(gd, as_info, &build_info)
+        new_as = queue_blas_build(gd, renderer^, 0, position_start, positions_len, indices_start, indices_len)
     }
 
     mesh := CPUStaticMesh {
@@ -1417,6 +1430,22 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             instance_joints_so_far += mesh.joint_count
             skinned_verts_so_far += mesh.vertices_len
             vtx_positions_out_offset += mesh.vertices_len
+
+            // Queue BLAS rebuilds
+            if renderer.do_raytracing {
+                static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
+                instance := &renderer.ps1_static_instances[len(renderer.ps1_static_instances) - 1]
+                blas := vkw.get_acceleration_structure_handle(gd, instance.blas)
+                // instance.blas = queue_blas_build(
+                //     gd,
+                //     renderer^,
+                //     0,
+                //     vtx_positions_out_offset,
+                //     mesh.vertices_len,
+                //     static_mesh.indices_start,
+                //     static_mesh.indices_len
+                // )
+            }
         }
     }
 
@@ -1444,7 +1473,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             src_stage_mask = {.COMPUTE_SHADER},
             src_access_mask = {.SHADER_WRITE},
             dst_stage_mask = {.ALL_COMMANDS},
-            dst_access_mask = {.SHADER_READ},
+            dst_access_mask = {.SHADER_READ,.ACCELERATION_STRUCTURE_WRITE_KHR},
             buffer = pos_buf.buffer,
             offset = 0,
             size = pos_buf.alloc_info.size
@@ -1465,6 +1494,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
         for i in 0..<renderer.ps1_static_instance_count {
+        //for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
             
             tform: vk.TransformMatrixKHR
@@ -1567,6 +1597,35 @@ render_scene :: proc(
 ) {
     // Do compute skinning work
     compute_skinning(gd, renderer)
+
+    // Barrier for BLAS builds
+    if renderer.do_raytracing {
+        vb, _ := vkw.get_buffer(gd, renderer.positions_buffer)
+        ib, _ := vkw.get_buffer(gd, renderer.index_buffer)
+
+        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
+            {
+                src_stage_mask = {.TRANSFER},
+                src_access_mask = {.TRANSFER_WRITE},
+                dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
+                dst_access_mask = {.SHADER_READ},
+                buffer = vb.buffer,
+                offset = 0,
+                size = vk.DeviceSize(vk.WHOLE_SIZE),
+            },
+            {
+                src_stage_mask = {.TRANSFER},
+                src_access_mask = {.TRANSFER_WRITE},
+                dst_stage_mask = {.ACCELERATION_STRUCTURE_BUILD_KHR},
+                dst_access_mask = {.SHADER_READ},
+                buffer = ib.buffer,
+                offset = 0,
+                size = vk.DeviceSize(vk.WHOLE_SIZE),
+            }
+        }, {})
+
+        vkw.build_queued_blases(gd)
+    }
 
     // Recreate scene TLAS
     make_tlas_from_instances(gd, renderer)
