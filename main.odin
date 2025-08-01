@@ -532,8 +532,8 @@ main :: proc() {
 
                 imgui.Separator()
                 {
-                    b := renderer.cpu_uniforms.triangle_vis == 1
-                    if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.triangle_vis ~= 1
+                    b := bool(renderer.cpu_uniforms.triangle_vis)
+                    if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.triangle_vis = !renderer.cpu_uniforms.triangle_vis
                 }
                 imgui.Separator()
             }

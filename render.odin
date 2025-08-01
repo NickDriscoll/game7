@@ -65,7 +65,7 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
-UniformBufferData :: struct {
+UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
     
     clip_from_skybox: hlsl.float4x4,
@@ -97,7 +97,7 @@ UniformBufferData :: struct {
     time: f32,
     distortion_strength: f32,
 
-    triangle_vis: u32,
+    triangle_vis: b32,
     skybox_idx: u32,
     _pad0: [2]f32,
 
@@ -308,7 +308,7 @@ Renderer :: struct {
 
 
     // Per-frame shader uniforms
-    cpu_uniforms: UniformBufferData,
+    cpu_uniforms: UniformBuffer,
     uniform_buffer: vkw.Buffer_Handle,
 
     dirty_flags: GPUBufferDirtyFlags,               // Represents which CPU/GPU buffers need synced this cycle
@@ -496,7 +496,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     // Create uniform buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(UniformBufferData),
+            size = size_of(UniformBuffer),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
