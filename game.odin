@@ -1664,7 +1664,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         l.color = {0.0, 1.0, 0.0}
         l.world_position = pos
         l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-        add_point_light(renderer, l)
+        do_point_light(renderer, l)
     }
 
     // Debug draw logic
@@ -1937,7 +1937,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
         l.world_position = enemy.position
         l.color = {0.0, 1.0, 0.0}
         l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-        add_point_light(renderer, l)
+        do_point_light(renderer, l)
     }
 }
 

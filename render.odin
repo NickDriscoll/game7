@@ -278,7 +278,7 @@ Renderer :: struct {
     static_mesh_buffer: vkw.Buffer_Handle,
     cpu_static_meshes: hm.Handle_Map(CPUStaticMesh),
     gpu_static_meshes: [dynamic]GPUStaticMesh,
-    mesh_raytracing_datas: [dynamic]MeshRaytracingData,
+    //mesh_raytracing_datas: [dynamic]MeshRaytracingData,
 
     // @TODO: Replace with config flags field if necessary
     do_raytracing: bool,
@@ -352,7 +352,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_parents = make([dynamic]u32, 0, 64)
     renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64)
     renderer.animations = make([dynamic]Animation, 0, 64)
-    renderer.mesh_raytracing_datas = make([dynamic]MeshRaytracingData, 0, 64)
+    //renderer.mesh_raytracing_datas = make([dynamic]MeshRaytracingData, 0, 64)
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)
@@ -1126,7 +1126,7 @@ add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle 
     return Material_Handle(hm.insert(&cpu_materials, new_mat^))
 }
 
-add_point_light :: proc(renderer: ^Renderer, light: PointLight) {
+do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
     id := renderer.cpu_uniforms.point_light_count
     if id < MAX_POINT_LIGHTS {
         renderer.cpu_uniforms.point_light_count += 1
@@ -1261,7 +1261,9 @@ ComputeSkinningPushConstants :: struct {
     max_vtx_id: u32,
 }
 compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
-    push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), allocator = context.temp_allocator)
+
+    // Loop over each skinned instance in order to produce 
+    push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), context.temp_allocator)
     instance_joints_so_far : u32 = 0
     skinned_verts_so_far : u32 = 0
     vtx_positions_out_offset := renderer.positions_head
@@ -1468,7 +1470,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
         GROUP_THREADCOUNT :: 64
         q, r := math.divmod(batch.max_vtx_id + 1, GROUP_THREADCOUNT)
         groups : u32 = q
-        if r != 0 do groups += 1
+        groups += u32(r > 0) // Add one more group if there's a remainder
         vkw.cmd_dispatch(gd, comp_cb_idx, groups, 1, 1)
     }
 
