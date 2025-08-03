@@ -132,7 +132,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
         diffuse_contribution += lambert(face_normal, light.direction, light.color);
 
-        float3 h = normalize(light.direction + face_normal);
+        float3 h = normalize(light.direction + view_dir);
         specular_contribution += light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
@@ -150,7 +150,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         float falloff = light.intensity / (d * d);
         diffuse_contribution += falloff * lambert(face_normal, direction, light.color);
 
-        float3 h = normalize(direction + face_normal);
+        float3 h = normalize(direction + view_dir);
         specular_contribution += falloff * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
@@ -175,4 +175,5 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     return float4(final_color, 1.0);
+    // return float4(specular_contribution, 1.0);
 }
