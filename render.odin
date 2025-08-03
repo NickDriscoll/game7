@@ -189,6 +189,7 @@ InstanceFlag :: enum u32 {
     Glowing,
 }
 InstanceFlags :: bit_set[InstanceFlag]
+
 GPUInstance :: struct {
     world_from_model: hlsl.float4x4,
     normal_matrix: hlsl.float4x4, // cofactor matrix of above
@@ -372,6 +373,15 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.cpu_uniforms.directional_light_count = 0
 }
 
+// Per-frame work that needs to happen at the beginning of the frame
+new_frame :: proc(renderer: ^Renderer) {
+    renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
+    renderer.ps1_static_instance_count = 0
+    renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
+    renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
+    renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
+}
+
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
     renderer: Renderer
     renderer.do_raytracing = .Raytracing in gd.support_flags
@@ -496,7 +506,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     // Create uniform buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(UniformBuffer),
+            size = vk.DeviceSize(gd.frames_in_flight) * size_of(UniformBuffer),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
@@ -872,17 +882,10 @@ queue_blas_build :: proc(
     renderer: Renderer,
     position_start: u32,
     positions_len: u32,
-    indices_start: u32,
-    indices_len: u32,
-    src_blas_handle: vkw.Acceleration_Structure_Handle,
+    mesh: CPUStaticMesh,
     update: bool
 ) -> vkw.Acceleration_Structure_Handle {
     pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
-
-    build_flags : vk.BuildAccelerationStructureFlagsKHR = nil
-    if update {
-        build_flags += {.ALLOW_UPDATE}
-    }
 
     // @TODO: This allocation yikes
     geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
@@ -897,27 +900,30 @@ queue_blas_build :: proc(
             max_vertex = positions_len - 1,
             index_type = .UINT16,
             index_data = {
-                deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * indices_start)
+                deviceAddress = renderer.indices_ptr + vk.DeviceAddress(size_of(u16) * mesh.indices_start)
             },
             transform_data = {}
         },
         flags = nil
     })
-    prim_counts: []u32 = { indices_len / 3 }
+    prim_counts: []u32 = { mesh.indices_len / 3 }
     build_info := vkw.AccelerationStructureBuildInfo {
         type = .BOTTOM_LEVEL,
-        flags = build_flags,
+        flags = nil,
         mode = .BUILD,
-        src = src_blas_handle,
+        src = mesh.blas,
         dst = 0,        // Filled in by vkw.create_acceleration_structure()
         geometries = geos,
         prim_counts = prim_counts,
         range_info = {
-            primitiveCount = indices_len / 3,
+            primitiveCount = mesh.indices_len / 3,
             primitiveOffset = 0,
             firstVertex = 0,
             transformOffset = 0
         },
+    }
+    if update {
+        build_info.flags += {.ALLOW_UPDATE}
     }
 
     as_info := vkw.AccelerationStructureCreateInfo {
@@ -964,17 +970,16 @@ create_static_mesh :: proc(
     }
     append(&renderer.gpu_static_meshes, gpu_mesh)
 
-    // TEMP: Just trying to build a BLAS when I don't know how
-    new_as: vkw.Acceleration_Structure_Handle
-    if renderer.do_raytracing {
-        new_as = queue_blas_build(gd, renderer^, position_start, positions_len, indices_start, indices_len, { index = 0xFFFFFFFF }, false)
-    }
-
     mesh := CPUStaticMesh {
         indices_start = indices_start,
         indices_len = indices_len,
         gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
-        blas = new_as,
+        blas = {index = 0xFFFFFFFF},
+    }
+
+    // TEMP: Just trying to build a BLAS when I don't know how
+    if renderer.do_raytracing {
+        mesh.blas = queue_blas_build(gd, renderer^, position_start, positions_len, mesh, false)
     }
     handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
 
@@ -1132,15 +1137,6 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
         renderer.cpu_uniforms.point_light_count += 1
         renderer.cpu_uniforms.point_lights[id] = light
     }
-}
-
-// Per-frame work that needs to happen at the beginning of the frame
-new_frame :: proc(renderer: ^Renderer) {
-    renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
-    renderer.ps1_static_instance_count = 0
-    renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
-    renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
-    renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
 draw_ps1_static_mesh :: proc(
@@ -1441,9 +1437,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                     renderer^,
                     vtx_positions_out_offset,
                     mesh.vertices_len,
-                    static_mesh.indices_start,
-                    static_mesh.indices_len,
-                    static_mesh.blas,
+                    static_mesh^,
                     true
                 )
             }
@@ -1745,9 +1739,10 @@ render_scene :: proc(
     vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
 
     // Update uniforms buffer
+    uniforms_offset : u32 = gd.frame_count % 2 == 1
     {
         in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
-        if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice) {
+        if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice, uniforms_offset) {
             log.error("Failed to write uniform buffer data")
         }
     }
@@ -1810,7 +1805,7 @@ render_scene :: proc(
     t := f32(gd.frame_count) / 144.0
     uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
     vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
-        uniform_buffer_ptr = uniform_buf.address,
+        uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
         sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
     })
 
