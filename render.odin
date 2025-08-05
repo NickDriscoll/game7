@@ -493,7 +493,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     // Create indirect draw buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
+            size = vk.DeviceSize(gd.frames_in_flight) * size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
@@ -1722,6 +1722,9 @@ render_scene :: proc(
         return 0
     }
 
+    uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
+
+    draws_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS
     ps1_draw_offset := draw_instances(
         gd,
         renderer,
@@ -1739,7 +1742,6 @@ render_scene :: proc(
     vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
 
     // Update uniforms buffer
-    uniforms_offset : u32 = gd.frame_count % 2 == 1
     {
         in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
         if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice, uniforms_offset) {
@@ -1813,11 +1815,19 @@ render_scene :: proc(
 
     // Opaque drawing pipeline(s)
 
-    // Main opqaue 3D shaded pipeline
+    draw_buffer_offset : u64 = draws_offset * size_of(vk.DrawIndexedIndirectCommand)
+    // Main opaque 3D shaded pipeline
     if ps1_draw_offset > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
-        vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, 0, ps1_draw_offset)
+        vkw.cmd_draw_indexed_indirect(
+            gd,
+            gfx_cb_idx,
+            renderer.draw_buffer,
+            draw_buffer_offset,
+            ps1_draw_offset
+        )
     }
+    draw_buffer_offset += u64(ps1_draw_offset) * size_of(vk.DrawIndexedIndirectCommand)
 
     // Opaque drawing finished
 
@@ -1830,7 +1840,13 @@ render_scene :: proc(
     // Debug draw pipeline
     if debug_draw_offset > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
-        vkw.cmd_draw_indexed_indirect(gd, gfx_cb_idx, renderer.draw_buffer, u64(ps1_draw_offset * size_of(vk.DrawIndexedIndirectCommand)), debug_draw_offset - ps1_draw_offset)
+        vkw.cmd_draw_indexed_indirect(
+            gd,
+            gfx_cb_idx,
+            renderer.draw_buffer,
+            draw_buffer_offset,
+            debug_draw_offset - ps1_draw_offset
+        )
     }
 
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
