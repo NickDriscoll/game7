@@ -279,7 +279,7 @@ main :: proc() {
     }
 
     //Dear ImGUI init
-    imgui_state := imgui_init(&vgd, app_window.resolution)
+    imgui_state := imgui_init(&vgd, user_config, app_window.resolution)
     when ODIN_DEBUG do defer gui_cleanup(&vgd, &imgui_state)
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
@@ -354,7 +354,7 @@ main :: proc() {
 
     // Setup may have used temp allocation, 
     // so clear out temp memory before first frame processing
-    free_all(context.temp_allocator)
+    //free_all(context.temp_allocator)
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
@@ -416,6 +416,7 @@ main :: proc() {
         {
             if output_verbs.bools[.ToggleImgui] {
                 imgui_state.show_gui = !imgui_state.show_gui
+                user_config.flags[.ImguiEnabled] = imgui_state.show_gui
                 if imgui_state.show_gui {
                     sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
                 } else {

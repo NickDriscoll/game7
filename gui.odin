@@ -41,9 +41,9 @@ ImguiState :: struct {
     dockspace_id: u32,
 }
 
-imgui_init :: proc(gd: ^vkw.Graphics_Device, resolution: hlsl.uint2) -> ImguiState {
+imgui_init :: proc(gd: ^vkw.Graphics_Device, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
     imgui_state: ImguiState
-    imgui_state.show_gui = true
+    imgui_state.show_gui = user_config.flags[.ImguiEnabled]
     imgui_state.ctxt = imgui.CreateContext()
     
     io := imgui.GetIO()
