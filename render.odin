@@ -1686,8 +1686,10 @@ render_scene :: proc(
                 
                 inst := &instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
+                    // Simply add an instance to the current draw call in
+                    // the case where this instance matches the last one's mesh
+
                     material_idx : u32 = 0
-                    flags: InstanceFlags
                     when T == CPUStaticInstance {
                         material_idx = inst.material_handle.index
                     }
@@ -1716,27 +1718,29 @@ render_scene :: proc(
             }
             vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:], draw_buffer_offset)
 
-            return u32(len(gpu_draws)) + draw_buffer_offset
+            return u32(len(gpu_draws))
         }
 
         return 0
     }
 
     uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
+    draws_offset : u32 = uniforms_offset * MAX_GLOBAL_DRAW_CMDS
 
-    draws_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS
-    ps1_draw_offset := draw_instances(
+    ps1_draw_calls := draw_instances(
         gd,
         renderer,
         renderer.ps1_static_instances[:],
-        0,
+        draws_offset,
         0
     )
-    debug_draw_offset := draw_instances(
+    draws_offset += ps1_draw_calls
+
+    debug_draw_calls := draw_instances(
         gd,
         renderer,
         renderer.debug_static_instances[:],
-        ps1_draw_offset,
+        draws_offset,
         u32(len(renderer.ps1_static_instances))
     )
     vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
@@ -1815,19 +1819,19 @@ render_scene :: proc(
 
     // Opaque drawing pipeline(s)
 
-    draw_buffer_offset : u64 = draws_offset * size_of(vk.DrawIndexedIndirectCommand)
+    draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
     // Main opaque 3D shaded pipeline
-    if ps1_draw_offset > 0 {
+    if len(renderer.ps1_static_instances) > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
         vkw.cmd_draw_indexed_indirect(
             gd,
             gfx_cb_idx,
             renderer.draw_buffer,
             draw_buffer_offset,
-            ps1_draw_offset
+            ps1_draw_calls
         )
     }
-    draw_buffer_offset += u64(ps1_draw_offset) * size_of(vk.DrawIndexedIndirectCommand)
+    draw_buffer_offset += u64(ps1_draw_calls) * size_of(vk.DrawIndexedIndirectCommand)
 
     // Opaque drawing finished
 
@@ -1838,14 +1842,14 @@ render_scene :: proc(
     // Start transparent drawing
 
     // Debug draw pipeline
-    if debug_draw_offset > 0 {
+    if len(renderer.debug_static_instances) > 0 {
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
         vkw.cmd_draw_indexed_indirect(
             gd,
             gfx_cb_idx,
             renderer.draw_buffer,
             draw_buffer_offset,
-            debug_draw_offset - ps1_draw_offset
+            debug_draw_calls
         )
     }
 
