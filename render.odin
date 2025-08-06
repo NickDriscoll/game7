@@ -162,7 +162,8 @@ CPUStaticMesh :: struct {
     indices_start: u32,
     indices_len: u32,
     gpu_mesh_idx: u32,
-    blas: vkw.Acceleration_Structure_Handle,
+    blases: [dynamic]vkw.Acceleration_Structure_Handle,
+    current_blas_head: u32,
 }
 
 MeshRaytracingData :: struct {
@@ -882,14 +883,18 @@ queue_blas_build :: proc(
     renderer: Renderer,
     position_start: u32,
     positions_len: u32,
-    mesh: CPUStaticMesh,
+    mesh: ^CPUStaticMesh,
     update: bool
-) -> vkw.Acceleration_Structure_Handle {
+) {
     pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
 
-    // @TODO: This allocation yikes
-    geos := make([dynamic]vkw.AccelerationStructureGeometry, context.allocator)
-    append(&geos, vkw.AccelerationStructureGeometry {
+    if mesh.current_blas_head == u32(len(mesh.blases)) {
+        append(&mesh.blases, vkw.Acceleration_Structure_Handle {})
+    }
+    current_blas := &mesh.blases[mesh.current_blas_head]
+
+    geos, _ := make([dynamic]vkw.AccelerationStructureGeometry, context.temp_allocator)
+    _, alloc_error := append(&geos, vkw.AccelerationStructureGeometry {
         type = .TRIANGLES,
         geometry = vkw.ASTrianglesData {
             vertex_format = .R16G16B16A16_SFLOAT,
@@ -906,12 +911,16 @@ queue_blas_build :: proc(
         },
         flags = nil
     })
+    if alloc_error != .None {
+        log.errorf("Error allocating BLAS geometries: %v", alloc_error)
+    }
+
     prim_counts: []u32 = { mesh.indices_len / 3 }
     build_info := vkw.AccelerationStructureBuildInfo {
         type = .BOTTOM_LEVEL,
         flags = nil,
         mode = .BUILD,
-        src = mesh.blas,
+        src = current_blas^,
         dst = 0,        // Filled in by vkw.create_acceleration_structure()
         geometries = geos,
         prim_counts = prim_counts,
@@ -930,7 +939,9 @@ queue_blas_build :: proc(
         flags = nil,
         type = .BOTTOM_LEVEL
     }
-    return vkw.create_acceleration_structure(gd, as_info, &build_info)
+
+    current_blas^ = vkw.create_acceleration_structure(gd, as_info, &build_info)
+    mesh.current_blas_head += 1
 }
 
 create_static_mesh :: proc(
@@ -974,12 +985,12 @@ create_static_mesh :: proc(
         indices_start = indices_start,
         indices_len = indices_len,
         gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1),
-        blas = {index = 0xFFFFFFFF},
+        blases = make([dynamic]vkw.Acceleration_Structure_Handle, 0, 4, context.allocator),
     }
 
     // TEMP: Just trying to build a BLAS when I don't know how
     if renderer.do_raytracing {
-        mesh.blas = queue_blas_build(gd, renderer^, position_start, positions_len, mesh, false)
+        queue_blas_build(gd, renderer^, position_start, positions_len, &mesh, false)
     }
     handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
 
@@ -1047,7 +1058,7 @@ create_skinned_mesh :: proc(
     new_cpu_static_mesh := CPUStaticMesh {
         indices_start = indices_start,
         indices_len = indices_len,
-        blas = { index = 0xFFFFFFFF }
+        blases = make([dynamic]vkw.Acceleration_Structure_Handle, 0, 4, context.allocator)
     }
     static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
 
@@ -1430,14 +1441,13 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             // Queue BLAS rebuilds
             if renderer.do_raytracing {
                 static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
-                instance := &renderer.ps1_static_instances[len(renderer.ps1_static_instances) - 1]
 
-                static_mesh.blas = queue_blas_build(
+                queue_blas_build(
                     gd,
                     renderer^,
                     vtx_positions_out_offset,
                     mesh.vertices_len,
-                    static_mesh^,
+                    static_mesh,
                     true
                 )
             }
@@ -1495,7 +1505,6 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
-        //for i in 0..<renderer.ps1_static_instance_count {
         for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
@@ -1508,7 +1517,10 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
                 }
             }
 
-            blas_addr := vkw.get_acceleration_structure_address(gd, static_mesh.blas)
+            current_blas := static_mesh.blases[static_mesh.current_blas_head]
+            blas_addr := vkw.get_acceleration_structure_address(gd, current_blas)
+            static_mesh.current_blas_head = min(u32(len(static_mesh.blases)) - 1, static_mesh.current_blas_head + 1)
+
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
                 
@@ -1628,6 +1640,11 @@ render_scene :: proc(
         }, {})
 
         vkw.build_queued_blases(gd)
+    }
+
+    // Set static mesh BLAS counters back to zero
+    for &mesh in renderer.cpu_static_meshes.values {
+        mesh.current_blas_head = 0
     }
 
     // Recreate scene TLAS
