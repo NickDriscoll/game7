@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 ConfigKey :: enum {
+    ImguiEnabled,
     ShowDebugMenu,
     GraphicsSettings,
     AudioPanel,
@@ -42,6 +43,7 @@ ConfigKey :: enum {
     StartLevel,
 }
 CONFIG_KEY_STRINGS : [ConfigKey]string : {
+    .ImguiEnabled = "gui_enabled",
     .ShowDebugMenu = "show_debug_menu",
     .GraphicsSettings = "graphics_settings",
     .AudioPanel = "audio_panel",
