@@ -55,7 +55,7 @@ float3x3 z_vector_rotate(float angle) {
     );
 }
 
-bool trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 origin, float3 direction, float length) {
+bool trace_shadow_ray(float3 origin, float3 direction, float length) {
     RayDesc ray;
     ray.Direction = direction;
     ray.Origin = origin;
@@ -64,12 +64,13 @@ bool trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 origin, float
 
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
     query.TraceRayInline(
-        tlas,
+        scene_tlas,
         0,
         0xFF,
         ray
     );
     return query.Proceed();
+    // return false;
 }
 
 [shader("vertex")]
@@ -126,7 +127,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution = 0.1 * light.color;
 
-        if (trace_shadow_ray(scene_tlas, input.world_pos, light.direction, 1000000.0)) {
+        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
             continue;
         }
 
@@ -143,7 +144,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         float d = length(direction);
         direction /= d;
 
-        if (trace_shadow_ray(scene_tlas, input.world_pos, direction, d - 1.0)) {
+        if (trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
             continue;
         }
 
