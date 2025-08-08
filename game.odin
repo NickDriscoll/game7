@@ -417,7 +417,6 @@ init_gamestate :: proc(
             if !ok {
                 log.error("Unable to read DDS header")
             }
-            log.debugf("%#v", dds_header)
     
             is_cubemap := .D3D11_RESOURCE_MISC_TEXTURECUBE in dds_header.misc_flag
             image_flags : vk.ImageCreateFlags = {.CUBE_COMPATIBLE} if is_cubemap else {}
@@ -1585,8 +1584,6 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 radius = enemy.collision_radius
             }
             if are_spheres_overlapping(s, char.collision) {
-                // d := hlsl.normalize(enemy.facing).xy
-                // char.velocity.xy = 10.0 * d
                 char.collision.velocity.z = 3.0
                 char.collision.state = .Falling
                 char.damage_timer = time.now()

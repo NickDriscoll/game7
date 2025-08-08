@@ -382,9 +382,6 @@ poll_sdl2_events :: proc(
                     bools[verbtype] = false
                 }
             }
-            case: {
-                //log.debugf("Unhandled event: %v", event.type)
-            }
         }
     }
     

@@ -353,7 +353,6 @@ dds_load_header :: proc(file_bytes: []byte) -> (DDSHeader, bool) {
     header: DDSHeader
 
     header_slice := file_bytes[0:TRUE_DDS_HEADER_SIZE]
-    log.debugf("DDSHeader size == %v bytes", size_of(DDSHeader))
     header_ptr := slice.as_ptr(header_slice)
     mem.copy_non_overlapping(&header, header_ptr, TRUE_DDS_HEADER_SIZE)
 
