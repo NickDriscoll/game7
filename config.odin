@@ -211,13 +211,6 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
     key_tok := scanner.scan(&sc)
     key_str := scanner.token_text(&sc)
     for key_tok != scanner.EOF {
-        // Put the key in the internerator
-        // interned_key, err := strings.intern_get(&u._interner, key_str)
-        // log.debugf("User cfg key: %v", interned_key)
-        // if err != nil {
-        //     log.errorf("Error interning key: %v", err)
-        // }
-
         // Map string to key
         key: Maybe(ConfigKey)
         for k, e in CONFIG_KEY_STRINGS {
@@ -234,7 +227,6 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
         negative_number := false
         scanner.scan(&sc)
         val_tok := scanner.token_text(&sc)
-        log.debugf("User cfg value: %v", val_tok)
         if val_tok == "-" {
             negative_number = true
             scanner.scan(&sc)
