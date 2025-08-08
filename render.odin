@@ -1642,13 +1642,18 @@ render_scene :: proc(
         vkw.build_queued_blases(gd)
     }
 
-    // Set static mesh BLAS counters back to zero
+    // Set static mesh BLAS counters back to zero for TLAS building
     for &mesh in renderer.cpu_static_meshes.values {
         mesh.current_blas_head = 0
     }
 
     // Recreate scene TLAS
     make_tlas_from_instances(gd, renderer)
+
+    // Set static mesh BLAS counters back to zero for next frame
+    for &mesh in renderer.cpu_static_meshes.values {
+        mesh.current_blas_head = 0
+    }
 
     // Sync CPU and GPU buffers
 
@@ -1957,7 +1962,6 @@ load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> 
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
-        log.debugf("Image mime type: %v", glb_image.mime_type)
 
         channels : i32 = 4
         width, height: i32
@@ -2086,7 +2090,6 @@ load_gltf_static_model :: proc(
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
                 tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
                 color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
-                log.debugf("Texture index is %v", color_tex_idx)
                 bindless_image_idx = loaded_glb_images[color_tex_idx]
             }
             
@@ -2316,7 +2319,6 @@ load_gltf_skinned_model :: proc(
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
                 tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
                 color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
-                log.debugf("Texture index is %v", color_tex_idx)
                 bindless_image_idx = loaded_glb_images[color_tex_idx]
             }
             
