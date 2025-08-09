@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
 
@@ -175,7 +176,11 @@ camera_gui :: proc(
         imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
         imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
         imgui.SameLine()
-        if imgui.Button("Reset") do camera.fov_radians = math.PI / 2.0
+        imgui.PushIDInt(1)
+        if imgui.Button("Reset") {
+            camera.fov_radians = math.PI / 2.0
+        }
+        imgui.PopID()
     }
     imgui.End()
 
