@@ -464,6 +464,7 @@ main :: proc() {
         @static cpu_limiter_ms : c.int = 100
 
         // Misc imgui window for testing
+        @static rotate_sun := false
         @static move_player := false
         @static last_raycast_hit: hlsl.float3
         want_refire_raycast := false
@@ -516,6 +517,8 @@ main :: proc() {
                     }
                     imgui.Separator()
                 }
+
+                imgui.Checkbox("Rotate sun", &rotate_sun)
 
                 imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
@@ -1064,6 +1067,15 @@ main :: proc() {
                 world_from_model = mat
             }
             draw_ps1_static_mesh(&vgd, &renderer, piece.model, &tform)
+        }
+
+        // Rotate sunlight
+        if rotate_sun {
+            for i in 0..<renderer.cpu_uniforms.directional_light_count {
+                light := &renderer.cpu_uniforms.directional_lights[i]
+                d := hlsl.float4 {light.direction.x, light.direction.y, light.direction.z, 0.0}
+                light.direction = (d * yaw_rotation_matrix(dt)).xyz
+            }
         }
 
         // Window update
