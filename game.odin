@@ -514,7 +514,6 @@ load_level_file :: proc(
     free_all(context.allocator)
     audio_new_scene(audio_system)
     renderer_new_scene(renderer)
-    //game_state^ = init_gamestate(gd, renderer, audio_system, user_config, global_allocator)
     gamestate_new_scene(game_state, gd, renderer)
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)

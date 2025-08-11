@@ -70,7 +70,6 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
         ray
     );
     return query.Proceed();
-    // return false;
 }
 
 [shader("vertex")]
