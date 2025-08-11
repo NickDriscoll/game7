@@ -354,7 +354,6 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_parents = make([dynamic]u32, 0, 64)
     renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64)
     renderer.animations = make([dynamic]Animation, 0, 64)
-    //renderer.mesh_raytracing_datas = make([dynamic]MeshRaytracingData, 0, 64)
 
     vkw.sync_init(&renderer.gfx_sync)
     vkw.sync_init(&renderer.compute_sync)

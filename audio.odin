@@ -178,9 +178,6 @@ init_audio_system :: proc(
 audio_new_scene :: proc(audio_system: ^AudioSystem, allocator := context.allocator) {
     audio_system.music_files = make([dynamic]FilePlayback, 0, 16, allocator)
     audio_system.playing_sound_effects = make([dynamic]SoundEffectPlayback, 0, 16, allocator)
-    
-    // Sound effects should have global lifetime
-    //audio_system.sound_effects = make([dynamic]SoundEffect, 0, 16, allocator)
 }
 
 destroy_audio_system :: proc(audio_system: ^AudioSystem) {
