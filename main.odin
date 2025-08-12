@@ -273,7 +273,6 @@ main :: proc() {
 
     // Initialize the renderer
     renderer := init_renderer(&vgd, app_window.resolution)
-    when ODIN_DEBUG do defer delete_renderer(&vgd, &renderer)
     if !renderer.do_raytracing {
         log.warn("Raytracing features are not supported by your GPU.")
     }
@@ -454,12 +453,14 @@ main :: proc() {
 
         // Update
 
-        docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
-        renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
-        renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
-        renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
-        renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
-        game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+        {
+            docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
+            renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
+            renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
+            renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
+            renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
+            game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+        }
 
         @static cpu_limiter_ms : c.int = 100
 
