@@ -803,10 +803,6 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
     return renderer
 }
 
-delete_renderer :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer) {
-    // @TODO: This proc
-}
-
 resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, main_framebuffer.color_images[0])
     vkw.delete_image(gd, main_framebuffer.depth_image)
