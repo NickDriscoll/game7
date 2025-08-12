@@ -968,24 +968,6 @@ main :: proc() {
             enemies_update(&game_state, &audio_system, dt * game_state.timescale)
         }
         enemies_draw(&vgd, &renderer, game_state)
-        
-        // Air bullet draw
-        {
-            bullet, ok := game_state.character.air_bullet.?
-            if ok {
-                dd := DebugDraw {
-                    world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
-                    color = {0.0, 1.0, 0.0, 0.8}
-                }
-                draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &dd)
-
-                // Make air bullet a point light source
-                l := default_point_light()
-                l.color = {0.0, 1.0, 0.0}
-                l.world_position = bullet.collision.position
-                do_point_light(&renderer, l)
-            }
-        }
 
         coins_draw(&vgd, &renderer, game_state)
 

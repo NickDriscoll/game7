@@ -77,6 +77,7 @@ CharacterFlag :: enum {
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
+BULLET_MAX_RADIUS :: 2.5
 Character :: struct {
     collision: PhysicsSphere,
     gravity_factor: f32,
@@ -171,8 +172,6 @@ DebugVisualizationFlags :: bit_set[enum {
 
 AirBullet :: struct {
     collision: Sphere,
-    path_start: hlsl.float3,
-    path_end: hlsl.float3,
     t: f32,
 }
 
@@ -1551,8 +1550,6 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 },
     
                 t = 0.0,
-                path_start = start_pos,
-                path_end = start_pos + 2.0 * char.facing,
             }
         }
         play_sound_effect(audio_system, game_state.shoot_sound)
@@ -1594,12 +1591,12 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
     bullet, bok := &char.air_bullet.?
-    if bok && bullet.t <= char.bullet_travel_time{
+    if bok && bullet.t <= char.bullet_travel_time {
         // Bullet update
         col := char.collision
         bullet.t += dt
-        endpoint := col.position + 2.5 * char.facing
-        bullet.collision.position = linalg.lerp(bullet.path_start, bullet.path_end, bullet.t / char.bullet_travel_time)
+        bullet.collision.position = char.collision.position
+        bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, bullet.t / char.bullet_travel_time)
     } else {
         char.air_bullet = nil
     }
@@ -1661,6 +1658,24 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         l.world_position = pos
         l.intensity = light_flicker(game_state.rng_seed, game_state.time)
         do_point_light(renderer, l)
+    }
+        
+    // Air bullet draw
+    {
+        bullet, ok := game_state.character.air_bullet.?
+        if ok {
+            dd := DebugDraw {
+                world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
+                color = {0.0, 1.0, 0.0, 0.2}
+            }
+            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+
+            // Make air bullet a point light source
+            l := default_point_light()
+            l.color = {0.0, 1.0, 0.0}
+            l.world_position = bullet.collision.position
+            do_point_light(renderer, l)
+        }
     }
 
     // Debug draw logic
