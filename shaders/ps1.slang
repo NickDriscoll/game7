@@ -154,6 +154,34 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         specular_contribution += falloff * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
+    // Trying rt reflections
+    float3 reflection_cont = {};
+    {
+        float3 ray_dir = normalize(reflect(-view_dir, face_normal));
+
+        RayDesc ray;
+        ray.Direction = ray_dir;
+        ray.Origin = input.world_pos;
+        ray.TMin = 0.001;
+        ray.TMax = 1000000.0;
+
+        RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+        query.TraceRayInline(
+            scene_tlas,
+            0,
+            0xFF,
+            ray
+        );
+
+        if (query.Proceed()) {
+            float2 uv = query.CandidateRayBarycentrics();
+            float w = 1.0 - uv.x - uv.y;
+            reflection_cont = float3(uv.x, uv.y, w);
+        } else {
+            reflection_cont = cubemaps[u_data.skybox_idx].Sample(samplers[sampler_idx], ray_dir.xzy).rgb;
+        }
+    }
+
     // Glowing
     float3 glow = {};
     if ((inst.flags & InstanceFlags.Glowing) != 0) {
@@ -162,7 +190,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
     float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
 
-    float3 final_color = (glow + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
+    float3 final_color = (glow + reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
         float fac = smoothstep(0.5, 1.0, 1.0 - dot(face_normal, view_dir));
