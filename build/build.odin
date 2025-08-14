@@ -171,6 +171,7 @@ main :: proc() {
         proc_state, _ := os2.process_wait(odin_process)
 	    if proc_state.exit_code != 0 {
             log.errorf("main program failed to build.")
+            return
         }
     }
 
