@@ -165,7 +165,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         ray.TMin = 0.001;
         ray.TMax = 1000000.0;
 
-        RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
+        RayQuery<RAY_FLAG_NONE> query;
         query.TraceRayInline(
             scene_tlas,
             0,
@@ -174,11 +174,18 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         );
 
         if (query.Proceed()) {
+            uint id = query.CandidateInstanceIndex();
+            InstanceData i = u_data.i_data[id];
+            MaterialData mat = u_data.mat_data[i.material_idx];
+
+
             float2 uv = query.CandidateRayBarycentrics();
             float w = 1.0 - uv.x - uv.y;
-            reflection_cont = float3(uv.x, uv.y, w);
+            // reflection_cont = float3(uv.x, uv.y, w);
+            //reflection_cont = textures[mat.color_texture].Sample(samplers[sampler_idx], uv).rgb;
+            reflection_cont = id_to_color(id);
         } else {
-            reflection_cont = cubemaps[u_data.skybox_idx].Sample(samplers[sampler_idx], ray_dir.xzy).rgb;
+            reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
         }
     }
 

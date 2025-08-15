@@ -334,8 +334,8 @@ Renderer :: struct {
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
     compute_timeline: vkw.Semaphore_Handle,
-    gfx_sync: vkw.Sync_Info,
-    compute_sync: vkw.Sync_Info,
+    gfx_sync: vkw.SyncInfo,
+    compute_sync: vkw.SyncInfo,
 
     // Main render target
     main_framebuffer: vkw.Framebuffer,
@@ -904,7 +904,7 @@ queue_blas_build :: proc(
             },
             transform_data = {}
         },
-        flags = nil
+        //flags = {.OPAQUE}
     })
     if alloc_error != .None {
         log.errorf("Error allocating BLAS geometries: %v", alloc_error)
@@ -1518,9 +1518,9 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
 
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
+                instanceCustomIndex = u32(i),
                 
                 // @TODO: Use these fields
-                instanceCustomIndex = 0,
                 mask = 0xFF,
                 instanceShaderBindingTableRecordOffset = 0,
                 flags = nil,
