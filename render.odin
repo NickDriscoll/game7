@@ -904,7 +904,7 @@ queue_blas_build :: proc(
             },
             transform_data = {}
         },
-        //flags = {.OPAQUE}
+        flags = {.OPAQUE}
     })
     if alloc_error != .None {
         log.errorf("Error allocating BLAS geometries: %v", alloc_error)
@@ -1538,7 +1538,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
         geos[0] = vkw.AccelerationStructureGeometry {
             type = .INSTANCES,
             geometry = geo_data,
-            flags = nil,
+            flags = {.OPAQUE},
         }
 
         prim_counts: []u32 = {u32(len(renderer.ps1_static_instances))}
