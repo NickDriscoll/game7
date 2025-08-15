@@ -69,7 +69,10 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
         0xFF,
         ray
     );
-    return query.Proceed();
+    
+    query.Proceed();
+
+    return query.CommittedStatus() != COMMITTED_NOTHING;
 }
 
 [shader("vertex")]
@@ -102,7 +105,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
 }
 
 [shader("fragment")]
-float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
+float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uint first_instance: SV_StartInstanceLocation) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
@@ -165,7 +168,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         ray.TMin = 0.001;
         ray.TMax = 1000000.0;
 
-        RayQuery<RAY_FLAG_NONE> query;
+        RayQuery<RAY_FLAG_CULL_NON_OPAQUE> query;
         query.TraceRayInline(
             scene_tlas,
             0,
@@ -173,17 +176,23 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
             ray
         );
 
-        if (query.Proceed()) {
-            uint id = query.CandidateInstanceIndex();
+        query.Proceed();
+
+        if (query.CommittedStatus() != COMMITTED_NOTHING) {
+            uint id = query.CommittedRayInstanceId();
             InstanceData i = u_data.i_data[id];
             MaterialData mat = u_data.mat_data[i.material_idx];
 
 
             float2 uv = query.CandidateRayBarycentrics();
             float w = 1.0 - uv.x - uv.y;
-            // reflection_cont = float3(uv.x, uv.y, w);
-            //reflection_cont = textures[mat.color_texture].Sample(samplers[sampler_idx], uv).rgb;
-            reflection_cont = id_to_color(id);
+            if (mat.color_texture != NULL_OFFSET) {
+                reflection_cont = textures[mat.color_texture].Sample(samplers[sampler_idx], uv).rgb;
+            } else {
+                // reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
+                reflection_cont = float3(uv.x, uv.y, w);
+            }
+            //reflection_cont = id_to_color(id);
         } else {
             reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
         }
