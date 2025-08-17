@@ -178,7 +178,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
 
         query.Proceed();
 
-        if (query.CommittedStatus() != COMMITTED_NOTHING) {
+        if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
             uint id = query.CommittedRayInstanceId();
             InstanceData i = u_data.i_data[id];
             MaterialData mat = u_data.mat_data[i.material_idx];
@@ -197,6 +197,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
             reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
         }
     }
+    //reflection_cont = {};
 
     // Glowing
     float3 glow = {};
