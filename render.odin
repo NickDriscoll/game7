@@ -1521,7 +1521,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
                 instanceCustomIndex = u32(i),
                 
                 // @TODO: Use these fields
-                mask = 0xFF,
+                mask = 0x01,
                 instanceShaderBindingTableRecordOffset = 0,
                 flags = nil,
 

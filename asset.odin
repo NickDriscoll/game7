@@ -317,9 +317,19 @@ DXGI_FORMAT :: enum u32 {
     FORCE_UINT = 0xffffffff
 }
 
+DDSPixelFormatFlag :: enum u32 {
+
+}
+DDSPixelFormatFlags :: bit_set[DDSPixelFormatFlag]
+
+DDSHeaderFlag :: enum u32 {
+
+}
+DDSHeaderFlags :: bit_set[DDSHeaderFlag]
+
 DDSPixelFormat :: struct {
     size: u32,
-    flags: u32,             // @TODO: Should be enum with u32 backing
+    flags: DDSPixelFormatFlags,
     four_cc: u32,
     rgb_bitcount: u32,
     r_bitmask: u32,
@@ -332,7 +342,7 @@ DDS_MAGIC_WORD :: 0x20534444
 DDSHeader :: struct {
     magic_word: u32,            // Must be set to 0x20534444
     size: u32,
-    flags: u32,                // @TODO: Should be enum with u32 backing
+    flags: DDSHeaderFlags,
     height: u32,
     width: u32,
     pitch_or_linear_size: u32,

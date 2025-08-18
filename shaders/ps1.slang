@@ -186,12 +186,8 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
 
             float2 uv = query.CandidateRayBarycentrics();
             float w = 1.0 - uv.x - uv.y;
-            if (mat.color_texture != NULL_OFFSET) {
-                reflection_cont = textures[mat.color_texture].Sample(samplers[sampler_idx], uv).rgb;
-            } else {
-                // reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
-                reflection_cont = float3(uv.x, uv.y, w);
-            }
+            // reflection_cont = float3(uv.x, uv.y, w);
+            reflection_cont = textures[2].Sample(samplers[sampler_idx], uv).rgb;
             //reflection_cont = id_to_color(id);
         } else {
             reflection_cont = shade_sky(ray_dir, u_data, sampler_idx);
@@ -219,6 +215,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         final_color *= id_to_color(primitive_id);
     }
 
-    return float4(final_color, 1.0);
+    //return float4(final_color, 1.0);
     // return float4(specular_contribution, 1.0);
+    return float4(reflection_cont, 1.0);
 }
