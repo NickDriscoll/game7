@@ -387,6 +387,7 @@ main :: proc() {
         {
             level, ok := load_new_level.?
             if ok {
+                vkw.device_wait_idle(&vgd)
                 builder: strings.Builder
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
