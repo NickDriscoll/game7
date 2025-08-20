@@ -1500,7 +1500,8 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
-        for i in 0..<len(renderer.ps1_static_instances) {
+        //for i in 0..<len(renderer.ps1_static_instances) {
+        for i in 0..<2 {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
             
@@ -2345,7 +2346,10 @@ load_gltf_skinned_model :: proc(
 
 
 
-graphics_gui :: proc(renderer: ^Renderer, gui: ^ImguiState, do_window: ^bool) {
+graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^bool) {
+    sb: strings.Builder
+    strings.builder_init(&sb, context.temp_allocator)
+
     if do_window^ {
         if imgui.Begin("Graphics settings", do_window) {
             imgui.Text("Directional lights")
@@ -2368,6 +2372,20 @@ graphics_gui :: proc(renderer: ^Renderer, gui: ^ImguiState, do_window: ^bool) {
                 light_count^ += 1
             }
             imgui.EndDisabled()
+
+            if imgui.CollapsingHeader("Loaded images") {
+                for i in 0..<len(gd.images.values) {
+                    fmt.sbprintf(&sb, "Image at #%v", i)
+                    cs, _ := strings.to_cstring(&sb)
+                    imgui.Text("%s", cs)
+                    strings.builder_reset(&sb)
+
+                    image := &gd.images.values[i]
+                    width := f32(min(512, image.extent.width))
+                    height := f32(min(512, image.extent.height))
+                    imgui.Image(imgui.TextureID(uintptr(i)), {width, height})
+                }
+            }
         }
         imgui.End()
     }
