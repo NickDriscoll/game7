@@ -619,9 +619,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         ps1_vert_spv := #load("data/shaders/ps1.vert.spv", []u32)
         ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
         // PS1 pipeline
+        do_rt : i32 = 1 if renderer.do_raytracing else 0
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = ps1_vert_spv,
             fragment_shader_bytecode = ps1_frag_spv,
+            vertex_spec_constants = {},
+            fragment_spec_constants = {do_rt},
             input_assembly_state = vkw.Input_Assembly_State {
                 topology = .TRIANGLE_LIST,
                 primitive_restart_enabled = false,
@@ -1500,8 +1503,8 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
-        //for i in 0..<len(renderer.ps1_static_instances) {
-        for i in 0..<2 {
+        for i in 0..<len(renderer.ps1_static_instances) {
+        //for i in 0..<2 {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
             
@@ -2347,10 +2350,9 @@ load_gltf_skinned_model :: proc(
 
 
 graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^bool) {
-    sb: strings.Builder
-    strings.builder_init(&sb, context.temp_allocator)
-
     if do_window^ {
+        sb: strings.Builder
+        strings.builder_init(&sb, context.temp_allocator)
         if imgui.Begin("Graphics settings", do_window) {
             imgui.Text("Directional lights")
             for i in 0..<renderer.cpu_uniforms.directional_light_count {
