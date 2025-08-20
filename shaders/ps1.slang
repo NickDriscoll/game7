@@ -5,6 +5,9 @@ import tex_bindings;
 [[vk_binding(2, 0)]]
 RaytracingAccelerationStructure scene_tlas;
 
+[vk::constant_id(0)]
+int do_raytracing = 0;
+
 struct VertexOutput {
     float4 clip_pos : SV_Position;
     float3 world_pos;
@@ -124,12 +127,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
     float3 diffuse_contribution = {};
     float3 specular_contribution = {};
 
+    bool do_rt = do_raytracing > 0;
+
     // Directional lighting
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution = 0.1 * light.color;
 
-        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
+        if (do_rt && trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
             continue;
         }
 
@@ -146,7 +151,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         float d = length(direction);
         direction /= d;
 
-        if (trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
+        if (do_rt && trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
             continue;
         }
 
@@ -159,7 +164,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
 
     // Trying rt reflections
     float3 reflection_cont = {};
-    {
+    if (do_rt) {
         float3 ray_dir = normalize(reflect(-view_dir, face_normal));
 
         RayDesc ray;
@@ -215,7 +220,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         final_color *= id_to_color(primitive_id);
     }
 
-    //return float4(final_color, 1.0);
+    return float4(final_color, 1.0);
     // return float4(specular_contribution, 1.0);
-    return float4(reflection_cont, 1.0);
+    // return float4(reflection_cont, 1.0);
 }
