@@ -730,7 +730,7 @@ main :: proc() {
             vgd.resize_window |= window_config(imgui_state, &app_window, user_config)
         }
 
-        if imgui_state.show_gui && user_config.flags[.GraphicsSettings] do graphics_gui(&renderer, &imgui_state, &user_config.flags[.GraphicsSettings])
+        if imgui_state.show_gui && user_config.flags[.GraphicsSettings] do graphics_gui(vgd, &renderer, &user_config.flags[.GraphicsSettings])
 
         if imgui_state.show_gui && user_config.flags[.AudioPanel] do audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
 
