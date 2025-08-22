@@ -164,7 +164,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
 
     // Trying rt reflections
     float3 reflection_cont = {};
-    if (do_rt) {
+    if ((u_data.flags & UniformFlag.Reflections) != 0) {
         float3 ray_dir = normalize(reflect(-view_dir, face_normal));
 
         RayDesc ray;
@@ -216,7 +216,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         final_color = lerp(final_color, float3(0.0, 0.0, 1.0), fac);
     }
 
-    if (u_data.triangle_vis == 1) {
+    if ((u_data.flags & UniformFlag.ColorTriangles) != 0) {
         final_color *= id_to_color(primitive_id);
     }
 
