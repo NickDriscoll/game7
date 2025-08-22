@@ -51,6 +51,11 @@ struct PointLight {
     float _pad1;
 }
 
+enum UniformFlag {
+    ColorTriangles = 0x01,
+    Reflections = 0x02,
+}
+
 struct UniformData {
     float4x4 clip_from_world;
 
@@ -83,7 +88,7 @@ struct UniformData {
     float time; // Periodic time value
     float distortion_strength;
     
-    uint triangle_vis;
+    uint flags;
     uint skybox_idx;
     float2 _pad0;
 

@@ -537,11 +537,6 @@ main :: proc() {
                 imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 10, 1000)
 
                 imgui.Separator()
-                {
-                    b := bool(renderer.cpu_uniforms.triangle_vis)
-                    if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.triangle_vis = !renderer.cpu_uniforms.triangle_vis
-                }
-                imgui.Separator()
             }
             imgui.End()
         }

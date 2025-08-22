@@ -65,6 +65,12 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
+UniformsFlags :: bit_set[UniformFlag]
+UniformFlag :: enum u32 {
+    ColorTriangles,
+    Reflections
+}
+
 UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
     
@@ -97,7 +103,7 @@ UniformBuffer :: struct {
     time: f32,
     distortion_strength: f32,
 
-    triangle_vis: b32,
+    flags: UniformsFlags,
     skybox_idx: u32,
     _pad0: [2]f32,
 
@@ -2374,6 +2380,15 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
                 light_count^ += 1
             }
             imgui.EndDisabled()
+
+            {
+                b := .ColorTriangles in renderer.cpu_uniforms.flags
+                if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.flags ~= {.ColorTriangles}
+
+                b = .Reflections in renderer.cpu_uniforms.flags
+                if imgui.Checkbox("RT reflections", &b) do renderer.cpu_uniforms.flags ~= {.Reflections}
+            }
+            imgui.Separator()
 
             if imgui.CollapsingHeader("Loaded images") {
                 for i in 0..<len(gd.images.values) {
