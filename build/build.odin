@@ -7,8 +7,8 @@ import "core:os/os2"
 import "core:strings"
 
 // Shader naming convention:
-// Compiling shader stage <stage> of a file "shaders/<name>.slang" will yield "data/shaders/<name>.<stage>.spv"
-// i.e. Compiling frag shader of "test" would be "shaders/test.slang" -> "shaders/test.frag.spv"
+// Compiling shader stage "<stage>" of a file "shaders/<name>.slang" will yield "data/shaders/<name>.<stage>.spv"
+// i.e. Compiling frag shader of "test" would be "shaders/test.slang" -> "data/shaders/test.frag.spv"
 // Stages are one of {vert, frag, comp}
 // Shader entry point should be named "<stage>_main"
 
@@ -42,6 +42,7 @@ when ODIN_DEBUG {
         ".",
         "-debug",
         "-vet-shadowing",
+        "-disallow-do",
     }
 } else {
     ODIN_COMMAND : []string : {
@@ -50,6 +51,7 @@ when ODIN_DEBUG {
         ".",
         "-o:speed",
         "-vet-shadowing",
+        "-disallow-do",
         "-disable-assert",
         "-no-bounds-check",
     }

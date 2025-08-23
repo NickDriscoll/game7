@@ -179,7 +179,9 @@ destroy_input_system :: proc(using s: ^InputSystem) {
     delete(axis_sensitivities)
     delete(stick_mappings)
     delete(stick_sensitivities)
-    if controller_one != nil do sdl2.GameControllerClose(controller_one)
+    if controller_one != nil {
+        sdl2.GameControllerClose(controller_one)
+    }
 }
 
 replace_keybindings :: proc(using s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
@@ -242,13 +244,17 @@ poll_sdl2_events :: proc(
             }
             case .TEXTINPUT: {
                 for ch in event.text.text {
-                    if ch == 0x00 do break
+                    if ch == 0x00 {
+                        break
+                    }
                     imgui.IO_AddInputCharacter(io, c.uint(ch))
                 }
             }
             case .KEYDOWN: {
                 // Just ignore if it's a repeat event
-                if event.key.repeat > 0 do continue
+                if event.key.repeat > 0 {
+                    continue
+                }
 
                 sc := event.key.keysym.scancode
 
@@ -275,7 +281,9 @@ poll_sdl2_events :: proc(
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
 
                 // Do nothing if Dear ImGUI wants keyboard input
-                if io.WantCaptureKeyboard do continue
+                if io.WantCaptureKeyboard {
+                    continue
+                }
 
                 verbtype, found := state.key_mappings[sc]
                 if found {
@@ -288,7 +296,9 @@ poll_sdl2_events :: proc(
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
                 
                 // Do nothing if Dear ImGUI wants keyboard input
-                if io.WantCaptureKeyboard do continue
+                if io.WantCaptureKeyboard {
+                    continue
+                }
 
                 verbtype, found := state.key_mappings[event.key.keysym.scancode]
                 if found {
@@ -297,17 +307,23 @@ poll_sdl2_events :: proc(
             }
             case .MOUSEBUTTONDOWN: {
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), true)
-                if io.WantCaptureMouse do continue
+                if io.WantCaptureMouse {
+                    continue
+                }
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
                     bools[verbtype] = true
                     int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
-                if event.button.button == sdl2.BUTTON_LEFT do state.mouse_clicked = true
+                if event.button.button == sdl2.BUTTON_LEFT {
+                    state.mouse_clicked = true
+                }
             }
             case .MOUSEBUTTONUP: {
                 imgui.IO_AddMouseButtonEvent(io, SDL2ToImGuiMouseButton(event.button.button), false)
-                if io.WantCaptureMouse do continue
+                if io.WantCaptureMouse {
+                    continue
+                }
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
                     bools[verbtype] = false
@@ -324,7 +340,9 @@ poll_sdl2_events :: proc(
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
-                if io.WantCaptureMouse do continue
+                if io.WantCaptureMouse {
+                    continue
+                }
                 verbtype, found := state.wheel_mappings[event.wheel.which]
                 if found {
                     old := floats[verbtype]
@@ -337,7 +355,9 @@ poll_sdl2_events :: proc(
                 type := sdl2.GameControllerGetType(state.controller_one)
                 name := sdl2.GameControllerName(state.controller_one)
                 led := sdl2.GameControllerHasLED(state.controller_one)
-                if led do sdl2.GameControllerSetLED(state.controller_one, 0xFF, 0x00, 0xFF)
+                if led {
+                    sdl2.GameControllerSetLED(state.controller_one, 0xFF, 0x00, 0xFF)
+                }
                 log.infof("%v connected (%v)", name, type)
             }
             case .CONTROLLERDEVICEREMOVED: {
@@ -397,12 +417,18 @@ poll_sdl2_events :: proc(
         if found {
             x := axis_to_f32(state.controller_one, .LEFTX)
             y := axis_to_f32(state.controller_one, .LEFTY)
-            if .LEFTX in state.reverse_axes do x = -x
-            if .LEFTY in state.reverse_axes do y = -y
+            if .LEFTX in state.reverse_axes {
+                x = -x
+            }
+            if .LEFTY in state.reverse_axes {
+                y = -y
+            }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
                 sensitivity, found2 := state.stick_sensitivities[.Left]
-                if !found2 do sensitivity = 1.0
+                if !found2 {
+                    sensitivity = 1.0
+                }
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }
         }
@@ -413,12 +439,18 @@ poll_sdl2_events :: proc(
         if found {
             x := axis_to_f32(state.controller_one, .RIGHTX)
             y := axis_to_f32(state.controller_one, .RIGHTY)
-            if .RIGHTX in state.reverse_axes do x = -x
-            if .RIGHTY in state.reverse_axes do y = -y
+            if .RIGHTX in state.reverse_axes {
+                x = -x
+            }
+            if .RIGHTY in state.reverse_axes {
+                y = -y
+            }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
                 sensitivity, found2 := state.stick_sensitivities[.Right]
-                if !found2 do sensitivity = 1.0
+                if !found2 {
+                    sensitivity = 1.0
+                }
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }   
         }
@@ -430,13 +462,21 @@ poll_sdl2_events :: proc(
         verbtype, found := state.axis_mappings[ax]
         if found {
             val := axis_to_f32(state.controller_one, ax)
-            if val == 0.0 do continue
+            if val == 0.0 {
+                continue
+            }
             abval := math.abs(val)
-            if ax in state.deadzone_axes && abval <= AXIS_DEADZONE do continue
-            if ax in state.reverse_axes do val = -val
+            if ax in state.deadzone_axes && abval <= AXIS_DEADZONE {
+                continue
+            }
+            if ax in state.reverse_axes {
+                val = -val
+            }
         
             sensitivity, found2 := state.axis_sensitivities[ax]
-            if found2 do val *= sensitivity
+            if found2 {
+                val *= sensitivity
+            }
 
             floats[verbtype] = val
         }
@@ -516,7 +556,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         keystr := fmt.sbprintf(&sb, "%v", k)
         ks := strings.clone_to_cstring(keystr, allocator)
         width := imgui.CalcTextSize(ks).x
-        if width > largest_button_width do largest_button_width = width
+        if width > largest_button_width {
+            largest_button_width = width
+        }
         
         strings.builder_reset(&sb)
     }
@@ -580,7 +622,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             discriminator: ^u32,
             allocator: runtime.Allocator
         ) {
-            if len(sensitivities) == 0 do return
+            if len(sensitivities) == 0 {
+                return
+            }
             imgui.Text(label)
             imgui.Separator()
             for axis, &sensitivity in sensitivities {

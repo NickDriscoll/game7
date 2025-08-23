@@ -377,18 +377,26 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     // Compute denominator
     // If <= 0.0, ray is parallel or points away
     denom := hlsl.dot(qp, n)
-    if denom <= 0.0 do return {}, false
+    if denom <= 0.0 {
+        return {}, false
+    }
 
     ap := ray.start - a
     t := hlsl.dot(ap, n)
-    if t < 0.0 do return {}, false
+    if t < 0.0 {
+        return {}, false
+    }
 
     // Compute barycentric coordinates
     e := hlsl.cross(qp, ap)
     v := hlsl.dot(ac, e)
-    if v < 0.0 || v > denom do return {}, false
+    if v < 0.0 || v > denom {
+        return {}, false
+    }
     w := -hlsl.dot(ab, e)
-    if w < 0.0 || v + w > denom do return {}, false
+    if w < 0.0 || v + w > denom {
+        return {}, false
+    }
 
     // Ray does intersect
     ood := 1.0 / denom
@@ -412,7 +420,9 @@ intersect_segment_triplane_t :: proc(segment: ^Segment, using tri: ^Triangle) ->
     // Compute denominator
     // If <= 0.0, ray is parallel or points away
     denom := hlsl.dot(qp, n)
-    if denom <= 0.0 do return {}, false
+    if denom <= 0.0 {
+        return {}, false
+    }
 
     ap := segment.start - a
     t := hlsl.dot(ap, n) / denom
@@ -429,7 +439,9 @@ intersect_segment_triplane_t_with_normal :: proc(segment: ^Segment, using tri: ^
     // Compute denominator
     // If <= 0.0, ray is parallel or points away
     denom := hlsl.dot(qp, n)
-    if denom <= 0.0 do return {}, {}, false
+    if denom <= 0.0 {
+        return {}, {}, false
+    }
 
     ap := segment.start - a
     t := hlsl.dot(ap, n) / denom
@@ -502,11 +514,15 @@ intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
     c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
     
     // Exit if r's origin is outside s (c > 0) and r is pointing away from s (b > 0.0)
-    if c > 0.0 && b > 0.0 do return {}, false
+    if c > 0.0 && b > 0.0 {
+        return {}, false
+    }
 
     // discr < 0.0 means the ray missed
     discr := b * b - c
-    if discr < 0.0 do return {}, false
+    if discr < 0.0 {
+        return {}, false
+    }   
 
     // Compute smallest t-value of intersection
     sqrt_discr := math.sqrt(discr)
@@ -517,8 +533,12 @@ intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
     // and as such clamps t to 0.0 when t < 0.0
     // This, however, is a hollow sphere, so we try the 
     // second t-value and try again
-    if t < 0.0 do t = -b + sqrt_discr
-    if t < 0.0 do return {}, false
+    if t < 0.0 {
+        t = -b + sqrt_discr
+    }
+    if t < 0.0 {
+        return {}, false
+    }
 
     return t, true
 }
@@ -646,11 +666,15 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
     }
     t, ok := intersect_segment_triplane_t(&d_segment, tri)
     // If motion interval wasn't long enough
-    if !ok do return {}, false
+    if !ok {
+        return {}, false
+    }
     p := d + t * (motion_interval.end - motion_interval.start)
 
     // If p is in the triangle, it's our point of interest
-    if pt_in_triangle(p, tri) do return t, true
+    if pt_in_triangle(p, tri) {
+        return t, true
+    }
 
     // Otherwise, get point Q: the closest point to P on the triangle
     q := closest_pt_triangle(p, tri)
@@ -681,7 +705,9 @@ dynamic_sphere_vs_triangle_t_with_normal :: proc(s: ^Sphere, tri: ^Triangle, mot
     }
     t, ok := intersect_segment_triplane_t(&d_segment, tri)
     // If motion interval wasn't long enough
-    if !ok do return {}, {}, false
+    if !ok {
+        return {}, {}, false
+    }
     p := d + t * (motion_interval.end - motion_interval.start)
 
     // If p is in the triangle, it's our point of interest
@@ -711,7 +737,9 @@ dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision
     for &tri in tris.triangles {
         t, ok := dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
         if ok {
-            if t < candidate_t do candidate_t = t
+            if t < candidate_t {
+                candidate_t = t
+            }
         }
     }
     return candidate_t, candidate_t < math.INF_F32
@@ -740,7 +768,9 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_
     for &piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
         if ok3 {
-            if t < closest_t do closest_t = t
+            if t < closest_t {
+                closest_t = t
+            }
         }
     }
     return closest_t, closest_t < math.INF_F32
@@ -770,7 +800,9 @@ dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, 
         ok: bool
         t, ok = dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
         if ok {
-            if t < candidate_t do candidate_t = t
+            if t < candidate_t {
+                candidate_t = t
+            }
             // The point on the sphere that will first intersect
             // the triangle's plane is D
             d = s.position + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))

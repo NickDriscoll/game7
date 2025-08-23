@@ -36,7 +36,9 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
     mix_buffer: [STATIC_BUFFER_SIZE]f32
 
     for &playback in audio_system.music_files {
-        if playback.is_paused do continue
+        if playback.is_paused {
+            continue
+        }
         source_count += 1
 
         file_stream_buffer: [STATIC_BUFFER_SIZE]f32

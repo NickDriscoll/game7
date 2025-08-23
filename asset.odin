@@ -50,7 +50,11 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
             indices := load_gltf_indices_u16(&prim)
 
             pos_attr: ^cgltf.attribute
-            for &att in prim.attributes do if att.type == .position do pos_attr = &att
+            for &att in prim.attributes {
+                if att.type == .position {
+                    pos_attr = &att
+                }
+            }   
             positions_ptr := get_accessor_ptr(pos_attr.data, f32)
 
             for idx, i in indices {
