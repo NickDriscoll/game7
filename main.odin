@@ -111,7 +111,9 @@ main :: proc() {
 
     // Set up logger
     context.logger = log.create_console_logger(log_level)
-    when ODIN_DEBUG do defer log.destroy_console_logger(context.logger)
+    when ODIN_DEBUG {
+        defer log.destroy_console_logger(context.logger)
+    }
     log.info("Initiating swag mode...")
 
     // Set up per-scene allocator
@@ -173,14 +175,18 @@ main :: proc() {
 
     // Load user configuration
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
-    if !config_ok do log.error("Failed to load user config.")
+    if !config_ok {
+        log.error("Failed to load user config.")
+    }
     defer delete_user_config(&user_config, context.allocator)
 
 
 
     // Initialize SDL2
     sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
-    when ODIN_DEBUG do defer sdl2.Quit()
+    when ODIN_DEBUG {
+        defer sdl2.Quit()
+    }
     log.info("Initialized SDL2")
 
     // Use SDL2 to dynamically link against the Vulkan loader
@@ -222,7 +228,9 @@ main :: proc() {
             u32(desktop_display_mode.h),
         }
         app_window.resolution = DEFAULT_RESOLUTION
-        if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] do app_window.resolution = app_window.display_resolution
+        if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
+            app_window.resolution = app_window.display_resolution
+        }
         if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
             x := user_config.ints[.WindowWidth]
             y := user_config.ints[.WindowHeight]
@@ -258,7 +266,9 @@ main :: proc() {
         i32(app_window.resolution.y),
         app_window.flags
     )
-    when ODIN_DEBUG do defer sdl2.DestroyWindow(app_window.window)
+    when ODIN_DEBUG {
+        defer sdl2.DestroyWindow(app_window.window)
+    }
     sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
 
     // Initialize the state required for rendering to the window
@@ -279,7 +289,9 @@ main :: proc() {
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, user_config, app_window.resolution)
-    when ODIN_DEBUG do defer gui_cleanup(&vgd, &imgui_state)
+    when ODIN_DEBUG {
+        defer gui_cleanup(&vgd, &imgui_state)
+    }
     if imgui_state.show_gui {
         sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
     }
@@ -287,7 +299,9 @@ main :: proc() {
     // Init audio system
     audio_system: AudioSystem
     init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
-    when ODIN_DEBUG do defer destroy_audio_system(&audio_system)
+    when ODIN_DEBUG {
+        defer destroy_audio_system(&audio_system)
+    }
     toggle_device_playback(&audio_system, true)
 
     // Main app structure storing the game's overall state
@@ -483,11 +497,17 @@ main :: proc() {
                     defer strings.builder_destroy(&sb)
 
                     flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
-                    if imgui.Checkbox("Show player collision", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                    if imgui.Checkbox("Show player collision", &flag) {
+                        game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                    }
                     flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
-                    if imgui.Checkbox("Show player activity radius", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
+                    if imgui.Checkbox("Show player activity radius", &flag) {
+                        game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
+                    }
                     flag = .ShowCoinRadius in game_state.debug_vis_flags
-                    if imgui.Checkbox("Show coin radius", &flag) do game_state.debug_vis_flags ~= {.ShowCoinRadius}
+                    if imgui.Checkbox("Show coin radius", &flag) {
+                        game_state.debug_vis_flags ~= {.ShowCoinRadius}
+                    }
                     imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
                     imgui.Text("Player collider velocity: (%f, %f, %f)", collision.velocity.x, collision.velocity.y, collision.velocity.z)
                     imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
@@ -508,7 +528,9 @@ main :: proc() {
                     imgui.SameLine()
                     imgui.BeginDisabled(move_player)
                     move_text : cstring = "Move player"
-                    if move_player do move_text = "Moving player..."
+                    if move_player {
+                        move_text = "Moving player..."
+                    }
                     if imgui.Button(move_text) {
                         move_player = true
                     }
@@ -525,7 +547,9 @@ main :: proc() {
                 imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
-                if imgui.Button("Reset") do game_state.timescale = 1.0
+                if imgui.Button("Reset") {
+                    game_state.timescale = 1.0
+                }
 
                 imgui.Checkbox("Enable CPU Limiter", &do_limit_cpu)
                 imgui.SameLine()
@@ -725,15 +749,20 @@ main :: proc() {
             vgd.resize_window |= window_config(imgui_state, &app_window, user_config)
         }
 
-        if imgui_state.show_gui && user_config.flags[.GraphicsSettings] do graphics_gui(vgd, &renderer, &user_config.flags[.GraphicsSettings])
-
-        if imgui_state.show_gui && user_config.flags[.AudioPanel] do audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
-
+        if imgui_state.show_gui && user_config.flags[.GraphicsSettings] {
+            graphics_gui(vgd, &renderer, &user_config.flags[.GraphicsSettings])
+        }
+        if imgui_state.show_gui && user_config.flags[.AudioPanel] {
+            audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
+        }
         // Input remapping GUI
-        if imgui_state.show_gui && user_config.flags[.InputConfig] do input_gui(&input_system, &user_config.flags[.InputConfig])
-
+        if imgui_state.show_gui && user_config.flags[.InputConfig] {
+            input_gui(&input_system, &user_config.flags[.InputConfig])
+        }
         // Imgui Demo
-        if imgui_state.show_gui && user_config.flags[.ShowImguiDemo] do imgui.ShowDemoWindow(&user_config.flags[.ShowImguiDemo])
+        if imgui_state.show_gui && user_config.flags[.ShowImguiDemo] {
+            imgui.ShowDemoWindow(&user_config.flags[.ShowImguiDemo])
+        }
 
         // Handle current editor state
         {
@@ -951,7 +980,9 @@ main :: proc() {
             game_state.do_this_frame = true
             game_state.paused = true
         }
-        if output_verbs.bools[.Resume] do game_state.paused = !game_state.paused
+        if output_verbs.bools[.Resume] {
+            game_state.paused = !game_state.paused
+        }
 
         // Update and draw player
         if game_state.do_this_frame {
@@ -987,7 +1018,9 @@ main :: proc() {
                 col.position.z += col.radius
             }
 
-            if input_system.mouse_clicked do move_player = false
+            if input_system.mouse_clicked {
+                move_player = false
+            }
         }
 
         // Camera update
@@ -1087,7 +1120,9 @@ main :: proc() {
                     },
                     present_mode = window.present_mode
                 }
-                if !vkw.resize_window(gd, info) do log.error("Failed to resize window")
+                if !vkw.resize_window(gd, info) {
+                    log.error("Failed to resize window")
+                }
                 resize_framebuffers(gd, renderer, window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
@@ -1152,7 +1187,9 @@ main :: proc() {
 
         // CPU limiter
         // 1 millisecond == 1,000,00 nanoseconds
-        if do_limit_cpu do time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
+        if do_limit_cpu {
+            time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
+        }
     }
 
     vkw.device_wait_idle(&vgd)

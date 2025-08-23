@@ -369,7 +369,9 @@ init_gamestate :: proc(
     }
     game_state.freecam_speed_multiplier = 5.0
     game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags[.FollowCam] do game_state.viewport_camera.control_flags += {.Follow}
+    if user_config.flags[.FollowCam] {
+        game_state.viewport_camera.control_flags += {.Follow}
+    }
 
     game_state.camera_follow_point = game_state.character.collision.position
     game_state.camera_follow_speed = 6.0
@@ -910,7 +912,9 @@ scene_editor :: proc(
         {
             imgui.DragFloat3("Player spawn", &game_state.character_start, 0.1)
             flag := .ShowPlayerSpawn in game_state.debug_vis_flags
-            if imgui.Checkbox("Show player spawn", &flag) do game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+            if imgui.Checkbox("Show player spawn", &flag) {
+                game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+            }
             
             resp, ok := game_state.editor_response.(EditorResponse)
             disable := false
@@ -1340,7 +1344,9 @@ scene_editor :: proc(
             }
         }
     }
-    if show_editor do imgui.End()
+    if show_editor {
+        imgui.End()
+    }
 }
 
 player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
@@ -1376,10 +1382,18 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
             fn_thing(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
             fn_thing(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
             
-            if .MovingLeft in flags^ do translate_vector_x += -1.0
-            if .MovingRight in flags^ do translate_vector_x += 1.0
-            if .MovingBack in flags^ do translate_vector_z += -1.0
-            if .MovingForward in flags^ do translate_vector_z += 1.0
+            if .MovingLeft in flags^ {
+                translate_vector_x += -1.0
+            }
+            if .MovingRight in flags^ {
+                translate_vector_x += 1.0
+            }
+            if .MovingBack in flags^ {
+                translate_vector_z += -1.0
+            }
+            if .MovingForward in flags^ {
+                translate_vector_z += 1.0
+            }
         }
 
         // Input vector is in view space, so we transform to world space
@@ -2002,10 +2016,18 @@ camera_update :: proc(
 
         game_state.viewport_camera.yaw += camera_rotation.x
         game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
-        for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
-        if game_state.viewport_camera.pitch <= -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
-        if game_state.viewport_camera.pitch >= math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
+        for game_state.viewport_camera.yaw < -2.0 * math.PI {
+            game_state.viewport_camera.yaw += 2.0 * math.PI
+        }
+        for game_state.viewport_camera.yaw > 2.0 * math.PI {
+            game_state.viewport_camera.yaw -= 2.0 * math.PI
+        }
+        if game_state.viewport_camera.pitch <= -math.PI / 2.0 {
+            game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
+        }
+        if game_state.viewport_camera.pitch >= math.PI / 2.0 {
+            game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
+        }
         
         pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
         yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
@@ -2035,37 +2057,61 @@ camera_update :: proc(
     
         // Input handling part
         if .Sprint in output_verbs.bools {
-            if output_verbs.bools[.Sprint] do control_flags += {.Speed}
-            else do control_flags -= {.Speed}
+            if output_verbs.bools[.Sprint] {
+                control_flags += {.Speed}
+            } else {
+                control_flags -= {.Speed}
+            }
         }
         if .Crawl in output_verbs.bools {
-            if output_verbs.bools[.Crawl] do control_flags += {.Slow}
-            else do control_flags -= {.Slow}
+            if output_verbs.bools[.Crawl] {
+                control_flags += {.Slow}
+            } else {
+                control_flags -= {.Slow}
+            }
         }
     
         if .TranslateFreecamUp in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamUp] do control_flags += {.MoveUp}
-            else do control_flags -= {.MoveUp}
+            if output_verbs.bools[.TranslateFreecamUp] {
+                control_flags += {.MoveUp}
+            } else {
+                control_flags -= {.MoveUp}
+            }
         }
         if .TranslateFreecamDown in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamDown] do control_flags += {.MoveDown}
-            else do control_flags -= {.MoveDown}
+            if output_verbs.bools[.TranslateFreecamDown] {
+                control_flags += {.MoveDown}
+            } else {
+                control_flags -= {.MoveDown}
+            }
         }
         if .TranslateFreecamLeft in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamLeft] do control_flags += {.MoveLeft}
-            else do control_flags -= {.MoveLeft}
+            if output_verbs.bools[.TranslateFreecamLeft] {
+                control_flags += {.MoveLeft}
+            } else {
+                control_flags -= {.MoveLeft}
+            }
         }
         if .TranslateFreecamRight in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamRight] do control_flags += {.MoveRight}
-            else do control_flags -= {.MoveRight}
+            if output_verbs.bools[.TranslateFreecamRight] {
+                control_flags += {.MoveRight}
+            } else {
+                control_flags -= {.MoveRight}
+            }
         }
         if .TranslateFreecamBack in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamBack] do control_flags += {.MoveBackward}
-            else do control_flags -= {.MoveBackward}
+            if output_verbs.bools[.TranslateFreecamBack] {
+                control_flags += {.MoveBackward}
+            } else {
+                control_flags -= {.MoveBackward}
+            }
         }
         if .TranslateFreecamForward in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamForward] do control_flags += {.MoveForward}
-            else do control_flags -= {.MoveForward}
+            if output_verbs.bools[.TranslateFreecamForward] {
+                control_flags += {.MoveForward}
+            } else {
+                control_flags -= {.MoveForward}
+            }
         }
     
         relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
@@ -2089,24 +2135,50 @@ camera_update :: proc(
         CAMERA_SPEED :: 10
         per_frame_speed := CAMERA_SPEED * dt
     
-        if .Speed in control_flags do camera_speed_mod *= game_state.freecam_speed_multiplier
-        if .Slow in control_flags do camera_speed_mod *= game_state.freecam_slow_multiplier
+        if .Speed in control_flags {
+            camera_speed_mod *= game_state.freecam_speed_multiplier
+        }
+        if .Slow in control_flags {
+            camera_speed_mod *= game_state.freecam_slow_multiplier
+        }
     
         game_state.viewport_camera.yaw += camera_rotation.x
         game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI do game_state.viewport_camera.yaw += 2.0 * math.PI
-        for game_state.viewport_camera.yaw > 2.0 * math.PI do game_state.viewport_camera.yaw -= 2.0 * math.PI
-        if game_state.viewport_camera.pitch < -math.PI / 2.0 do game_state.viewport_camera.pitch = -math.PI / 2.0
-        if game_state.viewport_camera.pitch > math.PI / 2.0 do game_state.viewport_camera.pitch = math.PI / 2.0
+        for game_state.viewport_camera.yaw < -2.0 * math.PI {
+            game_state.viewport_camera.yaw += 2.0 * math.PI
+        }
+        for game_state.viewport_camera.yaw > 2.0 * math.PI {
+            game_state.viewport_camera.yaw -= 2.0 * math.PI
+        }
+        if game_state.viewport_camera.pitch < -math.PI / 2.0 {
+            game_state.viewport_camera.pitch = -math.PI / 2.0
+        }
+        if game_state.viewport_camera.pitch > math.PI / 2.0 {
+            game_state.viewport_camera.pitch = math.PI / 2.0
+        }
     
         control_flags_dir: hlsl.float3
-        if .MoveUp in control_flags do control_flags_dir += {0.0, 1.0, 0.0}
-        if .MoveDown in control_flags do control_flags_dir += {0.0, -1.0, 0.0}
-        if .MoveLeft in control_flags do control_flags_dir += {-1.0, 0.0, 0.0}
-        if .MoveRight in control_flags do control_flags_dir += {1.0, 0.0, 0.0}
-        if .MoveBackward in control_flags do control_flags_dir += {0.0, 0.0, 1.0}
-        if .MoveForward in control_flags do control_flags_dir += {0.0, 0.0, -1.0}
-        if control_flags_dir != {0.0, 0.0, 0.0} do camera_direction += hlsl.normalize(control_flags_dir)
+        if .MoveUp in control_flags {
+            control_flags_dir += {0.0, 1.0, 0.0}
+        }
+        if .MoveDown in control_flags {
+            control_flags_dir += {0.0, -1.0, 0.0}
+        }
+        if .MoveLeft in control_flags {
+            control_flags_dir += {-1.0, 0.0, 0.0}
+        }
+        if .MoveRight in control_flags {
+            control_flags_dir += {1.0, 0.0, 0.0}   
+        }
+        if .MoveBackward in control_flags {
+            control_flags_dir += {0.0, 0.0, 1.0}
+        }
+        if .MoveForward in control_flags {
+            control_flags_dir += {0.0, 0.0, -1.0}
+        }
+        if control_flags_dir != {0.0, 0.0, 0.0} {
+            camera_direction += hlsl.normalize(control_flags_dir)
+        }
     
         if camera_direction != {0.0, 0.0, 0.0} {
             camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction

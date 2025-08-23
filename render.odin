@@ -1288,7 +1288,9 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
         {
             // Initialize joint matrices with identity matrix
             instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
-            for i in 0..<mesh.joint_count do instance_joints[i] = IDENTITY_MATRIX4x4
+            for i in 0..<mesh.joint_count {
+                instance_joints[i] = IDENTITY_MATRIX4x4
+            }
             
             // @static no_animation := false
             // @static no_inv_bind := false
@@ -1737,7 +1739,9 @@ render_scene :: proc(
                     append(&renderer.gpu_static_instances, g_inst)
                     draw_call.instanceCount += 1
                     current_instance += 1
-                    if current_instance == len(instances) do break
+                    if current_instance == len(instances) {
+                        break
+                    }
                     inst = &instances[current_instance]
                 }
 
@@ -1958,7 +1962,9 @@ gltf_skinned_delete :: proc(d: ^SkinnedModelData)  {
 
 gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     idx : u32 = 0
-    for uintptr(nodes[idx]) != uintptr(n) do idx += 1
+    for uintptr(nodes[idx]) != uintptr(n) {
+        idx += 1
+    }
     return idx
 }
 
@@ -2079,8 +2085,12 @@ load_gltf_static_model :: proc(
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
             mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
-            if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-            if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+            if len(color_data) > 0 {
+                add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+            }
+            if len(uv_data) > 0 {
+                add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+            }
     
     
             // Now get material data
@@ -2099,7 +2109,9 @@ load_gltf_static_model :: proc(
             }
             
             base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
-            if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            if has_material {
+                base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            }
             material := Material {
                 color_texture = bindless_image_idx.index,
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
@@ -2172,7 +2184,9 @@ load_gltf_skinned_model :: proc(
     first_anim_idx: u32
     first_joint_idx := render_data.joint_matrices_head
     {
-        if len(gltf_data.skins) == 0 do return nil
+        if len(gltf_data.skins) == 0 {
+            return nil
+        }
         assert(len(gltf_data.skins) == 1)
 
         glb_skin := gltf_data.skins[0]
@@ -2309,8 +2323,12 @@ load_gltf_skinned_model :: proc(
                 joint_count,
                 first_joint_idx
             )
-            if len(color_data) > 0 do add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
-            if len(uv_data) > 0 do add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+            if len(color_data) > 0 {
+                add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+            }
+            if len(uv_data) > 0 {
+                add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+            }
     
     
             // Now get material data
@@ -2328,7 +2346,9 @@ load_gltf_skinned_model :: proc(
             }
             
             base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
-            if has_material do base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            if has_material {
+                base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
+            }
             material := Material {
                 color_texture = bindless_image_idx.index,
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
@@ -2383,10 +2403,14 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
 
             {
                 b := .ColorTriangles in renderer.cpu_uniforms.flags
-                if imgui.Checkbox("Triangle vis", &b) do renderer.cpu_uniforms.flags ~= {.ColorTriangles}
+                if imgui.Checkbox("Triangle vis", &b) {
+                    renderer.cpu_uniforms.flags ~= {.ColorTriangles}
+                }
 
                 b = .Reflections in renderer.cpu_uniforms.flags
-                if imgui.Checkbox("RT reflections", &b) do renderer.cpu_uniforms.flags ~= {.Reflections}
+                if imgui.Checkbox("RT reflections", &b) {
+                    renderer.cpu_uniforms.flags ~= {.Reflections}
+                }
             }
             imgui.Separator()
 

@@ -214,7 +214,9 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
         // Map string to key
         key: Maybe(ConfigKey)
         for k, e in CONFIG_KEY_STRINGS {
-            if k == key_str do key = e
+            if k == key_str {
+                key = e
+            }
         }
         assert(key != nil)
 

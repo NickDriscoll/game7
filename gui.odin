@@ -216,7 +216,9 @@ gui_main_menu_bar :: proc(
     user_config: ^UserConfiguration
 ) -> MainMenuBarVerb {
     retval := MainMenuBarVerb.None
-    if !show_gui do return retval
+    if !show_gui {
+        return retval
+    }
 
     io := imgui.GetIO()
 
@@ -239,7 +241,9 @@ gui_main_menu_bar :: proc(
                 update_user_cfg_camera(user_config, &game_state.viewport_camera)
                 save_user_config(user_config, USER_CONFIG_FILENAME)
             }
-            if imgui.MenuItem("Exit") do retval = .Exit
+            if imgui.MenuItem("Exit") {
+                retval = .Exit
+            }
 
             imgui.EndMenu()
         }
@@ -254,7 +258,9 @@ gui_main_menu_bar :: proc(
 
         if imgui.BeginMenu("Config") {
             config_autosave := user_config.flags[.ConfigAutosave]
-            if imgui.MenuItem("Auto-save user config", selected = config_autosave) do user_config.flags[.ConfigAutosave] = !user_config.flags[.ConfigAutosave]
+            if imgui.MenuItem("Auto-save user config", selected = config_autosave) {
+                user_config.flags[.ConfigAutosave] = !user_config.flags[.ConfigAutosave]
+            }
             if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
                 user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
             }
