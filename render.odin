@@ -2402,15 +2402,21 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
             imgui.EndDisabled()
 
             {
-                b := .ColorTriangles in renderer.cpu_uniforms.flags
-                if imgui.Checkbox("Triangle vis", &b) {
-                    renderer.cpu_uniforms.flags ~= {.ColorTriangles}
+                flag_checkbox :: proc(flags: ^bit_set[$T], flag: T) -> bool {
+                    b := flag in flags
+                    sb: strings.Builder
+                    strings.builder_init(&sb, context.temp_allocator)
+                    fmt.sbprintf(&sb, "%v", flag)
+                    cs, _ := strings.to_cstring(&sb)
+                    if imgui.Checkbox(cs, &b) {
+                        flags^ ~= {flag}
+                        return true
+                    }
+                    return false
                 }
 
-                b = .Reflections in renderer.cpu_uniforms.flags
-                if imgui.Checkbox("RT reflections", &b) {
-                    renderer.cpu_uniforms.flags ~= {.Reflections}
-                }
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections)
             }
             imgui.Separator()
 
