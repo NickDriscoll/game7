@@ -172,7 +172,6 @@ main :: proc() {
     defer mem.free_bytes(temp_backing_memory)
 
 
-
     // Load user configuration
     user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
     if !config_ok {
@@ -364,10 +363,6 @@ main :: proc() {
         input_system = init_input_system(&freecam_key_mappings)
     }
     context.allocator = scene_allocator
-
-    // Setup may have used temp allocation, 
-    // so clear out temp memory before first frame processing
-    //free_all(context.temp_allocator)
 
     current_time := time.now()          // Time in nanoseconds since UNIX epoch
     previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
