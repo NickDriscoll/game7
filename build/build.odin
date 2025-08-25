@@ -20,6 +20,9 @@ VERTEX_SHADERS : []string : {
     "skybox",
     "debug"
 }
+SHADER_EXTRAS : [][2]string : {
+    { "HardwareRT", "_rt" }
+}
 
 // List of all .slang files with a fragment shader entry point
 FRAGMENT_SHADERS : []string : {
@@ -143,6 +146,37 @@ main :: proc() {
             append(&processes, process)
             strings.builder_reset(&in_sb)
             strings.builder_reset(&out_sb)
+
+            for extra in SHADER_EXTRAS {
+                out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v%v.%v.spv", shader, extra[1], type[0:4])
+                in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
+        
+                slangc_command := os2.Process_Desc {
+                    command = {
+                        "slangc",
+                        "-stage",
+                        type,
+                        "-g3",
+                        "-Wno-39001",   // Ignore shaders aliasing descriptor bindings
+                        "-entry",
+                        entry_point,
+                        "-D",
+                        extra[0],
+                        "-o",
+                        out_path,
+                        in_path
+                    }
+                }
+        
+                process, error := os2.process_start(slangc_command)
+                if error != nil {
+                    log.errorf("%#v", error)
+                    return
+                }
+                append(&processes, process)
+                strings.builder_reset(&in_sb)
+                strings.builder_reset(&out_sb)
+            }
         }
     }
 

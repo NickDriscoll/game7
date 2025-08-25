@@ -622,15 +622,22 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
 
         // Load shader bytecode
         // This will be embedded into the executable at compile-time
-        ps1_vert_spv := #load("data/shaders/ps1.vert.spv", []u32)
-        ps1_frag_spv := #load("data/shaders/ps1.frag.spv", []u32)
+        ps1_vert_spv: []u32
+        ps1_frag_spv: []u32
+        if renderer.do_raytracing {
+            ps1_vert_spv = #load("data/shaders/ps1_rt.vert.spv", []u32)
+            ps1_frag_spv = #load("data/shaders/ps1_rt.frag.spv", []u32)
+        } else {
+            ps1_vert_spv = #load("data/shaders/ps1.vert.spv", []u32)
+            ps1_frag_spv = #load("data/shaders/ps1.frag.spv", []u32)
+        }
+
         // PS1 pipeline
-        do_rt : i32 = 1 if renderer.do_raytracing else 0
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = ps1_vert_spv,
             fragment_shader_bytecode = ps1_frag_spv,
             vertex_spec_constants = {},
-            fragment_spec_constants = {do_rt},
+            fragment_spec_constants = {},
             input_assembly_state = vkw.Input_Assembly_State {
                 topology = .TRIANGLE_LIST,
                 primitive_restart_enabled = false,

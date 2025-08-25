@@ -2,11 +2,10 @@ import procs;
 import structs;
 import tex_bindings;
 
+#if defined(HardwareRT)
 [[vk_binding(2, 0)]]
 RaytracingAccelerationStructure scene_tlas;
-
-[vk::constant_id(0)]
-int do_raytracing = 0;
+#endif
 
 struct VertexOutput {
     float4 clip_pos : SV_Position;
@@ -59,6 +58,7 @@ float3x3 z_vector_rotate(float angle) {
 }
 
 bool trace_shadow_ray(float3 origin, float3 direction, float length) {
+#if defined(HardwareRT)
     RayDesc ray;
     ray.Direction = direction;
     ray.Origin = origin;
@@ -76,6 +76,9 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
     query.Proceed();
 
     return query.CommittedStatus() != COMMITTED_NOTHING;
+#else
+    return false;
+#endif
 }
 
 [shader("vertex")]
@@ -127,14 +130,12 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
     float3 diffuse_contribution = {};
     float3 specular_contribution = {};
 
-    bool do_rt = do_raytracing > 0;
-
     // Directional lighting
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution = 0.1 * light.color;
 
-        if (do_rt && trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
+        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
             continue;
         }
 
@@ -151,7 +152,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         float d = length(direction);
         direction /= d;
 
-        if (do_rt && trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
+        if (trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
             continue;
         }
 
@@ -164,6 +165,8 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
 
     // Trying rt reflections
     float3 reflection_cont = {};
+
+#if defined(HardwareRT)
     if ((u_data.flags & UniformFlag.Reflections) != 0) {
         float3 ray_dir = normalize(reflect(-view_dir, face_normal));
 
@@ -199,6 +202,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uin
         }
     }
     //reflection_cont = {};
+#endif
 
     // Glowing
     float3 glow = {};
