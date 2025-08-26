@@ -477,8 +477,6 @@ main :: proc() {
         // Misc imgui window for testing
         @static rotate_sun := false
         @static move_player := false
-        @static last_raycast_hit: hlsl.float3
-        want_refire_raycast := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
                 imgui.Text("Frame #%i", vgd.frame_count)
@@ -530,11 +528,6 @@ main :: proc() {
                         move_player = true
                     }
                     imgui.EndDisabled()
-                    imgui.Text("Last raycast hit: (%f, %f, %f)", last_raycast_hit.x, last_raycast_hit.y, last_raycast_hit.z)
-                    if imgui.Button("Refire last raycast") {
-                        want_refire_raycast = true
-                    }
-                    imgui.Separator()
                 }
 
                 imgui.Checkbox("Rotate sun", &rotate_sun)
