@@ -379,10 +379,11 @@ main :: proc() {
         nanosecond_dt := time.diff(previous_time, current_time)
         last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
         dt := min(last_frame_dt, MAXIMUM_FRAME_DT)
+        scaled_dt := game_state.timescale * dt
         previous_time = current_time
 
         // @TODO: Wrap this value at some point?
-        game_state.time += dt * game_state.timescale
+        game_state.time += scaled_dt
 
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
@@ -410,7 +411,7 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        renderer.cpu_uniforms.time = f32(vgd.frame_count) / 144
+        renderer.cpu_uniforms.time += scaled_dt
 
         new_frame(&renderer)
 
@@ -461,8 +462,6 @@ main :: proc() {
 
         }
 
-        // Update
-
         {
             docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
             renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
@@ -472,9 +471,10 @@ main :: proc() {
             game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
-        @static cpu_limiter_ms : c.int = 100
+        // Update
 
         // Misc imgui window for testing
+        @static cpu_limiter_ms : c.int = 100
         @static rotate_sun := false
         @static move_player := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
@@ -974,13 +974,13 @@ main :: proc() {
 
         // Update and draw player
         if game_state.do_this_frame {
-            player_update(&game_state, &audio_system, &output_verbs, game_state.timescale * dt)
+            player_update(&game_state, &audio_system, &output_verbs, scaled_dt)
         }
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
         if game_state.do_this_frame {
-            enemies_update(&game_state, &audio_system, dt * game_state.timescale)
+            enemies_update(&game_state, &audio_system, scaled_dt)
         }
         enemies_draw(&vgd, &renderer, game_state)
 
@@ -1042,7 +1042,7 @@ main :: proc() {
             if game_state.do_this_frame {
                 anim := &renderer.animations[mesh.anim_idx]
                 anim_end := get_animation_endtime(anim)
-                mesh.anim_t += dt * game_state.timescale * mesh.anim_speed
+                mesh.anim_t += scaled_dt * mesh.anim_speed
                 mesh.anim_t = math.mod(mesh.anim_t, anim_end)
             }
 
