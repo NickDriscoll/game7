@@ -1740,7 +1740,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 can_react_to_player = true
                 is_affected_by_gravity = true
                 sample_point := [2]f64 {f64(game_state.time), f64(i)}
-                t := 0.05 * noise.noise_2d(game_state.rng_seed, sample_point)
+                t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
                 rotq := z_rotate_quaternion(t)
                 enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
 
