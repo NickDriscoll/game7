@@ -76,7 +76,7 @@ InputSystem :: struct {
     // For the purposes of simple remapping, user code is expected to maintain
     // these maps for the same lifetime as the input system
     key_mappings: ^map[sdl2.Scancode]VerbType,
-    mouse_mappings: map[u8]VerbType,
+    mouse_mappings: ^map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
     wheel_mappings: map[u32]VerbType,
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
@@ -85,8 +85,8 @@ InputSystem :: struct {
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_sticks: bit_set[ControllerStickAxis],
-    axis_sensitivities: map[sdl2.GameControllerAxis]f32,
-    stick_sensitivities: map[ControllerStickAxis]f32,
+    axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32,
+    stick_sensitivities: [len(ControllerStickAxis)]f32,
 
     mouse_location: [2]i32,
     mouse_clicked: bool,
@@ -97,45 +97,16 @@ InputSystem :: struct {
     controller_one: ^sdl2.GameController,
 }
 
-init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> InputSystem {
-    mouse_mappings, err2 := make(map[u8]VerbType, 64)
-    if err2 != nil {
-        log.errorf("Error making mouse map: %v", err2)
-    }
-
-    axis_mappings, err3 := make(map[sdl2.GameControllerAxis]VerbType, 64)
-    if err3 != nil {
-        log.errorf("Error making axis map: %v", err2)
-    }
-
-    button_mappings, err4 := make(map[sdl2.GameControllerButton]VerbType, 64)
-    if err4 != nil {
-        log.errorf("Error making button map: %v", err2)
-    }
-
-    stick_mappings, err6 := make(map[ControllerStickAxis]VerbType, 64)
-    if err6 != nil {
-        log.errorf("Error making stick map: %v", err2)
-    }
-
-    wheel_mappings, err8 := make(map[u32]VerbType, 64)
-    if err8 != nil {
-        log.errorf("Error making wheel map: %v", err2)
-    }
-
-    axis_sensitivities, err5 := make(map[sdl2.GameControllerAxis]f32, 8)
-    if err5 != nil {
-        log.errorf("Error making axis sensitivity map: %v", err2)
-    }
-
-    stick_sensitivities, err7 := make(map[ControllerStickAxis]f32, 8)
-    if err7 != nil {
-        log.errorf("Error making stick sensitivity map: %v", err2)
-    }
-
-    // Hardcoded default mouse mappings
-    mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
-    mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
+init_input_system :: proc(
+    init_key_bindings: ^map[sdl2.Scancode]VerbType,
+    init_mouse_bindings: ^map[u8]VerbType,
+) -> InputSystem {
+    axis_mappings := make(map[sdl2.GameControllerAxis]VerbType, 64)
+    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64)
+    stick_mappings := make(map[ControllerStickAxis]VerbType, 64)
+    wheel_mappings := make(map[u32]VerbType, 64)
+    axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32 = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
+    stick_sensitivities: [len(ControllerStickAxis)]f32 = {1.0, 1.0}
 
     // 0 bc there's just one mouse wheel... right?
     wheel_mappings[0] = .CameraFollowDistance
@@ -144,7 +115,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
     axis_mappings[.TRIGGERRIGHT] = .Sprint
 
     // Stick sensitivities
-    stick_sensitivities[.Right] = 5.0
+    stick_sensitivities[ControllerStickAxis.Right] = 5.0
 
     // Hardcoded button mappings
     button_mappings[.A] = .PlayerJump
@@ -158,7 +129,7 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
 
     return InputSystem {
         key_mappings = init_key_bindings,
-        mouse_mappings = mouse_mappings,
+        mouse_mappings = init_mouse_bindings,
         button_mappings = button_mappings,
         wheel_mappings = wheel_mappings,
         axis_mappings = axis_mappings,
@@ -172,13 +143,10 @@ init_input_system :: proc(init_key_bindings: ^map[sdl2.Scancode]VerbType) -> Inp
 }
 
 destroy_input_system :: proc(using s: ^InputSystem) {
-    delete(mouse_mappings)
     delete(button_mappings)
     delete(wheel_mappings)
     delete(axis_mappings)
-    delete(axis_sensitivities)
     delete(stick_mappings)
-    delete(stick_sensitivities)
     if controller_one != nil {
         sdl2.GameControllerClose(controller_one)
     }
@@ -425,10 +393,7 @@ poll_sdl2_events :: proc(
             }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
-                sensitivity, found2 := state.stick_sensitivities[.Left]
-                if !found2 {
-                    sensitivity = 1.0
-                }
+                sensitivity := state.stick_sensitivities[ControllerStickAxis.Left]
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }
         }
@@ -447,10 +412,7 @@ poll_sdl2_events :: proc(
             }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
-                sensitivity, found2 := state.stick_sensitivities[.Right]
-                if !found2 {
-                    sensitivity = 1.0
-                }
+                sensitivity:= state.stick_sensitivities[ControllerStickAxis.Right]
                 float2s[verbtype] = sensitivity * [2]f32{x, y}
             }   
         }
@@ -473,10 +435,7 @@ poll_sdl2_events :: proc(
                 val = -val
             }
         
-            sensitivity, found2 := state.axis_sensitivities[ax]
-            if found2 {
-                val *= sensitivity
-            }
+            sensitivity := state.axis_sensitivities[ax]
 
             floats[verbtype] = val
         }
@@ -617,7 +576,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
         sensitivity_sliders :: proc(
             label: cstring,
-            sensitivities: ^map[$KeyType]f32,
+            sensitivities: []f32,
             sb: ^strings.Builder,
             discriminator: ^u32,
             allocator: runtime.Allocator
@@ -627,22 +586,25 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             }
             imgui.Text(label)
             imgui.Separator()
-            for axis, &sensitivity in sensitivities {
+            for i in 0..<len(sensitivities) {
+                axis := sdl2.GameControllerAxis(i)
+                sensitivity := &sensitivities[i]
+
                 as := build_cstring(axis, sb, allocator)
                 imgui.Text("%s ", as)
                 imgui.SameLine()
                 slider_id := fmt.sbprintf(sb, "Sensitivity###%v", discriminator^)
                 ss := strings.clone_to_cstring(slider_id, allocator)
                 strings.builder_reset(sb)
-                imgui.SliderFloat(ss, &sensitivity, 0.0, 10.0)
+                imgui.SliderFloat(ss, sensitivity, 0.0, 10.0)
                 
                 discriminator^ += 1
             }
         }
 
         i : u32 = 0
-        sensitivity_sliders("Axis sensitivities", &axis_sensitivities, &sb, &i, allocator)
-        sensitivity_sliders("Stick sensitivities", &stick_sensitivities, &sb, &i, allocator)
+        sensitivity_sliders("Axis sensitivities", axis_sensitivities[:], &sb, &i, allocator)
+        sensitivity_sliders("Stick sensitivities", stick_sensitivities[:], &sb, &i, allocator)
     }
     imgui.End()
 }

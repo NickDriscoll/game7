@@ -320,9 +320,8 @@ main :: proc() {
 
     // @TODO: Keymappings need to be a part of GameState
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    defer delete(freecam_key_mappings)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    defer delete(character_key_mappings)
+    mouse_mappings := make(map[u8]VerbType, 64)
     {
         freecam_key_mappings[.ESCAPE] = .ToggleImgui
         freecam_key_mappings[.W] = .TranslateFreecamForward
@@ -351,16 +350,21 @@ main :: proc() {
         character_key_mappings[.PAUSE] = .Resume
         character_key_mappings[.F] = .FullscreenHotkey
         character_key_mappings[.R] = .PlayerReset
+
+
+
+        // Hardcoded default mouse mappings
+        mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
+        mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
     }
 
     // Init input system
     context.allocator = global_allocator
     input_system: InputSystem
-    defer destroy_input_system(&input_system)
     if .Follow in game_state.viewport_camera.control_flags {
-        input_system = init_input_system(&character_key_mappings)
+        input_system = init_input_system(&character_key_mappings, &mouse_mappings)
     } else {
-        input_system = init_input_system(&freecam_key_mappings)
+        input_system = init_input_system(&freecam_key_mappings, &mouse_mappings)
     }
     context.allocator = scene_allocator
 
