@@ -94,7 +94,7 @@ Character :: struct {
     damage_timer: time.Time,
     mesh_data: ^SkinnedModelData,
 
-    air_bullet: Maybe(AirBullet),
+    air_vortex: Maybe(AirVortex),
     bullet_travel_time: f32,
     held_enemy: Maybe(Enemy),
 }
@@ -170,7 +170,7 @@ DebugVisualizationFlags :: bit_set[enum {
     ShowCoinRadius,
 }]
 
-AirBullet :: struct {
+AirVortex :: struct {
     collision: Sphere,
     t: f32,
 }
@@ -1541,32 +1541,39 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     }
 
     // Shoot command
-    if output_verbs.bools[.PlayerShoot] {
-        held_enemy, is_holding_enemy := char.held_enemy.?
-        if is_holding_enemy {
-            // Insert into thrown enemies array
-            append(&game_state.thrown_enemies, ThrownEnemy {
-                position = char.collision.position + char.facing,
-                velocity = ENEMY_THROW_SPEED * char.facing,
-                respawn_position = held_enemy.position,
-                respawn_home = held_enemy.home_position,
-                respawn_ai_state = held_enemy.init_ai_state,
-                collision_radius = 0.5,
-            })
-
-            char.held_enemy = nil
-        } else {
-            start_pos := char.collision.position
-            char.air_bullet = AirBullet {
-                collision = Sphere {
-                    position = start_pos,
-                    radius = 0.1
-                },
+    {
+        res, have_shoot := output_verbs.bools[.PlayerShoot]
+        if have_shoot {
+            if res {
+                held_enemy, is_holding_enemy := char.held_enemy.?
+                if is_holding_enemy {
+                    // Insert into thrown enemies array
+                    append(&game_state.thrown_enemies, ThrownEnemy {
+                        position = char.collision.position + char.facing,
+                        velocity = ENEMY_THROW_SPEED * char.facing,
+                        respawn_position = held_enemy.position,
+                        respawn_home = held_enemy.home_position,
+                        respawn_ai_state = held_enemy.init_ai_state,
+                        collision_radius = 0.5,
+                    })
+        
+                    char.held_enemy = nil
+                } else {
+                    start_pos := char.collision.position
+                    char.air_vortex = AirVortex {
+                        collision = Sphere {
+                            position = start_pos,
+                            radius = 0.1
+                        },
     
-                t = 0.0,
+                        t = 0.0,
+                    }
+                }
+                play_sound_effect(audio_system, game_state.shoot_sound)
+            } else {
+                char.air_vortex = nil
             }
         }
-        play_sound_effect(audio_system, game_state.shoot_sound)
     }
 
     // Check if we collected any coins
@@ -1604,15 +1611,13 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     }
 
     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
-    bullet, bok := &char.air_bullet.?
-    if bok && bullet.t <= char.bullet_travel_time {
+    bullet, bok := &char.air_vortex.?
+    if bok {
         // Bullet update
         col := char.collision
         bullet.t += dt
         bullet.collision.position = char.collision.position
-        bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, bullet.t / char.bullet_travel_time)
-    } else {
-        char.air_bullet = nil
+        bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, min(bullet.t / char.bullet_travel_time, 1.0))
     }
 
     // Camera follow point chases player
@@ -1676,7 +1681,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
         
     // Air bullet draw
     {
-        bullet, ok := game_state.character.air_bullet.?
+        bullet, ok := game_state.character.air_vortex.?
         if ok {
             dd := DebugDraw {
                 world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
@@ -1859,7 +1864,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         }
 
         // Check if overlapping air bullet
-        bullet, ok := char.air_bullet.?
+        bullet, ok := char.air_vortex.?
         if ok {
             col := Sphere {
                 position = enemy.position,
@@ -1868,7 +1873,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
             if are_spheres_overlapping(bullet.collision, col) {
                 char.held_enemy = game_state.enemies[i]
                 enemy_to_remove = i
-                char.air_bullet = nil
+                char.air_vortex = nil
             }
         }
     }
