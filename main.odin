@@ -336,7 +336,6 @@ main :: proc() {
         freecam_key_mappings[.BACKSLASH] = .FrameAdvance
         freecam_key_mappings[.PAUSE] = .Resume
         freecam_key_mappings[.F] = .FullscreenHotkey
-        character_key_mappings[.R] = .PlayerReset
 
         character_key_mappings[.ESCAPE] = .ToggleImgui
         character_key_mappings[.W] = .PlayerTranslateForward
@@ -350,11 +349,12 @@ main :: proc() {
         character_key_mappings[.PAUSE] = .Resume
         character_key_mappings[.F] = .FullscreenHotkey
         character_key_mappings[.R] = .PlayerReset
+        character_key_mappings[.E] = .PlayerShoot
 
 
 
         // Hardcoded default mouse mappings
-        mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
+        //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
         mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
     }
 
