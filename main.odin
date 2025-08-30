@@ -322,6 +322,7 @@ main :: proc() {
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     mouse_mappings := make(map[u8]VerbType, 64)
+    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
     {
         freecam_key_mappings[.ESCAPE] = .ToggleImgui
         freecam_key_mappings[.W] = .TranslateFreecamForward
@@ -351,6 +352,12 @@ main :: proc() {
         character_key_mappings[.R] = .PlayerReset
         character_key_mappings[.E] = .PlayerShoot
 
+        button_mappings[.A] = .PlayerJump
+        button_mappings[.X] = .PlayerShoot
+        button_mappings[.Y] = .PlayerReset
+        button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
+        button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+
 
 
         // Hardcoded default mouse mappings
@@ -362,9 +369,9 @@ main :: proc() {
     context.allocator = global_allocator
     input_system: InputSystem
     if .Follow in game_state.viewport_camera.control_flags {
-        input_system = init_input_system(&character_key_mappings, &mouse_mappings)
+        input_system = init_input_system(&character_key_mappings, &mouse_mappings, &button_mappings)
     } else {
-        input_system = init_input_system(&freecam_key_mappings, &mouse_mappings)
+        input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
     }
     context.allocator = scene_allocator
 
@@ -401,7 +408,6 @@ main :: proc() {
         {
             level, ok := load_new_level.?
             if ok {
-                vkw.device_wait_idle(&vgd)
                 builder: strings.Builder
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)

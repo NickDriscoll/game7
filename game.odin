@@ -512,6 +512,8 @@ load_level_file :: proc(
     sdl2.LockAudioDevice(audio_system.device_id)
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
 
+    vkw.device_wait_idle(gd)
+
     free_all(context.allocator)
     audio_new_scene(audio_system)
     renderer_new_scene(renderer)
