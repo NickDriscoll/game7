@@ -77,7 +77,7 @@ InputSystem :: struct {
     // these maps for the same lifetime as the input system
     key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: ^map[u8]VerbType,
-    button_mappings: map[sdl2.GameControllerButton]VerbType,
+    button_mappings: ^map[sdl2.GameControllerButton]VerbType,
     wheel_mappings: map[u32]VerbType,
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
     stick_mappings: map[ControllerStickAxis]VerbType,
@@ -100,9 +100,9 @@ InputSystem :: struct {
 init_input_system :: proc(
     init_key_bindings: ^map[sdl2.Scancode]VerbType,
     init_mouse_bindings: ^map[u8]VerbType,
+    init_button_mappings: ^map[sdl2.GameControllerButton]VerbType
 ) -> InputSystem {
     axis_mappings := make(map[sdl2.GameControllerAxis]VerbType, 64)
-    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64)
     stick_mappings := make(map[ControllerStickAxis]VerbType, 64)
     wheel_mappings := make(map[u32]VerbType, 64)
     axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32 = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
@@ -117,20 +117,13 @@ init_input_system :: proc(
     // Stick sensitivities
     stick_sensitivities[ControllerStickAxis.Right] = 5.0
 
-    // Hardcoded button mappings
-    button_mappings[.A] = .PlayerJump
-    button_mappings[.X] = .PlayerShoot
-    button_mappings[.Y] = .PlayerReset
-    button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
-    button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
-
     stick_mappings[.Left] = .PlayerTranslate
     stick_mappings[.Right] = .RotateCamera
 
     return InputSystem {
         key_mappings = init_key_bindings,
         mouse_mappings = init_mouse_bindings,
-        button_mappings = button_mappings,
+        button_mappings = init_button_mappings,
         wheel_mappings = wheel_mappings,
         axis_mappings = axis_mappings,
         stick_mappings = stick_mappings,
@@ -143,7 +136,6 @@ init_input_system :: proc(
 }
 
 destroy_input_system :: proc(using s: ^InputSystem) {
-    delete(button_mappings)
     delete(wheel_mappings)
     delete(axis_mappings)
     delete(stick_mappings)
@@ -352,7 +344,7 @@ poll_sdl2_events :: proc(
                         }
                         
                         state.button_mappings[button] = verb
-                        delete_key(&state.button_mappings, state.input_being_remapped.button)
+                        delete_key(state.button_mappings, state.input_being_remapped.button)
                         state.input_being_remapped.button = nil
                         state.currently_remapping = false
                         continue
@@ -549,7 +541,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
             display_sorted_table(
                 s,
-                &button_mappings,
+                button_mappings,
                 largest_button_width,
                 &input_being_remapped.button,
                 BUTTON_REBIND_TEXT,
