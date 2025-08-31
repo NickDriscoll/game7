@@ -521,7 +521,7 @@ load_level_file :: proc(
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
-        log.errorf("Error reading entire level file: %v", lvl_err)
+        log.errorf("Error reading entire level file \"%v\": %v", path, lvl_err)
         return false
     }
 
