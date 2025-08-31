@@ -3,6 +3,7 @@
 *.rdbg
 *.ini
 *.cfg
+*.spall
 .vscode/
 ols.json
 blender/

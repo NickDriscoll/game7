@@ -10,6 +10,7 @@ import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:prof/spall"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -47,6 +48,9 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
+spall_ctx: spall.Context
+@(thread_local) spall_buffer: spall.Buffer
+
 Window :: struct {
     position: [2]i32,
     resolution: [2]u32,
@@ -62,6 +66,7 @@ main :: proc() {
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         global_track: mem.Tracking_Allocator
+        scene_track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&global_track, global_allocator)
         global_allocator = mem.tracking_allocator(&global_track)
 
@@ -83,58 +88,286 @@ main :: proc() {
     }
     context.allocator = global_allocator
 
-    // Parse command-line arguments
-    log_level := log.Level.Info
+    spall_ctx = spall.context_create("game7.spall")
+	defer spall.context_destroy(&spall_ctx)
+	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+	defer delete(buffer_backing)
+	spall_buffer = spall.buffer_create(buffer_backing, 0)
+	defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+
+    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    mouse_mappings := make(map[u8]VerbType, 64, allocator = global_allocator)
+    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+    current_time: time.Time
+    previous_time: time.Time
+    scene_allocator: mem.Allocator
+    load_new_level: Maybe(string)
+    do_limit_cpu := false
+    saved_mouse_coords: hlsl.int2
+    vgd: vkw.Graphics_Device
+    renderer: Renderer
+    app_window: Window
+    imgui_state: ImguiState
+    user_config: UserConfiguration
+    input_system: InputSystem
+    audio_system: AudioSystem
+    game_state: GameState
     {
-        context.logger = log.create_console_logger(log_level)
-        argc := len(os.args)
-        for arg, i in os.args {
-            if arg == "--log-level" || arg == "-l" {
-                if i + 1 < argc {
-                    switch os.args[i + 1] {
-                        case "DEBUG": log_level = .Debug
-                        case "INFO": log_level = .Info
-                        case "WARNING": log_level = .Warning
-                        case "ERROR": log_level = .Error
-                        case "FATAL": log_level = .Fatal
-                        case: log.warnf(
-                            "Unrecognized --log-level: %v. Using default (%v)",
-                            os.args[i + 1],
-                            log_level,
-                        )
+        spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, "App initialization")
+
+        // Parse command-line arguments
+        log_level := log.Level.Info
+        {
+            context.logger = log.create_console_logger(log_level)
+            argc := len(os.args)
+            for arg, i in os.args {
+                if arg == "--log-level" || arg == "-l" {
+                    if i + 1 < argc {
+                        switch os.args[i + 1] {
+                            case "DEBUG": log_level = .Debug
+                            case "INFO": log_level = .Info
+                            case "WARNING": log_level = .Warning
+                            case "ERROR": log_level = .Error
+                            case "FATAL": log_level = .Fatal
+                            case: log.warnf(
+                                "Unrecognized --log-level: %v. Using default (%v)",
+                                os.args[i + 1],
+                                log_level,
+                            )
+                        }
                     }
                 }
             }
+            log.destroy_console_logger(context.logger)
         }
-        log.destroy_console_logger(context.logger)
-    }
-
-    // Set up logger
-    context.logger = log.create_console_logger(log_level)
-    when ODIN_DEBUG {
-        defer log.destroy_console_logger(context.logger)
-    }
-    log.info("Initiating swag mode...")
-
-    // Set up per-scene allocator
-    scene_allocator: mem.Allocator
-    scene_backing_memory: []byte
-    {
-        per_frame_arena: mem.Arena
-        err: mem.Allocator_Error
-        scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SZIE)
-        if err != nil {
-            log.error("Error allocating scene allocator backing buffer.")
+    
+        // Set up logger
+        context.logger = log.create_console_logger(log_level)
+        log.info("Initiating swag mode...")
+    
+    
+        // Set up per-scene allocator
+        scene_backing_memory: []byte
+        {
+            spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, "Create per-scene allocator")
+            per_frame_arena: mem.Arena
+            err: mem.Allocator_Error
+            scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SZIE)
+            if err != nil {
+                log.error("Error allocating scene allocator backing buffer.")
+            }
+    
+            mem.arena_init(&per_frame_arena, scene_backing_memory)
+            scene_allocator = mem.arena_allocator(&per_frame_arena)
+    
         }
-
-        mem.arena_init(&per_frame_arena, scene_backing_memory)
-        scene_allocator = mem.arena_allocator(&per_frame_arena)
-
+    
+        // Set up per-frame temp allocator
+        temp_backing_memory: []byte
+        {
+            per_frame_arena: mem.Arena
+            err: mem.Allocator_Error
+            temp_backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
+            if err != nil {
+                log.error("Error allocating temporary allocator backing buffer.")
+            }
+    
+            mem.arena_init(&per_frame_arena, temp_backing_memory)
+            context.temp_allocator = mem.arena_allocator(&per_frame_arena)
+        }
+    
+    
+        // Load user configuration
+        cfg, config_ok := load_user_config(USER_CONFIG_FILENAME)
+        if !config_ok {
+            log.error("Failed to load user config.")
+        }
+        user_config = cfg
+    
+    
+    
+        // Initialize SDL2
+        sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
+        log.info("Initialized SDL2")
+    
+        // Use SDL2 to dynamically link against the Vulkan loader
+        // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
+        if sdl2.Vulkan_LoadLibrary(nil) != 0 {
+            s := sdl2.GetErrorString()
+            log.fatalf("Failed to link Vulkan loader: %v", s)
+            return
+        }
+    
+    
+    
+        // Initialize graphics device
+        init_params := vkw.Init_Parameters {
+            app_name = "Game7",
+            frames_in_flight = FRAMES_IN_FLIGHT,
+            features = {.Window,.Raytracing},
+            //features = {.Window},
+            vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
+        }
+        res: vk.Result
+        vgd, res = vkw.init_vulkan(init_params)
+        if res != .SUCCESS {
+            log.errorf("Failed to initialize Vulkan : %v", res)
+            return
+        }
+        
+        // Determine window resolution
+        {
+            desktop_display_mode: sdl2.DisplayMode
+            if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
+                log.error("Error getting desktop display mode.")
+            }
+            app_window.display_resolution = hlsl.uint2 {
+                u32(desktop_display_mode.w),
+                u32(desktop_display_mode.h),
+            }
+            app_window.resolution = DEFAULT_RESOLUTION
+            if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
+                app_window.resolution = app_window.display_resolution
+            }
+            if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
+                x := user_config.ints[.WindowWidth]
+                y := user_config.ints[.WindowHeight]
+                app_window.resolution = {u32(x), u32(y)}
+            }
+            app_window.present_mode = .FIFO
+        }
+    
+        // Determine SDL window flags
+        app_window.flags = {.VULKAN,.RESIZABLE}
+        if user_config.flags[.ExclusiveFullscreen] {
+            app_window.flags += {.FULLSCREEN}
+        } else if user_config.flags[.BorderlessFullscreen] {
+            app_window.flags += {.BORDERLESS}
+        }
+    
+        // Determine SDL window position
+        app_window.position.x = sdl2.WINDOWPOS_CENTERED
+        app_window.position.y = sdl2.WINDOWPOS_CENTERED
+        if .WindowX in user_config.ints && .WindowY in user_config.ints {
+            app_window.position.x = i32(user_config.ints[.WindowX])
+            app_window.position.y = i32(user_config.ints[.WindowY])
+        } else {
+            user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
+            user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
+        }
+    
+        app_window.window = sdl2.CreateWindow(
+            TITLE_WITHOUT_IMGUI,
+            app_window.position.x,
+            app_window.position.y,
+            i32(app_window.resolution.x),
+            i32(app_window.resolution.y),
+            app_window.flags
+        )
+        sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
+    
+        // Initialize the state required for rendering to the window
+        if !vkw.init_sdl2_window(&vgd, app_window.window) {
+            e := sdl2.GetError()
+            log.fatalf("Couldn't init SDL2 surface: %v", e)
+            return
+        }
+    
+        // Now that we're done with global allocations, switch context.allocator to scene_allocator
+        context.allocator = scene_allocator
+    
+        // Initialize the renderer
+        renderer = init_renderer(&vgd, app_window.resolution)
+        if !renderer.do_raytracing {
+            log.warn("Raytracing features are not supported by your GPU.")
+        }
+    
+        //Dear ImGUI init
+        imgui_state = imgui_init(&vgd, user_config, app_window.resolution)
+        if imgui_state.show_gui {
+            sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
+        }
+    
+        // Init audio system
+        init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
+        toggle_device_playback(&audio_system, true)
+    
+        // Main app structure storing the game's overall state
+        game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
+    
+        {
+            start_level := "test02"
+            s, ok := user_config.strs[.StartLevel]
+            if ok {
+                start_level = s
+            }
+            log.infof("%#v", user_config)
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
+            start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
+            load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path, global_allocator)
+        }
+    
+        // @TODO: Keymappings need to be a part of GameState
+        {
+            freecam_key_mappings[.ESCAPE] = .ToggleImgui
+            freecam_key_mappings[.W] = .TranslateFreecamForward
+            freecam_key_mappings[.S] = .TranslateFreecamBack
+            freecam_key_mappings[.A] = .TranslateFreecamLeft
+            freecam_key_mappings[.D] = .TranslateFreecamRight
+            freecam_key_mappings[.Q] = .TranslateFreecamDown
+            freecam_key_mappings[.E] = .TranslateFreecamUp
+            freecam_key_mappings[.LSHIFT] = .Sprint
+            freecam_key_mappings[.LCTRL] = .Crawl
+            freecam_key_mappings[.SPACE] = .PlayerJump
+            freecam_key_mappings[.BACKSLASH] = .FrameAdvance
+            freecam_key_mappings[.PAUSE] = .Resume
+            freecam_key_mappings[.F] = .FullscreenHotkey
+    
+            character_key_mappings[.ESCAPE] = .ToggleImgui
+            character_key_mappings[.W] = .PlayerTranslateForward
+            character_key_mappings[.S] = .PlayerTranslateBack
+            character_key_mappings[.A] = .PlayerTranslateLeft
+            character_key_mappings[.D] = .PlayerTranslateRight
+            character_key_mappings[.LSHIFT] = .Sprint
+            character_key_mappings[.LCTRL] = .Crawl
+            character_key_mappings[.SPACE] = .PlayerJump
+            character_key_mappings[.BACKSLASH] = .FrameAdvance
+            character_key_mappings[.PAUSE] = .Resume
+            character_key_mappings[.F] = .FullscreenHotkey
+            character_key_mappings[.R] = .PlayerReset
+            character_key_mappings[.E] = .PlayerShoot
+    
+            button_mappings[.A] = .PlayerJump
+            button_mappings[.X] = .PlayerShoot
+            button_mappings[.Y] = .PlayerReset
+            button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
+            button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+    
+    
+    
+            // Hardcoded default mouse mappings
+            //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
+            mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
+        }
+    
+        // Init input system
+        context.allocator = global_allocator
+        if .Follow in game_state.viewport_camera.control_flags {
+            input_system = init_input_system(&character_key_mappings, &mouse_mappings, &button_mappings)
+        } else {
+            input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
+        }
+        context.allocator = scene_allocator
+    
+        current_time = time.now()          // Time in nanoseconds since UNIX epoch
+        previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
+        saved_mouse_coords = hlsl.int2 {0, 0}
     }
-    defer mem.free_bytes(scene_backing_memory)
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
-        scene_track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&scene_track, scene_allocator)
         scene_allocator = mem.tracking_allocator(&scene_track)
 
@@ -154,232 +387,23 @@ main :: proc() {
             mem.tracking_allocator_destroy(&scene_track)
         }
     }
-    defer free_all(scene_allocator)
-
-    // Set up per-frame temp allocator
-    temp_backing_memory: []byte
-    {
-        per_frame_arena: mem.Arena
-        err: mem.Allocator_Error
-        temp_backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
-        if err != nil {
-            log.error("Error allocating temporary allocator backing buffer.")
-        }
-
-        mem.arena_init(&per_frame_arena, temp_backing_memory)
-        context.temp_allocator = mem.arena_allocator(&per_frame_arena)
-    }
-    defer mem.free_bytes(temp_backing_memory)
-
-
-    // Load user configuration
-    user_config, config_ok := load_user_config(USER_CONFIG_FILENAME)
-    if !config_ok {
-        log.error("Failed to load user config.")
-    }
-    defer delete_user_config(&user_config, context.allocator)
-
-
-
-    // Initialize SDL2
-    sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
     when ODIN_DEBUG {
-        defer sdl2.Quit()
-    }
-    log.info("Initialized SDL2")
-
-    // Use SDL2 to dynamically link against the Vulkan loader
-    // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
-    if sdl2.Vulkan_LoadLibrary(nil) != 0 {
-        s := sdl2.GetErrorString()
-        log.fatalf("Failed to link Vulkan loader: %v", s)
-        return
-    }
-
-
-
-    // Initialize graphics device
-    init_params := vkw.Init_Parameters {
-        app_name = "Game7",
-        frames_in_flight = FRAMES_IN_FLIGHT,
-        features = {.Window,.Raytracing},
-        //features = {.Window},
-        vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
-    }
-    vgd, res := vkw.init_vulkan(init_params)
-    if res != .SUCCESS {
-        log.errorf("Failed to initialize Vulkan : %v", res)
-        return
+        defer log.destroy_console_logger(context.logger)
     }
     defer vkw.quit_vulkan(&vgd)
-
-    // Make window
-    app_window: Window
-    
-    // Determine window resolution
-    {
-        desktop_display_mode: sdl2.DisplayMode
-        if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
-            log.error("Error getting desktop display mode.")
-        }
-        app_window.display_resolution = hlsl.uint2 {
-            u32(desktop_display_mode.w),
-            u32(desktop_display_mode.h),
-        }
-        app_window.resolution = DEFAULT_RESOLUTION
-        if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
-            app_window.resolution = app_window.display_resolution
-        }
-        if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
-            x := user_config.ints[.WindowWidth]
-            y := user_config.ints[.WindowHeight]
-            app_window.resolution = {u32(x), u32(y)}
-        }
-        app_window.present_mode = .FIFO
-    }
-
-    // Determine SDL window flags
-    app_window.flags = {.VULKAN,.RESIZABLE}
-    if user_config.flags[.ExclusiveFullscreen] {
-        app_window.flags += {.FULLSCREEN}
-    } else if user_config.flags[.BorderlessFullscreen] {
-        app_window.flags += {.BORDERLESS}
-    }
-
-    // Determine SDL window position
-    app_window.position.x = sdl2.WINDOWPOS_CENTERED
-    app_window.position.y = sdl2.WINDOWPOS_CENTERED
-    if .WindowX in user_config.ints && .WindowY in user_config.ints {
-        app_window.position.x = i32(user_config.ints[.WindowX])
-        app_window.position.y = i32(user_config.ints[.WindowY])
-    } else {
-        user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
-        user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
-    }
-
-    app_window.window = sdl2.CreateWindow(
-        TITLE_WITHOUT_IMGUI,
-        app_window.position.x,
-        app_window.position.y,
-        i32(app_window.resolution.x),
-        i32(app_window.resolution.y),
-        app_window.flags
-    )
     when ODIN_DEBUG {
         defer sdl2.DestroyWindow(app_window.window)
     }
-    sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
-
-    // Initialize the state required for rendering to the window
-    if !vkw.init_sdl2_window(&vgd, app_window.window) {
-        e := sdl2.GetError()
-        log.fatalf("Couldn't init SDL2 surface: %v", e)
-        return
+    when ODIN_DEBUG {
+        defer sdl2.Quit()
     }
-
-    // Now that we're done with global allocations, switch context.allocator to scene_allocator
-    context.allocator = scene_allocator
-
-    // Initialize the renderer
-    renderer := init_renderer(&vgd, app_window.resolution)
-    if !renderer.do_raytracing {
-        log.warn("Raytracing features are not supported by your GPU.")
-    }
-
-    //Dear ImGUI init
-    imgui_state := imgui_init(&vgd, user_config, app_window.resolution)
     when ODIN_DEBUG {
         defer gui_cleanup(&vgd, &imgui_state)
     }
-    if imgui_state.show_gui {
-        sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
-    }
-
-    // Init audio system
-    audio_system: AudioSystem
-    init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
     when ODIN_DEBUG {
         defer destroy_audio_system(&audio_system)
     }
-    toggle_device_playback(&audio_system, true)
 
-    // Main app structure storing the game's overall state
-    game_state := init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
-
-    {
-        start_level := "test02"
-        s, ok := user_config.strs[.StartLevel]
-        if ok {
-            start_level = s
-        }
-        sb: strings.Builder
-        strings.builder_init(&sb, context.temp_allocator)
-        start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-        load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path, global_allocator)
-    }
-
-    // @TODO: Keymappings need to be a part of GameState
-    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    mouse_mappings := make(map[u8]VerbType, 64)
-    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
-    {
-        freecam_key_mappings[.ESCAPE] = .ToggleImgui
-        freecam_key_mappings[.W] = .TranslateFreecamForward
-        freecam_key_mappings[.S] = .TranslateFreecamBack
-        freecam_key_mappings[.A] = .TranslateFreecamLeft
-        freecam_key_mappings[.D] = .TranslateFreecamRight
-        freecam_key_mappings[.Q] = .TranslateFreecamDown
-        freecam_key_mappings[.E] = .TranslateFreecamUp
-        freecam_key_mappings[.LSHIFT] = .Sprint
-        freecam_key_mappings[.LCTRL] = .Crawl
-        freecam_key_mappings[.SPACE] = .PlayerJump
-        freecam_key_mappings[.BACKSLASH] = .FrameAdvance
-        freecam_key_mappings[.PAUSE] = .Resume
-        freecam_key_mappings[.F] = .FullscreenHotkey
-
-        character_key_mappings[.ESCAPE] = .ToggleImgui
-        character_key_mappings[.W] = .PlayerTranslateForward
-        character_key_mappings[.S] = .PlayerTranslateBack
-        character_key_mappings[.A] = .PlayerTranslateLeft
-        character_key_mappings[.D] = .PlayerTranslateRight
-        character_key_mappings[.LSHIFT] = .Sprint
-        character_key_mappings[.LCTRL] = .Crawl
-        character_key_mappings[.SPACE] = .PlayerJump
-        character_key_mappings[.BACKSLASH] = .FrameAdvance
-        character_key_mappings[.PAUSE] = .Resume
-        character_key_mappings[.F] = .FullscreenHotkey
-        character_key_mappings[.R] = .PlayerReset
-        character_key_mappings[.E] = .PlayerShoot
-
-        button_mappings[.A] = .PlayerJump
-        button_mappings[.X] = .PlayerShoot
-        button_mappings[.Y] = .PlayerReset
-        button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
-        button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
-
-
-
-        // Hardcoded default mouse mappings
-        //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
-        mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
-    }
-
-    // Init input system
-    context.allocator = global_allocator
-    input_system: InputSystem
-    if .Follow in game_state.viewport_camera.control_flags {
-        input_system = init_input_system(&character_key_mappings, &mouse_mappings, &button_mappings)
-    } else {
-        input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
-    }
-    context.allocator = scene_allocator
-
-    current_time := time.now()          // Time in nanoseconds since UNIX epoch
-    previous_time := time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
-    do_limit_cpu := false
-    saved_mouse_coords := hlsl.int2 {0, 0}
-    load_new_level: Maybe(string)
 
     log.info("App initialization complete. Entering main loop")
 
