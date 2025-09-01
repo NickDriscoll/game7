@@ -42,6 +42,7 @@ ImguiState :: struct {
 }
 
 imgui_init :: proc(gd: ^vkw.Graphics_Device, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
+    scoped_event(&profiler, "ImGUI init")
     imgui_state: ImguiState
     imgui_state.show_gui = user_config.flags[.ImguiEnabled]
     imgui_state.ctxt = imgui.CreateContext()
