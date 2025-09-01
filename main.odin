@@ -458,9 +458,9 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
-        if (vgd.frame_count >= 500) {
-            do_main_loop = false
-        }
+        // if (vgd.frame_count >= 500) {
+        //     do_main_loop = false
+        // }
 
         // Tell Dear ImGUI about inputs
         {
