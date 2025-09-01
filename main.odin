@@ -162,6 +162,7 @@ main :: proc() {
         // Set up per-frame temp allocator
         temp_backing_memory: []byte
         {
+            scoped_event(&profiler, "Create per-frame allocator")
             per_frame_arena: mem.Arena
             err: mem.Allocator_Error
             temp_backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
@@ -205,11 +206,14 @@ main :: proc() {
             //features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
-        res: vk.Result
-        vgd, res = vkw.init_vulkan(init_params)
-        if res != .SUCCESS {
-            log.errorf("Failed to initialize Vulkan : %v", res)
-            return
+        {
+            scoped_event(&profiler, "Init Vulkan")
+            res: vk.Result
+            vgd, res = vkw.init_vulkan(init_params)
+            if res != .SUCCESS {
+                log.errorf("Failed to initialize Vulkan : %v", res)
+                return
+            }
         }
         
         // Determine window resolution
@@ -404,6 +408,8 @@ main :: proc() {
 
     do_main_loop := true
     for do_main_loop {
+        scoped_event(&profiler, "Main loop")
+
         // Time
         current_time = time.now()
         nanosecond_dt := time.diff(previous_time, current_time)
@@ -417,6 +423,7 @@ main :: proc() {
 
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
+            scoped_event(&profiler, "Auto-save user config")
             user_config.strs[.StartLevel] = game_state.current_level
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
@@ -451,8 +458,14 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
+        if (vgd.frame_count >= 500) {
+            do_main_loop = false
+        }
+
         // Tell Dear ImGUI about inputs
         {
+            scoped_event(&profiler, "Tell Dear ImGUI about events")
+
             if output_verbs.bools[.ToggleImgui] {
                 imgui_state.show_gui = !imgui_state.show_gui
                 user_config.flags[.ImguiEnabled] = imgui_state.show_gui
@@ -508,6 +521,7 @@ main :: proc() {
         @static move_player := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
+                scoped_event(&profiler, "Show debug menu")
                 imgui.Text("Frame #%i", vgd.frame_count)
                 imgui.Separator()
 
@@ -1156,7 +1170,33 @@ main :: proc() {
                 vgd.resize_window = false
             }
 
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd, renderer.gfx_timeline)
+            // Sync point where we wait if there are already N frames in the gfx queue
+            if vgd.frame_count >= u64(vgd.frames_in_flight) {
+                scoped_event(&profiler, "GFX timeline semaphore wait")
+
+                // Wait on timeline semaphore before starting command buffer execution
+                wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
+
+                // CPU-sync to prevent CPU from getting further ahead than
+                // the number of frames in flight
+                sem, ok := vkw.get_semaphore(&vgd, renderer.gfx_timeline)
+                if !ok {
+                    log.error("Couldn't find semaphore for CPU-sync")
+                }
+                info := vk.SemaphoreWaitInfo {
+                    sType = .SEMAPHORE_WAIT_INFO,
+                    pNext = nil,
+                    flags = nil,
+                    semaphoreCount = 1,
+                    pSemaphores = sem,
+                    pValues = &wait_value
+                }
+                res := vk.WaitSemaphores(vgd.device, &info, max(u64))
+                if res != .SUCCESS {
+                    log.errorf("CPU failed to wait for timeline semaphore: %v", res)
+                }
+            }
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
             // Increment timeline semaphore upon command buffer completion
             vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)

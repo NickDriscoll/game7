@@ -1170,6 +1170,7 @@ draw_ps1_static_mesh :: proc(
     data: ^StaticModelData,
     draw_data: ^StaticDraw,
 ) {
+    scoped_event(&profiler, "draw_ps1_static_mesh")
     for prim in data.primitives {
         draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1181,6 +1182,7 @@ draw_ps1_skinned_mesh :: proc(
     data: ^SkinnedModelData,
     draw_data: ^SkinnedDraw,
 ) {
+    scoped_event(&profiler, "draw_ps1_skinned_mesh")
     draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -1230,6 +1232,7 @@ draw_ps1_static_primitive :: proc(
     material_handle: Material_Handle,
     draw_data: ^StaticDraw,
 ) -> bool {
+    scoped_event(&profiler, "draw_ps1_static_primitive")
     renderer.dirty_flags += {.Instance,.Draw}
 
     mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
@@ -1259,6 +1262,7 @@ draw_ps1_skinned_primitive :: proc(
     material_handle: Material_Handle,
     draw_data: ^SkinnedDraw,
 ) -> bool {
+    scoped_event(&profiler, "draw_ps1_skinned_primitive")
     renderer.dirty_flags += {.Instance,.Draw}
 
     new_inst := CPUSkinnedInstance {
@@ -1282,6 +1286,7 @@ ComputeSkinningPushConstants :: struct {
     max_vtx_id: u32,
 }
 compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    scoped_event(&profiler, "compute_skinning")
 
     // Loop over each skinned instance in order to produce 
     push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), context.temp_allocator)
@@ -1518,6 +1523,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 }
 
 make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    scoped_event(&profiler, "make_tlas_from_instances")
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
@@ -1627,6 +1633,8 @@ render_scene :: proc(
     viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
+    scoped_event(&profiler, "render_scene")
+
     // Do compute skinning work
     compute_skinning(gd, renderer)
 
@@ -2028,6 +2036,8 @@ load_gltf_static_model :: proc(
     path: cstring,
     allocator := context.allocator
 ) -> ^StaticModelData {
+    scoped_event(&profiler, "Load static glTF")
+
     spath := string(path)
     glb_filename := filepath.base(spath)
     
@@ -2162,6 +2172,8 @@ load_gltf_skinned_model :: proc(
     path: cstring,
     allocator := context.allocator
 ) -> ^SkinnedModelData {
+    scoped_event(&profiler, "Load skinned glTF")
+
     spath := string(path)
     glb_filename := filepath.base(spath)
     

@@ -341,6 +341,7 @@ init_gamestate :: proc(
     user_config: ^UserConfiguration,
     global_allocator: runtime.Allocator,
 ) -> GameState {
+    scoped_event(&profiler, "Init gamestate")
     game_state: GameState
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
@@ -508,6 +509,7 @@ load_level_file :: proc(
     path: string,
     global_allocator: runtime.Allocator,
 ) -> bool {
+    scoped_event(&profiler, "Load level file")
     // Audio lock while loading level data
     sdl2.LockAudioDevice(audio_system.device_id)
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
@@ -904,6 +906,8 @@ scene_editor :: proc(
     gui: ^ImguiState,
     user_config: ^UserConfiguration
 ) {
+    scoped_event(&profiler, "Scene editor update")
+
     builder: strings.Builder
     strings.builder_init(&builder, context.temp_allocator)
     io := imgui.GetIO()
@@ -1352,6 +1356,8 @@ scene_editor :: proc(
 }
 
 player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
+    scoped_event(&profiler, "Player update")
+
     char := &game_state.character
 
     // Is character taking damage
@@ -1628,6 +1634,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 }
 
 player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    scoped_event(&profiler, "Player draw")
     character := &game_state.character
 
     y := -character.facing
@@ -1725,6 +1732,7 @@ ENEMY_LUNGE_SPEED :: 20.0
 ENEMY_JUMP_SPEED :: 6.0                 // m/s
 ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
+    scoped_event(&profiler, "Enemies update")
     char := &game_state.character
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
@@ -1920,6 +1928,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
 }
 
 enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+    scoped_event(&profiler, "Enemies draw")
     // Live enemies
     for enemy, i in game_state.enemies {
         rot: hlsl.float4x4
@@ -1974,6 +1983,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
 }
 
 coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+    scoped_event(&profiler, "Coins draw")
     for coin in game_state.coins {
         pos := coin.position
         pos.z += 0.25 * math.sin(game_state.time)

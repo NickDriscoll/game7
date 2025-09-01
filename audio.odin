@@ -133,6 +133,7 @@ init_audio_system :: proc(
     global_allocator: runtime.Allocator,
     scene_allocator := context.allocator
 ) {
+    scoped_event(&profiler, "Init audio system")
     audio_system.out_channels = 1
     audio_system.tone_freq = MIDDLE_C_HZ
     audio_system.tone_volume = 0.1

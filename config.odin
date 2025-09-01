@@ -112,6 +112,8 @@ delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.all
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
+    scoped_event(&profiler, "Save user config")
+
     sb: strings.Builder
     strings.builder_init(&sb, allocator = context.temp_allocator)
 
@@ -186,6 +188,7 @@ save_default_user_config :: proc(filename: string) {
 }
 
 load_user_config :: proc(filename: string) -> (UserConfiguration, bool) {
+    scoped_event(&profiler, "Load user config")
     user_config, ok := raw_load_user_config(filename)
     if !ok {
         log.warn("Failed to load config file. Generating default config.")
