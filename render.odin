@@ -9,6 +9,7 @@ import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:math/noise"
 import "core:mem"
+import "core:prof/spall"
 import "core:slice"
 import "core:strings"
 import "vendor:cgltf"
@@ -389,6 +390,8 @@ new_frame :: proc(renderer: ^Renderer) {
 }
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
+    scoped_event(&profiler, "Initialize renderer")
+
     renderer: Renderer
     renderer.do_raytracing = .Raytracing in gd.support_flags
     renderer.scene_TLAS.generation = 0xFFFFFFFF

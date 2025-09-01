@@ -48,9 +48,6 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
-spall_ctx: spall.Context
-@(thread_local) spall_buffer: spall.Buffer
-
 Window :: struct {
     position: [2]i32,
     resolution: [2]u32,
@@ -60,7 +57,35 @@ Window :: struct {
     window: ^sdl2.Window,
 }
 
+@thread_local profiler: Profiler
+
 main :: proc() {
+    // Parse command-line arguments
+    log_level := log.Level.Info
+    {
+        context.logger = log.create_console_logger(log_level)
+        argc := len(os.args)
+        for arg, i in os.args {
+            if arg == "--log-level" || arg == "-l" {
+                if i + 1 < argc {
+                    switch os.args[i + 1] {
+                        case "DEBUG": log_level = .Debug
+                        case "INFO": log_level = .Info
+                        case "WARNING": log_level = .Warning
+                        case "ERROR": log_level = .Error
+                        case "FATAL": log_level = .Fatal
+                        case: log.warnf(
+                            "Unrecognized --log-level: %v. Using default (%v)",
+                            os.args[i + 1],
+                            log_level,
+                        )
+                    }
+                }
+            }
+        }
+        log.destroy_console_logger(context.logger)
+    }
+
     // Set up global allocator
     global_allocator := runtime.heap_allocator()
     when ODIN_DEBUG {
@@ -88,13 +113,9 @@ main :: proc() {
     }
     context.allocator = global_allocator
 
-    spall_ctx = spall.context_create("game7.spall")
-	defer spall.context_destroy(&spall_ctx)
-	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
-	defer delete(buffer_backing)
-	spall_buffer = spall.buffer_create(buffer_backing, 0)
-	defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
-
+    profiler = init_profiler("game7.spall")
+    defer quit_profiler(&profiler)
+    scoped_event(&profiler, "Main proc")
 
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -115,33 +136,7 @@ main :: proc() {
     audio_system: AudioSystem
     game_state: GameState
     {
-        spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, "App initialization")
-
-        // Parse command-line arguments
-        log_level := log.Level.Info
-        {
-            context.logger = log.create_console_logger(log_level)
-            argc := len(os.args)
-            for arg, i in os.args {
-                if arg == "--log-level" || arg == "-l" {
-                    if i + 1 < argc {
-                        switch os.args[i + 1] {
-                            case "DEBUG": log_level = .Debug
-                            case "INFO": log_level = .Info
-                            case "WARNING": log_level = .Warning
-                            case "ERROR": log_level = .Error
-                            case "FATAL": log_level = .Fatal
-                            case: log.warnf(
-                                "Unrecognized --log-level: %v. Using default (%v)",
-                                os.args[i + 1],
-                                log_level,
-                            )
-                        }
-                    }
-                }
-            }
-            log.destroy_console_logger(context.logger)
-        }
+        scoped_event(&profiler, "App initialization")
     
         // Set up logger
         context.logger = log.create_console_logger(log_level)
@@ -151,7 +146,7 @@ main :: proc() {
         // Set up per-scene allocator
         scene_backing_memory: []byte
         {
-            spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, "Create per-scene allocator")
+            scoped_event(&profiler, "Create per-scene allocator")
             per_frame_arena: mem.Arena
             err: mem.Allocator_Error
             scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SZIE)
