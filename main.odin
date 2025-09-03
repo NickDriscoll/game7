@@ -113,7 +113,7 @@ main :: proc() {
     }
     context.allocator = global_allocator
 
-    profiler = init_profiler("game7.spall")
+    profiler = init_profiler("game7.spall", global_allocator)
     defer quit_profiler(&profiler)
     scoped_event(&profiler, "Main proc")
 
@@ -388,21 +388,12 @@ main :: proc() {
     }
     when ODIN_DEBUG {
         defer log.destroy_console_logger(context.logger)
-    }
-    defer vkw.quit_vulkan(&vgd)
-    when ODIN_DEBUG {
+        defer vkw.quit_vulkan(&vgd)
         defer sdl2.DestroyWindow(app_window.window)
-    }
-    when ODIN_DEBUG {
         defer sdl2.Quit()
-    }
-    when ODIN_DEBUG {
         defer gui_cleanup(&vgd, &imgui_state)
-    }
-    when ODIN_DEBUG {
         defer destroy_audio_system(&audio_system)
     }
-
 
     log.info("App initialization complete. Entering main loop")
 
