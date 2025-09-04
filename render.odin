@@ -1151,9 +1151,9 @@ add_vertex_uvs :: proc(
     return vkw.sync_write_buffer(gd, renderer.uvs_buffer, uvs, uv_start)
 }
 
-add_material :: proc(using r: ^Renderer, new_mat: ^Material) -> Material_Handle {
-    dirty_flags += {.Material}
-    return Material_Handle(hm.insert(&cpu_materials, new_mat^))
+add_material :: proc(r: ^Renderer, new_mat: ^Material) -> Material_Handle {
+    r.dirty_flags += {.Material}
+    return Material_Handle(hm.insert(&r.cpu_materials, new_mat^))
 }
 
 do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
@@ -1164,11 +1164,30 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
     }
 }
 
+draw_ps1_static_meshes :: proc(
+    gd: ^vkw.Graphics_Device,
+    r: ^Renderer,
+    data: ^StaticModelData,
+    draw_data: []StaticDraw,
+) {
+    scoped_event(&profiler, "draw_ps1_static_meshes")
+    // prim_draw_datas := make([dynamic][dynamic]StaticDraw, len(data.primitives), context.temp_allocator)
+    // for i in 0..<len(data.primitives) {
+    //     prim_draw_datas[i] = make([dynamic]StaticDraw, len(draw_data), context.temp_allocator)
+    // }
+    // for prim, i in data.primitives {
+    //     append(&prim_draw_datas[i], draw_data[i])
+    // }
+
+    for prim, i in data.primitives {
+        draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
+    }
+}
 draw_ps1_static_mesh :: proc(
     gd: ^vkw.Graphics_Device,
-    using r: ^Renderer,
+    r: ^Renderer,
     data: ^StaticModelData,
-    draw_data: ^StaticDraw,
+    draw_data: StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_mesh")
     for prim in data.primitives {
@@ -1225,12 +1244,43 @@ draw_debug_primtive :: proc(
 }
 
 // User code calls this to queue up draw calls
+draw_ps1_static_primitives :: proc(
+    gd: ^vkw.Graphics_Device,
+    renderer: ^Renderer,
+    mesh_handle: Static_Mesh_Handle,
+    material_handle: Material_Handle,
+    draw_data: []StaticDraw,
+) -> bool {
+    scoped_event(&profiler, "draw_ps1_static_primitives")
+    renderer.dirty_flags += {.Instance,.Draw}
+
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    if !ok {
+        log.warn("Unable to get static mesh from handle.")
+        return false
+    }
+
+    for d in draw_data {
+        // Append instance representing this primitive
+        new_inst := CPUStaticInstance {
+            world_from_model = d.world_from_model,
+            mesh_handle = mesh_handle,
+            gpu_mesh_idx = mesh.gpu_mesh_idx,
+            flags = d.flags,
+            material_handle = material_handle,
+        }
+        append(&renderer.ps1_static_instances, new_inst)
+    }
+    renderer.ps1_static_instance_count += u32(len(draw_data))
+
+    return true
+}
 draw_ps1_static_primitive :: proc(
     gd: ^vkw.Graphics_Device,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: Material_Handle,
-    draw_data: ^StaticDraw,
+    draw_data: StaticDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_static_primitive")
     renderer.dirty_flags += {.Instance,.Draw}

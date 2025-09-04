@@ -1,5 +1,6 @@
 package main
 
+import "core:prof/spall"
 import "core:c"
 import "core:fmt"
 import "core:log"
@@ -228,6 +229,7 @@ load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allo
 }
 
 play_sound_effect :: proc(audio_system: ^AudioSystem, i: uint) {
+    scoped_event(&profiler, "play_sound_effect")
     append(&audio_system.playing_sound_effects, SoundEffectPlayback {
         idx = i,
         read_head = 0
@@ -261,6 +263,7 @@ close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
 }
 
 audio_tick :: proc(audio_system: ^AudioSystem) {
+    scoped_event(&profiler, "Per-frame audio tick")
     sdl2.LockAudioDevice(audio_system.device_id)
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
 
@@ -283,6 +286,7 @@ audio_gui :: proc(
     open: ^bool
 ) {
     if imgui.Begin("Audio panel", open) {
+        scoped_event(&profiler, "Audio GUI")
         builder: strings.Builder
         strings.builder_init(&builder, context.temp_allocator)
 

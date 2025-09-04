@@ -200,6 +200,7 @@ gravity_affected_sphere :: proc(
     triangle_normal: hlsl.float3,
     motion_interval: Segment
 ) -> CollisionResponse {
+    scoped_event(&profiler, "gravity_affected_sphere")
     resp: CollisionResponse
     switch sphere.state {
         case .Grounded: {
@@ -1678,7 +1679,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: 
             world_from_model = mat,
             flags = {.Glowing}
         }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
 
         // Light source
         l := default_point_light()
@@ -1747,53 +1748,56 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         // AI state specific logic
         can_react_to_player := false
         is_affected_by_gravity := false
-        switch enemy.ai_state {
-            case .BrainDead: {
-                enemy.velocity.xy = {}
-            }
-            case .Wandering: {
-                can_react_to_player = true
-                is_affected_by_gravity = true
-                sample_point := [2]f64 {f64(game_state.time), f64(i)}
-                t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
-                rotq := z_rotate_quaternion(t)
-                enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
-
-                enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
-
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
-                    // Start resting
-                    enemy.timer_start = time.now()
-                    enemy.ai_state = .Resting
+        {
+            scoped_event(&profiler, "AI specific logic")
+            switch enemy.ai_state {
+                case .BrainDead: {
+                    enemy.velocity.xy = {}
                 }
-            }
-            case .Hovering: {
-                offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
-                enemy.position = enemy.home_position + offset
-            }
-            case .AlertedBounce: {
-                is_affected_by_gravity = true
-                if enemy.collision_state == .Grounded {
-                    enemy.ai_state = .AlertedCharge
-                    enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                    enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
-                    enemy.collision_state = .Falling
-                    play_sound_effect(audio_system, game_state.jump_sound)
+                case .Wandering: {
+                    can_react_to_player = true
+                    is_affected_by_gravity = true
+                    sample_point := [2]f64 {f64(game_state.time), f64(i)}
+                    t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
+                    rotq := z_rotate_quaternion(t)
+                    enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
+    
+                    enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
+    
+                    if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
+                        // Start resting
+                        enemy.timer_start = time.now()
+                        enemy.ai_state = .Resting
+                    }
                 }
-            }
-            case .AlertedCharge: {
-                is_affected_by_gravity = true
-                enemy.home_position = enemy.position
-                if enemy.collision_state == .Grounded {
-                    enemy.ai_state = .Resting
-                    enemy.timer_start = time.now()
+                case .Hovering: {
+                    offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
+                    enemy.position = enemy.home_position + offset
                 }
-            }
-            case .Resting: {
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
-                    // Start wandering
-                    enemy.timer_start = time.now()
-                    enemy.ai_state = .Wandering
+                case .AlertedBounce: {
+                    is_affected_by_gravity = true
+                    if enemy.collision_state == .Grounded {
+                        enemy.ai_state = .AlertedCharge
+                        enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+                        enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
+                        enemy.collision_state = .Falling
+                        play_sound_effect(audio_system, game_state.jump_sound)
+                    }
+                }
+                case .AlertedCharge: {
+                    is_affected_by_gravity = true
+                    enemy.home_position = enemy.position
+                    if enemy.collision_state == .Grounded {
+                        enemy.ai_state = .Resting
+                        enemy.timer_start = time.now()
+                    }
+                }
+                case .Resting: {
+                    if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
+                        // Start wandering
+                        enemy.timer_start = time.now()
+                        enemy.ai_state = .Wandering
+                    }
                 }
             }
         }
@@ -1823,6 +1827,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         // Compute closest point to terrain along with
         // vector opposing enemy motion
         if is_affected_by_gravity {
+            scoped_event(&profiler, "Is affected by gravity")
             phys_sphere := PhysicsSphere {
                 Sphere {
                     position = enemy.position,
@@ -1952,7 +1957,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
                 world_from_model = world_mat,
                 flags = flags
             }
-            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
         }
 
         if enemy.visualize_home {
@@ -1971,7 +1976,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
             world_from_model = mat,
             flags = {.Glowing}
         }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, &dd)
+        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
 
         // Light source
         l := default_point_light()
@@ -1983,14 +1988,22 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
 }
 
 coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
-    scoped_event(&profiler, "Coins draw")
+    sb: strings.Builder
+    strings.builder_init(&sb, context.temp_allocator)
+    p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
+    scoped_event(&profiler, p_string)
+    post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
+    z_offset := 0.25 * math.sin(game_state.time)
+    draw_datas := make([dynamic]StaticDraw, len(game_state.coins), context.temp_allocator)
     for coin in game_state.coins {
+        scoped_event(&profiler, "Individual coin draw")
         pos := coin.position
-        pos.z += 0.25 * math.sin(game_state.time)
+        pos.z += z_offset
         dd := StaticDraw {
-            world_from_model = translation_matrix(pos) * yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
+            world_from_model = translation_matrix(pos) * post_mul
         }
-        draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, &dd)
+        append(&draw_datas, dd)
+        //draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, dd)
         
         if .ShowCoinRadius in game_state.debug_vis_flags {
             dd: DebugDraw
@@ -1999,6 +2012,7 @@ coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: Ga
             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
         }
     }
+    draw_ps1_static_meshes(gd, renderer, game_state.coin_mesh, draw_datas[:])
 }
 
 
