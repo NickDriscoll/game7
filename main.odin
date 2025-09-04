@@ -62,10 +62,14 @@ Window :: struct {
 main :: proc() {
     // Parse command-line arguments
     log_level := log.Level.Info
+    do_profiling := false
+    profile_name := "game7.spall"
     {
         context.logger = log.create_console_logger(log_level)
         argc := len(os.args)
-        for arg, i in os.args {
+        i := 0
+        for i < len(os.args) {
+            arg := os.args[i]
             if arg == "--log-level" || arg == "-l" {
                 if i + 1 < argc {
                     switch os.args[i + 1] {
@@ -80,8 +84,16 @@ main :: proc() {
                             log_level,
                         )
                     }
+                    i += 1
+                }
+            } else if arg == "--profile" || arg == "-p" {
+                do_profiling = true
+                if i + 1 < argc {
+                    profile_name = os.args[i + 1]
+                    i += 1
                 }
             }
+            i += 1
         }
         log.destroy_console_logger(context.logger)
     }
@@ -113,7 +125,9 @@ main :: proc() {
     }
     context.allocator = global_allocator
 
-    profiler = init_profiler("game7.spall", global_allocator)
+    if do_profiling {
+        profiler = init_profiler(profile_name, global_allocator)
+    }
     defer quit_profiler(&profiler)
     scoped_event(&profiler, "Main proc")
 
@@ -399,7 +413,7 @@ main :: proc() {
 
     do_main_loop := true
     for do_main_loop {
-        scoped_event(&profiler, "Main loop")
+        scoped_event(&profiler, "Main frame loop")
 
         // Time
         current_time = time.now()
@@ -449,9 +463,9 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
-        // if (vgd.frame_count >= 500) {
-        //     do_main_loop = false
-        // }
+        if do_profiling && vgd.frame_count >= 144 * 5 {
+            do_main_loop = false
+        }
 
         // Tell Dear ImGUI about inputs
         {
@@ -1022,6 +1036,7 @@ main :: proc() {
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
+            scoped_event(&profiler, "Move player cheat")
             dims : [4]f32 = {
                 cast(f32)renderer.viewport_dimensions.offset.x,
                 cast(f32)renderer.viewport_dimensions.offset.y,
@@ -1046,12 +1061,13 @@ main :: proc() {
         }
 
         // Camera update
-        current_view_from_world := camera_update(&game_state, &output_verbs, dt)
-        projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
-        renderer.cpu_uniforms.clip_from_world =
-            projection_from_view *
-            current_view_from_world
         {
+            scoped_event(&profiler, "Camera update")
+            current_view_from_world := camera_update(&game_state, &output_verbs, dt)
+            projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
+            renderer.cpu_uniforms.clip_from_world =
+                projection_from_view *
+                current_view_from_world
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
@@ -1062,17 +1078,19 @@ main :: proc() {
 
         // Update and draw static scenery
         for &mesh in game_state.static_scenery {
+            scoped_event(&profiler, "Draw static scenery loop iteration")
             rot := linalg.to_matrix4(mesh.rotation)
             world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
 
             dd := StaticDraw {
                 world_from_model = world_mat,
             }
-            draw_ps1_static_mesh(&vgd, &renderer, mesh.model, &dd)
+            draw_ps1_static_mesh(&vgd, &renderer, mesh.model, dd)
         }
 
         // Update and draw animated scenery
         for &mesh in game_state.animated_scenery {
+            scoped_event(&profiler, "Draw animated scenery loop iteration")
             if game_state.do_this_frame {
                 anim := &renderer.animations[mesh.anim_idx]
                 anim_end := get_animation_endtime(anim)
@@ -1093,6 +1111,7 @@ main :: proc() {
 
         // Draw terrain pieces
         for &piece in game_state.terrain_pieces {
+            scoped_event(&profiler, "Draw terrain pieces loop iteration")
             scale := scaling_matrix(piece.scale)
             rot := linalg.matrix4_from_quaternion_f32(piece.rotation)
             trans := translation_matrix(piece.position)
@@ -1100,11 +1119,12 @@ main :: proc() {
             tform := StaticDraw {
                 world_from_model = mat
             }
-            draw_ps1_static_mesh(&vgd, &renderer, piece.model, &tform)
+            draw_ps1_static_mesh(&vgd, &renderer, piece.model, tform)
         }
 
         // Rotate sunlight
         if rotate_sun {
+            scoped_event(&profiler, "Rotate sunlight")
             for i in 0..<renderer.cpu_uniforms.directional_light_count {
                 light := &renderer.cpu_uniforms.directional_lights[i]
                 d := hlsl.float4 {light.direction.x, light.direction.y, light.direction.z, 0.0}
@@ -1114,6 +1134,7 @@ main :: proc() {
 
         // Window update
         {
+            scoped_event(&profiler, "Window update")
             new_size, ok := output_verbs.int2s[.ResizeWindow]
             if ok {
                 app_window.resolution.x = u32(new_size.x)
@@ -1132,6 +1153,7 @@ main :: proc() {
 
         // Render
         {
+            scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
             full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 io := imgui.GetIO()
 
@@ -1226,16 +1248,20 @@ main :: proc() {
             }
         }
 
-        // CLear temp allocator for next frame
-        free_all(context.temp_allocator)
-
-        // Clear sync info for next frame
-        vkw.clear_sync_info(&renderer.gfx_sync)
-        vkw.clear_sync_info(&renderer.compute_sync)
+        {
+            scoped_event(&profiler, "End-of-frame cleanup")
+            // CLear temp allocator for next frame
+            free_all(context.temp_allocator)
+    
+            // Clear sync info for next frame
+            vkw.clear_sync_info(&renderer.gfx_sync)
+            vkw.clear_sync_info(&renderer.compute_sync)
+        }
 
         // CPU limiter
         // 1 millisecond == 1,000,00 nanoseconds
         if do_limit_cpu {
+            scoped_event(&profiler, "CPU Limiter")
             time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
         }
     }

@@ -323,6 +323,7 @@ closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.
     return candidate
 }
 closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> (hlsl.float3, hlsl.float3) {
+    scoped_event(&profiler, "closest_pt_terrain_with_normal")
     candidate: hlsl.float3
     cn: hlsl.float3
     closest_dist := math.INF_F32
