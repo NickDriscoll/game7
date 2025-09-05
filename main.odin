@@ -24,6 +24,7 @@ import vkw "desktop_vulkan_wrapper"
 import hm "desktop_vulkan_wrapper/handlemap"
 
 USER_CONFIG_FILENAME :: "user.cfg"
+
 TITLE_WITHOUT_IMGUI :: "KataWARi"
 TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
@@ -88,9 +89,11 @@ main :: proc() {
                 }
             } else if arg == "--profile" || arg == "-p" {
                 do_profiling = true
-                if i + 1 < argc {
+                if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
                     profile_name = os.args[i + 1]
                     i += 1
+                } else {
+                    log.warnf("No quote detected in %v", os.args[i + 1])
                 }
             }
             i += 1
@@ -199,15 +202,21 @@ main :: proc() {
     
     
         // Initialize SDL2
-        sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
-        log.info("Initialized SDL2")
+        {
+            scoped_event(&profiler, "Initialize SDL2")
+            sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
+            log.info("Initialized SDL2")
+        }
     
         // Use SDL2 to dynamically link against the Vulkan loader
         // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
-        if sdl2.Vulkan_LoadLibrary(nil) != 0 {
-            s := sdl2.GetErrorString()
-            log.fatalf("Failed to link Vulkan loader: %v", s)
-            return
+        {
+            scoped_event(&profiler, "sdl2.Vulkan_LoadLibrary()")
+            if sdl2.Vulkan_LoadLibrary(nil) != 0 {
+                s := sdl2.GetErrorString()
+                log.fatalf("Failed to link Vulkan loader: %v", s)
+                return
+            }
         }
     
     
@@ -229,64 +238,72 @@ main :: proc() {
                 return
             }
         }
-        
-        // Determine window resolution
+
         {
-            desktop_display_mode: sdl2.DisplayMode
-            if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
-                log.error("Error getting desktop display mode.")
+            scoped_event(&profiler, "Window setup")
+
+            // Determine window resolution
+            {
+                desktop_display_mode: sdl2.DisplayMode
+                if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
+                    log.error("Error getting desktop display mode.")
+                }
+                app_window.display_resolution = hlsl.uint2 {
+                    u32(desktop_display_mode.w),
+                    u32(desktop_display_mode.h),
+                }
+                app_window.resolution = DEFAULT_RESOLUTION
+                if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
+                    app_window.resolution = app_window.display_resolution
+                }
+                if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
+                    x := user_config.ints[.WindowWidth]
+                    y := user_config.ints[.WindowHeight]
+                    app_window.resolution = {u32(x), u32(y)}
+                }
+                app_window.present_mode = .FIFO
             }
-            app_window.display_resolution = hlsl.uint2 {
-                u32(desktop_display_mode.w),
-                u32(desktop_display_mode.h),
+        
+            // Determine SDL window flags
+            app_window.flags = {.VULKAN,.RESIZABLE}
+            if user_config.flags[.ExclusiveFullscreen] {
+                app_window.flags += {.FULLSCREEN}
+            } else if user_config.flags[.BorderlessFullscreen] {
+                app_window.flags += {.BORDERLESS}
             }
-            app_window.resolution = DEFAULT_RESOLUTION
-            if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
-                app_window.resolution = app_window.display_resolution
+        
+            // Determine SDL window position
+            app_window.position.x = sdl2.WINDOWPOS_CENTERED
+            app_window.position.y = sdl2.WINDOWPOS_CENTERED
+            if .WindowX in user_config.ints && .WindowY in user_config.ints {
+                app_window.position.x = i32(user_config.ints[.WindowX])
+                app_window.position.y = i32(user_config.ints[.WindowY])
+            } else {
+                user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
+                user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
             }
-            if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
-                x := user_config.ints[.WindowWidth]
-                y := user_config.ints[.WindowHeight]
-                app_window.resolution = {u32(x), u32(y)}
+        
+            app_window.window = sdl2.CreateWindow(
+                TITLE_WITHOUT_IMGUI,
+                app_window.position.x,
+                app_window.position.y,
+                i32(app_window.resolution.x),
+                i32(app_window.resolution.y),
+                app_window.flags
+            )
+            sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
+        
+            // Initialize the state required for rendering to the window
+            {
+                scoped_event(&profiler, "vkw.init_sdl2_window()")
+                if !vkw.init_sdl2_window(&vgd, app_window.window) {
+                    e := sdl2.GetError()
+                    log.fatalf("Couldn't init SDL2 surface: %v", e)
+                    return
+                }
             }
-            app_window.present_mode = .FIFO
         }
-    
-        // Determine SDL window flags
-        app_window.flags = {.VULKAN,.RESIZABLE}
-        if user_config.flags[.ExclusiveFullscreen] {
-            app_window.flags += {.FULLSCREEN}
-        } else if user_config.flags[.BorderlessFullscreen] {
-            app_window.flags += {.BORDERLESS}
-        }
-    
-        // Determine SDL window position
-        app_window.position.x = sdl2.WINDOWPOS_CENTERED
-        app_window.position.y = sdl2.WINDOWPOS_CENTERED
-        if .WindowX in user_config.ints && .WindowY in user_config.ints {
-            app_window.position.x = i32(user_config.ints[.WindowX])
-            app_window.position.y = i32(user_config.ints[.WindowY])
-        } else {
-            user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
-            user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
-        }
-    
-        app_window.window = sdl2.CreateWindow(
-            TITLE_WITHOUT_IMGUI,
-            app_window.position.x,
-            app_window.position.y,
-            i32(app_window.resolution.x),
-            i32(app_window.resolution.y),
-            app_window.flags
-        )
-        sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
-    
-        // Initialize the state required for rendering to the window
-        if !vkw.init_sdl2_window(&vgd, app_window.window) {
-            e := sdl2.GetError()
-            log.fatalf("Couldn't init SDL2 surface: %v", e)
-            return
-        }
+        
     
         // Now that we're done with global allocations, switch context.allocator to scene_allocator
         context.allocator = scene_allocator

@@ -116,7 +116,6 @@ get_view_ray :: proc(using camera: Camera, click_coords: hlsl.uint2, resolution:
         1.0
     }
 
-    
     view_coords := hlsl.float4 {
         clip_coords.x * nearplane * tan_fovx,
         -clip_coords.y * nearplane * tan_fovy,

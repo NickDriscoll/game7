@@ -1737,6 +1737,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
     char := &game_state.character
     enemy_to_remove: Maybe(int)
     for &enemy, i in game_state.enemies {
+        scoped_event(&profiler, "Enemy loop iteration")
         dist_to_player := hlsl.distance(char.collision.position, enemy.position)
         // Early out if not close enough to player
         // if dist_to_player > ENEMY_PLAYER_MIN_DISTANCE {
@@ -2016,7 +2017,7 @@ coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: Ga
 }
 
 
-
+// @TODO: This should be two separate functions
 camera_update :: proc(
     game_state: ^GameState,
     output_verbs: ^OutputVerbs,
@@ -2222,6 +2223,7 @@ camera_update :: proc(
     
         // Collision test the camera's bounding sphere against the terrain
         if game_state.freecam_collision {
+            scoped_event(&profiler, "Collision with terrain")
             camera_collision_point: hlsl.float3
             closest_dist := math.INF_F32
             for &piece in game_state.terrain_pieces {
