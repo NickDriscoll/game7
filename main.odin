@@ -80,7 +80,7 @@ main :: proc() {
                         case "ERROR": log_level = .Error
                         case "FATAL": log_level = .Fatal
                         case: log.warnf(
-                            "Unrecognized --log-level: %v. Using default (%v)",
+                            "Unrecognized --log-level \"%v\". Using default (%v)",
                             os.args[i + 1],
                             log_level,
                         )
@@ -92,8 +92,6 @@ main :: proc() {
                 if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
                     profile_name = os.args[i + 1]
                     i += 1
-                } else {
-                    log.warnf("No quote detected in %v", os.args[i + 1])
                 }
             }
             i += 1
@@ -333,7 +331,6 @@ main :: proc() {
             if ok {
                 start_level = s
             }
-            log.infof("%#v", user_config)
             sb: strings.Builder
             strings.builder_init(&sb, context.temp_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
@@ -418,12 +415,18 @@ main :: proc() {
         }
     }
     when ODIN_DEBUG {
-        defer log.destroy_console_logger(context.logger)
-        defer vkw.quit_vulkan(&vgd)
-        defer sdl2.DestroyWindow(app_window.window)
-        defer sdl2.Quit()
-        defer gui_cleanup(&vgd, &imgui_state)
-        defer destroy_audio_system(&audio_system)
+        defer {
+            scoped_event(&profiler, "Shutdown")
+            defer log.destroy_console_logger(context.logger)
+            {
+                scoped_event(&profiler, "Quit Vulkan")
+                vkw.quit_vulkan(&vgd)
+            }
+            defer sdl2.DestroyWindow(app_window.window)
+            defer sdl2.Quit()
+            defer gui_cleanup(&vgd, &imgui_state)
+            defer destroy_audio_system(&audio_system)
+        }
     }
 
     log.info("App initialization complete. Entering main loop")

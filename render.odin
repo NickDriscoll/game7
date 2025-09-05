@@ -1690,6 +1690,7 @@ render_scene :: proc(
 
     // Barrier for BLAS builds
     if renderer.do_raytracing {
+        scoped_event(&profiler, "Build BLASes + barrier")
         vb, _ := vkw.get_buffer(gd, renderer.positions_buffer)
         ib, _ := vkw.get_buffer(gd, renderer.index_buffer)
 
@@ -1734,6 +1735,7 @@ render_scene :: proc(
 
     // Mesh buffer
     if .Mesh in renderer.dirty_flags {
+        scoped_event(&profiler, "Mesh buffer upload")
         vkw.sync_write_buffer(gd, renderer.static_mesh_buffer, renderer.gpu_static_meshes[:])
 
         // Remove the meshes that came from skinned instances
@@ -1744,6 +1746,7 @@ render_scene :: proc(
 
     // Material buffer
     if .Material in renderer.dirty_flags {
+        scoped_event(&profiler, "Material buffer upload")
         vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
     }
 
@@ -1754,6 +1757,7 @@ render_scene :: proc(
         draw_buffer_offset: u32,
         first_instance: u32
     ) -> u32 {
+        scoped_event(&profiler, "Draw instances")
         do_it := (.Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags) && len(instances) > 0
         if do_it {
             gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(instances), context.temp_allocator)
@@ -1768,6 +1772,7 @@ render_scene :: proc(
 
             current_instance := 0
             for current_instance < len(instances) {
+                scoped_event(&profiler, "Instance loop iteration")
                 current_mesh_handle := instances[current_instance].mesh_handle
                 current_mesh, ok := hm.get(&renderer.cpu_static_meshes, current_mesh_handle)
                 if !ok {
@@ -1842,131 +1847,40 @@ render_scene :: proc(
         draws_offset,
         u32(len(renderer.ps1_static_instances))
     )
-    vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
+
+    {
+        scoped_event(&profiler, "Instance buffer upload")
+        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
+    }
 
     // Update uniforms buffer
     {
+        scoped_event(&profiler, "Uniform buffer upload")
         in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
         if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice, uniforms_offset) {
             log.error("Failed to write uniform buffer data")
         }
     }
 
-    // Clear dirty flags after checking them
-    renderer.dirty_flags = {}
+    {
+        scoped_event(&profiler, "Vulkan command recording")
+        // Clear dirty flags after checking them
+        renderer.dirty_flags = {}
+        
+        // Bind global index buffer and descriptor set
+        vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
+        vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
     
-    // Bind global index buffer and descriptor set
-    vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
-    vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
-
-    // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
-    color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
-    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
-        vkw.Image_Barrier {
-            src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-            src_access_mask = {.MEMORY_WRITE},
-            dst_stage_mask = {.ALL_COMMANDS},
-            dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
-            old_layout = .UNDEFINED,
-            new_layout = .COLOR_ATTACHMENT_OPTIMAL,
-            src_queue_family = gd.gfx_queue_family,
-            dst_queue_family = gd.gfx_queue_family,
-            image = color_target.image,
-            subresource_range = vk.ImageSubresourceRange {
-                aspectMask = {.COLOR},
-                baseMipLevel = 0,
-                levelCount = 1,
-                baseArrayLayer = 0,
-                layerCount = 1
-            }
-        }
-    })
-
-    // Begin renderpass into main internal rendertarget
-    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
-
-    res := renderer.main_framebuffer.resolution
-    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        x = cast(f32)renderer.viewport_dimensions.offset.x,
-        y = cast(f32)renderer.viewport_dimensions.offset.y,
-        width = cast(f32)renderer.viewport_dimensions.extent.width,
-        height = cast(f32)renderer.viewport_dimensions.extent.height,
-        minDepth = 0.0,
-        maxDepth = 1.0
-    }})
-    vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
-        {
-            offset = vk.Offset2D {
-                x = 0,
-                y = 0
-            },
-            extent = vk.Extent2D {
-                width = u32(res.x),
-                height = u32(res.y),
-            }
-        }
-    })
-
-    t := f32(gd.frame_count) / 144.0
-    uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
-    vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
-        uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
-        sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
-    })
-
-    // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-
-    // Opaque drawing pipeline(s)
-
-    draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
-    // Main opaque 3D shaded pipeline
-    if len(renderer.ps1_static_instances) > 0 {
-        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
-        vkw.cmd_draw_indexed_indirect(
-            gd,
-            gfx_cb_idx,
-            renderer.draw_buffer,
-            draw_buffer_offset,
-            ps1_draw_calls
-        )
-    }
-    draw_buffer_offset += u64(ps1_draw_calls) * size_of(vk.DrawIndexedIndirectCommand)
-
-    // Opaque drawing finished
-
-    // Sky
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
-    vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
-
-    // Start transparent drawing
-
-    // Debug draw pipeline
-    if len(renderer.debug_static_instances) > 0 {
-        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
-        vkw.cmd_draw_indexed_indirect(
-            gd,
-            gfx_cb_idx,
-            renderer.draw_buffer,
-            draw_buffer_offset,
-            debug_draw_calls
-        )
-    }
-
-    vkw.cmd_end_render_pass(gd, gfx_cb_idx)
-
-    // Postprocessing step to write final output
-    framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
-
-    // Transition internal framebuffer to be sampled from
-    vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
-        {
-            {
+        // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
+        color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
+        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
+            vkw.Image_Barrier {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
                 src_access_mask = {.MEMORY_WRITE},
                 dst_stage_mask = {.ALL_COMMANDS},
-                dst_access_mask = {.MEMORY_READ},
-                old_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                new_layout = .SHADER_READ_ONLY_OPTIMAL,
+                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                old_layout = .UNDEFINED,
+                new_layout = .COLOR_ATTACHMENT_OPTIMAL,
                 src_queue_family = gd.gfx_queue_family,
                 dst_queue_family = gd.gfx_queue_family,
                 image = color_target.image,
@@ -1978,33 +1892,132 @@ render_scene :: proc(
                     layerCount = 1
                 }
             }
-        }
-    )
-
-    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        x = 0.0,
-        y = 0.0,
-        width = f32(res.x),
-        height = f32(res.y),
-        minDepth = 0.0,
-        maxDepth = 1.0
-    }})
+        })
     
-    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
-    vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
-
-    vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
-        color_target = renderer.main_framebuffer.color_images[0].index,
-        sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
-        uniforms_address = uniform_buf.address
-    })
-
-    // Draw screen-filling triangle
-    vkw.cmd_draw(gd, gfx_cb_idx, 3, 1, 0, 0)
-
-    vkw.cmd_end_render_pass(gd, gfx_cb_idx)
-
-    renderer.cpu_uniforms.point_light_count = 0
+        // Begin renderpass into main internal rendertarget
+        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
+    
+        res := renderer.main_framebuffer.resolution
+        vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+            x = cast(f32)renderer.viewport_dimensions.offset.x,
+            y = cast(f32)renderer.viewport_dimensions.offset.y,
+            width = cast(f32)renderer.viewport_dimensions.extent.width,
+            height = cast(f32)renderer.viewport_dimensions.extent.height,
+            minDepth = 0.0,
+            maxDepth = 1.0
+        }})
+        vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
+            {
+                offset = vk.Offset2D {
+                    x = 0,
+                    y = 0
+                },
+                extent = vk.Extent2D {
+                    width = u32(res.x),
+                    height = u32(res.y),
+                }
+            }
+        })
+    
+        t := f32(gd.frame_count) / 144.0
+        uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
+        vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
+            uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
+        })
+    
+        // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
+    
+        // Opaque drawing pipeline(s)
+    
+        draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
+        // Main opaque 3D shaded pipeline
+        if len(renderer.ps1_static_instances) > 0 {
+            vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
+            vkw.cmd_draw_indexed_indirect(
+                gd,
+                gfx_cb_idx,
+                renderer.draw_buffer,
+                draw_buffer_offset,
+                ps1_draw_calls
+            )
+        }
+        draw_buffer_offset += u64(ps1_draw_calls) * size_of(vk.DrawIndexedIndirectCommand)
+    
+        // Opaque drawing finished
+    
+        // Sky
+        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
+        vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
+    
+        // Start transparent drawing
+    
+        // Debug draw pipeline
+        if len(renderer.debug_static_instances) > 0 {
+            vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
+            vkw.cmd_draw_indexed_indirect(
+                gd,
+                gfx_cb_idx,
+                renderer.draw_buffer,
+                draw_buffer_offset,
+                debug_draw_calls
+            )
+        }
+    
+        vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+    
+        // Postprocessing step to write final output
+        framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
+    
+        // Transition internal framebuffer to be sampled from
+        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
+            {
+                {
+                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    src_access_mask = {.MEMORY_WRITE},
+                    dst_stage_mask = {.ALL_COMMANDS},
+                    dst_access_mask = {.MEMORY_READ},
+                    old_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                    new_layout = .SHADER_READ_ONLY_OPTIMAL,
+                    src_queue_family = gd.gfx_queue_family,
+                    dst_queue_family = gd.gfx_queue_family,
+                    image = color_target.image,
+                    subresource_range = vk.ImageSubresourceRange {
+                        aspectMask = {.COLOR},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                }
+            }
+        )
+    
+        vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+            x = 0.0,
+            y = 0.0,
+            width = f32(res.x),
+            height = f32(res.y),
+            minDepth = 0.0,
+            maxDepth = 1.0
+        }})
+        
+        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
+        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
+    
+        vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
+            color_target = renderer.main_framebuffer.color_images[0].index,
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
+            uniforms_address = uniform_buf.address
+        })
+    
+        // Draw screen-filling triangle
+        vkw.cmd_draw(gd, gfx_cb_idx, 3, 1, 0, 0)
+    
+        vkw.cmd_end_render_pass(gd, gfx_cb_idx)
+    
+        renderer.cpu_uniforms.point_light_count = 0
+    }
 }
 
 
