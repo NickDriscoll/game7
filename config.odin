@@ -187,23 +187,28 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "freecam_yaw = 0.0\n")
 }
 
-load_user_config :: proc(filename: string) -> (UserConfiguration, bool) {
+load_user_config :: proc(filename: string, allocator := context.allocator) -> (UserConfiguration, bool) {
     scoped_event(&profiler, "Load user config")
     user_config, ok := raw_load_user_config(filename)
     if !ok {
         log.warn("Failed to load config file. Generating default config.")
         save_default_user_config(filename)
 
-        user_config, ok = raw_load_user_config(filename)
+        user_config, ok = raw_load_user_config(filename, allocator)
     }
 
     return user_config, ok
 }
 
-raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: bool) {
-    file_text := os.read_entire_file(filename, allocator = context.temp_allocator) or_return
+raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, ok: bool) {
+    scoped_event(&profiler, "raw_load_user_config")
+    file_text: []u8
+    {
+        scoped_event(&profiler, "Read entire config file")
+        file_text = os.read_entire_file(filename, allocator = context.temp_allocator) or_return
+    }
 
-    u := init_user_config()
+    u := init_user_config(allocator)
 
     sc: scanner.Scanner
     scanner.init(&sc, string(file_text))
@@ -214,6 +219,8 @@ raw_load_user_config :: proc(filename: string) -> (c: UserConfiguration, ok: boo
     key_tok := scanner.scan(&sc)
     key_str := scanner.token_text(&sc)
     for key_tok != scanner.EOF {
+        scoped_event(&profiler, "Token scan iteration")
+
         // Map string to key
         key: Maybe(ConfigKey)
         for k, e in CONFIG_KEY_STRINGS {
