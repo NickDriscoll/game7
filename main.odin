@@ -427,7 +427,7 @@ main :: proc() {
         game_state.time += scaled_dt
 
         // Save user configuration every 100ms
-        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 1_000_000 {
+        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
             user_config.strs[.StartLevel] = game_state.current_level
             update_user_cfg_camera(&user_config, &game_state.viewport_camera)
