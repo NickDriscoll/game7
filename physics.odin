@@ -249,6 +249,7 @@ closest_pt_triangle_with_normal :: proc(point: hlsl.float3, using triangle: ^Tri
 
 // This proc returns the first collision detected
 closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
+    scoped_event(&profiler, "closest_pt_triangles")
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
@@ -276,6 +277,7 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     return closest_point
 }
 closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, hlsl.float3) {
+    scoped_event(&profiler, "closest_pt_triangles_with_normal")
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
