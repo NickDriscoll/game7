@@ -221,8 +221,8 @@ main :: proc() {
         init_params := vkw.Init_Parameters {
             app_name = "Game7",
             frames_in_flight = FRAMES_IN_FLIGHT,
-            //features = {.Window,.Raytracing},
-            features = {.Window},
+            features = {.Window,.Raytracing},
+            //features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
         {
