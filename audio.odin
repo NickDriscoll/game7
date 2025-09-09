@@ -174,7 +174,7 @@ init_audio_system :: proc(
             callback = audio_system_callback,
             userdata = audio_system
         }
-        audio_system.device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &audio_system.spec, false)
+        audio_system.device_id = sdl2.OpenAudioDevice(nil, false, &desired_audiospec, &audio_system.spec, nil)
     }
     audio_new_scene(audio_system, scene_allocator)
 }

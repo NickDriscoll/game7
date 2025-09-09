@@ -15,3 +15,13 @@
     - Sine wave test output
     - .ogg file playback
 - Bugs
+
+## Build requirements
+
+- [Odin (ver. dev-2025-09)](https://github.com/odin-lang/Odin/releases/tag/dev-2025-09)
+- [Slang](https://github.com/shader-slang/slang/releases)
+
+## Build
+
+- powershell`.\windows_build.bat debug`
+- bash`./linux_build.sh debug`

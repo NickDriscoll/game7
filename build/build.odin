@@ -137,12 +137,17 @@ main :: proc() {
                     in_path
                 }
             }
-    
+
             process, error := os2.process_start(slangc_command)
             if error != nil {
-                log.errorf("%#v", error)
+                log.errorf("Error launching slangc: %#v", error)
                 return
             }
+            log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
+                slangc_command.command[2],
+                slangc_command.command[8],
+                slangc_command.command[9]
+            })
             append(&processes, process)
             strings.builder_reset(&in_sb)
             strings.builder_reset(&out_sb)
@@ -167,12 +172,17 @@ main :: proc() {
                         in_path
                     }
                 }
-        
+
                 process, error := os2.process_start(slangc_command)
                 if error != nil {
-                    log.errorf("%#v", error)
+                    log.errorf("Error launching slangc: %#v", error)
                     return
                 }
+                log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
+                    slangc_command.command[2],
+                    slangc_command.command[10],
+                    slangc_command.command[11]
+                })
                 append(&processes, process)
                 strings.builder_reset(&in_sb)
                 strings.builder_reset(&out_sb)
@@ -212,5 +222,5 @@ main :: proc() {
     }
 
     
-    log.info("Done!")
+    log.info("Program compilation succeeded!")
 }
