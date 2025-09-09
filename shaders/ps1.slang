@@ -111,7 +111,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
 }
 
 [shader("fragment")]
-float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID, uint first_instance: SV_StartInstanceLocation) {
+float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
 
