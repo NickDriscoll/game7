@@ -2053,6 +2053,7 @@ load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> 
     loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), context.temp_allocator)
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
+        assert(glb_image.buffer_view != nil, "Image must be embedded inside .glb")
         data_ptr := get_bufferview_ptr(glb_image.buffer_view, byte)
 
         channels : i32 = 4
@@ -2063,7 +2064,7 @@ load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> 
         // Get texture name
         tex_name := glb_image.name
         if len(tex_name) == 0 {
-            tex_name = "Unnamed glTF image"
+            tex_name = "Unnamed glTF texture"
         }
 
         image_create_info := vkw.Image_Create {
