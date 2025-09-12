@@ -292,7 +292,8 @@ main :: proc() {
             // Initialize the state required for rendering to the window
             {
                 scoped_event(&profiler, "vkw.init_sdl2_window()")
-                if !vkw.init_sdl2_window(&vgd, app_window.window) {
+                //app_window.present_mode = .IMMEDIATE if do_profiling else .FIFO
+                if !vkw.init_sdl2_window(&vgd, app_window.window, app_window.present_mode) {
                     e := sdl2.GetError()
                     log.fatalf("Couldn't init SDL2 surface: %v", e)
                     return
@@ -332,7 +333,7 @@ main :: proc() {
             sb: strings.Builder
             strings.builder_init(&sb, context.temp_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-            load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path, global_allocator)
+            load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
         }
     
         // @TODO: Keymappings need to be a part of GameState
@@ -461,7 +462,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path, global_allocator)
+                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
                 load_new_level = nil
             }
         }

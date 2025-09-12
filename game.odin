@@ -508,7 +508,6 @@ load_level_file :: proc(
     game_state: ^GameState,
     user_config: ^UserConfiguration,
     path: string,
-    global_allocator: runtime.Allocator,
 ) -> bool {
     scoped_event(&profiler, "Load level file")
     // Audio lock while loading level data
@@ -1996,16 +1995,16 @@ coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: Ga
     post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
     z_offset := 0.25 * math.sin(game_state.time)
     draw_datas := make([dynamic]StaticDraw, len(game_state.coins), context.temp_allocator)
-    for coin in game_state.coins {
+    for coin, i in game_state.coins {
         scoped_event(&profiler, "Individual coin draw")
         pos := coin.position
         pos.z += z_offset
-        dd := StaticDraw {
-            world_from_model = translation_matrix(pos) * post_mul
-        }
-        append(&draw_datas, dd)
-        //draw_ps1_static_mesh(gd, renderer, game_state.coin_mesh, dd)
-        
+        dd := &draw_datas[i]
+        dd.world_from_model = post_mul
+        dd.world_from_model[3][0] = pos.x
+        dd.world_from_model[3][1] = pos.y
+        dd.world_from_model[3][2] = pos.z
+
         if .ShowCoinRadius in game_state.debug_vis_flags {
             dd: DebugDraw
             dd.world_from_model = translation_matrix(coin.position) * scaling_matrix(game_state.coin_collision_radius)
