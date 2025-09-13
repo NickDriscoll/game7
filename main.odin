@@ -392,6 +392,7 @@ main :: proc() {
         previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         saved_mouse_coords = hlsl.int2 {0, 0}
     }
+    context.allocator = scene_allocator
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         mem.tracking_allocator_init(&scene_track, scene_allocator)
@@ -936,7 +937,7 @@ main :: proc() {
                     case .AddAnimatedScenery: {
                         path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
                         if ok {
-                            model := load_gltf_skinned_model(&vgd, &renderer, path)
+                            model := load_gltf_skinned_model(&vgd, &renderer, path, scene_allocator)
                             position := hlsl.float3 {}
                             rotation := quaternion128 {}
                             scale : f32 = 1.0

@@ -469,18 +469,18 @@ gamestate_new_scene :: proc(
     game_state.coins = make([dynamic]Coin, scene_allocator)
     
     // Load icosphere mesh for debug visualization
-    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb")
+    game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
 
     // Load enemy mesh
-    game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb")
+    game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb", scene_allocator)
     
-    game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb")
+    game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb", scene_allocator)
     
     // Load animated test glTF model
     skinned_model: ^SkinnedModelData
     {
         path : cstring = "data/models/CesiumMan.glb"
-        skinned_model = load_gltf_skinned_model(gd, renderer, path)
+        skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
     }
 
     game_state.character = Character {
@@ -508,6 +508,7 @@ load_level_file :: proc(
     game_state: ^GameState,
     user_config: ^UserConfiguration,
     path: string,
+    scene_allocator := context.allocator
 ) -> bool {
     scoped_event(&profiler, "Load level file")
     // Audio lock while loading level data
@@ -629,7 +630,7 @@ load_level_file :: proc(
                     name := read_string_from_buffer(lvl_bytes, &read_head)
                     fmt.sbprintf(&path_builder, "data/models/%v", name)
                     path, _ := strings.to_cstring(&path_builder)
-                    model := load_gltf_skinned_model(gd, renderer, path)
+                    model := load_gltf_skinned_model(gd, renderer, path, scene_allocator)
             
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
