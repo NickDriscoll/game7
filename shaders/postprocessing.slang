@@ -56,7 +56,6 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
     float2 sample_pos = input.uv;
-    //float heat_wave_amplitude = 0.005;
     sample_pos += u_data.distortion_strength * 
     float2(
         my_noise(input.uv + 0.5 * u_data.time),

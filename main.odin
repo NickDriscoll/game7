@@ -31,7 +31,7 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 MAXIMUM_FRAME_DT :: 1.0 / 30.0
 
-SCENE_ARENA_SZIE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
+SCENE_ARENA_SIZE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
 TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
@@ -164,7 +164,7 @@ main :: proc() {
             scoped_event(&profiler, "Create per-scene allocator")
             per_frame_arena: mem.Arena
             err: mem.Allocator_Error
-            scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SZIE)
+            scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SIZE)
             if err != nil {
                 log.error("Error allocating scene allocator backing buffer.")
             }
@@ -221,8 +221,8 @@ main :: proc() {
         init_params := vkw.Init_Parameters {
             app_name = "Game7",
             frames_in_flight = FRAMES_IN_FLIGHT,
-            features = {.Window,.Raytracing},
-            //features = {.Window},
+            //features = {.Window,.Raytracing},
+            features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
         {
