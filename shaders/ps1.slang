@@ -57,6 +57,24 @@ float3x3 z_vector_rotate(float angle) {
     );
 }
 
+float2 hash(float2 p) {
+    p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+
+float my_noise(float2 p) {
+    const float K1 = 0.366025404; // (sqrt(3)-1)/2;
+    const float K2 = 0.211324865; // (3-sqrt(3))/6;
+    float2 i = floor(p + (p.x + p.y) * K1);
+    float2 a = p - i + (i.x + i.y) * K2;
+    float2 o = (a.x > a.y) ? float2(1.0, 0.0) : float2(0.0, 1.0); // vec2 of = 0.5 + 0.5*vec2(sign(a.x-a.y), sign(a.y-a.x));
+    float2 b = a - o + K2;
+    float2 c = a - 1.0 + 2.0 * K2;
+    float3 h = max(0.5 - float3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
+    float3 n = h * h * h * h * float3(dot(a, hash(i + 0.0)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
+    return dot(n, float3(70.0));
+}
+
 bool trace_shadow_ray(float3 origin, float3 direction, float length) {
 #if defined(HardwareRT)
     RayDesc ray;
@@ -139,10 +157,16 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
             continue;
         }
 
-        diffuse_contribution += lambert(face_normal, light.direction, light.color);
+        // Fake cloud shadows
+        float cloud_shadow = 1.0;
+        {
+            cloud_shadow = clamp(0.5 * my_noise(0.01 * input.world_pos.xy + 0.1 * u_data.time) + 0.5, 0.0, 1.0);
+        }
+
+        diffuse_contribution += cloud_shadow * lambert(face_normal, light.direction, light.color);
 
         float3 h = normalize(light.direction + view_dir);
-        specular_contribution += light.color * max(0.0, pow(dot(h, face_normal), 64.0));
+        specular_contribution += cloud_shadow * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
     }
 
     // Point lights
