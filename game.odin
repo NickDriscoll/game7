@@ -305,6 +305,8 @@ GameState :: struct {
     enemy_mesh: ^StaticModelData,
     selected_enemy: Maybe(int),
 
+    skybox_texture: vkw.Texture_Handle,
+
     debug_vis_flags: DebugVisualizationFlags,
 
     // Editor state
@@ -409,8 +411,10 @@ init_gamestate :: proc(
         game_state.ow_sound = idx
     }
 
-    // Just a test load of a DDS file
+    // Load skybox
     {
+        scoped_event(&profiler, "Load skybox")
+        // @TODO: Load this from level file
         path := "data/images/beach.dds"
         file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
 
@@ -440,7 +444,7 @@ init_gamestate :: proc(
                 tiling = .OPTIMAL,
                 usage = {.SAMPLED},
                 alloc_flags = nil,
-                name = "DDS test"
+                name = "Skybox"
             }
             image_bytes := file_bytes[TRUE_DDS_HEADER_SIZE:]
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])

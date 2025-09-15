@@ -221,8 +221,8 @@ main :: proc() {
         init_params := vkw.Init_Parameters {
             app_name = "Game7",
             frames_in_flight = FRAMES_IN_FLIGHT,
-            //features = {.Window,.Raytracing},
-            features = {.Window},
+            features = {.Window,.Raytracing},
+            //features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
         {
@@ -1175,6 +1175,7 @@ main :: proc() {
         {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
             full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
+                scoped_event(&profiler, "full_swapchain_remake")
                 io := imgui.GetIO()
 
                 info := vkw.SwapchainInfo {
@@ -1262,9 +1263,12 @@ main :: proc() {
             render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
 
             // Submit gfx command buffer and present swapchain image
-            present_res := vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
-            if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
-                full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+            {
+                scoped_event(&profiler, "Submit to gfx queue and present")
+                present_res := vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
+                if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
+                    full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+                }
             }
         }
 

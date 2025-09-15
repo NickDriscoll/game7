@@ -193,6 +193,7 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
 }
 
 load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allocator: runtime.Allocator) -> (uint, bool) {
+    scoped_event(&profiler, "load_sound_effect")
     err: vorbis.Error
     file := vorbis.open_filename(path, &err, nil)
     if err != nil {

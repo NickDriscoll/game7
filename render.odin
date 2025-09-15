@@ -605,7 +605,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Rend
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
-        color_images: [8]vkw.Image_Handle
+        color_images: [8]vkw.Texture_Handle
         color_images[0] = color_target_handle
         renderer.main_framebuffer = {
             color_images = color_images,
@@ -868,7 +868,7 @@ resize_framebuffers :: proc(gd: ^vkw.Graphics_Device, using r: ^Renderer, screen
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
-        color_images: [8]vkw.Image_Handle
+        color_images: [8]vkw.Texture_Handle
         color_images[0] = color_target_handle
         main_framebuffer = {
             color_images = color_images,
@@ -2049,8 +2049,8 @@ gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     return idx
 }
 
-load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> [dynamic]vkw.Image_Handle {
-    loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), context.temp_allocator)
+load_gltf_textures :: proc(gd: ^vkw.Graphics_Device, gltf_data: ^cgltf.data) -> [dynamic]vkw.Texture_Handle {
+    loaded_glb_images := make([dynamic]vkw.Texture_Handle, len(gltf_data.textures), context.temp_allocator)
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         assert(glb_image.buffer_view != nil, "Image must be embedded inside .glb")
@@ -2183,7 +2183,7 @@ load_gltf_static_model :: proc(
             glb_material := primitive.material
             has_material := glb_material != nil
     
-            bindless_image_idx := vkw.Image_Handle {
+            bindless_image_idx := vkw.Texture_Handle {
                 index = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
@@ -2422,7 +2422,7 @@ load_gltf_skinned_model :: proc(
             glb_material := primitive.material
             has_material := glb_material != nil
     
-            bindless_image_idx := vkw.Image_Handle {
+            bindless_image_idx := vkw.Texture_Handle {
                 index = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
