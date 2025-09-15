@@ -32,7 +32,7 @@ ImguiUniforms :: struct {
 
 ImguiState :: struct {
     ctxt: ^imgui.Context,
-    font_atlas: vkw.Image_Handle,
+    font_atlas: vkw.Texture_Handle,
     vertex_buffer: vkw.Buffer_Handle,
     index_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
@@ -435,6 +435,7 @@ render_imgui :: proc(
     imgui_state: ^ImguiState,
     framebuffer: ^vkw.Framebuffer
 ) {
+    scoped_event(&profiler, "render_imgui")
     imgui.EndFrame()
     frame_idx := gd.frame_count % FRAMES_IN_FLIGHT
 
