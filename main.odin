@@ -1283,7 +1283,6 @@ main :: proc() {
         }
 
         // CPU limiter
-        // 1 millisecond == 1,000,00 nanoseconds
         if do_limit_cpu {
             scoped_event(&profiler, "CPU Limiter")
             time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
