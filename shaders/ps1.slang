@@ -57,17 +57,35 @@ float3x3 z_vector_rotate(float angle) {
     );
 }
 
-float2 hash(float2 p) {
+// The MIT License
+// Copyright © 2013 Inigo Quilez
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// https://www.youtube.com/c/InigoQuilez
+// https://iquilezles.org
+
+// Simplex Noise (http://en.wikipedia.org/wiki/Simplex_noise), a type of gradient noise
+// that uses N+1 vertices for random gradient interpolation instead of 2^N as in regular
+// latice based Gradient Noise.
+
+// All noise functions here:
+//
+// https://www.shadertoy.com/playlist/fXlXzf&from=0&num=12
+
+float2 hash(float2 p) // replace this by something better
+{
     p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
     return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
 }
 
-float my_noise(float2 p) {
+float simplex2D(in float2 p)
+{
     const float K1 = 0.366025404; // (sqrt(3)-1)/2;
     const float K2 = 0.211324865; // (3-sqrt(3))/6;
+
     float2 i = floor(p + (p.x + p.y) * K1);
     float2 a = p - i + (i.x + i.y) * K2;
-    float2 o = (a.x > a.y) ? float2(1.0, 0.0) : float2(0.0, 1.0); // vec2 of = 0.5 + 0.5*vec2(sign(a.x-a.y), sign(a.y-a.x));
+    float m = step(a.y, a.x);
+    float2 o = float2(m, 1.0 - m);
     float2 b = a - o + K2;
     float2 c = a - 1.0 + 2.0 * K2;
     float3 h = max(0.5 - float3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
@@ -158,9 +176,23 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         }
 
         // Fake cloud shadows
-        float cloud_shadow = 1.0;
+        float cloud_shadow = 0.0;
         {
-            cloud_shadow = clamp(0.5 * my_noise(0.01 * input.world_pos.xy + 0.1 * u_data.time) + 0.5, 0.0, 1.0);
+            float speed = 0.005;
+            float2 sample_pt = 0.01 * input.world_pos.xy + speed * u_data.time;
+            sample_pt *= 5.0;
+
+            static const float2x2 m = float2x2(1.6, 1.2, -1.2, 1.6);
+            cloud_shadow = (1.0 / 2.0) * simplex2D(sample_pt);
+            sample_pt = mul(m, sample_pt);
+            cloud_shadow += (1.0 / 4.0) * simplex2D(sample_pt);
+            sample_pt = mul(m, sample_pt);
+            cloud_shadow += (1.0 / 8.0) * simplex2D(sample_pt);
+            sample_pt = mul(m, sample_pt);
+            cloud_shadow += (1.0 / 16.0) * simplex2D(sample_pt);
+            sample_pt = mul(m, sample_pt);
+
+            cloud_shadow = 0.5 + 0.5 * cloud_shadow;
         }
 
         diffuse_contribution += cloud_shadow * lambert(face_normal, light.direction, light.color);
