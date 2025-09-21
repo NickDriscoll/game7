@@ -77,7 +77,7 @@ CharacterFlag :: enum {
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
-BULLET_MAX_RADIUS :: 2.5
+BULLET_MAX_RADIUS :: 0.8
 Character :: struct {
     collision: PhysicsSphere,
     gravity_factor: f32,
@@ -295,6 +295,7 @@ GameState :: struct {
     thrown_enemies: [dynamic]ThrownEnemy,
     coins: [dynamic]Coin,
     character_start: hlsl.float3,
+    skybox_texture: vkw.Texture_Handle,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: ^StaticModelData,
@@ -305,7 +306,6 @@ GameState :: struct {
     enemy_mesh: ^StaticModelData,
     selected_enemy: Maybe(int),
 
-    skybox_texture: vkw.Texture_Handle,
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -314,6 +314,7 @@ GameState :: struct {
     current_level: string,
     savename_buffer: [1024]c.char,
 
+    // Global sound effects loaded on init_gamestate()
     bgm_id: uint,
     jump_sound: uint,
     shoot_sound: uint,
@@ -1557,7 +1558,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     {
         res, have_shoot := output_verbs.bools[.PlayerShoot]
         if have_shoot {
-            if res {
+            if res && char.air_vortex == nil {
                 held_enemy, is_holding_enemy := char.held_enemy.?
                 if is_holding_enemy {
                     // Insert into thrown enemies array
@@ -1583,27 +1584,28 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                     }
                 }
                 play_sound_effect(audio_system, game_state.shoot_sound)
-            } else {
-                char.air_vortex = nil
             }
         }
     }
 
     // Check if we collected any coins
-    coin_to_remove: Maybe(int)
-    for coin, i in game_state.coins {
-        s := Sphere {
-            position = coin.position,
-            radius = game_state.coin_collision_radius
+    {
+        scoped_event(&profiler, "Test player against coins")
+        coin_to_remove: Maybe(int)
+        for coin, i in game_state.coins {
+            s := Sphere {
+                position = coin.position,
+                radius = game_state.coin_collision_radius
+            }
+            if are_spheres_overlapping(s, char.collision) {
+                play_sound_effect(audio_system, game_state.coin_sound)
+                coin_to_remove = i
+            }
         }
-        if are_spheres_overlapping(s, char.collision) {
-            play_sound_effect(audio_system, game_state.coin_sound)
-            coin_to_remove = i
+        cr, crok := coin_to_remove.?
+        if crok {
+            unordered_remove(&game_state.coins, cr)
         }
-    }
-    cr, crok := coin_to_remove.?
-    if crok {
-        unordered_remove(&game_state.coins, cr)
     }
 
     // Check if we're being hit by an enemy
@@ -1631,6 +1633,9 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
         bullet.t += dt
         bullet.collision.position = char.collision.position
         bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, min(bullet.t / char.bullet_travel_time, 1.0))
+        if bullet.collision.radius == BULLET_MAX_RADIUS {
+            char.air_vortex = nil
+        }
     }
 
     // Camera follow point chases player

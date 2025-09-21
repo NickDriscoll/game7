@@ -331,14 +331,11 @@ audio_gui :: proc(
         imgui.Text("Sound effects:")
         for fx, i in audio_system.sound_effects {
             imgui.PushIDInt(c.int(i))
-            fmt.sbprintf(&builder, "%v", fx.name)
-            cname, _ := strings.to_cstring(&builder)
-            imgui.Text("%s", cname)
+            gui_print_value(&builder, "Name", fx.name)
             if imgui.Button("Play") {
                 play_sound_effect(audio_system, uint(i))
             }
-            
-            strings.builder_reset(&builder)
+
             imgui.PopID()
         }
         
