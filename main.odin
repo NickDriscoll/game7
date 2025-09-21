@@ -551,7 +551,7 @@ main :: proc() {
                 imgui.Separator()
 
                 {
-                    using game_state.character
+                    player := &game_state.character
 
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
@@ -569,18 +569,17 @@ main :: proc() {
                     if imgui.Checkbox("Show coin radius", &flag) {
                         game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     }
-                    imgui.Text("Player collider position: (%f, %f, %f)", collision.position.x, collision.position.y, collision.position.z)
-                    imgui.Text("Player collider velocity: (%f, %f, %f)", collision.velocity.x, collision.velocity.y, collision.velocity.z)
-                    imgui.Text("Player collider acceleration: (%f, %f, %f)", acceleration.x, acceleration.y, acceleration.z)
-                    fmt.sbprintf(&sb, "Player state: %v", collision.state)
-                    state_str, _ := strings.to_cstring(&sb)
-                    strings.builder_reset(&sb)
-                    imgui.Text(state_str)
-                    imgui.SliderFloat("Player move speed", &move_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player sprint speed", &sprint_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player deceleration speed", &deceleration_speed, 0.01, 2.0)
-                    imgui.SliderFloat("Player jump speed", &jump_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player anim speed", &anim_speed, 0.0, 2.0)
+
+                    gui_print_value(&sb, "Player position", player.collision.position)
+                    gui_print_value(&sb, "Player velocity", player.collision.velocity)
+                    gui_print_value(&sb, "Player acceleration", player.acceleration)
+                    gui_print_value(&sb, "Player state", player.collision.state)
+
+                    imgui.SliderFloat("Player move speed", &player.move_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player sprint speed", &player.sprint_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player deceleration speed", &player.deceleration_speed, 0.01, 2.0)
+                    imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
+                    imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
                     imgui.SliderFloat("Bullet travel time", &game_state.character.bullet_travel_time, 0.0, 1.0)
                     imgui.SliderFloat("Coin radius", &game_state.coin_collision_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {

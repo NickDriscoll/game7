@@ -121,7 +121,7 @@ copy_static_triangle_mesh :: proc(collision: StaticTriangleCollision, allocator 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
     dot :: hlsl.dot
-    scoped_event(&profiler, "closest_pt_triangle")
+    //scoped_event(&profiler, "closest_pt_triangle")
 
     // Check if point is in vertex region outside A
     ab := b - a
@@ -182,7 +182,7 @@ closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hl
 }
 closest_pt_triangle_with_normal :: proc(point: hlsl.float3, using triangle: ^Triangle) -> (hlsl.float3, hlsl.float3) {
     dot :: hlsl.dot
-    scoped_event(&profiler, "closest_pt_triangle_with_normal")
+    //scoped_event(&profiler, "closest_pt_triangle_with_normal")
 
     // Check if point is in vertex region outside A
     ab := b - a

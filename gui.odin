@@ -325,7 +325,7 @@ gui_main_menu_bar :: proc(
     return retval
 }
 
-gui_print_value :: proc(builder: ^strings.Builder, label: string, value: any) {
+gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
     fmt.sbprintf(builder, "%v: %v", label, value)
     imgui.Text(strings.to_cstring(builder))
     strings.builder_reset(builder)
