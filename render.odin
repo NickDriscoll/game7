@@ -1171,14 +1171,6 @@ draw_ps1_static_meshes :: proc(
     draw_data: []StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_meshes")
-    // prim_draw_datas := make([dynamic][dynamic]StaticDraw, len(data.primitives), context.temp_allocator)
-    // for i in 0..<len(data.primitives) {
-    //     prim_draw_datas[i] = make([dynamic]StaticDraw, len(draw_data), context.temp_allocator)
-    // }
-    // for prim, i in data.primitives {
-    //     append(&prim_draw_datas[i], draw_data[i])
-    // }
-
     for prim, i in data.primitives {
         draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
     }
