@@ -18,17 +18,22 @@
 
 ## Build requirements
 
+Download the following and put them in your PATH
 - [Odin (ver. dev-2025-09)](https://github.com/odin-lang/Odin/releases/tag/dev-2025-09)
 - [Slang (ver. 2025.12.1)](https://github.com/shader-slang/slang/releases)
 
-## Build
+Clone the repo and init submodules
+```
+git clone git@github.com:NickDriscoll/game7.git
+git submodule update --init --recursive
+```
 
-### Windows
+### Build on Windows
 ```
 .\windows_build.bat debug
 ```
 
-### Linux
+### Build on Linux
 ```
 ./linux_build.sh debug
 ```
