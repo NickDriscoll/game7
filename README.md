@@ -24,12 +24,11 @@
 ## Build
 
 ### Windows
-powershell```
+```
 .\windows_build.bat debug
 ```
 
 ### Linux
-bash```
-
+```
 ./linux_build.sh debug
 ```
