@@ -19,9 +19,17 @@
 ## Build requirements
 
 - [Odin (ver. dev-2025-09)](https://github.com/odin-lang/Odin/releases/tag/dev-2025-09)
-- [Slang](https://github.com/shader-slang/slang/releases)
+- [Slang (ver. 2025.12.1)](https://github.com/shader-slang/slang/releases)
 
 ## Build
 
-- powershell`.\windows_build.bat debug`
-- bash`./linux_build.sh debug`
+### Windows
+powershell```
+.\windows_build.bat debug
+```
+
+### Linux
+bash```
+
+./linux_build.sh debug
+```
