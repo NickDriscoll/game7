@@ -389,11 +389,11 @@ new_frame :: proc(renderer: ^Renderer) {
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
-init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
+init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2, want_rt: bool) -> Renderer {
     scoped_event(&profiler, "Initialize renderer")
 
     renderer: Renderer
-    renderer.do_raytracing = .Raytracing in gd.support_flags
+    renderer.do_raytracing = want_rt && .Raytracing in gd.support_flags
     renderer.scene_TLAS.generation = 0xFFFFFFFF
 
     renderer_new_scene(&renderer)

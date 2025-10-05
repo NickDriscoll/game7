@@ -65,6 +65,7 @@ main :: proc() {
     log_level := log.Level.Info
     do_profiling := false
     profile_name := "game7.spall"
+    want_rt := true
     {
         context.logger = log.create_console_logger(log_level)
         argc := len(os.args)
@@ -93,6 +94,8 @@ main :: proc() {
                     profile_name = os.args[i + 1]
                     i += 1
                 }
+            } else if arg == "-nort" {
+                want_rt = false
             }
             i += 1
         }
@@ -292,7 +295,7 @@ main :: proc() {
             // Initialize the state required for rendering to the window
             {
                 scoped_event(&profiler, "vkw.init_sdl2_window()")
-                //app_window.present_mode = .IMMEDIATE if do_profiling else .FIFO
+                app_window.present_mode = .IMMEDIATE if do_profiling else .FIFO
                 if !vkw.init_sdl2_window(&vgd, app_window.window, app_window.present_mode) {
                     e := sdl2.GetError()
                     log.fatalf("Couldn't init SDL2 surface: %v", e)
@@ -300,13 +303,13 @@ main :: proc() {
                 }
             }
         }
-        
-    
+
+
         // Now that we're done with global allocations, switch context.allocator to scene_allocator
         context.allocator = scene_allocator
     
         // Initialize the renderer
-        renderer = init_renderer(&vgd, app_window.resolution)
+        renderer = init_renderer(&vgd, app_window.resolution, want_rt)
         if !renderer.do_raytracing {
             log.warn("Raytracing features are not supported by your GPU.")
         }
