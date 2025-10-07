@@ -494,7 +494,7 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2, want_rt
         log.debugf("Allocated %v MB of VRAM for render_state.material_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global instance buffer"
-        info.size = size_of(GPUInstance) * MAX_GLOBAL_INSTANCES
+        info.size = size_of(GPUInstance) * MAX_GLOBAL_INSTANCES * vk.DeviceSize(gd.frames_in_flight)
         renderer.instance_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.instance_buffer", f32(info.size) / 1024 / 1024)
     }
@@ -1570,7 +1570,6 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
         for i in 0..<len(renderer.ps1_static_instances) {
-        //for i in 0..<2 {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
             
@@ -1747,7 +1746,8 @@ render_scene :: proc(
         renderer: ^Renderer,
         instances: []$T,
         draw_buffer_offset: u32,
-        first_instance: u32
+        first_instance: int,
+        instance_offset: int
     ) -> u32 {
         scoped_event(&profiler, "Draw instances")
         do_it := (.Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags) && len(instances) > 0
@@ -1775,7 +1775,7 @@ render_scene :: proc(
                     instanceCount = 0,
                     firstIndex = current_mesh.indices_start,
                     vertexOffset = 0,
-                    firstInstance = u32(current_instance) + first_instance
+                    firstInstance = u32(current_instance + first_instance + instance_offset)
                 }
                 
                 inst := &instances[current_instance]
@@ -1822,13 +1822,15 @@ render_scene :: proc(
 
     uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
     draws_offset : u32 = uniforms_offset * MAX_GLOBAL_DRAW_CMDS
+    gpu_instances_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
 
     ps1_draw_calls := draw_instances(
         gd,
         renderer,
         renderer.ps1_static_instances[:],
         draws_offset,
-        0
+        0,
+        gpu_instances_offset
     )
     draws_offset += ps1_draw_calls
 
@@ -1837,12 +1839,14 @@ render_scene :: proc(
         renderer,
         renderer.debug_static_instances[:],
         draws_offset,
-        u32(len(renderer.ps1_static_instances))
+        len(renderer.ps1_static_instances),
+        gpu_instances_offset
     )
 
+    // Update instances buffer
     {
         scoped_event(&profiler, "Instance buffer upload")
-        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:])
+        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:], u32(gpu_instances_offset))
     }
 
     // Update uniforms buffer
@@ -2480,21 +2484,27 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
             imgui.EndDisabled()
 
             {
-                flag_checkbox :: proc(flags: ^bit_set[$T], flag: T) -> bool {
+                flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
                     b := flag in flags
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
                     fmt.sbprintf(&sb, "%v", flag)
                     cs, _ := strings.to_cstring(&sb)
+                    if disabled {
+                        imgui.BeginDisabled()
+                    }
                     if imgui.Checkbox(cs, &b) {
                         flags^ ~= {flag}
                         return true
+                    }
+                    if disabled {
+                        imgui.EndDisabled()
                     }
                     return false
                 }
 
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
             }
             imgui.Separator()
 

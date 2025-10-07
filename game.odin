@@ -2002,11 +2002,15 @@ coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: Ga
     strings.builder_init(&sb, context.temp_allocator)
     p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
     scoped_event(&profiler, p_string)
+
+    coin_count := len(game_state.coins)
+
     post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
     z_offset := 0.25 * math.sin(game_state.time)
-    draw_datas := make([dynamic]StaticDraw, len(game_state.coins), context.temp_allocator)
-    for coin, i in game_state.coins {
+    draw_datas := make([dynamic]StaticDraw, coin_count, context.temp_allocator)
+    for i in 0..<coin_count {
         scoped_event(&profiler, "Individual coin draw")
+        coin := &game_state.coins[i]
         pos := coin.position
         pos.z += z_offset
         dd := &draw_datas[i]
