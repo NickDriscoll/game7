@@ -4,7 +4,7 @@ import tex_bindings;
 
 #if defined(HardwareRT)
 [[vk_binding(2, 0)]]
-RaytracingAccelerationStructure scene_tlas;
+RaytracingAccelerationStructure tlases[];
 #endif
 
 struct VertexOutput {
@@ -19,6 +19,7 @@ struct VertexOutput {
 cbuffer push_constants {
     UniformData *u_data;
     uint sampler_idx;
+    uint tlas_idx;
 }
 
 // @TODO: This kind of sucks. Rethink the data.
@@ -103,7 +104,7 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
 
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
     query.TraceRayInline(
-        scene_tlas,
+        tlases[tlas_idx],
         0,
         0xFF,
         ray
@@ -234,7 +235,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
         RayQuery<RAY_FLAG_CULL_NON_OPAQUE> query;
         query.TraceRayInline(
-            scene_tlas,
+            tlases[tlas_idx],
             0,
             0xFF,
             ray
