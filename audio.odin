@@ -207,7 +207,7 @@ load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allo
     assert(file_info.channels == 1, "Sound effects must be mono.")
 
     if file_info.sample_rate != c.uint(audio_system.spec.freq) {
-        log.warnf("Audio file sample rate (%v Hz) doesn't match audio spec (%v Hz)", file_info.sample_rate, audio_system.spec.freq)
+        log.warnf("Audio file \"%v\" sample rate (%v Hz) doesn't match audio spec (%v Hz)", path, file_info.sample_rate, audio_system.spec.freq)
     }
 
     sound_effect := SoundEffect {

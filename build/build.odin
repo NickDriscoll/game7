@@ -143,11 +143,13 @@ main :: proc() {
                 log.errorf("Error launching slangc: %#v", error)
                 return
             }
-            log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
-                slangc_command.command[2],
-                slangc_command.command[8],
-                slangc_command.command[9]
-            })
+            // log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
+            //     slangc_command.command[2],
+            //     slangc_command.command[10],
+            //     slangc_command.command[11]
+            // })
+            command_str := strings.join(slangc_command.command, " ")
+            log.debugf("Launching \"%v\"", command_str)
             append(&processes, process)
             strings.builder_reset(&in_sb)
             strings.builder_reset(&out_sb)
@@ -178,11 +180,13 @@ main :: proc() {
                     log.errorf("Error launching slangc: %#v", error)
                     return
                 }
-                log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
-                    slangc_command.command[2],
-                    slangc_command.command[10],
-                    slangc_command.command[11]
-                })
+                // log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
+                //     slangc_command.command[2],
+                //     slangc_command.command[10],
+                //     slangc_command.command[11]
+                // })
+                command_str := strings.join(slangc_command.command, " ")
+                log.debugf("Launching \"%v\"", command_str)
                 append(&processes, process)
                 strings.builder_reset(&in_sb)
                 strings.builder_reset(&out_sb)
