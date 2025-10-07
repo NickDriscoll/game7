@@ -115,6 +115,7 @@ UniformBuffer :: struct {
 Ps1PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
     sampler_idx: u32,
+    tlas_idx: u32,
 }
 
 PostFxPushConstants :: struct {
@@ -1641,6 +1642,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
 
         // Update TLAS descriptor
         {
+            element := u32(gd.frame_count) % gd.frames_in_flight
             tlas, _1 := vkw.get_acceleration_structure(gd, renderer.scene_TLAS)
             as_write := vk.WriteDescriptorSetAccelerationStructureKHR {
                 sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
@@ -1653,7 +1655,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
                 pNext = &as_write,
                 dstSet = gd.descriptor_set,
                 dstBinding = u32(vkw.Bindless_Descriptor_Bindings.AccelerationStructures),
-                dstArrayElement = 0,
+                dstArrayElement = element,
                 descriptorCount = 1,
                 descriptorType = .ACCELERATION_STRUCTURE_KHR
             }
@@ -1919,7 +1921,8 @@ render_scene :: proc(
         uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
             uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Point)
+            sampler_idx = u32(vkw.Immutable_Sampler_Index.Point),
+            tlas_idx = uniforms_offset
         })
     
         // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
