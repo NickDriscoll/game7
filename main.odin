@@ -295,7 +295,7 @@ main :: proc() {
             // Initialize the state required for rendering to the window
             {
                 scoped_event(&profiler, "vkw.init_sdl2_window()")
-                app_window.present_mode = .IMMEDIATE if do_profiling else .FIFO
+                app_window.present_mode = .FIFO
                 if !vkw.init_sdl2_window(&vgd, app_window.window, app_window.present_mode) {
                     e := sdl2.GetError()
                     log.fatalf("Couldn't init SDL2 surface: %v", e)
