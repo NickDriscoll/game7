@@ -72,6 +72,7 @@ UniformFlag :: enum u32 {
     Reflections
 }
 
+// Manually aligned to 16 bytes
 UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
     
@@ -1600,6 +1601,9 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
             append(&instances, inst)
         }
 
+
+
+
         geo_data := vkw.ASInstancesData {
             array_of_pointers = false,
             data = instances
@@ -1611,6 +1615,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
             flags = {.OPAQUE},
         }
 
+        element := u32(gd.frame_count) % gd.frames_in_flight
         prim_counts: []u32 = {u32(len(renderer.ps1_static_instances))}
         create_info := vkw.AccelerationStructureCreateInfo {
             flags = nil,
@@ -1642,7 +1647,6 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
 
         // Update TLAS descriptor
         {
-            element := u32(gd.frame_count) % gd.frames_in_flight
             tlas, _1 := vkw.get_acceleration_structure(gd, renderer.scene_TLAS)
             as_write := vk.WriteDescriptorSetAccelerationStructureKHR {
                 sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
@@ -1708,7 +1712,7 @@ render_scene :: proc(
             }
         }, {})
 
-        vkw.build_queued_blases(gd)
+        vkw.cmd_build_queued_blases(gd)
     }
 
     // Set static mesh BLAS counters back to zero for TLAS building
@@ -1743,13 +1747,14 @@ render_scene :: proc(
         vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
     }
 
-    draw_instances :: proc(
+    // Takes the  list of instances and populates the GPU instance buffer
+    // as well as the draw call buffer
+    add_draw_instances :: proc(
         gd: ^vkw.Graphics_Device,
         renderer: ^Renderer,
         instances: []$T,
-        draw_buffer_offset: u32,
         first_instance: int,
-        instance_offset: int
+        draws_offset: u32
     ) -> u32 {
         scoped_event(&profiler, "Draw instances")
         do_it := (.Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags) && len(instances) > 0
@@ -1764,6 +1769,8 @@ render_scene :: proc(
             // With the understanding that these instances are already sorted by
             // mesh_idx, construct the draw stream with appropriate instancing
 
+            uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
+            instance_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
             current_instance := 0
             for current_instance < len(instances) {
                 scoped_event(&profiler, "Instance loop iteration")
@@ -1814,7 +1821,7 @@ render_scene :: proc(
 
                 append(&gpu_draws, draw_call)
             }
-            vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:], draw_buffer_offset)
+            vkw.sync_write_buffer(gd, renderer.draw_buffer, gpu_draws[:], draws_offset)
 
             return u32(len(gpu_draws))
         }
@@ -1824,30 +1831,28 @@ render_scene :: proc(
 
     uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
     draws_offset : u32 = uniforms_offset * MAX_GLOBAL_DRAW_CMDS
-    gpu_instances_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
-
-    ps1_draw_calls := draw_instances(
+    
+    ps1_draws_count := add_draw_instances(
         gd,
         renderer,
         renderer.ps1_static_instances[:],
-        draws_offset,
         0,
-        gpu_instances_offset
+        draws_offset
     )
-    draws_offset += ps1_draw_calls
-
-    debug_draw_calls := draw_instances(
+    draws_offset += ps1_draws_count
+    
+    debug_draws_count := add_draw_instances(
         gd,
         renderer,
         renderer.debug_static_instances[:],
-        draws_offset,
         len(renderer.ps1_static_instances),
-        gpu_instances_offset
+        draws_offset
     )
-
+    
     // Update instances buffer
     {
         scoped_event(&profiler, "Instance buffer upload")
+        gpu_instances_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
         vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:], u32(gpu_instances_offset))
     }
 
@@ -1895,7 +1900,7 @@ render_scene :: proc(
         // Begin renderpass into main internal rendertarget
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
     
-        res := renderer.main_framebuffer.resolution
+        framebuffer_resolution := renderer.main_framebuffer.resolution
         vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
             x = cast(f32)renderer.viewport_dimensions.offset.x,
             y = cast(f32)renderer.viewport_dimensions.offset.y,
@@ -1911,13 +1916,12 @@ render_scene :: proc(
                     y = 0
                 },
                 extent = vk.Extent2D {
-                    width = u32(res.x),
-                    height = u32(res.y),
+                    width = u32(framebuffer_resolution.x),
+                    height = u32(framebuffer_resolution.y),
                 }
             }
         })
-    
-        t := f32(gd.frame_count) / 144.0
+
         uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
             uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
@@ -1938,10 +1942,10 @@ render_scene :: proc(
                 gfx_cb_idx,
                 renderer.draw_buffer,
                 draw_buffer_offset,
-                ps1_draw_calls
+                ps1_draws_count
             )
         }
-        draw_buffer_offset += u64(ps1_draw_calls) * size_of(vk.DrawIndexedIndirectCommand)
+        draw_buffer_offset += u64(ps1_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
     
         // Opaque drawing finished
     
@@ -1959,9 +1963,10 @@ render_scene :: proc(
                 gfx_cb_idx,
                 renderer.draw_buffer,
                 draw_buffer_offset,
-                debug_draw_calls
+                debug_draws_count
             )
         }
+        draw_buffer_offset += u64(debug_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
     
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
     
@@ -1991,12 +1996,12 @@ render_scene :: proc(
                 }
             }
         )
-    
+
         vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
             x = 0.0,
             y = 0.0,
-            width = f32(res.x),
-            height = f32(res.y),
+            width = f32(framebuffer_resolution.x),
+            height = f32(framebuffer_resolution.y),
             minDepth = 0.0,
             maxDepth = 1.0
         }})
