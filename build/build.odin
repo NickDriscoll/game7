@@ -2,7 +2,6 @@ package build
 
 import "core:fmt"
 import "core:log"
-import "core:os"
 import "core:os/os2"
 import "core:strings"
 
@@ -67,12 +66,12 @@ main :: proc() {
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
     {
-        argc := len(os.args)
-        for arg, i in os.args {
+        argc := len(os2.args)
+        for arg, i in os2.args {
             switch arg {
                 case "--log-level", "-l": {
                     if i + 1 < argc {
-                        switch os.args[i + 1] {
+                        switch os2.args[i + 1] {
                             case "DEBUG": log_level = .Debug
                             case "INFO": log_level = .Info
                             case "WARNING": log_level = .Warning
@@ -80,7 +79,7 @@ main :: proc() {
                             case "FATAL": log_level = .Fatal
                             case: log.warnf(
                                 "Unrecognized --log-level: %v. Using default (%v)",
-                                os.args[i + 1],
+                                os2.args[i + 1],
                                 log_level
                             )
                         }
@@ -143,13 +142,8 @@ main :: proc() {
                 log.errorf("Error launching slangc: %#v", error)
                 return
             }
-            // log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
-            //     slangc_command.command[2],
-            //     slangc_command.command[10],
-            //     slangc_command.command[11]
-            // })
             command_str := strings.join(slangc_command.command, " ")
-            log.debugf("Launching \"%v\"", command_str)
+            log.debugf("Launching:\n\"%v\"", command_str)
             append(&processes, process)
             strings.builder_reset(&in_sb)
             strings.builder_reset(&out_sb)
@@ -180,13 +174,8 @@ main :: proc() {
                     log.errorf("Error launching slangc: %#v", error)
                     return
                 }
-                // log.debugf("Launched slangc (pid: %v) with args: %v", process.pid, []string {
-                //     slangc_command.command[2],
-                //     slangc_command.command[10],
-                //     slangc_command.command[11]
-                // })
                 command_str := strings.join(slangc_command.command, " ")
-                log.debugf("Launching \"%v\"", command_str)
+                log.debugf("Launching:\n\"%v\"", command_str)
                 append(&processes, process)
                 strings.builder_reset(&in_sb)
                 strings.builder_reset(&out_sb)
@@ -212,6 +201,8 @@ main :: proc() {
         odin_proc := os2.Process_Desc {
             command = ODIN_COMMAND
         }
+        command_str := strings.join(odin_proc.command, " ")
+        log.debugf("Launching:\n\"%v\"", command_str)
         odin_process, _ = os2.process_start(odin_proc)
     }
     
