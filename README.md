@@ -6,6 +6,7 @@
     - Opinionated custom Vulkan wrapper
     - Barebones unlit shading
     - Static and skinned models loaded from glTF (.glb) files
+    - Ray-traced hard shadows via VK_KHR_ray_query
     - Skeletal animation with the skinning-in-compute technique
 
 ![alt text](complex_anim_999999.gif "Simple 3D walking animation")
@@ -20,7 +21,7 @@
 
 Download the following and put them in your PATH
 - [Odin (ver. dev-2025-09)](https://github.com/odin-lang/Odin/releases/tag/dev-2025-09)
-- [Slang (ver. 2025.12.1)](https://github.com/shader-slang/slang/releases)
+- [Slang (ver. 2025.18.2)](https://github.com/shader-slang/slang/releases/tag/v2025.18.2)
 
 Clone the repo and init submodules
 ```
