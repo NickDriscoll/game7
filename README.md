@@ -26,6 +26,8 @@ Download the following and put them in your PATH
 Clone the repo and init submodules
 ```
 git clone git@github.com:NickDriscoll/game7.git
+cd game7
+mkdir data/shaders
 git submodule update --init --recursive
 ```
 
