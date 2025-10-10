@@ -87,10 +87,11 @@ struct UniformData {
     uint point_light_count;
     float time; // Periodic time value
     float distortion_strength;
-    
+
     uint flags;
     uint skybox_idx;
-    float2 _pad0;
+    float cloud_speed;
+    float cloud_scale;
 
     // RaytracingAccelerationStructure.Handle tlas;
     // float2 _pad1;
