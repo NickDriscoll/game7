@@ -170,7 +170,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     // Directional lighting
     for (uint i = 0; i < u_data.directional_light_count; ++i) {
         DirectionalLight light = u_data.directional_lights[i];
-        ambient_contribution = 0.1 * light.color;
+        ambient_contribution += 0.1 * light.color;
 
         if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
             continue;
@@ -179,9 +179,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         // Fake cloud shadows
         float cloud_shadow = 0.0;
         {
-            float speed = 0.005;
-            float2 sample_pt = 0.01 * input.world_pos.xy + speed * u_data.time;
-            sample_pt *= 5.0;
+            float2 sample_pt = u_data.cloud_scale * input.world_pos.xy + u_data.cloud_speed * u_data.time;
 
             static const float2x2 m = float2x2(1.6, 1.2, -1.2, 1.6);
             cloud_shadow = (1.0 / 2.0) * simplex2D(sample_pt);

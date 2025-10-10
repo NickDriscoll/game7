@@ -107,7 +107,8 @@ UniformBuffer :: struct {
 
     flags: UniformsFlags,
     skybox_idx: u32,
-    _pad0: [2]f32,
+    cloud_speed: f32,
+    cloud_scale: f32,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
@@ -379,7 +380,12 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
     renderer.joint_matrices_head = 0
     renderer.uvs_head = 0
 
-    renderer.cpu_uniforms.directional_light_count = 0
+    {
+        unis := &renderer.cpu_uniforms
+        unis.directional_light_count = 0
+        unis.cloud_speed = 0.025
+        unis.cloud_scale = 0.022
+    }
 }
 
 // Per-frame work that needs to happen at the beginning of the frame
@@ -1566,8 +1572,8 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
 }
 
-make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
-    scoped_event(&profiler, "make_tlas_from_instances")
+build_scene_TLAS :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+    scoped_event(&profiler, "build_scene_TLAS")
     // Recreate scene TLAS
     if renderer.do_raytracing {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
@@ -1615,7 +1621,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
             flags = {.OPAQUE},
         }
 
-        element := u32(gd.frame_count) % gd.frames_in_flight
+        tlas_idx := u32(gd.frame_count) % gd.frames_in_flight
         prim_counts: []u32 = {u32(len(renderer.ps1_static_instances))}
         create_info := vkw.AccelerationStructureCreateInfo {
             flags = nil,
@@ -1640,9 +1646,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
         }
 
         vkw.delete_acceleration_structure(gd, renderer.scene_TLAS)
-
         renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
-
         vkw.cmd_build_acceleration_structures(gd, bis)
 
         // Update TLAS descriptor
@@ -1659,7 +1663,7 @@ make_tlas_from_instances :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) 
                 pNext = &as_write,
                 dstSet = gd.descriptor_set,
                 dstBinding = u32(vkw.Bindless_Descriptor_Bindings.AccelerationStructures),
-                dstArrayElement = element,
+                dstArrayElement = tlas_idx,
                 descriptorCount = 1,
                 descriptorType = .ACCELERATION_STRUCTURE_KHR
             }
@@ -1721,7 +1725,7 @@ render_scene :: proc(
     }
 
     // Recreate scene TLAS
-    make_tlas_from_instances(gd, renderer)
+    build_scene_TLAS(gd, renderer)
 
     // Set static mesh BLAS counters back to zero for next frame
     for &mesh in renderer.cpu_static_meshes.values {
@@ -2470,26 +2474,32 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
         if imgui.Begin("Graphics settings", do_window) {
-            imgui.Text("Directional lights")
-            for i in 0..<renderer.cpu_uniforms.directional_light_count {
-                light := &renderer.cpu_uniforms.directional_lights[i]
-                imgui.PushIDInt(c.int(i))
-                imgui.ColorPicker3("Color", &light.color)
-                imgui.PopID()
+            if imgui.CollapsingHeader("Fake cloud settings") {
+                imgui.SliderFloat("Speed", &renderer.cpu_uniforms.cloud_speed, 0.0, 0.5)
+                imgui.SliderFloat("Scale", &renderer.cpu_uniforms.cloud_scale, 0.0, 2.0)
             }
 
-            light_count := &renderer.cpu_uniforms.directional_light_count
-            can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
-            imgui.BeginDisabled(can_add)
-            if imgui.Button("Add") {
-                l := DirectionalLight {
-                    direction = {0.0, 0.0, 1.0},
-                    color = {1.0, 1.0, 1.0},
+            if imgui.CollapsingHeader("Directional lights") {
+                for i in 0..<renderer.cpu_uniforms.directional_light_count {
+                    light := &renderer.cpu_uniforms.directional_lights[i]
+                    imgui.PushIDInt(c.int(i))
+                    imgui.ColorPicker3("Color", &light.color)
+                    imgui.PopID()
                 }
-                renderer.cpu_uniforms.directional_lights[light_count^] = l
-                light_count^ += 1
+    
+                light_count := &renderer.cpu_uniforms.directional_light_count
+                can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
+                imgui.BeginDisabled(can_add)
+                if imgui.Button("Add") {
+                    l := DirectionalLight {
+                        direction = {0.0, 0.0, 1.0},
+                        color = {1.0, 1.0, 1.0},
+                    }
+                    renderer.cpu_uniforms.directional_lights[light_count^] = l
+                    light_count^ += 1
+                }
+                imgui.EndDisabled()
             }
-            imgui.EndDisabled()
 
             {
                 flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
