@@ -33,11 +33,13 @@ TEMP_ARENA_SIZE :: 1024 * 1024                // Memory pool for per-frame alloc
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
 
+// DELETEME?: (referring to deleting this comment as it's not needed in the PR, but is this matrix needeD). Only used in an unused function
 IDENTITY_MATRIX3x3 :: hlsl.float3x3 {
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
     0.0, 0.0, 1.0
 }
+// General purpose 4x4 identity matrix for matrix initialization
 IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     1.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0,
@@ -45,6 +47,7 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
+// DELETEME?: Window settings/state
 Window :: struct {
     position: [2]i32,
     resolution: [2]u32,
@@ -54,6 +57,7 @@ Window :: struct {
     window: ^sdl2.Window,
 }
 
+// Used for performance profiling
 @thread_local profiler: Profiler
 
 main :: proc() {
@@ -62,6 +66,8 @@ main :: proc() {
     do_profiling := false
     profile_name := "game7.spall"
     want_rt := true
+
+    // Parse command line arguements
     {
         context.logger = log.create_console_logger(log_level)
         argc := len(os.args)
@@ -91,6 +97,7 @@ main :: proc() {
                     i += 1
                 }
             } else if arg == "-nort" {
+                // disable ray tracing
                 want_rt = false
             }
             i += 1
@@ -126,6 +133,7 @@ main :: proc() {
     }
     context.allocator = global_allocator
 
+
     if do_profiling {
         profiler = init_profiler(profile_name, global_allocator)
     }
@@ -135,6 +143,8 @@ main :: proc() {
     // Set up logger
     context.logger = log.create_console_logger(log_level)
     
+    // DELETEME? (I think this comment could be better, but would like to name this code chun):
+    // Inital state declarations
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     mouse_mappings := make(map[u8]VerbType, 64, allocator = global_allocator)
@@ -154,6 +164,8 @@ main :: proc() {
     input_system: InputSystem
     audio_system: AudioSystem
     game_state: GameState
+
+    // Initialize the application (DELETEME question, is there a more plain language for what the "application" is this context?)
     {
         scoped_event(&profiler, "App initialization")
     
@@ -387,13 +399,15 @@ main :: proc() {
         saved_mouse_coords = hlsl.int2 {0, 0}
     }
 
+    
+    // Set up the tracking allocator if this is a debug build
     when ODIN_DEBUG {
-        // Set up the tracking allocator if this is a debug build
         mem.tracking_allocator_init(&scene_track, scene_allocator)
         scene_allocator = mem.tracking_allocator(&scene_track)
         mem.tracking_allocator_init(&temp_track, per_frame_allocator)
         per_frame_allocator = mem.tracking_allocator(&temp_track)
 
+        // Check for issues freeing scene allocations
         defer {
             if len(scene_track.allocation_map) > 0 {
                 fmt.eprintf("=== %v allocations not freed from scene allocator: ===\n", len(scene_track.allocation_map))
@@ -411,8 +425,12 @@ main :: proc() {
             mem.tracking_allocator_destroy(&temp_track)
         }
     }
+
+    // Debug specific shutdown
     when ODIN_DEBUG {
-        defer {
+
+        // DELETEME (question) why do we defer the whole scope then defer some elements within specifically?
+         defer {
             scoped_event(&profiler, "Shutdown")
             log.destroy_console_logger(context.logger)
             gui_cleanup(&vgd, &imgui_state)
@@ -433,6 +451,8 @@ main :: proc() {
     log.info("App initialization complete. Entering main loop")
 
     do_main_loop := true
+
+    // Main frame loop
     for do_main_loop {
         scoped_event(&profiler, "Main frame loop")
 
@@ -530,6 +550,7 @@ main :: proc() {
 
         }
 
+        // Set viewport diemnsions
         {
             docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
             renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
@@ -539,6 +560,7 @@ main :: proc() {
             game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
+        // DELETEME (question) do we need the below "Update" comment?
         // Update
 
         // Misc imgui window for testing
@@ -625,6 +647,8 @@ main :: proc() {
         @static show_load_modal := false
         @static show_save_modal := false
         do_fullscreen := false
+        
+        // Set up main menu bar
         switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
             case .LoadLevel: {
@@ -671,6 +695,7 @@ main :: proc() {
             case .None: {}
         }
 
+        // Handle fullscreen setting
         if output_verbs.bools[.FullscreenHotkey] {
             do_fullscreen = true
         }
@@ -697,6 +722,8 @@ main :: proc() {
             vgd.resize_window = true
         }
 
+        // DELETEME (QUESTION): is modal a special type of ui in imgui
+        // Load level modal
         if show_load_modal {
             popup_text : cstring = "Level select"
             imgui.OpenPopup(popup_text)
@@ -722,6 +749,7 @@ main :: proc() {
             }
         }
 
+        // Save level modal
         if show_save_modal {
             popup_text : cstring = "Save level"
             imgui.OpenPopup(popup_text)
@@ -765,6 +793,7 @@ main :: proc() {
             }
         }
 
+        // Camera config GUI
         if imgui_state.show_gui && user_config.flags[.CameraConfig] {
             res, ok := camera_gui(
                 &game_state,
@@ -786,13 +815,17 @@ main :: proc() {
             }
         }
 
+        // Window config GUI
         if imgui_state.show_gui && user_config.flags[.WindowConfig] {
             vgd.resize_window |= window_config(imgui_state, &app_window, user_config)
         }
 
+        // Graphics config GUI
         if imgui_state.show_gui && user_config.flags[.GraphicsSettings] {
             graphics_gui(vgd, &renderer, &user_config.flags[.GraphicsSettings])
         }
+
+        // Audio config GUI
         if imgui_state.show_gui && user_config.flags[.AudioPanel] {
             audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
         }
@@ -1010,10 +1043,12 @@ main :: proc() {
         // Determine if we're simulating a tick of game logic this frame
         game_state.do_this_frame = !game_state.paused
         if output_verbs.bools[.FrameAdvance] {
+            // advance frame
             game_state.do_this_frame = true
             game_state.paused = true
         }
         if output_verbs.bools[.Resume] {
+            // resume
             game_state.paused = !game_state.paused
         }
 
@@ -1239,6 +1274,7 @@ main :: proc() {
             gui_cancel_frame(&imgui_state)
         }
 
+        // Frame cleanup
         {
             scoped_event(&profiler, "End-of-frame cleanup")
             // CLear temp allocator for next frame
@@ -1261,6 +1297,7 @@ main :: proc() {
         }
     }
 
+    // DELETEME (question what is this for):
     vkw.device_wait_idle(&vgd)
     log.info("Returning from main()")
 }
