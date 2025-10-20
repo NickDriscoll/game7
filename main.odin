@@ -626,6 +626,7 @@ main :: proc() {
         // React to main menu bar interaction
         @static show_load_modal := false
         @static show_save_modal := false
+        do_fullscreen := false
         switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
             case .Exit: do_main_loop = false
             case .LoadLevel: {
@@ -644,27 +645,7 @@ main :: proc() {
                 sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
             }
             case .ToggleBorderlessFullscreen: {
-                game_state.borderless_fullscreen = !game_state.borderless_fullscreen
-                game_state.exclusive_fullscreen = false
-                xpos, ypos: c.int
-                if game_state.borderless_fullscreen {
-                    app_window.resolution = app_window.display_resolution
-                } else {
-                    app_window.resolution = DEFAULT_RESOLUTION
-                    xpos = c.int(user_config.ints[.WindowX])
-                    ypos = c.int(user_config.ints[.WindowY])
-                }
-                io.DisplaySize.x = f32(app_window.resolution.x)
-                io.DisplaySize.y = f32(app_window.resolution.y)
-                user_config.ints[.WindowX] = i64(xpos)
-                user_config.ints[.WindowY] = i64(ypos)
-
-                sdl2.SetWindowBordered(app_window.window, !game_state.borderless_fullscreen)
-                sdl2.SetWindowPosition(app_window.window, xpos, ypos)
-                sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
-                sdl2.SetWindowResizable(app_window.window, !game_state.borderless_fullscreen)
-
-                vgd.resize_window = true
+                do_fullscreen = true
             }
             case .ToggleExclusiveFullscreen: {
                 game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
@@ -693,6 +674,10 @@ main :: proc() {
         }
 
         if output_verbs.bools[.FullscreenHotkey] {
+            do_fullscreen = true
+        }
+        
+        if do_fullscreen {
             game_state.borderless_fullscreen = !game_state.borderless_fullscreen
             game_state.exclusive_fullscreen = false
             xpos, ypos: c.int
