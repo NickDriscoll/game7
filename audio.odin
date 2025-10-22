@@ -1,5 +1,6 @@
 package main
 
+import "core:relative"
 import "core:prof/spall"
 import "core:c"
 import "core:fmt"
@@ -16,13 +17,15 @@ import "vendor:stb/vorbis"
 
 import imgui "odin-imgui"
 
-STANDARD_CD_AUDIO :: 44100 //Hz
+STANDARD_CD_AUDIO_SAMPLE_RATE :: 44100                                      // Hz
 MIDDLE_C_HZ :: 278.4375
-STATIC_BUFFER_SIZE :: 2048
+DESIRED_SAMPLES_PER_CALLBACK :: 512
+MAX_PLAYBACK_SCALE :: 4                                                     // Should be an integer
+AUDIO_BUFFER_SIZE :: MAX_PLAYBACK_SCALE * DESIRED_SAMPLES_PER_CALLBACK
 
 // NOTE: This callback runs on an independent thread managed by SDL2
 audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream: [^]u8, samples_size: c.int) {
-    // Unpack userdata
+    // userdata is a pointer to the AudioSystem
     audio_system := cast(^AudioSystem)userdata
 
     // SLice for output samples to get mixed into
@@ -32,30 +35,46 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
         out_samples_buf := cast([^]f32)stream
         out_samples = slice.from_ptr(out_samples_buf, int(out_sample_count))
     }
-    source_count := 0
 
-    mix_buffer: [STATIC_BUFFER_SIZE]f32
+    mix_buffer: [DESIRED_SAMPLES_PER_CALLBACK]f32
 
-    for &playback in audio_system.music_files {
-        if playback.is_paused {
+    // Music playback processing loop
+    for &music in audio_system.music_files {
+
+        // Music can be paused, in which case skip processing
+        if music.is_paused {
             continue
         }
-        source_count += 1
 
-        file_stream_buffer: [STATIC_BUFFER_SIZE]f32
-        has_ended := vorbis.get_samples_float_interleaved(
-            playback.file,
+        file_stream_buffer: [AUDIO_BUFFER_SIZE]f32
+        samples_to_read := c.int(math.ceil(f32(len(out_samples)) * audio_system.speed_scale))
+        samples_read := vorbis.get_samples_float_interleaved(
+            music.file,
             1,
             &file_stream_buffer[0],
-            c.int(len(out_samples))
-        ) == 0
-        playback.calculated_read_head += i32(len(out_samples))
-        if has_ended {
-            playback.calculated_read_head = 0
-            vorbis.seek(playback.file, c.uint(playback.calculated_read_head))
+            samples_to_read
+        )
+
+        progress := f32(music.calculated_read_head)
+        music.calculated_read_head += samples_read
+        if samples_read == 0 {
+            music.calculated_read_head = 0
+            vorbis.seek(music.file, c.uint(music.calculated_read_head))
         }
+
         for i in 0..<len(out_samples) {
-            mix_buffer[i] += audio_system.music_volume * file_stream_buffer[i]
+            // For each output sample, determine the relative distance through the samples returned
+            // from the music file. 
+            relative_progress := audio_system.speed_scale * f32(i)
+            first_idx := int(relative_progress)
+            interpolant := relative_progress - f32(first_idx)
+            
+            // Interpolate two samples based on the relative progress through the file samples buffer
+            first_sample := file_stream_buffer[first_idx]
+            second_sample := file_stream_buffer[first_idx + 1]
+            interpolated_sample := math.lerp(first_sample, second_sample, interpolant)
+
+            mix_buffer[i] += audio_system.music_volume * interpolated_sample
         }
     }
 
@@ -69,8 +88,6 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
         playback.read_head += count
     }
 
-
-
     for i in 0..<len(out_samples) {
         // Generate pure sine wave tone
         if audio_system.play_tone {
@@ -82,7 +99,6 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
                 // Clamping to [0, 2*pi] in a continuous way
                 audio_system.sine_time -= 2.0 * math.PI
             }
-            source_count += 1
         }
 
         // Apply master volume
@@ -114,6 +130,7 @@ AudioSystem :: struct {
     spec: sdl2.AudioSpec,
     out_channels: u8,
     master_volume: f32,            // Between 0.0 and 1.0
+    speed_scale: f32,
     
     sine_time: f32,
     play_tone: bool,
@@ -160,16 +177,18 @@ init_audio_system :: proc(
             audio_system.sfx_volume = f32(v)
         }
     }
+    {
+        audio_system.speed_scale = 1.0
+    }
 
     audio_system.sound_effects = make([dynamic]SoundEffect, 0, 16, global_allocator)
 
     // Init audio system
     {
-        desired_samples : u16 = 512
         desired_audiospec := sdl2.AudioSpec {
-            freq = STANDARD_CD_AUDIO,
+            freq = STANDARD_CD_AUDIO_SAMPLE_RATE,
             format = sdl2.AUDIO_F32,
-            samples = desired_samples,
+            samples = DESIRED_SAMPLES_PER_CALLBACK,
             channels = audio_system.out_channels,
             callback = audio_system_callback,
             userdata = audio_system
@@ -300,6 +319,7 @@ audio_gui :: proc(
         if imgui.SliderFloat("SFX volume", &audio_system.sfx_volume, 0.0, 5.0) {
             user_config.floats[.SFXVolume] = f64(audio_system.sfx_volume)
         }
+        imgui.SliderFloat("Audio playback speed", &audio_system.speed_scale, 0.1, MAX_PLAYBACK_SCALE)
         imgui.Separator()
 
         imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
