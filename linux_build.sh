@@ -13,4 +13,3 @@ if [ $mode = "debug" ]; then
 else
     odin run ./build/build.odin -file -- -l $build_log_level
 fi
-rm -f build.bin
