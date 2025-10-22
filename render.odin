@@ -1853,6 +1853,16 @@ render_scene :: proc(
         draws_offset
     )
     
+
+    // After all imgui work, update clip_from_screen matrix
+    io := imgui.GetIO()
+    renderer.cpu_uniforms.clip_from_screen = {
+        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    }
+    
     // Update instances buffer
     {
         scoped_event(&profiler, "Instance buffer upload")

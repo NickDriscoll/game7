@@ -1009,14 +1009,6 @@ main :: proc() {
             }
         }
 
-        // After all imgui work, update clip_from_screen matrix
-        renderer.cpu_uniforms.clip_from_screen = {
-            2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-            0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0
-        }
-
         // Determine if we're simulating a tick of game logic this frame
         game_state.do_this_frame = !game_state.paused
         if output_verbs.bools[.FrameAdvance] {
@@ -1158,8 +1150,19 @@ main :: proc() {
 
         audio_tick(&audio_system)
 
-        // Render
+        @static window_minimized := false
         {
+            value, ok := output_verbs.bools[.MinimizeWindow]
+            if ok {
+                window_minimized = !window_minimized
+                if !value {
+                    vgd.resize_window = true
+                }
+            }
+        }
+
+        // Render
+        if !window_minimized {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
             full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 scoped_event(&profiler, "full_swapchain_remake")
@@ -1257,6 +1260,8 @@ main :: proc() {
                     full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
                 }
             }
+        } else {
+            gui_cancel_frame(&imgui_state)
         }
 
         {
