@@ -197,7 +197,7 @@ poll_sdl2_events :: proc(
                     case .MINIMIZED: {
                         bools[.MinimizeWindow] = true
                     }
-                    case .MAXIMIZED: {
+                    case .RESTORED: {
                         bools[.MinimizeWindow] = false
                     }
                 }
