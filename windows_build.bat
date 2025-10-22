@@ -10,5 +10,3 @@ if "%mode%"=="debug" (
 ) else (
     odin run .\build\build.odin -file -- -l %build_log_level%
 )
-
-del .\build.exe
