@@ -9,13 +9,9 @@ import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:os"
-import "core:path/filepath"
-import "core:prof/spall"
-import "core:slice"
 import "core:strings"
 import "core:time"
 
-import "vendor:cgltf"
 import "vendor:sdl2"
 
 import imgui "odin-imgui"
