@@ -1,7 +1,5 @@
 package main
 
-import "core:relative"
-import "core:prof/spall"
 import "core:c"
 import "core:fmt"
 import "core:log"
