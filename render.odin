@@ -9,7 +9,6 @@ import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:math/noise"
 import "core:mem"
-import "core:prof/spall"
 import "core:slice"
 import "core:strings"
 import "vendor:cgltf"
@@ -487,12 +486,12 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2, want_rt
         log.debugf("Allocated %v MB of VRAM for render_state.joint_weights_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global static mesh data buffer"
-        info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES
+        info.size = size_of(GPUStaticMesh) * MAX_GLOBAL_MESHES * vk.DeviceSize(gd.frames_in_flight)
         renderer.static_mesh_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.static_mesh_buffer", f32(info.size) / 1024 / 1024)
 
         info.name = "Global joint matrices buffer"
-        info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS
+        info.size = size_of(hlsl.float4x4) * MAX_GLOBAL_JOINTS * vk.DeviceSize(gd.frames_in_flight)
         renderer.joint_matrices_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.joint_matrices_buffer", f32(info.size) / 1024 / 1024)
 
@@ -1342,7 +1341,12 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
     push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), context.temp_allocator)
     instance_joints_so_far : u32 = 0
     skinned_verts_so_far : u32 = 0
-    vtx_positions_out_offset := renderer.positions_head
+
+    //in_flight_frame := u32(gd.frame_count) % gd.frames_in_flight
+    in_flight_frame : u32 = 0
+    pos_space_left := MAX_GLOBAL_VERTICES - renderer.positions_head
+    vtx_positions_out_offset := renderer.positions_head + (in_flight_frame * pos_space_left / 2)
+
     for skinned_instance in renderer.cpu_skinned_instances {
         renderer.dirty_flags += {.Mesh}
         mesh, _ := hm.get(&renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
@@ -1356,7 +1360,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             for i in 0..<mesh.joint_count {
                 instance_joints[i] = IDENTITY_MATRIX4x4
             }
-            
+
             // @static no_animation := false
             // @static no_inv_bind := false
             // @static no_parenting := false
@@ -1474,11 +1478,11 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
 
             // Insert another compute shader dispatch
-            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
-
+            
             // @TODO: use a different buffer for vertex stream-out
             out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
-
+            
+            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
             joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
             joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
             joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
@@ -1525,7 +1529,8 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 
             // Upload to GPU
             // @TODO: Batch this up
-            vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joints[:], instance_joints_so_far)
+            joint_offset := in_flight_frame * MAX_GLOBAL_JOINTS + instance_joints_so_far
+            vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joints[:], joint_offset)
             instance_joints_so_far += mesh.joint_count
             skinned_verts_so_far += mesh.vertices_len
             vtx_positions_out_offset += mesh.vertices_len
@@ -1732,12 +1737,15 @@ render_scene :: proc(
         mesh.current_blas_head = 0
     }
 
+    uniforms_offset := u32(gd.frame_count) % gd.frames_in_flight
+
     // Sync CPU and GPU buffers
 
     // Mesh buffer
     if .Mesh in renderer.dirty_flags {
         scoped_event(&profiler, "Mesh buffer upload")
-        vkw.sync_write_buffer(gd, renderer.static_mesh_buffer, renderer.gpu_static_meshes[:])
+        offset := uniforms_offset * MAX_GLOBAL_MESHES
+        vkw.sync_write_buffer(gd, renderer.static_mesh_buffer, renderer.gpu_static_meshes[:], offset)
 
         // Remove the meshes that came from skinned instances
         for i in 0..<len(renderer.cpu_skinned_instances) {
@@ -1774,6 +1782,7 @@ render_scene :: proc(
             // mesh_idx, construct the draw stream with appropriate instancing
 
             uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
+            mesh_offset := uniforms_offset * MAX_GLOBAL_MESHES
             instance_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
             current_instance := 0
             for current_instance < len(instances) {
@@ -1809,7 +1818,7 @@ render_scene :: proc(
                     g_inst := GPUInstance {
                         world_from_model = inst.world_from_model,
                         normal_matrix = hlsl.cofactor(inst.world_from_model),
-                        mesh_idx = inst.gpu_mesh_idx,
+                        mesh_idx = inst.gpu_mesh_idx + mesh_offset,
                         material_idx = material_idx,
                         flags = inst.flags,
                         color = color
@@ -1833,7 +1842,6 @@ render_scene :: proc(
         return 0
     }
 
-    uniforms_offset : u32 = u32(gd.frame_count) % gd.frames_in_flight
     draws_offset : u32 = uniforms_offset * MAX_GLOBAL_DRAW_CMDS
     
     ps1_draws_count := add_draw_instances(
@@ -1852,7 +1860,6 @@ render_scene :: proc(
         len(renderer.ps1_static_instances),
         draws_offset
     )
-    
 
     // After all imgui work, update clip_from_screen matrix
     io := imgui.GetIO()
@@ -1862,12 +1869,12 @@ render_scene :: proc(
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0
     }
-    
+
     // Update instances buffer
     {
         scoped_event(&profiler, "Instance buffer upload")
-        gpu_instances_offset := MAX_GLOBAL_INSTANCES * int(uniforms_offset)
-        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:], u32(gpu_instances_offset))
+        gpu_instances_offset := MAX_GLOBAL_INSTANCES * uniforms_offset
+        vkw.sync_write_buffer(gd, renderer.instance_buffer, renderer.gpu_static_instances[:], gpu_instances_offset)
     }
 
     // Update uniforms buffer
