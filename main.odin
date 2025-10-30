@@ -560,8 +560,8 @@ main :: proc() {
             game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
-        // DELETEME (question) do we need the below "Update" comment?
-        // Update
+
+        /* ---------------------------- Update ---------------------------- */
 
         // Misc imgui window for testing
         @static cpu_limiter_ms : c.int = 100
