@@ -12,7 +12,6 @@ import "core:mem"
 import "core:os"
 import "core:os/os2"
 import "core:path/filepath"
-import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -1380,7 +1379,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
         {
             flags := &char.control_flags
 
-            fn_thing :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
+            set_character_flags_from_verb :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
                 r, ok := d[verb]
                 if ok {
                     if r {
@@ -1391,10 +1390,10 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 }
             }
 
-            fn_thing(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
-            fn_thing(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
-            fn_thing(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
-            fn_thing(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
+            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
+            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
+            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
+            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
             
             if .MovingLeft in flags^ {
                 translate_vector_x += -1.0
