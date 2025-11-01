@@ -1150,7 +1150,7 @@ main :: proc() {
         {
             value, ok := output_verbs.bools[.MinimizeWindow]
             if ok {
-                window_minimized = !window_minimized
+                window_minimized = value
                 if !value {
                     vgd.resize_window = true
                 }
