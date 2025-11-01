@@ -1339,11 +1339,9 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 
     // Loop over each skinned instance in order to produce 
     push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), context.temp_allocator)
-    instance_joints_so_far : u32 = 0
-    skinned_verts_so_far : u32 = 0
-
-    //in_flight_frame := u32(gd.frame_count) % gd.frames_in_flight
-    in_flight_frame : u32 = 0
+    
+    in_flight_frame := u32(gd.frame_count) % gd.frames_in_flight
+    instance_mats_offset : u32 = in_flight_frame * MAX_GLOBAL_JOINTS
     pos_space_left := MAX_GLOBAL_VERTICES - renderer.positions_head
     vtx_positions_out_offset := renderer.positions_head + (in_flight_frame * pos_space_left / 2)
 
@@ -1356,9 +1354,9 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
         // Get interpolated keyframe state for translation, rotation, and scale
         {
             // Initialize joint matrices with identity matrix
-            instance_joints := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
+            instance_joint_matrices := make([dynamic]hlsl.float4x4, mesh.joint_count, allocator = context.temp_allocator)
             for i in 0..<mesh.joint_count {
-                instance_joints[i] = IDENTITY_MATRIX4x4
+                instance_joint_matrices[i] = IDENTITY_MATRIX4x4
             }
 
             // @static no_animation := false
@@ -1375,7 +1373,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
                 for channel in anim.channels {
                     keyframe_count := len(channel.keyframes)
                     assert(keyframe_count > 0)
-                    joint_transform := &instance_joints[channel.local_joint_id]
+                    joint_transform := &instance_joint_matrices[channel.local_joint_id]
 
                     // Check if anim_t is before first keyframe or after last
                     if anim_t <= channel.keyframes[0].time {
@@ -1463,16 +1461,16 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             // Postmultiply with parent transform
             //if !no_parenting {
             {
-                for i in 1..<len(instance_joints) {
-                    joint_transform := &instance_joints[i]
-                    joint_transform^ = instance_joints[renderer.joint_parents[u32(i) + mesh.first_joint]] * joint_transform^
+                for i in 1..<len(instance_joint_matrices) {
+                    joint_transform := &instance_joint_matrices[i]
+                    joint_transform^ = instance_joint_matrices[renderer.joint_parents[u32(i) + mesh.first_joint]] * joint_transform^
                 }
             }
             // Premultiply instance joints with inverse bind matrices
             //if !no_inv_bind {
             {
-                for i in 0..<len(instance_joints) {
-                    joint_transform := &instance_joints[i]
+                for i in 0..<len(instance_joint_matrices) {
+                    joint_transform := &instance_joint_matrices[i]
                     joint_transform^ *= renderer.inverse_bind_matrices[u32(i) + mesh.first_joint]
                 }
             }
@@ -1485,7 +1483,7 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
             joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
             joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
-            joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_joints_so_far)
+            joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
             pcs := ComputeSkinningPushConstants {
                 in_positions = in_pos_ptr,
                 out_positions = out_pos_ptr,
@@ -1529,10 +1527,8 @@ compute_skinning :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
 
             // Upload to GPU
             // @TODO: Batch this up
-            joint_offset := in_flight_frame * MAX_GLOBAL_JOINTS + instance_joints_so_far
-            vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joints[:], joint_offset)
-            instance_joints_so_far += mesh.joint_count
-            skinned_verts_so_far += mesh.vertices_len
+            vkw.sync_write_buffer(gd, renderer.joint_matrices_buffer, instance_joint_matrices[:], instance_mats_offset)
+            instance_mats_offset += mesh.joint_count
             vtx_positions_out_offset += mesh.vertices_len
         }
     }
