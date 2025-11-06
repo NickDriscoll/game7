@@ -1243,6 +1243,32 @@ main :: proc() {
                 &game_state.viewport_camera,
                 &framebuffer
             )
+            
+            {
+                swapchain_color_attachment, _ := vkw.get_image(&vgd, framebuffer.color_images[0])
+                vkw.cmd_gfx_pipeline_barriers(&vgd, gfx_cb_idx, {},
+                    {
+                        {
+                            src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                            src_access_mask = {.MEMORY_WRITE},
+                            dst_stage_mask = {.ALL_COMMANDS},
+                            dst_access_mask = {.MEMORY_READ},
+                            old_layout = .COLOR_ATTACHMENT_OPTIMAL, // No layout transition happens with this barrier
+                            new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                            src_queue_family = vgd.gfx_queue_family,
+                            dst_queue_family = vgd.gfx_queue_family,
+                            image = swapchain_color_attachment.image,
+                            subresource_range = vk.ImageSubresourceRange {
+                                aspectMask = {.COLOR},
+                                baseMipLevel = 0,
+                                levelCount = 1,
+                                baseArrayLayer = 0,
+                                layerCount = 1
+                            }
+                        }
+                    }
+                )
+            }
 
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD

@@ -209,8 +209,8 @@ float4 fragment_main(VertexOutput input) {
     
 
     
-    //return target_sample;
-    float2 pos = Warp(sample_pos.xy / iResolution.xy + float2(0.0, 0.0));
-    float3 final = Tri(pos) * Mask(sample_pos.xy);
-    return float4(final.x, final.y, final.z, target_sample.a);
+    return target_sample;
+    // float2 pos = Warp(sample_pos.xy / iResolution.xy + float2(0.0, 0.0));
+    // float3 final = Tri(pos) * Mask(sample_pos.xy);
+    // return float4(final.x, final.y, final.z, target_sample.a);
 }
