@@ -436,7 +436,7 @@ render_imgui :: proc(
 ) {
     scoped_event(&profiler, "render_imgui")
     imgui.EndFrame()
-    frame_idx := gd.frame_count % FRAMES_IN_FLIGHT
+    in_flight_frame := gd.frame_count % FRAMES_IN_FLIGHT
 
     // Update uniform buffer
     
@@ -449,7 +449,7 @@ render_imgui :: proc(
         0.0, 0.0, 0.0, 1.0,
     }
     u_slice := slice.from_ptr(&uniforms, 1)
-    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice, u32(frame_idx))
+    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice, u32(in_flight_frame))
 
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
@@ -489,8 +489,8 @@ render_imgui :: proc(
     // Compute a fixed vertex/index offset based on frame index
     // so that the CPU doesn't overwrite vertex data for a frame currently
     // being worked on
-    global_vtx_offset : u32 = u32(frame_idx * MAX_IMGUI_VERTICES)
-    global_idx_offset : u32 = u32(frame_idx * MAX_IMGUI_INDICES)
+    global_vtx_offset : u32 = u32(in_flight_frame * MAX_IMGUI_VERTICES)
+    global_idx_offset : u32 = u32(in_flight_frame * MAX_IMGUI_INDICES)
     local_vtx_offset : u32 = 0
     local_idx_offset : u32 = 0
 
@@ -529,7 +529,7 @@ render_imgui :: proc(
                 font_idx = tex_handle.index,
                 sampler = .Point,
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
-                uniform_data = uniform_buf.address + vk.DeviceAddress(frame_idx * size_of(ImguiUniforms)),
+                uniform_data = uniform_buf.address + vk.DeviceAddress(in_flight_frame * size_of(ImguiUniforms)),
                 vertex_data = imgui_vertex_buffer.address,
             })
 
