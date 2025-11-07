@@ -454,7 +454,37 @@ render_imgui :: proc(
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
     imgui.Render()
-    
+
+    // Insert a barrier to sync ImGUI's color attachment write
+    // With the previous color attachment write
+    // The assumption here is that ImGUI rendering will be
+    // at or near the end of the chain
+    {
+        swapchain_color_attachment, _ := vkw.get_image(gd, framebuffer.color_images[0])
+        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
+            {
+                {
+                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    src_access_mask = {.COLOR_ATTACHMENT_WRITE},
+                    dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    dst_access_mask = {.COLOR_ATTACHMENT_READ},
+                    old_layout = .COLOR_ATTACHMENT_OPTIMAL, // No layout transition happens with this barrier
+                    new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                    src_queue_family = gd.gfx_queue_family,
+                    dst_queue_family = gd.gfx_queue_family,
+                    image = swapchain_color_attachment.image,
+                    subresource_range = vk.ImageSubresourceRange {
+                        aspectMask = {.COLOR},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                }
+            }
+        )
+    }
+
     draw_data := imgui.GetDrawData()
 
     // Temp buffers for collecting imgui vertices/indices from all cmd lists

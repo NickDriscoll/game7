@@ -1992,6 +1992,7 @@ render_scene :: proc(
         framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
     
         // Transition internal framebuffer to be sampled from
+        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
             {
                 {
@@ -2011,7 +2012,25 @@ render_scene :: proc(
                         baseArrayLayer = 0,
                         layerCount = 1
                     }
-                }
+                },
+                {
+                    src_stage_mask = {.LATE_FRAGMENT_TESTS},
+                    src_access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE,.DEPTH_STENCIL_ATTACHMENT_READ},
+                    dst_stage_mask = {.EARLY_FRAGMENT_TESTS},
+                    dst_access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE,.DEPTH_STENCIL_ATTACHMENT_READ},
+                    old_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    new_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    src_queue_family = gd.gfx_queue_family,
+                    dst_queue_family = gd.gfx_queue_family,
+                    image = depth_target.image,
+                    subresource_range = vk.ImageSubresourceRange {
+                        aspectMask = {.DEPTH},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                },
             }
         )
 
