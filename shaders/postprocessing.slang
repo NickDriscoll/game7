@@ -204,20 +204,21 @@ float4 fragment_main(VertexOutput input) {
             my_noise(input.uv + 0.5 * u_data.time),
             my_noise(input.uv + 0.5 * u_data.time + 1.0)
         );
-
-    // Extract resolution from clip_from_screen matrix
-    float2 framebuffer_resolution;
-    framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
-    framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
-
+        
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
-
-    float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
-    float2 pos = Warp(crt_sample_pos / framebuffer_resolution + float2(0.0, 0.0));
-    float3 tri = Tri(pos);
-    float3 mask = Mask(crt_sample_pos);
-    float3 final = tri * mask;
-    return float4(final.x, final.y, final.z, target_sample.a);
-
-    //return target_sample;
+    if ((u_data.flags & UniformFlag.CRTShader) != 0) {
+        // Extract resolution from clip_from_screen matrix
+        float2 framebuffer_resolution;
+        framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
+        framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
+        
+        float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
+        float2 pos = Warp(crt_sample_pos / framebuffer_resolution + float2(0.0, 0.0));
+        float3 tri = Tri(pos);
+        float3 mask = Mask(crt_sample_pos);
+        float3 final = tri * mask;
+        return float4(final.x, final.y, final.z, target_sample.a);
+    } else {
+        return target_sample;
+    }
 }
