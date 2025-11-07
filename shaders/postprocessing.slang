@@ -66,9 +66,9 @@ float my_noise(float2 p) {
 //
 
 // Emulated input resolution.
-#if 0
+#if 1
   // Fix resolution to set amount.
-#define res (vec2(320.0 / 1.0, 160.0 / 1.0))
+#define res (float2(640.0 / 1.0, 480.0 / 1.0))
 #else
 // Optimize for resize.
 float2 iResolution = { 320 / 160 };
@@ -78,21 +78,21 @@ float2 iResolution = { 320 / 160 };
 // Hardness of scanline.
 //  -8.0 = soft
 // -16.0 = medium
-float hardScan = -8.0;
+static const float hardScan = -8.0;
 
 // Hardness of pixels in scanline.
 // -2.0 = soft
 // -4.0 = hard
-float hardPix = -3.0;
+static const float hardPix = -3.0;
 
 // Display warp.
 // 0.0 = none
 // 1.0/8.0 = extreme
-float2 warp = float2(1.0 / 32.0, 1.0 / 24.0);
+static const float2 warp = float2(1.0 / 32.0, 1.0 / 24.0);
 
 // Amount of shadow mask.
-float maskDark = 0.5;
-float maskLight = 1.5;
+static const float maskDark = 0.5;
+static const float maskLight = 1.5;
 
 //------------------------------------------------------------------------
 
@@ -205,12 +205,19 @@ float4 fragment_main(VertexOutput input) {
             my_noise(input.uv + 0.5 * u_data.time + 1.0)
         );
 
-    float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
-    
+    // Extract resolution from clip_from_screen matrix
+    float2 framebuffer_resolution;
+    framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
+    framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
 
-    
-    return target_sample;
-    // float2 pos = Warp(sample_pos.xy / iResolution.xy + float2(0.0, 0.0));
-    // float3 final = Tri(pos) * Mask(sample_pos.xy);
-    // return float4(final.x, final.y, final.z, target_sample.a);
+    float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
+
+    float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
+    float2 pos = Warp(crt_sample_pos / framebuffer_resolution + float2(0.0, 0.0));
+    float3 tri = Tri(pos);
+    float3 mask = Mask(crt_sample_pos);
+    float3 final = tri * mask;
+    return float4(final.x, final.y, final.z, target_sample.a);
+
+    //return target_sample;
 }
