@@ -54,6 +54,7 @@ struct PointLight {
 enum UniformFlag {
     ColorTriangles = 0x01,
     Reflections = 0x02,
+    CRTShader = 0x04,
 }
 
 struct UniformData {

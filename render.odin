@@ -68,7 +68,8 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
 UniformsFlags :: bit_set[UniformFlag]
 UniformFlag :: enum u32 {
     ColorTriangles,
-    Reflections
+    Reflections,
+    CRTShader,
 }
 
 // Manually aligned to 16 bytes
@@ -385,6 +386,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
+        unis.flags += {.CRTShader}
     }
 }
 
@@ -2556,6 +2558,7 @@ graphics_gui :: proc(gd: vkw.Graphics_Device, renderer: ^Renderer, do_window: ^b
 
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.CRTShader)
             }
             imgui.Separator()
 
