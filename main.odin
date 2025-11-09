@@ -416,15 +416,15 @@ main :: proc() {
     when ODIN_DEBUG {
         defer {
             scoped_event(&profiler, "Shutdown")
-            defer log.destroy_console_logger(context.logger)
+            log.destroy_console_logger(context.logger)
+            gui_cleanup(&vgd, &imgui_state)
+            destroy_audio_system(&audio_system)
             {
                 scoped_event(&profiler, "Quit Vulkan")
                 vkw.quit_vulkan(&vgd)
             }
-            defer sdl2.DestroyWindow(app_window.window)
-            defer sdl2.Quit()
-            defer gui_cleanup(&vgd, &imgui_state)
-            defer destroy_audio_system(&audio_system)
+            sdl2.DestroyWindow(app_window.window)
+            sdl2.Quit()
         }
     }
 
