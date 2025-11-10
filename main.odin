@@ -187,8 +187,7 @@ main :: proc() {
             mem.arena_init(&per_frame_arena, temp_backing_memory)
             context.temp_allocator = mem.arena_allocator(&per_frame_arena)
         }
-    
-    
+
         // Load user configuration
         cfg, config_ok := load_user_config(USER_CONFIG_FILENAME)
         if !config_ok {
