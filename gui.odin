@@ -87,7 +87,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, user_config: UserConfiguration, res
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
-        size = FRAMES_IN_FLIGHT * MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
+        size = vk.DeviceSize(gd.frames_in_flight) * MAX_IMGUI_VERTICES * size_of(imgui.DrawVert),
         usage = {.STORAGE_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
@@ -97,7 +97,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, user_config: UserConfiguration, res
 
     // Allocate imgui index buffer
     buffer_info = vkw.Buffer_Info {
-        size = FRAMES_IN_FLIGHT * MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
+        size = vk.DeviceSize(gd.frames_in_flight) * MAX_IMGUI_INDICES * size_of(imgui.DrawIdx),
         usage = {.INDEX_BUFFER,.TRANSFER_DST},
         alloc_flags = nil,
         required_flags = {.DEVICE_LOCAL},
@@ -108,7 +108,7 @@ imgui_init :: proc(gd: ^vkw.Graphics_Device, user_config: UserConfiguration, res
     // Create uniform buffer
     {
         info := vkw.Buffer_Info {
-            size = size_of(ImguiUniforms) * FRAMES_IN_FLIGHT,
+            size = size_of(ImguiUniforms) * vk.DeviceSize(gd.frames_in_flight),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
             alloc_flags = {.Mapped},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
@@ -436,7 +436,7 @@ render_imgui :: proc(
 ) {
     scoped_event(&profiler, "render_imgui")
     imgui.EndFrame()
-    in_flight_frame := gd.frame_count % FRAMES_IN_FLIGHT
+    in_flight_frame := gd.frame_count % u64(gd.frames_in_flight)
 
     // Update uniform buffer
     

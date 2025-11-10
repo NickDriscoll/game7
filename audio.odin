@@ -318,6 +318,11 @@ audio_gui :: proc(
             user_config.floats[.SFXVolume] = f64(audio_system.sfx_volume)
         }
         imgui.SliderFloat("Audio playback speed", &audio_system.speed_scale, 0.1, MAX_PLAYBACK_SCALE)
+        
+        imgui.SameLine()
+        if imgui.Button("Reset") {
+            audio_system.speed_scale = 1.0
+        }
         imgui.Separator()
 
         imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
