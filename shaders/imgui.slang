@@ -1,4 +1,3 @@
-import structs;
 import tex_bindings;
 
 struct ImguiVertex {
