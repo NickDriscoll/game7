@@ -110,6 +110,8 @@ UniformBuffer :: struct {
     cloud_speed: f32,
     cloud_scale: f32,
 
+    
+
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
 }
@@ -283,7 +285,7 @@ Renderer :: struct {
     joint_weights_buffer: vkw.Buffer_Handle,
     joint_weights_head: u32,
 
-    scene_TLAS: vkw.Acceleration_Structure_Handle,
+    scene_TLASes: [vkw.TOTAL_AS_DESCRIPTORS]vkw.Acceleration_Structure_Handle,
 
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
@@ -404,7 +406,9 @@ init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2, want_rt
 
     renderer: Renderer
     renderer.do_raytracing = want_rt && (.Raytracing in gd.support_flags)
-    renderer.scene_TLAS.generation = 0xFFFFFFFF
+    for i in 0..<vkw.TOTAL_AS_DESCRIPTORS {
+        renderer.scene_TLASes[i].generation = 0xFFFFFFFF
+    }
 
     renderer_new_scene(&renderer)
 
@@ -916,6 +920,7 @@ queue_blas_build :: proc(
         append(&mesh.blases, vkw.Acceleration_Structure_Handle {})
     }
     current_blas := &mesh.blases[mesh.current_blas_head]
+    mesh.current_blas_head += 1
 
     geos, _ := make([dynamic]vkw.AccelerationStructureGeometry, context.temp_allocator)
     _, alloc_error := append(&geos, vkw.AccelerationStructureGeometry {
@@ -965,7 +970,6 @@ queue_blas_build :: proc(
     }
 
     current_blas^ = vkw.create_acceleration_structure(gd, as_info, &build_info)
-    mesh.current_blas_head += 1
 }
 
 create_static_mesh :: proc(
@@ -1649,13 +1653,13 @@ build_scene_TLAS :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
             }
         }
 
-        vkw.delete_acceleration_structure(gd, renderer.scene_TLAS)
-        renderer.scene_TLAS = vkw.create_acceleration_structure(gd, create_info, &bis[0])
+        vkw.delete_acceleration_structure(gd, renderer.scene_TLASes[tlas_idx])
+        renderer.scene_TLASes[tlas_idx] = vkw.create_acceleration_structure(gd, create_info, &bis[0])
         vkw.cmd_build_acceleration_structures(gd, bis)
 
         // Update TLAS descriptor
         {
-            tlas, _1 := vkw.get_acceleration_structure(gd, renderer.scene_TLAS)
+            tlas, _1 := vkw.get_acceleration_structure(gd, renderer.scene_TLASes[tlas_idx])
             as_write := vk.WriteDescriptorSetAccelerationStructureKHR {
                 sType = .WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
                 pNext = nil,
