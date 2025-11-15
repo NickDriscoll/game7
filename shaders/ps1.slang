@@ -99,7 +99,7 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
     RayDesc ray;
     ray.Direction = direction;
     ray.Origin = origin;
-    ray.TMin = 0.001;
+    ray.TMin = 0.0001;
     ray.TMax = length;
 
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
