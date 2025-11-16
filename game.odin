@@ -338,7 +338,7 @@ GameState :: struct {
 }
 
 init_gamestate :: proc(
-    gd: ^vkw.Graphics_Device,
+    gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     audio_system: ^AudioSystem,
     user_config: ^UserConfiguration,
@@ -460,7 +460,7 @@ init_gamestate :: proc(
 
 gamestate_new_scene :: proc(
     game_state: ^GameState,
-    gd: ^vkw.Graphics_Device,
+    gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     scene_allocator := context.allocator
 ) {
@@ -506,7 +506,7 @@ gamestate_new_scene :: proc(
 }
 
 load_level_file :: proc(
-    gd: ^vkw.Graphics_Device,
+    gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     audio_system: ^AudioSystem,
     game_state: ^GameState,
@@ -523,7 +523,7 @@ load_level_file :: proc(
 
     free_all(context.allocator)
     audio_new_scene(audio_system)
-    renderer_new_scene(renderer)
+    new_scene(renderer)
     gamestate_new_scene(game_state, gd, renderer)
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
@@ -906,7 +906,7 @@ EditorResponse :: struct {
 
 scene_editor :: proc(
     game_state: ^GameState,
-    gd: ^vkw.Graphics_Device,
+    gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     gui: ^ImguiState,
     user_config: ^UserConfiguration
@@ -1642,7 +1642,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
 }
 
-player_draw :: proc(game_state: ^GameState, gd: ^vkw.Graphics_Device, renderer: ^Renderer) {
+player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
     scoped_event(&profiler, "Player draw")
     character := &game_state.character
 
@@ -1941,7 +1941,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
     }
 }
 
-enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+enemies_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
     scoped_event(&profiler, "Enemies draw")
     // Live enemies
     for enemy, i in game_state.enemies {
@@ -1996,7 +1996,7 @@ enemies_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: 
     }
 }
 
-coins_draw :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, game_state: GameState) {
+coins_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
     sb: strings.Builder
     strings.builder_init(&sb, context.temp_allocator)
     p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
