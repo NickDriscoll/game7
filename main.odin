@@ -1192,32 +1192,9 @@ main :: proc() {
                 vgd.resize_window = false
             }
 
-            // Sync point where we wait if there are already N frames in the gfx queue
-            if vgd.frame_count >= u64(vgd.frames_in_flight) {
-                scoped_event(&profiler, "GFX timeline semaphore wait")
+            // Sync point where we wait if there are already 2 frames in the gfx queue
+            vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
 
-                // Wait on timeline semaphore before starting command buffer execution
-                wait_value := vgd.frame_count - u64(vgd.frames_in_flight) + 1
-
-                // CPU-sync to prevent CPU from getting further ahead than
-                // the number of frames in flight
-                sem, ok := vkw.get_semaphore(&vgd, renderer.gfx_timeline)
-                if !ok {
-                    log.error("Couldn't find semaphore for CPU-sync")
-                }
-                info := vk.SemaphoreWaitInfo {
-                    sType = .SEMAPHORE_WAIT_INFO,
-                    pNext = nil,
-                    flags = nil,
-                    semaphoreCount = 1,
-                    pSemaphores = sem,
-                    pValues = &wait_value
-                }
-                res := vk.WaitSemaphores(vgd.device, &info, max(u64))
-                if res != .SUCCESS {
-                    log.errorf("CPU failed to wait for timeline semaphore: %v", res)
-                }
-            }
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
             // Increment timeline semaphore upon command buffer completion

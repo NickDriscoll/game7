@@ -7,14 +7,6 @@ import tex_bindings;
 RaytracingAccelerationStructure tlases[];
 #endif
 
-struct VertexOutput {
-    float4 clip_pos : SV_Position;
-    float3 world_pos;
-    float2 uv;
-    float4 color;
-    uint instance_idx;
-}
-
 [[vk::push_constant]]
 cbuffer push_constants {
     UniformData *u_data;
@@ -116,6 +108,14 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
 #else
     return false;
 #endif
+}
+
+struct VertexOutput {
+    float4 clip_pos : SV_Position;
+    float3 world_pos;
+    float2 uv;
+    float4 color;
+    uint instance_idx;
 }
 
 [shader("vertex")]
