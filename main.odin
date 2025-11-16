@@ -141,7 +141,7 @@ main :: proc() {
     load_new_level: Maybe(string)
     do_limit_cpu := false
     saved_mouse_coords: hlsl.int2
-    vgd: vkw.Graphics_Device
+    vgd: vkw.GraphicsDevice
     renderer: Renderer
     app_window: Window
     imgui_state: ImguiState
@@ -216,10 +216,10 @@ main :: proc() {
         }
     
         // Initialize graphics device
-        init_params := vkw.Init_Parameters {
+        init_params := vkw.InitParameters {
             app_name = "Game7",
             frames_in_flight = FRAMES_IN_FLIGHT,
-            features = {.Window,.Raytracing},
+            desired_features = {.Window,.Raytracing},
             //features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
@@ -1159,7 +1159,7 @@ main :: proc() {
         // Render
         if !window_minimized {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
-            full_swapchain_remake :: proc(gd: ^vkw.Graphics_Device, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
+            full_swapchain_remake :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 scoped_event(&profiler, "full_swapchain_remake")
                 io := imgui.GetIO()
 
