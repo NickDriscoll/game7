@@ -27,8 +27,8 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 MAXIMUM_FRAME_DT :: 1.0 / 30.0
 
-SCENE_ARENA_SIZE :: 16 * 1024 * 1024         // Memory pool for per-scene allocations
-TEMP_ARENA_SIZE :: 64 * 1024            // Guessing 64KB necessary size for per-frame allocations
+SCENE_ARENA_SIZE :: 16 * 1024 * 1024          // Memory pool for per-scene allocations
+TEMP_ARENA_SIZE :: 1024 * 1024                // Memory pool for per-frame allocations
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
@@ -104,6 +104,7 @@ main :: proc() {
         // Set up the tracking allocator if this is a debug build
         global_track: mem.Tracking_Allocator
         scene_track: mem.Tracking_Allocator
+        temp_track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&global_track, global_allocator)
         global_allocator = mem.tracking_allocator(&global_track)
 
@@ -130,7 +131,10 @@ main :: proc() {
     }
     defer quit_profiler(&profiler)
     scoped_event(&profiler, "Main proc")
-
+    
+    // Set up logger
+    context.logger = log.create_console_logger(log_level)
+    
     freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     mouse_mappings := make(map[u8]VerbType, 64, allocator = global_allocator)
@@ -138,6 +142,7 @@ main :: proc() {
     current_time: time.Time
     previous_time: time.Time
     scene_allocator: mem.Allocator
+    per_frame_allocator: mem.Allocator
     load_new_level: Maybe(string)
     do_limit_cpu := false
     saved_mouse_coords: hlsl.int2
@@ -152,41 +157,35 @@ main :: proc() {
     {
         scoped_event(&profiler, "App initialization")
     
-        // Set up logger
-        context.logger = log.create_console_logger(log_level)
         log.info("Initiating swag mode...")
     
     
         // Set up per-scene allocator
-        scene_backing_memory: []byte
         {
             scoped_event(&profiler, "Create per-scene allocator")
-            per_frame_arena: mem.Arena
-            err: mem.Allocator_Error
-            scene_backing_memory, err = mem.alloc_bytes(SCENE_ARENA_SIZE)
+            per_scene_arena: mem.Arena
+            scene_backing_memory, err := mem.alloc_bytes(SCENE_ARENA_SIZE)
             if err != nil {
                 log.error("Error allocating scene allocator backing buffer.")
             }
     
-            mem.arena_init(&per_frame_arena, scene_backing_memory)
-            scene_allocator = mem.arena_allocator(&per_frame_arena)
-    
+            mem.arena_init(&per_scene_arena, scene_backing_memory)
+            scene_allocator = mem.arena_allocator(&per_scene_arena)
         }
     
         // Set up per-frame temp allocator
-        temp_backing_memory: []byte
         {
             scoped_event(&profiler, "Create per-frame allocator")
             per_frame_arena: mem.Arena
-            err: mem.Allocator_Error
-            temp_backing_memory, err = mem.alloc_bytes(TEMP_ARENA_SIZE)
+            temp_backing_memory, err := mem.alloc_bytes(TEMP_ARENA_SIZE)
             if err != nil {
                 log.error("Error allocating temporary allocator backing buffer.")
             }
     
             mem.arena_init(&per_frame_arena, temp_backing_memory)
-            context.temp_allocator = mem.arena_allocator(&per_frame_arena)
+            per_frame_allocator = mem.arena_allocator(&per_frame_arena)
         }
+        context.temp_allocator = per_frame_allocator
 
         // Load user configuration
         cfg, config_ok := load_user_config(USER_CONFIG_FILENAME)
@@ -194,8 +193,6 @@ main :: proc() {
             log.error("Failed to load user config.")
         }
         user_config = cfg
-    
-    
     
         // Initialize SDL2
         {
@@ -384,17 +381,18 @@ main :: proc() {
         } else {
             input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
         }
-        context.allocator = scene_allocator
     
         current_time = time.now()          // Time in nanoseconds since UNIX epoch
         previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         saved_mouse_coords = hlsl.int2 {0, 0}
     }
-    context.allocator = scene_allocator
+
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         mem.tracking_allocator_init(&scene_track, scene_allocator)
         scene_allocator = mem.tracking_allocator(&scene_track)
+        mem.tracking_allocator_init(&temp_track, per_frame_allocator)
+        per_frame_allocator = mem.tracking_allocator(&temp_track)
 
         defer {
             if len(scene_track.allocation_map) > 0 {
@@ -410,6 +408,7 @@ main :: proc() {
                 }
             }
             mem.tracking_allocator_destroy(&scene_track)
+            mem.tracking_allocator_destroy(&temp_track)
         }
     }
     when ODIN_DEBUG {
@@ -426,6 +425,10 @@ main :: proc() {
             sdl2.Quit()
         }
     }
+
+    // context is per-scope, so set the allocators here for the rest of main's scope
+    context.allocator = scene_allocator
+    context.temp_allocator = per_frame_allocator
 
     log.info("App initialization complete. Entering main loop")
 
@@ -1262,6 +1265,11 @@ main :: proc() {
         {
             scoped_event(&profiler, "End-of-frame cleanup")
             // CLear temp allocator for next frame
+            when ODIN_DEBUG {
+                if vgd.frame_count % 100 == 0 {
+                    log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, vgd.frame_count)
+                }
+            }
             free_all(context.temp_allocator)
     
             // Clear sync info for next frame
