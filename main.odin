@@ -1244,7 +1244,7 @@ main :: proc() {
             // CLear temp allocator for next frame
             when ODIN_DEBUG {
                 if vgd.frame_count % 100 == 0 {
-                    log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, vgd.frame_count)
+                    //log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, vgd.frame_count)
                 }
             }
             free_all(context.temp_allocator)

@@ -313,7 +313,6 @@ Renderer :: struct {
 
 
     ps1_static_instances: [dynamic]CPUStaticInstance,
-    ps1_static_instance_count: u32,                         // Number of true static instances (i.e. instances that are not the output of compute skinning)
     debug_static_instances: [dynamic]DebugStaticInstance,
     cpu_skinned_instances: [dynamic]CPUSkinnedInstance,
 
@@ -358,22 +357,22 @@ Renderer :: struct {
     viewport_dimensions: vk.Rect2D,
 }
 
-new_scene :: proc(renderer: ^Renderer) {
+new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
     // Allocator dynamic arrays and handlemaps
-    hm.init(&renderer.cpu_static_meshes)
-    hm.init(&renderer.cpu_skinned_meshes)
-    hm.init(&renderer.cpu_materials)
-    renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh, 0, 64)
-    renderer.joint_parents = make([dynamic]u32, 0, 64)
-    renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64)
-    renderer.animations = make([dynamic]Animation, 0, 64)
+    hm.init(&renderer.cpu_static_meshes, allocator)
+    hm.init(&renderer.cpu_skinned_meshes, allocator)
+    hm.init(&renderer.cpu_materials, allocator)
+    renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh, 0, 64, allocator)
+    renderer.joint_parents = make([dynamic]u32, 0, 64, allocator)
+    renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64, allocator)
+    renderer.animations = make([dynamic]Animation, 0, 64, allocator)
 
-    vkw.sync_init(&renderer.gfx_sync)
-    vkw.sync_init(&renderer.compute_sync)
+    vkw.sync_init(&renderer.gfx_sync, allocator)
+    vkw.sync_init(&renderer.compute_sync, allocator)
 
-    renderer.loaded_static_models = make(map[string]StaticModelData, MAX_UNIQUE_MODELS)
-    renderer.loaded_skinned_models = make(map[string]SkinnedModelData, MAX_UNIQUE_MODELS)
-    strings.intern_init(&renderer._glb_name_interner)
+    renderer.loaded_static_models = make(map[string]StaticModelData, MAX_UNIQUE_MODELS, allocator)
+    renderer.loaded_skinned_models = make(map[string]SkinnedModelData, MAX_UNIQUE_MODELS, allocator)
+    strings.intern_init(&renderer._glb_name_interner, allocator)
 
     renderer.positions_head = 0
     renderer.indices_head = 0
@@ -396,7 +395,6 @@ new_scene :: proc(renderer: ^Renderer) {
 // Per-frame work that needs to happen at the beginning of the frame
 new_frame :: proc(renderer: ^Renderer) {
     renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
-    renderer.ps1_static_instance_count = 0
     renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
     renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
@@ -1277,7 +1275,6 @@ draw_ps1_static_primitives :: proc(
         }
         append(&renderer.ps1_static_instances, new_inst)
     }
-    renderer.ps1_static_instance_count += u32(len(draw_data))
 
     return true
 }
@@ -1306,7 +1303,6 @@ draw_ps1_static_primitive :: proc(
         material_handle = material_handle,
     }
     append(&renderer.ps1_static_instances, new_inst)
-    renderer.ps1_static_instance_count += 1
 
     return true
 }
@@ -2173,7 +2169,7 @@ load_gltf_static_model :: proc(
     if res != .success {
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
-    
+
     loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
     primitive_count := 0
@@ -2186,12 +2182,12 @@ load_gltf_static_model :: proc(
         for &primitive, i in mesh.primitives {
             // Get indices
             index_data := load_gltf_indices_u16(&primitive)
-        
+
             // Get vertex data
             position_data: [dynamic]half4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
-    
+
             for &attrib in primitive.attributes {
                 #partial switch (attrib.type) {
                     case .position: position_data = load_gltf_float3_to_half4(&attrib)
@@ -2212,7 +2208,7 @@ load_gltf_static_model :: proc(
                     case .texcoord: uv_data = load_gltf_float2(&attrib)
                 }
             }
-    
+
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
             mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
@@ -2222,11 +2218,9 @@ load_gltf_static_model :: proc(
             if len(uv_data) > 0 {
                 add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
             }
-    
-    
+
+
             // Now get material data
-            loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
-            defer delete(loaded_glb_materials)
             glb_material := primitive.material
             has_material := glb_material != nil
     
