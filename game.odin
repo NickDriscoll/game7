@@ -416,7 +416,7 @@ init_gamestate :: proc(
         scoped_event(&profiler, "Load skybox")
         // @TODO: Load this from level file
         path := "data/images/beach.dds"
-        file_bytes, image_ok := os.read_entire_file(path, context.temp_allocator)
+        file_bytes, image_ok := os.read_entire_file(path, context.allocator)
 
         if image_ok {
             // Read DDS header
@@ -464,7 +464,6 @@ gamestate_new_scene :: proc(
     renderer: ^Renderer,
     scene_allocator := context.allocator
 ) {
-
     game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
     game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
     game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
@@ -521,8 +520,8 @@ load_level_file :: proc(
 
     vkw.device_wait_idle(gd)
 
-    free_all(context.allocator)
-    audio_new_scene(audio_system)
+    free_all(scene_allocator)
+    audio_new_scene(audio_system, scene_allocator)
     new_scene(renderer)
     gamestate_new_scene(game_state, gd, renderer)
 
