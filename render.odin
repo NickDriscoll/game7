@@ -458,10 +458,11 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
             alloc_flags = nil,
             required_flags = {.DEVICE_LOCAL},
         }
+
         if renderer.do_raytracing {
+            // Positions buffer needs to be readable as AS input when supporting RT
             info.usage += {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
         }
-
         info.name = "Global vertex positions buffer"
         info.size = size_of(half4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
@@ -2092,8 +2093,8 @@ gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     return idx
 }
 
-load_gltf_textures :: proc(gd: ^vkw.GraphicsDevice, gltf_data: ^cgltf.data) -> [dynamic]vkw.Texture_Handle {
-    loaded_glb_images := make([dynamic]vkw.Texture_Handle, len(gltf_data.textures), context.temp_allocator)
+load_gltf_textures :: proc(gd: ^vkw.GraphicsDevice, gltf_data: ^cgltf.data, allocator := context.temp_allocator) -> [dynamic]vkw.Texture_Handle {
+    loaded_glb_images := make([dynamic]vkw.Texture_Handle, len(gltf_data.textures), allocator)
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         assert(glb_image.buffer_view != nil, "Image must be embedded inside .glb")
