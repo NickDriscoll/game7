@@ -30,7 +30,7 @@ TerrainPiece :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
-    model: ^StaticModelData,
+    model: StaticModelHandle,
 }
 
 delete_terrain_piece :: proc(using t: ^TerrainPiece) {
@@ -162,14 +162,14 @@ do_mouse_raycast :: proc(
 // }
 
 StaticScenery :: struct {
-    model: ^StaticModelData,
+    model: StaticModelHandle,
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
 }
 
 AnimatedScenery :: struct {
-    model: ^SkinnedModelData,
+    model: SkinnedModelHandle,
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
@@ -215,7 +215,7 @@ Character :: struct {
     health: u32,
     control_flags: CharacterFlags,
     damage_timer: time.Time,
-    mesh_data: ^SkinnedModelData,
+    model: SkinnedModelHandle,
 
     air_vortex: Maybe(AirVortex),
     bullet_travel_time: f32,
@@ -254,7 +254,7 @@ Enemy :: struct {
     collision_state: CollisionState,
     timer_start: time.Time,
 
-    model: ^StaticModelData,
+    model: StaticModelHandle,
 }
 
 default_enemy :: proc(game_state: GameState) -> Enemy {
@@ -421,12 +421,12 @@ GameState :: struct {
     skybox_texture: vkw.Texture_Handle,
 
     // Icosphere mesh for visualizing spherical collision and points
-    sphere_mesh: ^StaticModelData,
+    sphere_mesh: StaticModelHandle,
     
-    coin_mesh: ^StaticModelData,
+    coin_mesh: StaticModelHandle,
     coin_collision_radius: f32,
 
-    enemy_mesh: ^StaticModelData,
+    enemy_mesh: StaticModelHandle,
     selected_enemy: Maybe(int),
 
 
@@ -604,7 +604,7 @@ gamestate_new_scene :: proc(
     game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb", scene_allocator)
     
     // Load animated test glTF model
-    skinned_model: ^SkinnedModelData
+    skinned_model: SkinnedModelHandle
     {
         path : cstring = "data/models/CesiumMan.glb"
         skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
@@ -622,7 +622,7 @@ gamestate_new_scene :: proc(
         sprint_speed = 14.0,
         jump_speed = 10.0,
         anim_speed = 0.856,
-        mesh_data = skinned_model,
+        model = skinned_model,
 
         bullet_travel_time = 0.144,
     }
@@ -814,10 +814,11 @@ load_level_file :: proc(
 }
 
 write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
-    mesh_data_size :: proc(mesh: $T) -> int {
+    mesh_data_size :: proc(renderer: ^Renderer, mesh: $T) -> int {
+        model := get_static_model(renderer, mesh.model)
         s := 0
         s += size_of(u32)
-        s += len(mesh.model.name)
+        s += len(model.name)
         s += size_of(mesh.position)
         s += size_of(mesh.rotation)
         s += size_of(mesh.scale)
@@ -847,7 +848,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         output_size += size_of(u32)
     }
     for piece in gamestate.terrain_pieces {
-        output_size += mesh_data_size(piece)
+        output_size += mesh_data_size(renderer, piece)
     }
 
     // Static scenery
@@ -856,7 +857,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         output_size += size_of(u32)
     }
     for scenery in gamestate.static_scenery {
-        output_size += mesh_data_size(scenery)
+        output_size += mesh_data_size(renderer, scenery)
     }
 
     // Animated scenery
@@ -865,7 +866,14 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         output_size += size_of(u32)
     }
     for scenery in gamestate.animated_scenery {
-        output_size += mesh_data_size(scenery)
+        model := get_skinned_model(renderer, scenery.model)
+        s := 0
+        s += size_of(u32)
+        s += len(model.name)
+        s += size_of(scenery.position)
+        s += size_of(scenery.rotation)
+        s += size_of(scenery.scale)
+        output_size += s
     }
 
     // Enemies
@@ -904,8 +912,14 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         head^ += amount
     }
 
-    write_mesh_to_buffer :: proc(buffer: []byte, mesh: ^$T, head: ^u32) {
-        write_string_to_buffer(buffer, mesh.model.name, head)
+    write_mesh_to_buffer :: proc(renderer: ^Renderer, buffer: []byte, mesh: ^$T, head: ^u32) {
+        when T == AnimatedScenery {
+            model := get_skinned_model(renderer, mesh.model)
+            write_string_to_buffer(buffer, model.name, head)
+        } else {
+            model := get_static_model(renderer, mesh.model)
+            write_string_to_buffer(buffer, model.name, head)
+        }
 
         write_thing_to_buffer(buffer, &mesh.position, head)
         write_thing_to_buffer(buffer, &mesh.rotation, head)
@@ -940,7 +954,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
     }
     for &piece in gamestate.terrain_pieces {
-        write_mesh_to_buffer(raw_output_buffer[:], &piece, &write_head)
+        write_mesh_to_buffer(renderer, raw_output_buffer[:], &piece, &write_head)
     }
 
     if len(gamestate.static_scenery) > 0 {
@@ -950,7 +964,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
     }
     for &scenery in gamestate.static_scenery {
-        write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
+        write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
     }
 
     if len(gamestate.animated_scenery) > 0 {
@@ -960,7 +974,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
     }
     for &scenery in gamestate.animated_scenery {
-        write_mesh_to_buffer(raw_output_buffer[:], &scenery, &write_head)
+        write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
     }
 
     if len(gamestate.enemies) > 0 {
@@ -1092,7 +1106,8 @@ scene_editor :: proc(
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
 
-                    gui_print_value(&builder, "Name", mesh.model.name)
+                    model := get_static_model(renderer, mesh.model)
+                    gui_print_value(&builder, "Name", model.name)
                     gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
@@ -1159,7 +1174,8 @@ scene_editor :: proc(
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
         
-                    gui_print_value(&builder, "Name", mesh.model.name)
+                    model := get_static_model(renderer, mesh.model)
+                    gui_print_value(&builder, "Name", model.name)
                     gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
@@ -1221,13 +1237,14 @@ scene_editor :: proc(
                 for &mesh, i in objects {
                     imgui.PushIDInt(c.int(i))
         
-                    gui_print_value(&builder, "Name", mesh.model.name)
+                    model := get_skinned_model(renderer, mesh.model)
+                    gui_print_value(&builder, "Name", model.name)
                     gui_print_value(&builder, "Rotation", mesh.rotation)
     
                     imgui.DragFloat3("Position", &mesh.position, 0.1)
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
     
-                    anim := &renderer.animations[mesh.model.first_animation_idx]
+                    anim := &renderer.animations[model.first_animation_idx]
                     imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_endtime(anim))
                     imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
         
@@ -1776,8 +1793,10 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
 
     // @TODO: Remove this matmul as this is just to correct an error with the model
     rotate_mat *= yaw_rotation_matrix(-math.PI / 2.0)
+
+    model := get_skinned_model(renderer, game_state.character.model)
     
-    end := get_animation_endtime(&renderer.animations[game_state.character.mesh_data.first_animation_idx])
+    end := get_animation_endtime(&renderer.animations[model.first_animation_idx])
     for character.anim_t > end {
         character.anim_t -= end
     }
@@ -1795,7 +1814,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
         ddata.world_from_model[3][0] = col.position.x
         ddata.world_from_model[3][1] = col.position.y
         ddata.world_from_model[3][2] = col.position.z - col.radius
-        draw_ps1_skinned_mesh(gd, renderer, game_state.character.mesh_data, &ddata)
+        draw_ps1_skinned_mesh(gd, renderer, game_state.character.model, &ddata)
     }
 
     // Draw enemy above player head
