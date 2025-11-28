@@ -335,12 +335,9 @@ Renderer :: struct {
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
-    // Maps of string filenames to ModelData types
-    // @TODO: Pointers are a brittle reference type
-    // maybe switch to Handle_Map
-    loaded_static_models: map[string]StaticModelData,
-    loaded_skinned_models: map[string]SkinnedModelData,
-    _glb_name_interner: strings.Intern,                     // String interner for registering .glb filenames
+    
+    loaded_static_models: hm.Handle_Map(StaticModel),
+    loaded_skinned_models: hm.Handle_Map(SkinnedModel),
 
     // Sync primitives
     gfx_timeline: vkw.Semaphore_Handle,
@@ -370,9 +367,8 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
     vkw.sync_init(&renderer.gfx_sync, allocator)
     vkw.sync_init(&renderer.compute_sync, allocator)
 
-    renderer.loaded_static_models = make(map[string]StaticModelData, MAX_UNIQUE_MODELS, allocator)
-    renderer.loaded_skinned_models = make(map[string]SkinnedModelData, MAX_UNIQUE_MODELS, allocator)
-    strings.intern_init(&renderer._glb_name_interner, allocator)
+    hm.init(&renderer.loaded_static_models, allocator)
+    hm.init(&renderer.loaded_skinned_models, allocator)
 
     renderer.positions_head = 0
     renderer.indices_head = 0
@@ -1180,10 +1176,11 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
 draw_ps1_static_meshes :: proc(
     gd: ^vkw.GraphicsDevice,
     r: ^Renderer,
-    data: ^StaticModelData,
+    handle: StaticModelHandle,
     draw_data: []StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_meshes")
+    data := get_static_model(r, handle)
     for prim, i in data.primitives {
         draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1191,10 +1188,11 @@ draw_ps1_static_meshes :: proc(
 draw_ps1_static_mesh :: proc(
     gd: ^vkw.GraphicsDevice,
     r: ^Renderer,
-    data: ^StaticModelData,
+    handle: StaticModelHandle,
     draw_data: StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_mesh")
+    data := get_static_model(r, handle)
     for prim in data.primitives {
         draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1202,11 +1200,12 @@ draw_ps1_static_mesh :: proc(
 
 draw_ps1_skinned_mesh :: proc(
     gd: ^vkw.GraphicsDevice,
-    using r: ^Renderer,
-    data: ^SkinnedModelData,
+    r: ^Renderer,
+    handle: SkinnedModelHandle,
     draw_data: ^SkinnedDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_skinned_mesh")
+    data := get_skinned_model(r, handle)
     draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -1216,9 +1215,10 @@ draw_ps1_skinned_mesh :: proc(
 draw_debug_mesh :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
-    model: ^StaticModelData,
+    handle: StaticModelHandle,
     draw_data: ^DebugDraw
 ) {
+    model := get_static_model(renderer, handle)
     for prim in model.primitives {
         draw_debug_primtive(gd, renderer, prim.mesh, draw_data)
     }
@@ -2072,16 +2072,16 @@ StaticDrawPrimitive :: struct {
     material: Material_Handle,
 }
 
-StaticModelData :: struct {
+StaticModel :: struct {
     primitives: [dynamic]StaticDrawPrimitive,
     name: string,
 }
 
-gltf_static_delete :: proc(using d: ^StaticModelData)  {
+gltf_static_delete :: proc(using d: ^StaticModel)  {
     delete(primitives)
 }
 
-gltf_skinned_delete :: proc(d: ^SkinnedModelData)  {
+gltf_skinned_delete :: proc(d: ^SkinnedModel)  {
     delete(d.primitives)
 }
 
@@ -2138,25 +2138,41 @@ load_gltf_textures :: proc(gd: ^vkw.GraphicsDevice, gltf_data: ^cgltf.data, allo
     return loaded_glb_images
 }
 
+StaticModelHandle :: distinct hm.Handle
+SkinnedModelHandle :: distinct hm.Handle
+
+get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^StaticModel {
+    model, res := hm.get(&renderer.loaded_static_models, handle)
+    if !res {
+        log.error("Unable to get static model.")
+    }
+    return model
+}
+
+get_skinned_model :: proc(renderer: ^Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
+    model, res := hm.get(&renderer.loaded_skinned_models, handle)
+    if !res {
+        log.error("Unable to get skinned model.")
+    }
+    return model
+}
+
 load_gltf_static_model :: proc(
     gd: ^vkw.GraphicsDevice,
-    render_data: ^Renderer,
+    renderer: ^Renderer,
     path: cstring,
     allocator := context.allocator
-) -> ^StaticModelData {
+) -> StaticModelHandle {
     scoped_event(&profiler, "Load static glTF")
 
     spath := string(path)
     glb_filename := filepath.base(spath)
-    
-    interned_filename, intern_err := strings.intern_get(&render_data._glb_name_interner, glb_filename)
-    if intern_err != nil {
-        log.errorf("Error interning glb filename: %v", interned_filename)
-    }
 
-    if interned_filename in render_data.loaded_static_models {
-        // Early out if this glb is already loaded
-        return &render_data.loaded_static_models[interned_filename]
+    for model, i in renderer.loaded_static_models.values {
+        if model.name == glb_filename {
+            // Early out if this glb is already loaded
+            return StaticModelHandle(renderer.loaded_static_models.handles[i])
+        }
     }
 
     gltf_data, res := cgltf.parse_file({}, path)
@@ -2212,12 +2228,12 @@ load_gltf_static_model :: proc(
 
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
-            mesh_handle := create_static_mesh(gd, render_data, position_data[:], index_data[:])
+            mesh_handle := create_static_mesh(gd, renderer, position_data[:], index_data[:])
             if len(color_data) > 0 {
-                add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+                add_vertex_colors(gd, renderer, mesh_handle, color_data[:])
             }
             if len(uv_data) > 0 {
-                add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+                add_vertex_uvs(gd, renderer, mesh_handle, uv_data[:])
             }
 
 
@@ -2243,7 +2259,7 @@ load_gltf_static_model :: proc(
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
-            material_handle := add_material(render_data, &material)
+            material_handle := add_material(renderer, &material)
     
             append(&draw_primitives, StaticDrawPrimitive {
                 mesh = mesh_handle,
@@ -2252,12 +2268,12 @@ load_gltf_static_model :: proc(
         }
     }
 
-    render_data.loaded_static_models[interned_filename] = StaticModelData {
+    cloned_name, _ := strings.clone(glb_filename, allocator)
+    handle := hm.insert(&renderer.loaded_static_models, StaticModel {
         primitives = draw_primitives,
-        name = interned_filename
-    }
-
-    return &render_data.loaded_static_models[interned_filename]
+        name = cloned_name
+    })
+    return StaticModelHandle(handle)
 }
 
 SkinnedDrawPrimitive :: struct {
@@ -2265,7 +2281,7 @@ SkinnedDrawPrimitive :: struct {
     material: Material_Handle
 }
 
-SkinnedModelData :: struct {
+SkinnedModel :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
     first_animation_idx: u32,
     first_joint_idx: u32,
@@ -2274,23 +2290,20 @@ SkinnedModelData :: struct {
 
 load_gltf_skinned_model :: proc(
     gd: ^vkw.GraphicsDevice,
-    render_data: ^Renderer,
+    renderer: ^Renderer,
     path: cstring,
     allocator := context.allocator
-) -> ^SkinnedModelData {
+) -> SkinnedModelHandle {
     scoped_event(&profiler, "Load skinned glTF")
 
     spath := string(path)
     glb_filename := filepath.base(spath)
-    
-    interned_filename, intern_err := strings.intern_get(&render_data._glb_name_interner, glb_filename)
-    if intern_err != nil {
-        log.errorf("Error interning glb filename: %v", interned_filename)
-    }
 
-    if interned_filename in render_data.loaded_skinned_models {
-        // Early out if this glb is already loaded
-        return &render_data.loaded_skinned_models[interned_filename]
+    for model, i in renderer.loaded_static_models.values {
+        if model.name == glb_filename {
+            // Early out if this glb is already loaded
+            return SkinnedModelHandle(renderer.loaded_static_models.handles[i])
+        }
     }
 
     gltf_data, res := cgltf.parse_file({}, path)
@@ -2310,34 +2323,32 @@ load_gltf_skinned_model :: proc(
     // Load inverse bind matrices
     joint_count: u32
     first_anim_idx: u32
-    first_joint_idx := render_data.joint_matrices_head
+    first_joint_idx := renderer.joint_matrices_head
     {
-        if len(gltf_data.skins) == 0 {
-            return nil
-        }
-        assert(len(gltf_data.skins) == 1)
+        assert(len(gltf_data.skins) > 0, "Not a skinned model")
+        assert(len(gltf_data.skins) == 1, "Only supporting models with one skin")
 
         glb_skin := gltf_data.skins[0]
 
         // Get the index that will point to this model's first animation
         // in the global animations list after the animations are pushed
-        first_anim_idx = u32(len(render_data.animations))
+        first_anim_idx = u32(len(renderer.animations))
         
         // Load inverse bind matrices
         inv_bind_count := glb_skin.inverse_bind_matrices.count
-        resize(&render_data.inverse_bind_matrices, uint(first_joint_idx) + inv_bind_count)
+        resize(&renderer.inverse_bind_matrices, uint(first_joint_idx) + inv_bind_count)
         inv_bind_ptr := get_accessor_ptr(glb_skin.inverse_bind_matrices, hlsl.float4x4)
         inv_bind_bytes := size_of(hlsl.float4x4) * inv_bind_count
-        mem.copy(&render_data.inverse_bind_matrices[first_joint_idx], inv_bind_ptr, int(inv_bind_bytes))
+        mem.copy(&renderer.inverse_bind_matrices[first_joint_idx], inv_bind_ptr, int(inv_bind_bytes))
 
         // Determine joint parentage
         joint_count = u32(len(glb_skin.joints))
-        render_data.joint_matrices_head += joint_count
-        old_cpu_joint_count := len(render_data.joint_parents)
-        resize(&render_data.joint_parents, old_cpu_joint_count + int(joint_count))
+        renderer.joint_matrices_head += joint_count
+        old_cpu_joint_count := len(renderer.joint_parents)
+        resize(&renderer.joint_parents, old_cpu_joint_count + int(joint_count))
         // i starts at 1 because we assume that joint 0 is the root joint i.e. no parent
         for i in 1..<joint_count {
-            jp := &render_data.joint_parents[old_cpu_joint_count + int(i)]
+            jp := &renderer.joint_parents[old_cpu_joint_count + int(i)]
 
             joint := glb_skin.joints[i]
             parent := joint.parent
@@ -2404,7 +2415,7 @@ load_gltf_skinned_model :: proc(
                 append(&new_anim.channels, out_channel)
             }
 
-            append(&render_data.animations, new_anim)
+            append(&renderer.animations, new_anim)
         }
     }
 
@@ -2443,7 +2454,7 @@ load_gltf_skinned_model :: proc(
             // it's time to upload them
             mesh_handle := create_skinned_mesh(
                 gd,
-                render_data,
+                renderer,
                 position_data[:],
                 index_data[:],
                 joint_ids[:],
@@ -2452,10 +2463,10 @@ load_gltf_skinned_model :: proc(
                 first_joint_idx
             )
             if len(color_data) > 0 {
-                add_vertex_colors(gd, render_data, mesh_handle, color_data[:])
+                add_vertex_colors(gd, renderer, mesh_handle, color_data[:])
             }
             if len(uv_data) > 0 {
-                add_vertex_uvs(gd, render_data, mesh_handle, uv_data[:])
+                add_vertex_uvs(gd, renderer, mesh_handle, uv_data[:])
             }
     
     
@@ -2482,7 +2493,7 @@ load_gltf_skinned_model :: proc(
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
-            material_handle := add_material(render_data, &material)
+            material_handle := add_material(renderer, &material)
     
             draw_primitives[i] = SkinnedDrawPrimitive {
                 mesh = mesh_handle,
@@ -2491,14 +2502,14 @@ load_gltf_skinned_model :: proc(
         }
     }
 
-    render_data.loaded_skinned_models[interned_filename] = SkinnedModelData {
+    cloned_name, _ := strings.clone(glb_filename, allocator)
+    handle := hm.insert(&renderer.loaded_skinned_models, SkinnedModel {
         primitives = draw_primitives,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
-        name = interned_filename
-    }
-
-    return &render_data.loaded_skinned_models[interned_filename]
+        name = cloned_name
+    })
+    return SkinnedModelHandle(handle)
 }
 
 
