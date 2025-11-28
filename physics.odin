@@ -313,36 +313,6 @@ closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^Static
     return closest_point, cn
 }
 
-closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.float3 {
-    candidate: hlsl.float3
-    closest_dist := math.INF_F32
-    for &piece in terrain {
-        p := closest_pt_triangles(point, &piece.collision)
-        d := hlsl.distance(point, p)
-        if d < closest_dist {
-            candidate = p
-            closest_dist = d
-        }
-    }
-    return candidate
-}
-closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> (hlsl.float3, hlsl.float3) {
-    scoped_event(&profiler, "closest_pt_terrain_with_normal")
-    candidate: hlsl.float3
-    cn: hlsl.float3
-    closest_dist := math.INF_F32
-    for &piece in terrain {
-        p, n := closest_pt_triangles_with_normal(point, &piece.collision)
-        d := hlsl.distance(point, p)
-        if d < closest_dist {
-            candidate = p
-            closest_dist = d
-            cn = n
-        }
-    }
-    return candidate, cn
-}
-
 // Implementation adapted from section 3.4 of Real-Time Collision Detection
 // Returns v and w of point's barycentril coords with regards to tri.
 // Implictly, u = 1.0 - v - w
@@ -620,36 +590,6 @@ intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleColl
     return (segment.start + t * (segment.end - segment.start)), found
 }
 
-intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (hlsl.float3, bool) {
-    cand_t := math.INF_F32
-    for &piece in terrain {
-        t, ok := intersect_segment_triangles_t(segment, &piece.collision)
-        if ok {
-            if t < cand_t {
-                cand_t = t
-            }
-        }
-    }
-
-    return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
-}
-
-intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (f32, hlsl.float3, bool) {
-    cand_t := math.INF_F32
-    normal: hlsl.float3
-    for &piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, &piece.collision)
-        if ok {
-            if t < cand_t {
-                cand_t = t
-                normal = n
-            }
-        }
-    }
-
-    return cand_t, normal, cand_t < math.INF_F32
-}
-
 // Returns the point on the sphere that is closest to the triangle
 // assuming the sphere is in front of the triangle
 closest_pt_sphere_triplane :: proc(s: ^Sphere, tri: ^Triangle) -> hlsl.float3 {
@@ -768,34 +708,6 @@ dynamic_sphere_vs_triangles_t_with_normal :: proc(
     return candidate_t, current_n, candidate_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
-    closest_t := math.INF_F32
-    for &piece in terrain {
-        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
-        if ok3 {
-            if t < closest_t {
-                closest_t = t
-            }
-        }
-    }
-    return closest_t, closest_t < math.INF_F32
-}
-
-dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
-    closest_t := math.INF_F32
-    current_n := hlsl.float3 {}
-    for &piece in terrain {
-        t, n, ok3 := dynamic_sphere_vs_triangles_t_with_normal(s, &piece.collision, motion_interval)
-        if ok3 {
-            if t < closest_t {
-                closest_t = t
-                current_n = n
-            }
-        }
-    }
-    return closest_t, current_n, closest_t < math.INF_F32
-}
-
 dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (hlsl.float3, bool) {
     candidate_t := math.INF_F32
     d: hlsl.float3
@@ -815,37 +727,4 @@ dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, 
         }
     }
     return d + t * (motion_interval.end - motion_interval.start), found
-}
-
-
-do_mouse_raycast :: proc(
-    viewport_camera: Camera,
-    terrain_pieces: []TerrainPiece,
-    mouse_location: [2]i32,
-    viewport_dimensions: [4]f32
-) -> (hlsl.float3, bool) {
-    viewport_coords := hlsl.uint2 {
-        u32(mouse_location.x) - u32(viewport_dimensions[0]),
-        u32(mouse_location.y) - u32(viewport_dimensions[1]),
-    }
-    ray := get_view_ray(
-        viewport_camera,
-        viewport_coords,
-        {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
-    )
-
-    collision_pt: hlsl.float3
-    closest_dist := math.INF_F32
-    for &piece in terrain_pieces {
-        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
-        if ok {
-            candidate_dist := hlsl.distance(candidate, viewport_camera.position)
-            if candidate_dist < closest_dist {
-                collision_pt = candidate
-                closest_dist = candidate_dist
-            }
-        }
-    }
-
-    return collision_pt, closest_dist < math.INF_F32
 }

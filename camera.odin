@@ -80,10 +80,10 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
     return proj_matrix * c_matrix
 }
 lookat_view_from_world :: proc(
-    using camera: Camera,
+    camera: Camera,
     up := hlsl.float3 {0.0, 0.0, 1.0}
 ) -> hlsl.float4x4 {
-    focus_vector := hlsl.normalize(position - target.position)
+    focus_vector := hlsl.normalize(camera.position - camera.target.position)
 
     right := hlsl.normalize(hlsl.cross(up, focus_vector))
     local_up := hlsl.cross(focus_vector, right)
@@ -94,8 +94,7 @@ lookat_view_from_world :: proc(
         focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
         0.0, 0.0, 0.0, 1.0
     }
-    trans := translation_matrix(-position)
-
+    trans := translation_matrix(-camera.position)
     return look * trans
 }
 
