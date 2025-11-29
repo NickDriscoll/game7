@@ -1117,19 +1117,6 @@ main :: proc() {
             draw_ps1_skinned_mesh(&vgd, &renderer, mesh.model, &dd)
         }
 
-        // Draw terrain pieces
-        // for &piece in game_state.terrain_pieces {
-        //     scoped_event(&profiler, "Draw terrain pieces loop iteration")
-        //     scale := scaling_matrix(piece.scale)
-        //     rot := linalg.matrix4_from_quaternion_f32(piece.rotation)
-        //     trans := translation_matrix(piece.position)
-        //     mat := trans * rot * scale
-        //     tform := StaticDraw {
-        //         world_from_model = mat
-        //     }
-        //     draw_ps1_static_mesh(&vgd, &renderer, piece.model, tform)
-        // }
-
         // Draw static models
         for id, model in game_state.static_models {
             tform := &game_state.transforms[id]
@@ -1266,6 +1253,7 @@ main :: proc() {
             gui_cancel_frame(&imgui_state)
         }
 
+        // End-of-frame cleanup
         {
             scoped_event(&profiler, "End-of-frame cleanup")
             // CLear temp allocator for next frame
