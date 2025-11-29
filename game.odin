@@ -25,23 +25,23 @@ GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
 
-TerrainPiece :: struct {
-    collision: TriangleMesh,
-    position: hlsl.float3,
-    rotation: quaternion128,
-    scale: f32,
-    model: StaticModelHandle,
-}
+// TerrainPiece :: struct {
+//     collision: TriangleMesh,
+//     position: hlsl.float3,
+//     rotation: quaternion128,
+//     scale: f32,
+//     model: StaticModelHandle,
+// }
 
-delete_terrain_piece :: proc(using t: ^TerrainPiece) {
-    delete_static_triangles(&collision)
-}
+// delete_terrain_piece :: proc(using t: ^TerrainPiece) {
+//     delete_static_triangles(&collision)
+// }
 
-closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.float3 {
+closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) -> hlsl.float3 {
     candidate: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain {
-        p := closest_pt_triangles(point, &piece.collision)
+    for _, &piece in terrain {
+        p := closest_pt_triangles(point, &piece)
         d := hlsl.distance(point, p)
         if d < closest_dist {
             candidate = p
@@ -50,13 +50,13 @@ closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.
     }
     return candidate
 }
-closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> (hlsl.float3, hlsl.float3) {
+closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
     scoped_event(&profiler, "closest_pt_terrain_with_normal")
     candidate: hlsl.float3
     cn: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain {
-        p, n := closest_pt_triangles_with_normal(point, &piece.collision)
+    for _, &piece in terrain {
+        p, n := closest_pt_triangles_with_normal(point, &piece)
         d := hlsl.distance(point, p)
         if d < closest_dist {
             candidate = p
@@ -67,10 +67,10 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPie
     return candidate, cn
 }
 
-intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (hlsl.float3, bool) {
+intersect_segment_terrain :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (hlsl.float3, bool) {
     cand_t := math.INF_F32
-    for &piece in terrain {
-        t, ok := intersect_segment_triangles_t(segment, &piece.collision)
+    for _, &piece in terrain {
+        t, ok := intersect_segment_triangles_t(segment, &piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -81,11 +81,11 @@ intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) ->
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
-intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (f32, hlsl.float3, bool) {
+intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (f32, hlsl.float3, bool) {
     cand_t := math.INF_F32
     normal: hlsl.float3
-    for &piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, &piece.collision)
+    for _, &piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, &piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -97,10 +97,10 @@ intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: []Terr
     return cand_t, normal, cand_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: map[u32]TriangleMesh, motion_interval: ^Segment) -> (f32, bool) {
     closest_t := math.INF_F32
-    for &piece in terrain {
-        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
+    for _, &piece in terrain {
+        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece, motion_interval)
         if ok3 {
             if t < closest_t {
                 closest_t = t
@@ -110,23 +110,23 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_
     return closest_t, closest_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
-    closest_t := math.INF_F32
-    current_n := hlsl.float3 {}
-    for &piece in terrain {
-        t, n, ok3 := dynamic_sphere_vs_triangles_t_with_normal(s, &piece.collision, motion_interval)
-        if ok3 {
-            if t < closest_t {
-                closest_t = t
-                current_n = n
-            }
-        }
-    }
-    return closest_t, current_n, closest_t < math.INF_F32
-}
+// dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
+//     closest_t := math.INF_F32
+//     current_n := hlsl.float3 {}
+//     for &piece in terrain {
+//         t, n, ok3 := dynamic_sphere_vs_triangles_t_with_normal(s, &piece.collision, motion_interval)
+//         if ok3 {
+//             if t < closest_t {
+//                 closest_t = t
+//                 current_n = n
+//             }
+//         }
+//     }
+//     return closest_t, current_n, closest_t < math.INF_F32
+// }
 do_mouse_raycast :: proc(
     viewport_camera: Camera,
-    terrain_pieces: []TerrainPiece,
+    triangle_meshes: map[u32]TriangleMesh,
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
@@ -142,8 +142,8 @@ do_mouse_raycast :: proc(
 
     collision_pt: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain_pieces {
-        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+    for _, &piece in triangle_meshes {
+        candidate, ok := intersect_ray_triangles(&ray, &piece)
         if ok {
             candidate_dist := hlsl.distance(candidate, viewport_camera.position)
             if candidate_dist < closest_dist {
@@ -348,7 +348,7 @@ gravity_affected_sphere :: proc(
                     start = sphere.position + {0.0, 0.0, 0.0},
                     end = sphere.position + {0.0, 0.0, -sphere.radius - 0.1}
                 }
-                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
+                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.triangle_meshes)
                 if okt {
                     tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                     sphere.position = tolerance_point + {0.0, 0.0, sphere.radius}
@@ -367,7 +367,7 @@ gravity_affected_sphere :: proc(
 
             collided := false
             inv := motion_interval
-            segment_pt, segment_ok := intersect_segment_terrain(&inv, game_state.terrain_pieces[:])
+            segment_pt, segment_ok := intersect_segment_terrain(&inv, game_state.triangle_meshes)
             if segment_ok {
                 log.info("Player center passed through ground")
                 sphere.position = segment_pt
@@ -412,7 +412,7 @@ GameState :: struct {
     viewport_camera: Camera,
 
     // Scene/Level data
-    terrain_pieces: [dynamic]TerrainPiece,
+    //terrain_pieces: [dynamic]TerrainPiece,
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
     enemies: [dynamic]Enemy,
@@ -595,7 +595,7 @@ gamestate_new_scene :: proc(
     renderer: ^Renderer,
     scene_allocator := context.allocator
 ) {
-    game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
+    //game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
     game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
     game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
     game_state.enemies = make([dynamic]Enemy, scene_allocator)
@@ -638,6 +638,12 @@ gamestate_new_scene :: proc(
 
         bullet_travel_time = 0.144,
     }
+}
+
+gamestate_next_id :: proc(gamestate: ^GameState) -> u32 {
+    r := gamestate.next_id
+    gamestate.next_id += 1
+    return r
 }
 
 load_level_file :: proc(
@@ -730,13 +736,23 @@ load_level_file :: proc(
                     
                     positions := get_glb_positions(path)
                     collision := new_static_triangle_mesh(positions[:], mmat)
-                    append(&game_state.terrain_pieces, TerrainPiece {
-                        collision = collision,
+
+                    id := gamestate_next_id(game_state)
+                    game_state.triangle_meshes[id] = collision
+                    game_state.transforms[id] = Transform {
                         position = position,
                         rotation = rotation,
                         scale = scale,
-                        model = model,
-                    })
+                    }
+                    game_state.static_models[id] = model
+
+                    // append(&game_state.terrain_pieces, TerrainPiece {
+                    //     collision = collision,
+                    //     position = position,
+                    //     rotation = rotation,
+                    //     scale = scale,
+                    //     model = model,
+                    // })
                     strings.builder_reset(&path_builder)
                 }
             }
@@ -855,13 +871,13 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     output_size += 2 * size_of(hlsl.float3) * int(renderer.cpu_uniforms.directional_light_count)
 
     // Terrain pieces
-    if len(gamestate.terrain_pieces) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for piece in gamestate.terrain_pieces {
-        output_size += mesh_data_size(renderer, piece)
-    }
+    // if len(gamestate.terrain_pieces) > 0 {
+    //     output_size += size_of(u8)
+    //     output_size += size_of(u32)
+    // }
+    // for piece in gamestate.terrain_pieces {
+    //     output_size += mesh_data_size(renderer, piece)
+    // }
 
     // Static scenery
     if len(gamestate.static_scenery) > 0 {
@@ -959,15 +975,15 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         }
     }
 
-    if len(gamestate.terrain_pieces) > 0 {
-        block = .Terrain
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        ter_len := u32(len(gamestate.terrain_pieces))
-        write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
-    }
-    for &piece in gamestate.terrain_pieces {
-        write_mesh_to_buffer(renderer, raw_output_buffer[:], &piece, &write_head)
-    }
+    // if len(gamestate.terrain_pieces) > 0 {
+    //     block = .Terrain
+    //     write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+    //     ter_len := u32(len(gamestate.terrain_pieces))
+    //     write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
+    // }
+    // for &piece in gamestate.terrain_pieces {
+    //     write_mesh_to_buffer(renderer, raw_output_buffer[:], &piece, &write_head)
+    // }
 
     if len(gamestate.static_scenery) > 0 {
         block = .StaticScenery
@@ -1098,72 +1114,72 @@ scene_editor :: proc(
         }
 
         terrain_piece_clone_idx: Maybe(int)
-        {
-            objects := &game_state.terrain_pieces
-            label : cstring = "Terrain pieces"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveTerrainPiece
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    editor_response^ = EditorResponse {
-                        type = .AddTerrainPiece,
-                        index = 0
-                    }
-                }
-                imgui.Separator()
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
+        // {
+        //     objects := &game_state.terrain_pieces
+        //     label : cstring = "Terrain pieces"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveTerrainPiece
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             editor_response^ = EditorResponse {
+        //                 type = .AddTerrainPiece,
+        //                 index = 0
+        //             }
+        //         }
+        //         imgui.Separator()
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
 
-                    model := get_static_model(renderer, mesh.model)
-                    gui_print_value(&builder, "Name", model.name)
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
+        //             model := get_static_model(renderer, mesh.model)
+        //             gui_print_value(&builder, "Name", model.name)
+        //             gui_print_value(&builder, "Rotation", mesh.rotation)
     
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
         
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        terrain_piece_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        game_state.editor_response = nil
-                    }
-                    if imgui.Button("Rebuild collision mesh") {
-                        rot := linalg.to_matrix4(mesh.rotation)
-                        mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
-                        rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 terrain_piece_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 game_state.editor_response = nil
+        //             }
+        //             if imgui.Button("Rebuild collision mesh") {
+        //                 rot := linalg.to_matrix4(mesh.rotation)
+        //                 mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
+        //                 rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
         
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
 
         static_to_clone_idx: Maybe(int)
         {
@@ -1443,21 +1459,21 @@ scene_editor :: proc(
         }
 
         // Do object clone
-        {
-            things := &game_state.terrain_pieces
-            clone_idx, clone_ok := terrain_piece_clone_idx.?
-            if clone_ok {
-                new_terrain_piece := things[clone_idx]
-                new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
+        // {
+        //     things := &game_state.terrain_pieces
+        //     clone_idx, clone_ok := terrain_piece_clone_idx.?
+        //     if clone_ok {
+        //         new_terrain_piece := things[clone_idx]
+        //         new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
 
-                append(things, new_terrain_piece)
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveTerrainPiece,
-                    index = u32(new_idx)
-                }
-            }
-        }
+        //         append(things, new_terrain_piece)
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveTerrainPiece,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
         {
             things := &game_state.static_scenery
             clone_idx, clone_ok := static_to_clone_idx.?
@@ -1670,7 +1686,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     // vector opposing player motion
     //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
 
-    closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+    closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
     // Main player character state machine
@@ -2007,7 +2023,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 end = motion_endpoint
             }
 
-            closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
+            closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
             collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
             dist := hlsl.distance(closest_pt, phys_sphere.position)
 
@@ -2069,7 +2085,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
     for &enemy, i in game_state.thrown_enemies {
         // Check if hitting terrain
         THROWN_ENEMY_COLLISION_WEIGHT :: 0.8
-        closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
+        closest_pt := closest_pt_terrain(enemy.position, game_state.triangle_meshes)
         if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * THROWN_ENEMY_COLLISION_WEIGHT {
             thrown_enemy_to_remove = i
             
@@ -2241,7 +2257,7 @@ camera_update :: proc(
             position = game_state.camera_follow_point,
             radius = collision_radius
         }
-        hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.terrain_pieces[:], &interval)
+        hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
         if hit {
             desired_position = interval.start + hit_t * (interval.end - interval.start)
         }
@@ -2392,8 +2408,8 @@ camera_update :: proc(
             scoped_event(&profiler, "Collision with terrain")
             camera_collision_point: hlsl.float3
             closest_dist := math.INF_F32
-            for &piece in game_state.terrain_pieces {
-                candidate := closest_pt_triangles(position, &piece.collision)
+            for _, &piece in game_state.triangle_meshes {
+                candidate := closest_pt_triangles(position, &piece)
                 candidate_dist := hlsl.distance(candidate, position)
                 if candidate_dist < closest_dist {
                     camera_collision_point = candidate
