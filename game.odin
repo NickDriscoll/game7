@@ -25,18 +25,6 @@ GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
 
-// TerrainPiece :: struct {
-//     collision: TriangleMesh,
-//     position: hlsl.float3,
-//     rotation: quaternion128,
-//     scale: f32,
-//     model: StaticModelHandle,
-// }
-
-// delete_terrain_piece :: proc(using t: ^TerrainPiece) {
-//     delete_static_triangles(&collision)
-// }
-
 closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) -> hlsl.float3 {
     candidate: hlsl.float3
     closest_dist := math.INF_F32
@@ -109,7 +97,6 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: map[u32]TriangleMesh, m
     }
     return closest_t, closest_t < math.INF_F32
 }
-
 // dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
 //     closest_t := math.INF_F32
 //     current_n := hlsl.float3 {}
@@ -124,6 +111,7 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: map[u32]TriangleMesh, m
 //     }
 //     return closest_t, current_n, closest_t < math.INF_F32
 // }
+
 do_mouse_raycast :: proc(
     viewport_camera: Camera,
     triangle_meshes: map[u32]TriangleMesh,
@@ -412,7 +400,6 @@ GameState :: struct {
     viewport_camera: Camera,
 
     // Scene/Level data
-    //terrain_pieces: [dynamic]TerrainPiece,
     static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
     enemies: [dynamic]Enemy,
@@ -422,7 +409,7 @@ GameState :: struct {
     skybox_texture: vkw.Texture_Handle,
 
     // Data-oriented tables
-    next_id: u32,                   // Components with the same id are associated with one another
+    _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
     triangle_meshes: map[u32]TriangleMesh,
     static_models: map[u32]StaticModelHandle,
@@ -435,7 +422,6 @@ GameState :: struct {
 
     enemy_mesh: StaticModelHandle,
     selected_enemy: Maybe(int),
-
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -595,14 +581,13 @@ gamestate_new_scene :: proc(
     renderer: ^Renderer,
     scene_allocator := context.allocator
 ) {
-    //game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
     game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
     game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
     game_state.enemies = make([dynamic]Enemy, scene_allocator)
     game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
     game_state.coins = make([dynamic]Coin, scene_allocator)
 
-    game_state.next_id = 0
+    game_state._next_id = 0
     game_state.transforms = make(map[u32]Transform, scene_allocator)
     game_state.triangle_meshes = make(map[u32]TriangleMesh, scene_allocator)
     game_state.static_models = make(map[u32]StaticModelHandle, scene_allocator)
@@ -641,8 +626,8 @@ gamestate_new_scene :: proc(
 }
 
 gamestate_next_id :: proc(gamestate: ^GameState) -> u32 {
-    r := gamestate.next_id
-    gamestate.next_id += 1
+    r := gamestate._next_id
+    gamestate._next_id += 1
     return r
 }
 
