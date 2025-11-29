@@ -26,7 +26,7 @@ TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
 
 TerrainPiece :: struct {
-    collision: StaticTriangleCollision,
+    collision: TriangleMesh,
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
@@ -156,10 +156,11 @@ do_mouse_raycast :: proc(
     return collision_pt, closest_dist < math.INF_F32
 }
 
-// PositionVelocity :: struct {
-//     position: hlsl.float3,
-//     velocity: hlsl.float3,
-// }
+Transform :: struct {
+    position: hlsl.float3,
+    rotation: quaternion128,
+    scale: f32,
+}
 
 StaticScenery :: struct {
     model: StaticModelHandle,
@@ -420,6 +421,12 @@ GameState :: struct {
     character_start: hlsl.float3,
     skybox_texture: vkw.Texture_Handle,
 
+    // Data-oriented tables
+    next_id: u32,                   // Components with the same id are associated with one another
+    transforms: map[u32]Transform,
+    triangle_meshes: map[u32]TriangleMesh,
+    static_models: map[u32]StaticModelHandle,
+
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
     
@@ -594,6 +601,11 @@ gamestate_new_scene :: proc(
     game_state.enemies = make([dynamic]Enemy, scene_allocator)
     game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
     game_state.coins = make([dynamic]Coin, scene_allocator)
+
+    game_state.next_id = 0
+    game_state.transforms = make(map[u32]Transform, scene_allocator)
+    game_state.triangle_meshes = make(map[u32]TriangleMesh, scene_allocator)
+    game_state.static_models = make(map[u32]StaticModelHandle, scene_allocator)
     
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
