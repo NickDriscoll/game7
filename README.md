@@ -38,6 +38,7 @@ git submodule update --init --recursive
 
 ### Build on Linux
 ```
+sudo apt install libsdl2-dev
 make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/stb/src"
 make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/cgltf/src"
 ./linux_build.sh debug
