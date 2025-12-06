@@ -1040,8 +1040,9 @@ main :: proc() {
         }
         enemies_draw(&vgd, &renderer, game_state)
 
-        tick_enemy_ai(&game_state, &audio_system, scaled_dt)
+        tick_transform_deltas(&game_state, scaled_dt)
         tick_spherical_bodies(&game_state, scaled_dt)
+        tick_enemy_ai(&game_state, &audio_system, scaled_dt)
 
         coins_draw(&vgd, &renderer, game_state)
 

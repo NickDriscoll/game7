@@ -157,8 +157,20 @@ TransformDelta :: struct {
     rotational_velocity: quaternion128,
 }
 
+tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
+    for id, &delta in game_state.transform_deltas {
+        tform := &game_state.transforms[id]
+
+        delta.velocity += dt * GRAVITY_ACCELERATION
+        if delta.velocity.z > TERMINAL_VELOCITY {
+            delta.velocity.z = TERMINAL_VELOCITY
+        }
+
+        //tform.position += dt * delta.velocity
+    }
+}
+
 EnemyAI :: struct {
-    collision_radius: f32,
     home_position: hlsl.float3,
     facing: hlsl.float3,
     visualize_home: bool,
@@ -220,7 +232,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                 collided := false
                 segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.triangle_meshes)
                 if segment_ok {
-                    log.info("Player center passed through ground")
+                    log.infof("Body center %v passed through ground", id)
                     transform.position = segment_pt
                     transform.position += triangle_normal * body.radius
                     transform_delta.velocity.z = 0
@@ -525,7 +537,7 @@ GameState :: struct {
     spherical_bodies: map[u32]SphericalBody,
     triangle_meshes: map[u32]TriangleMesh,
     static_models: map[u32]StaticModelHandle,
-    render_instances: map[u32]RenderInstance,
+    //render_instances: map[u32]RenderInstance,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
@@ -930,9 +942,10 @@ load_level_file :: proc(
                     game_state.enemy_ais[id] = ai
                     
                     game_state.spherical_bodies[id] = SphericalBody {
-                        radius = ai.collision_radius,
+                        radius = 0.5,
                         state = .Falling
                     }
+                    game_state.static_models[id] = game_state.enemy_mesh
                     // new_enemy := default_enemy(game_state^)
                     // new_enemy.position = position
                     // new_enemy.home_position = position
@@ -2248,12 +2261,13 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 transform_delta.velocity.xy = hlsl.normalize(enemy.facing.xy)
 
                 if dist_to_player < ENEMY_HOME_RADIUS {
+                    body := &game_state.spherical_bodies[id]
                     enemy.facing = char.collision.position - transform.position
                     enemy.facing.z = 0.0
                     enemy.facing = hlsl.normalize(enemy.facing)
                     transform_delta.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
                     enemy.state = .AlertedBounce
-                    //enemy.collision_state = .Falling
+                    body.state = .Falling
                     enemy.timer_start = time.now()
                     enemy.home_position = transform.position
                     play_sound_effect(audio_system, game_state.jump_sound)
@@ -2276,7 +2290,7 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                     enemy.state = .AlertedCharge
                     transform_delta.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
                     transform_delta.velocity.z = ENEMY_JUMP_SPEED / 2.0
-                    //enemy.collision_state = .Falling
+                    body.state = .Falling
                     play_sound_effect(audio_system, game_state.jump_sound)
                 }
             }
