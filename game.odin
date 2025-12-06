@@ -930,7 +930,7 @@ load_level_file :: proc(
                     id := gamestate_next_id(game_state)
                     game_state.transforms[id] = Transform {
                         position = position,
-                        rotation = {},
+                        rotation = linalg.QUATERNIONF32_IDENTITY,
                         scale = scale
                     }
                     game_state.transform_deltas[id] = TransformDelta {
@@ -2256,6 +2256,7 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 sample_point := [2]f64 {f64(game_state.time), f64(id)}
                 t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
                 rotq := z_rotate_quaternion(t)
+                transform.rotation *= rotq
                 enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
 
                 transform_delta.velocity.xy = hlsl.normalize(enemy.facing.xy)
