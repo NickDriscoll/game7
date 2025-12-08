@@ -162,11 +162,11 @@ tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
         tform := &game_state.transforms[id]
 
         delta.velocity += dt * GRAVITY_ACCELERATION
-        if delta.velocity.z > TERMINAL_VELOCITY {
+        if delta.velocity.z < TERMINAL_VELOCITY {
             delta.velocity.z = TERMINAL_VELOCITY
         }
 
-        //tform.position += dt * delta.velocity
+        tform.position += dt * delta.velocity
     }
 }
 
@@ -925,32 +925,39 @@ load_level_file :: proc(
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
 
-                    
-                    
-                    id := gamestate_next_id(game_state)
-                    game_state.transforms[id] = Transform {
-                        position = position,
-                        rotation = linalg.QUATERNIONF32_IDENTITY,
-                        scale = scale
+                    @static loaded_first_enemy := false
+                    if !loaded_first_enemy {
+                        loaded_first_enemy = true
+                        
+    
+                        
+                        
+                        id := gamestate_next_id(game_state)
+                        game_state.transforms[id] = Transform {
+                            position = position,
+                            rotation = linalg.QUATERNIONF32_IDENTITY,
+                            scale = scale
+                        }
+                        game_state.transform_deltas[id] = TransformDelta {
+                            velocity = {},
+                            rotational_velocity = {}
+                        }
+                        ai := default_enemyai(game_state^)
+                        ai.state = ai_state
+                        game_state.enemy_ais[id] = ai
+                        
+                        game_state.spherical_bodies[id] = SphericalBody {
+                            radius = 0.5,
+                            state = .Falling
+                        }
+                        game_state.static_models[id] = game_state.enemy_mesh
+                        // new_enemy := default_enemy(game_state^)
+                        // new_enemy.position = position
+                        // new_enemy.home_position = position
+                        // new_enemy.ai_state = ai_state
+                        //append(&game_state.enemies, new_enemy)
                     }
-                    game_state.transform_deltas[id] = TransformDelta {
-                        velocity = {},
-                        rotational_velocity = {}
-                    }
-                    ai := default_enemyai(game_state^)
-                    ai.state = ai_state
-                    game_state.enemy_ais[id] = ai
-                    
-                    game_state.spherical_bodies[id] = SphericalBody {
-                        radius = 0.5,
-                        state = .Falling
-                    }
-                    game_state.static_models[id] = game_state.enemy_mesh
-                    // new_enemy := default_enemy(game_state^)
-                    // new_enemy.position = position
-                    // new_enemy.home_position = position
-                    // new_enemy.ai_state = ai_state
-                    //append(&game_state.enemies, new_enemy)
+
                 }
 
             }
@@ -2243,15 +2250,16 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
 
     for id, &enemy in game_state.enemy_ais {
         transform := &game_state.transforms[id]
-        transform_delta := &game_state.transform_deltas[id]
+        delta := &game_state.transform_deltas[id]
         
         dist_to_player := hlsl.distance(char.collision.position, transform.position)
+        is_affected_by_gravity := false
         switch enemy.state {
             case .BrainDead: {
-                transform_delta.velocity.xy = {}
+                delta.velocity.xy = {}
             }
             case .Wandering: {
-                //is_affected_by_gravity = true
+                is_affected_by_gravity = true
 
                 sample_point := [2]f64 {f64(game_state.time), f64(id)}
                 t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
@@ -2259,14 +2267,14 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 transform.rotation *= rotq
                 enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
 
-                transform_delta.velocity.xy = hlsl.normalize(enemy.facing.xy)
+                delta.velocity.xy = hlsl.normalize(enemy.facing.xy)
 
                 if dist_to_player < ENEMY_HOME_RADIUS {
                     body := &game_state.spherical_bodies[id]
                     enemy.facing = char.collision.position - transform.position
                     enemy.facing.z = 0.0
                     enemy.facing = hlsl.normalize(enemy.facing)
-                    transform_delta.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
+                    delta.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
                     enemy.state = .AlertedBounce
                     body.state = .Falling
                     enemy.timer_start = time.now()
@@ -2278,6 +2286,7 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                     // Start resting
                     enemy.timer_start = time.now()
                     enemy.state = .Resting
+                    delta.velocity = {}
                 }
             }
             case .Hovering: {
@@ -2285,18 +2294,18 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 transform.position = enemy.home_position + offset
             }
             case .AlertedBounce: {
-                //is_affected_by_gravity = true
+                is_affected_by_gravity = true
                 body := &game_state.spherical_bodies[id]
                 if body.state == .Grounded {
                     enemy.state = .AlertedCharge
-                    transform_delta.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                    transform_delta.velocity.z = ENEMY_JUMP_SPEED / 2.0
+                    delta.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+                    delta.velocity.z = ENEMY_JUMP_SPEED / 2.0
                     body.state = .Falling
                     play_sound_effect(audio_system, game_state.jump_sound)
                 }
             }
             case .AlertedCharge: {
-                //is_affected_by_gravity = true
+                is_affected_by_gravity = true
                 enemy.home_position = transform.position
                 body := &game_state.spherical_bodies[id]
                 if body.state == .Grounded {
@@ -2305,28 +2314,21 @@ tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                 }
             }
             case .Resting: {
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(1.75 * SECONDS_TO_NANOSECONDS) {
                     // Start wandering
                     enemy.timer_start = time.now()
                     enemy.state = .Wandering
                 }
             }
         }
-    }
 
-    // id := gamestate_next_id(game_state)
-    // game_state.transforms[id] = Transform {
-    //     position = position,
-    //     rotation = {},
-    //     scale = scale
-    // }
-    // game_state.transform_deltas[id] = TransformDelta {
-    //     velocity = {},
-    //     rotational_velocity = {}
-    // }
-    // ai := default_enemyai(game_state^)
-    // ai.state = ai_state
-    // game_state.enemy_ais[id] = ai
+        // if is_affected_by_gravity {
+        //     delta.velocity += dt * GRAVITY_ACCELERATION
+        //     if delta.velocity.z > TERMINAL_VELOCITY {
+        //         delta.velocity.z = TERMINAL_VELOCITY
+        //     }
+        // }
+    }
 }
 
 enemies_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
