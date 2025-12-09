@@ -152,23 +152,23 @@ Transform :: struct {
     scale: f32,
 }
 
-TransformDelta :: struct {
-    velocity: hlsl.float3,
-    rotational_velocity: quaternion128,
-}
+// TransformDelta :: struct {
+//     velocity: hlsl.float3,
+//     rotational_velocity: quaternion128,
+// }
 
-tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
-    for id, &delta in game_state.transform_deltas {
-        tform := &game_state.transforms[id]
+// tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
+//     for id, &delta in game_state.transform_deltas {
+//         tform := &game_state.transforms[id]
 
-        delta.velocity += dt * GRAVITY_ACCELERATION
-        if delta.velocity.z < TERMINAL_VELOCITY {
-            delta.velocity.z = TERMINAL_VELOCITY
-        }
+//         delta.velocity += dt * GRAVITY_ACCELERATION
+//         if delta.velocity.z < TERMINAL_VELOCITY {
+//             delta.velocity.z = TERMINAL_VELOCITY
+//         }
 
-        tform.position += dt * delta.velocity
-    }
-}
+//         tform.position += dt * delta.velocity
+//     }
+// }
 
 EnemyAI :: struct {
     home_position: hlsl.float3,
@@ -187,16 +187,131 @@ default_enemyai :: proc(game_state: GameState) -> EnemyAI {
     }
 }
 
+ENEMY_HOME_RADIUS :: 4.0
+ENEMY_LUNGE_SPEED :: 20.0
+ENEMY_JUMP_SPEED :: 6.0                 // m/s
+ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
+tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
+    char := &game_state.character
+
+    enemy_to_remove: Maybe(u32)
+    for id, &enemy in game_state.enemy_ais {
+        transform := &game_state.transforms[id]
+        body := &game_state.spherical_bodies[id]
+        
+        dist_to_player := hlsl.distance(char.collision.position, transform.position)
+        is_affected_by_gravity := false
+        switch enemy.state {
+            case .BrainDead: {
+                body := game_state.spherical_bodies[id]
+                body.velocity.xy = {}
+            }
+            case .Wandering: {
+                sample_point := [2]f64 {f64(game_state.time), f64(id)}
+                t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
+                rotq := z_rotate_quaternion(t)
+                enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
+                //transform.rotation = linalg.quaternion_from_forward_and_up(enemy.facing, hlsl.float3 {0.0, 0.0, 1.0})
+
+                body.velocity.xy = hlsl.normalize(enemy.facing.xy)
+
+                if dist_to_player < ENEMY_HOME_RADIUS {
+                    enemy.facing = char.collision.position - transform.position
+                    enemy.facing.z = 0.0
+                    enemy.facing = hlsl.normalize(enemy.facing)
+                    body.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
+                    enemy.state = .AlertedBounce
+                    body.state = .Falling
+                    enemy.timer_start = time.now()
+                    enemy.home_position = transform.position
+                    play_sound_effect(audio_system, game_state.jump_sound)
+                }
+
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
+                    // Start resting
+                    enemy.timer_start = time.now()
+                    enemy.state = .Resting
+                    body.velocity = {}
+                }
+            }
+            case .Hovering: {
+                offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
+                transform.position = enemy.home_position + offset
+            }
+            case .AlertedBounce: {
+                if body.state == .Grounded {
+                    enemy.state = .AlertedCharge
+                    body.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+                    body.velocity.z = ENEMY_JUMP_SPEED / 2.0
+                    body.state = .Falling
+                    play_sound_effect(audio_system, game_state.jump_sound)
+                }
+            }
+            case .AlertedCharge: {
+                enemy.home_position = transform.position
+                if body.state == .Grounded {
+                    body := game_state.spherical_bodies[id]
+                    enemy.state = .Resting
+                    enemy.timer_start = time.now()
+                    body.velocity = {}
+                }
+            }
+            case .Resting: {
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(1.75 * SECONDS_TO_NANOSECONDS) {
+                    // Start wandering
+                    enemy.timer_start = time.now()
+                    enemy.state = .Wandering
+                }
+            }
+        }
+
+        // Restrict enemy movement based on home position
+        {
+            disp := transform.position - enemy.home_position
+            l := hlsl.length(disp.xy)
+            if l > ENEMY_HOME_RADIUS {
+                transform.position.xy += (l - ENEMY_HOME_RADIUS) * hlsl.normalize((enemy.home_position - transform.position).xy)
+            }
+        }
+
+        // Check if overlapping player grab
+        bullet, ok := char.air_vortex.?
+        if ok {
+            col := Sphere {
+                position = transform.position,
+                radius = body.radius * 2.0
+            }
+            if are_spheres_overlapping(bullet.collision, col) {
+                char.held_enemy = Enemy {
+                    position = transform.position
+                }
+                enemy_to_remove = id
+                char.air_vortex = nil
+            }
+        }
+    }
+
+    {
+        to_remove, should_remove := enemy_to_remove.?
+        if should_remove {
+            delete_key(&game_state.transforms, to_remove)
+            delete_key(&game_state.spherical_bodies, to_remove)
+            delete_key(&game_state.enemy_ais, to_remove)
+            delete_key(&game_state.static_models, to_remove)
+        }
+    }
+}
+
 SphericalBody :: struct {
+    velocity: hlsl.float3,
     radius: f32,
     state: CollisionState,
 }
 
 tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
-    scoped_event(&profiler)
+    scoped_event(&profiler, "tick_spherical_bodies")
     for id, &body in game_state.spherical_bodies {
         transform := &game_state.transforms[id]
-        transform_delta := &game_state.transform_deltas[id]
 
         closest_pt, triangle_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
         switch body.state {
@@ -212,7 +327,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                         transform.position = tolerance_point + {0.0, 0.0, body.radius}
                         if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                            transform_delta.velocity.z = 0.0
+                            body.velocity.z = 0.0
                             body.state = .Grounded
                         }
                     } else {
@@ -225,7 +340,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
 
                 motion_interval := Segment {
                     start = transform.position,
-                    end = transform.position + dt * transform_delta.velocity
+                    end = transform.position + dt * body.velocity
                 }
                 collision_normal := hlsl.normalize(motion_interval.end - closest_pt)
 
@@ -235,7 +350,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     log.infof("Body center %v passed through ground", id)
                     transform.position = segment_pt
                     transform.position += triangle_normal * body.radius
-                    transform_delta.velocity.z = 0
+                    body.velocity = {}
                     body.state = .Grounded
                 } else {
 
@@ -248,20 +363,28 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         transform.position = motion_interval.end + remaining_d * collision_normal
                         
                         n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                        if n_dot >= 0.5 && transform_delta.velocity.z < 0.0 {
+                        if n_dot >= 0.5 && body.velocity.z < 0.0 {
                             // Floor
-                            transform_delta.velocity.z = 0
+                            body.velocity = {}
                             body.state = .Grounded
-                        } else if n_dot < -0.1 && transform_delta.velocity.z > 0.0 {
+                        } else if n_dot < -0.1 && body.velocity.z > 0.0 {
                             // Ceiling
-                            transform_delta.velocity.z = 0.0
+                            body.velocity.z = 0.0
                         }
-                    } else {
-                        // Didn't hit anything, still falling.
-                        transform.position = motion_interval.end
                     }
                 }
             }
+        }
+
+        // Update velocity
+        body.velocity += dt * GRAVITY_ACCELERATION
+        if body.velocity.z < TERMINAL_VELOCITY {
+            body.velocity.z = TERMINAL_VELOCITY
+        }
+
+        // Update transform component
+        {
+            transform.position += dt * body.velocity
         }
     }
 }
@@ -532,7 +655,7 @@ GameState :: struct {
     // Data-oriented tables
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
-    transform_deltas: map[u32]TransformDelta,
+    //transform_deltas: map[u32]TransformDelta,
     enemy_ais: map[u32]EnemyAI,
     spherical_bodies: map[u32]SphericalBody,
     triangle_meshes: map[u32]TriangleMesh,
@@ -714,7 +837,7 @@ gamestate_new_scene :: proc(
 
     game_state._next_id = 0
     game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    //game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.spherical_bodies = make(map[u32]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -925,39 +1048,26 @@ load_level_file :: proc(
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
 
-                    @static loaded_first_enemy := false
-                    if !loaded_first_enemy {
-                        loaded_first_enemy = true
-                        
-    
-                        
-                        
-                        id := gamestate_next_id(game_state)
-                        game_state.transforms[id] = Transform {
-                            position = position,
-                            rotation = linalg.QUATERNIONF32_IDENTITY,
-                            scale = scale
-                        }
-                        game_state.transform_deltas[id] = TransformDelta {
-                            velocity = {},
-                            rotational_velocity = {}
-                        }
-                        ai := default_enemyai(game_state^)
-                        ai.state = ai_state
-                        game_state.enemy_ais[id] = ai
-                        
-                        game_state.spherical_bodies[id] = SphericalBody {
-                            radius = 0.5,
-                            state = .Falling
-                        }
-                        game_state.static_models[id] = game_state.enemy_mesh
-                        // new_enemy := default_enemy(game_state^)
-                        // new_enemy.position = position
-                        // new_enemy.home_position = position
-                        // new_enemy.ai_state = ai_state
-                        //append(&game_state.enemies, new_enemy)
+                    id := gamestate_next_id(game_state)
+                    game_state.transforms[id] = Transform {
+                        position = position,
+                        rotation = linalg.QUATERNIONF32_IDENTITY,
+                        scale = scale
                     }
-
+                    // game_state.transform_deltas[id] = TransformDelta {
+                    //     velocity = {},
+                    //     rotational_velocity = {}
+                    // }
+                    ai := default_enemyai(game_state^)
+                    ai.state = ai_state
+                    ai.home_position = position
+                    game_state.enemy_ais[id] = ai
+                    
+                    game_state.spherical_bodies[id] = SphericalBody {
+                        radius = 0.5,
+                        state = .Falling
+                    }
+                    game_state.static_models[id] = game_state.enemy_mesh
                 }
 
             }
@@ -2046,10 +2156,6 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
     }
 }
 
-ENEMY_HOME_RADIUS :: 4.0
-ENEMY_LUNGE_SPEED :: 20.0
-ENEMY_JUMP_SPEED :: 6.0                 // m/s
-ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "Enemies update")
     char := &game_state.character
@@ -2242,92 +2348,6 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
         if ok {
             unordered_remove(&game_state.thrown_enemies, idx)
         }
-    }
-}
-
-tick_enemy_ai :: proc (game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
-    char := &game_state.character
-
-    for id, &enemy in game_state.enemy_ais {
-        transform := &game_state.transforms[id]
-        delta := &game_state.transform_deltas[id]
-        
-        dist_to_player := hlsl.distance(char.collision.position, transform.position)
-        is_affected_by_gravity := false
-        switch enemy.state {
-            case .BrainDead: {
-                delta.velocity.xy = {}
-            }
-            case .Wandering: {
-                is_affected_by_gravity = true
-
-                sample_point := [2]f64 {f64(game_state.time), f64(id)}
-                t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
-                rotq := z_rotate_quaternion(t)
-                transform.rotation *= rotq
-                enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
-
-                delta.velocity.xy = hlsl.normalize(enemy.facing.xy)
-
-                if dist_to_player < ENEMY_HOME_RADIUS {
-                    body := &game_state.spherical_bodies[id]
-                    enemy.facing = char.collision.position - transform.position
-                    enemy.facing.z = 0.0
-                    enemy.facing = hlsl.normalize(enemy.facing)
-                    delta.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
-                    enemy.state = .AlertedBounce
-                    body.state = .Falling
-                    enemy.timer_start = time.now()
-                    enemy.home_position = transform.position
-                    play_sound_effect(audio_system, game_state.jump_sound)
-                }
-
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
-                    // Start resting
-                    enemy.timer_start = time.now()
-                    enemy.state = .Resting
-                    delta.velocity = {}
-                }
-            }
-            case .Hovering: {
-                offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
-                transform.position = enemy.home_position + offset
-            }
-            case .AlertedBounce: {
-                is_affected_by_gravity = true
-                body := &game_state.spherical_bodies[id]
-                if body.state == .Grounded {
-                    enemy.state = .AlertedCharge
-                    delta.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                    delta.velocity.z = ENEMY_JUMP_SPEED / 2.0
-                    body.state = .Falling
-                    play_sound_effect(audio_system, game_state.jump_sound)
-                }
-            }
-            case .AlertedCharge: {
-                is_affected_by_gravity = true
-                enemy.home_position = transform.position
-                body := &game_state.spherical_bodies[id]
-                if body.state == .Grounded {
-                    enemy.state = .Resting
-                    enemy.timer_start = time.now()
-                }
-            }
-            case .Resting: {
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(1.75 * SECONDS_TO_NANOSECONDS) {
-                    // Start wandering
-                    enemy.timer_start = time.now()
-                    enemy.state = .Wandering
-                }
-            }
-        }
-
-        // if is_affected_by_gravity {
-        //     delta.velocity += dt * GRAVITY_ACCELERATION
-        //     if delta.velocity.z > TERMINAL_VELOCITY {
-        //         delta.velocity.z = TERMINAL_VELOCITY
-        //     }
-        // }
     }
 }
 

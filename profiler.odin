@@ -32,7 +32,7 @@ quit_profiler :: proc(profiler: ^Profiler) {
 }
 
 @(deferred_in=_scoped_end)
-scoped_event :: proc(profiler: ^Profiler, label: string = #caller_expression) {
+scoped_event :: proc(profiler: ^Profiler, label: string) {
     if profiler.spall_ctx.fd != 0 {
         spall._buffer_begin(&profiler.spall_ctx, &profiler.spall_buffer, label)
     }
