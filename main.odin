@@ -1092,16 +1092,16 @@ main :: proc() {
         }
 
         // Update and draw static scenery
-        for &mesh in game_state.static_scenery {
-            scoped_event(&profiler, "Draw static scenery loop iteration")
-            rot := linalg.to_matrix4(mesh.rotation)
-            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
+        // for &mesh in game_state.static_scenery {
+        //     scoped_event(&profiler, "Draw static scenery loop iteration")
+        //     rot := linalg.to_matrix4(mesh.rotation)
+        //     world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
 
-            dd := StaticDraw {
-                world_from_model = world_mat,
-            }
-            draw_ps1_static_mesh(&vgd, &renderer, mesh.model, dd)
-        }
+        //     dd := StaticDraw {
+        //         world_from_model = world_mat,
+        //     }
+        //     draw_ps1_static_mesh(&vgd, &renderer, mesh.model, dd)
+        // }
 
         // Update and draw animated scenery
         for &mesh in game_state.animated_scenery {

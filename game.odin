@@ -749,7 +749,7 @@ GameState :: struct {
     viewport_camera: Camera,
 
     // Scene/Level data
-    static_scenery: [dynamic]StaticScenery,
+    //static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
     enemies: [dynamic]Enemy,
     thrown_enemies: [dynamic]ThrownEnemy,
@@ -935,7 +935,7 @@ gamestate_new_scene :: proc(
     renderer: ^Renderer,
     scene_allocator := context.allocator
 ) {
-    game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
+    //game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
     game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
     game_state.enemies = make([dynamic]Enemy, scene_allocator)
     game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
@@ -1115,13 +1115,24 @@ load_level_file :: proc(
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-            
-                    append(&game_state.static_scenery, StaticScenery {
-                        model = model,
+
+                    id := gamestate_next_id(game_state)
+                    game_state.transforms[id] = Transform {
                         position = position,
                         rotation = rotation,
-                        scale = scale
-                    })
+                        scale = scale,
+                    }
+                    game_state.static_models[id] = StaticModelInstance {
+                        handle = model,
+                        flags = {},
+                    }
+            
+                    // append(&game_state.static_scenery, StaticScenery {
+                    //     model = model,
+                    //     position = position,
+                    //     rotation = rotation,
+                    //     scale = scale
+                    // })
                     strings.builder_reset(&path_builder)
                 }
             }
@@ -1222,13 +1233,13 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     // }
 
     // Static scenery
-    if len(gamestate.static_scenery) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for scenery in gamestate.static_scenery {
-        output_size += mesh_data_size(renderer, scenery)
-    }
+    // if len(gamestate.static_scenery) > 0 {
+    //     output_size += size_of(u8)
+    //     output_size += size_of(u32)
+    // }
+    // for scenery in gamestate.static_scenery {
+    //     output_size += mesh_data_size(renderer, scenery)
+    // }
 
     // Animated scenery
     if len(gamestate.animated_scenery) > 0 {
@@ -1327,15 +1338,15 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     //     write_mesh_to_buffer(renderer, raw_output_buffer[:], &piece, &write_head)
     // }
 
-    if len(gamestate.static_scenery) > 0 {
-        block = .StaticScenery
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        static_len := u32(len(gamestate.static_scenery))
-        write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
-    }
-    for &scenery in gamestate.static_scenery {
-        write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
-    }
+    // if len(gamestate.static_scenery) > 0 {
+    //     block = .StaticScenery
+    //     write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+    //     static_len := u32(len(gamestate.static_scenery))
+    //     write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
+    // }
+    // for &scenery in gamestate.static_scenery {
+    //     write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
+    // }
 
     if len(gamestate.animated_scenery) > 0 {
         block = .AnimatedScenery
@@ -1523,68 +1534,68 @@ scene_editor :: proc(
         //     }
         // }
 
-        static_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.static_scenery
-            label : cstring = "Static scenery"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveStaticScenery
-            add_response_type := EditorResponseType.AddStaticScenery
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    editor_response^ = EditorResponse {
-                        type = add_response_type,
-                        index = 0
-                    }
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
+        // static_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.static_scenery
+        //     label : cstring = "Static scenery"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveStaticScenery
+        //     add_response_type := EditorResponseType.AddStaticScenery
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             editor_response^ = EditorResponse {
+        //                 type = add_response_type,
+        //                 index = 0
+        //             }
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
         
-                    model := get_static_model(renderer, mesh.model)
-                    gui_print_value(&builder, "Name", model.name)
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
+        //             model := get_static_model(renderer, mesh.model)
+        //             gui_print_value(&builder, "Name", model.name)
+        //             gui_print_value(&builder, "Rotation", mesh.rotation)
     
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
         
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
         
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        static_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 static_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
         
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
 
         anim_to_clone_idx: Maybe(int)
         {
@@ -1815,18 +1826,18 @@ scene_editor :: proc(
         //         }
         //     }
         // }
-        {
-            things := &game_state.static_scenery
-            clone_idx, clone_ok := static_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveStaticScenery,
-                    index = u32(new_idx)
-                }
-            }
-        }
+        // {
+        //     things := &game_state.static_scenery
+        //     clone_idx, clone_ok := static_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveStaticScenery,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
         {
             things := &game_state.animated_scenery
             clone_idx, clone_ok := anim_to_clone_idx.?
