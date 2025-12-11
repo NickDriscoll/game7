@@ -751,8 +751,8 @@ GameState :: struct {
     // Scene/Level data
     //static_scenery: [dynamic]StaticScenery,
     animated_scenery: [dynamic]AnimatedScenery,
-    enemies: [dynamic]Enemy,
-    thrown_enemies: [dynamic]ThrownEnemy,
+    // enemies: [dynamic]Enemy,
+    // thrown_enemies: [dynamic]ThrownEnemy,
     coins: [dynamic]Coin,
     character_start: hlsl.float3,
     skybox_texture: vkw.Texture_Handle,
@@ -937,8 +937,8 @@ gamestate_new_scene :: proc(
 ) {
     //game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
     game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
-    game_state.enemies = make([dynamic]Enemy, scene_allocator)
-    game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
+    // game_state.enemies = make([dynamic]Enemy, scene_allocator)
+    // game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
     game_state.coins = make([dynamic]Coin, scene_allocator)
 
     game_state._next_id = 0
@@ -968,7 +968,7 @@ gamestate_new_scene :: proc(
     game_state.character = Character {
         collision = {
             position = game_state.character_start,
-            radius = 0.8
+            radius = 0.6
         },
         gravity_factor = 1.0,
         deceleration_speed = 0.1,
@@ -1258,15 +1258,15 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     }
 
     // Enemies
-    if len(gamestate.enemies) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for enemy in gamestate.enemies {
-        output_size += size_of(enemy.position)
-        output_size += size_of(enemy.collision_radius)
-        output_size += size_of(enemy.ai_state)
-    }
+    // if len(gamestate.enemies) > 0 {
+    //     output_size += size_of(u8)
+    //     output_size += size_of(u32)
+    // }
+    // for enemy in gamestate.enemies {
+    //     output_size += size_of(enemy.position)
+    //     output_size += size_of(enemy.collision_radius)
+    //     output_size += size_of(enemy.ai_state)
+    // }
 
     // Coins
     if len(gamestate.coins) > 0 {
@@ -1358,17 +1358,17 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
     }
 
-    if len(gamestate.enemies) > 0 {
-        block = .Enemies
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        enemy_len := u32(len(gamestate.enemies))
-        write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
-    }
-    for &enemy in gamestate.enemies {
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
-    }
+    // if len(gamestate.enemies) > 0 {
+    //     block = .Enemies
+    //     write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
+    //     enemy_len := u32(len(gamestate.enemies))
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
+    // }
+    // for &enemy in gamestate.enemies {
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
+    //     write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
+    // }
 
     if len(gamestate.coins) > 0 {
         block = .Coins
@@ -1664,97 +1664,97 @@ scene_editor :: proc(
             }
         }
 
-        enemy_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.enemies
-            label : cstring = "Enemies"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveEnemy
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    new_enemy := default_enemy(game_state^)
-                    append(&game_state.enemies, new_enemy)
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
+        // enemy_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.enemies
+        //     label : cstring = "Enemies"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveEnemy
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             new_enemy := default_enemy(game_state^)
+        //             append(&game_state.enemies, new_enemy)
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
                     
-                    gui_print_value(&builder, "Collision state", mesh.collision_state)
+        //             gui_print_value(&builder, "Collision state", mesh.collision_state)
                     
-                    // AI state dropdown box
-                    {
-                        cstrs := ENEMY_STATE_CSTRINGS
-                        selected := mesh.ai_state
-                        if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
-                            for item, i in cstrs {
-                                if imgui.Selectable(item) {
-                                    mesh.ai_state = EnemyState(i)
-                                    mesh.velocity = {}
-                                    mesh.home_position = mesh.position
-                                }
-                            }
-                            imgui.EndCombo()
-                        }
-                    }
+        //             // AI state dropdown box
+        //             {
+        //                 cstrs := ENEMY_STATE_CSTRINGS
+        //                 selected := mesh.ai_state
+        //                 if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
+        //                     for item, i in cstrs {
+        //                         if imgui.Selectable(item) {
+        //                             mesh.ai_state = EnemyState(i)
+        //                             mesh.velocity = {}
+        //                             mesh.home_position = mesh.position
+        //                         }
+        //                     }
+        //                     imgui.EndCombo()
+        //                 }
+        //             }
     
-                    if imgui.DragFloat3("Position", &mesh.position, 0.1) {
-                        mesh.velocity = {}
-                    }
-                    imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
-                    {
-                        imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
-                    }
+        //             if imgui.DragFloat3("Position", &mesh.position, 0.1) {
+        //                 mesh.velocity = {}
+        //             }
+        //             imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
+        //             {
+        //                 imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
+        //             }
         
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
         
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        enemy_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    {
-                        imgui.SameLine()
-                        idx, ok := game_state.selected_enemy.?
-                        h := ok && i == idx
-                        if imgui.Checkbox("Highlighted", &h) {
-                            if ok && i == idx {
-                                game_state.selected_enemy = nil
-                            } else {
-                                game_state.selected_enemy = i
-                            }
-                        }
-                    }
-                    imgui.Separator()
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 enemy_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             {
+        //                 imgui.SameLine()
+        //                 idx, ok := game_state.selected_enemy.?
+        //                 h := ok && i == idx
+        //                 if imgui.Checkbox("Highlighted", &h) {
+        //                     if ok && i == idx {
+        //                         game_state.selected_enemy = nil
+        //                     } else {
+        //                         game_state.selected_enemy = i
+        //                     }
+        //                 }
+        //             }
+        //             imgui.Separator()
         
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
 
         coin_to_clone_idx: Maybe(int)
         {
@@ -1850,18 +1850,18 @@ scene_editor :: proc(
                 }
             }
         }
-        {
-            things := &game_state.enemies
-            clone_idx, clone_ok := enemy_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveEnemy,
-                    index = u32(new_idx)
-                }
-            }
-        }
+        // {
+        //     things := &game_state.enemies
+        //     clone_idx, clone_ok := enemy_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveEnemy,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
         {
             things := &game_state.coins
             clone_idx, clone_ok := coin_to_clone_idx.?
@@ -2100,7 +2100,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 
                     id := new_thrown_enemy(
                         game_state,
-                        char.collision.position - {0.0, 0.0, 0.5},
+                        char.collision.position + char.facing,
                         ENEMY_THROW_SPEED * char.facing,
                         held_enemy.ai_state,
                         held_enemy.position
@@ -2145,10 +2145,12 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 
     // Check if we're being hit by an enemy
     if !taking_damage {
-        for enemy in game_state.enemies {
+        for id, enemy in game_state.enemy_ais {
+            tform := &game_state.transforms[id]
+            sphere := &game_state.spherical_bodies[id]
             s := Sphere {
-                position = enemy.position,
-                radius = enemy.collision_radius
+                position = tform.position,
+                radius = sphere.radius
             }
             if are_spheres_overlapping(s, char.collision) {
                 char.collision.velocity.z = 3.0
@@ -2157,6 +2159,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 char.health -= 1
                 play_sound_effect(audio_system, game_state.ow_sound)
             }
+
         }
     }
 
@@ -2167,10 +2170,14 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
         col := char.collision
         bullet.t += dt
         bullet.collision.position = char.collision.position
-        bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, min(bullet.t / char.bullet_travel_time, 1.0))
-        if bullet.collision.radius == BULLET_MAX_RADIUS {
+        bullet.collision.radius = BULLET_MAX_RADIUS
+        if bullet.t > char.bullet_travel_time {
             char.air_vortex = nil
         }
+        // bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, min(bullet.t / char.bullet_travel_time, 1.0))
+        // if bullet.collision.radius == BULLET_MAX_RADIUS {
+        //     char.air_vortex = nil
+        // }
     }
 
     // Camera follow point chases player
@@ -2274,255 +2281,255 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
     }
 }
 
-enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
-    scoped_event(&profiler, "Enemies update")
-    char := &game_state.character
-    enemy_to_remove: Maybe(int)
-    for &enemy, i in game_state.enemies {
-        scoped_event(&profiler, "Enemy loop iteration")
-        dist_to_player := hlsl.distance(char.collision.position, enemy.position)
-        // Early out if not close enough to player
-        // if dist_to_player > ENEMY_PLAYER_MIN_DISTANCE {
-        //     continue
-        // }
+// enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
+//     scoped_event(&profiler, "Enemies update")
+//     char := &game_state.character
+//     enemy_to_remove: Maybe(int)
+//     for &enemy, i in game_state.enemies {
+//         scoped_event(&profiler, "Enemy loop iteration")
+//         dist_to_player := hlsl.distance(char.collision.position, enemy.position)
+//         // Early out if not close enough to player
+//         // if dist_to_player > ENEMY_PLAYER_MIN_DISTANCE {
+//         //     continue
+//         // }
 
-        // Update
+//         // Update
 
-        // AI state specific logic
-        is_affected_by_gravity := false
-        {
-            scoped_event(&profiler, "AI specific logic")
-            switch enemy.ai_state {
-                case .BrainDead: {
-                    enemy.velocity.xy = {}
-                }
-                case .Wandering: {
-                    is_affected_by_gravity = true
-                    sample_point := [2]f64 {f64(game_state.time), f64(i)}
-                    t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
-                    rotq := z_rotate_quaternion(t)
-                    enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
+//         // AI state specific logic
+//         is_affected_by_gravity := false
+//         {
+//             scoped_event(&profiler, "AI specific logic")
+//             switch enemy.ai_state {
+//                 case .BrainDead: {
+//                     enemy.velocity.xy = {}
+//                 }
+//                 case .Wandering: {
+//                     is_affected_by_gravity = true
+//                     sample_point := [2]f64 {f64(game_state.time), f64(i)}
+//                     t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
+//                     rotq := z_rotate_quaternion(t)
+//                     enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
     
-                    enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
+//                     enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
 
-                    if dist_to_player < ENEMY_HOME_RADIUS {
-                        enemy.facing = char.collision.position - enemy.position
-                        enemy.facing.z = 0.0
-                        enemy.facing = hlsl.normalize(enemy.facing)
-                        enemy.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
-                        enemy.ai_state = .AlertedBounce
-                        enemy.collision_state = .Falling
-                        enemy.timer_start = time.now()
-                        enemy.home_position = enemy.position
-                        play_sound_effect(audio_system, game_state.jump_sound)
-                    }
+//                     if dist_to_player < ENEMY_HOME_RADIUS {
+//                         enemy.facing = char.collision.position - enemy.position
+//                         enemy.facing.z = 0.0
+//                         enemy.facing = hlsl.normalize(enemy.facing)
+//                         enemy.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
+//                         enemy.ai_state = .AlertedBounce
+//                         enemy.collision_state = .Falling
+//                         enemy.timer_start = time.now()
+//                         enemy.home_position = enemy.position
+//                         play_sound_effect(audio_system, game_state.jump_sound)
+//                     }
     
-                    if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
-                        // Start resting
-                        enemy.timer_start = time.now()
-                        enemy.ai_state = .Resting
-                    }
-                }
-                case .Hovering: {
-                    offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
-                    enemy.position = enemy.home_position + offset
-                }
-                case .AlertedBounce: {
-                    is_affected_by_gravity = true
-                    if enemy.collision_state == .Grounded {
-                        enemy.ai_state = .AlertedCharge
-                        enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                        enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
-                        enemy.collision_state = .Falling
-                        play_sound_effect(audio_system, game_state.jump_sound)
-                    }
-                }
-                case .AlertedCharge: {
-                    is_affected_by_gravity = true
-                    enemy.home_position = enemy.position
-                    if enemy.collision_state == .Grounded {
-                        enemy.ai_state = .Resting
-                        enemy.timer_start = time.now()
-                    }
-                }
-                case .Resting: {
-                    if time.diff(enemy.timer_start, time.now()) > time.Duration(0.45 * SECONDS_TO_NANOSECONDS) {
-                        // Start wandering
-                        enemy.timer_start = time.now()
-                        enemy.ai_state = .Wandering
-                    }
-                }
-            }
-        }
+//                     if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
+//                         // Start resting
+//                         enemy.timer_start = time.now()
+//                         enemy.ai_state = .Resting
+//                     }
+//                 }
+//                 case .Hovering: {
+//                     offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
+//                     enemy.position = enemy.home_position + offset
+//                 }
+//                 case .AlertedBounce: {
+//                     is_affected_by_gravity = true
+//                     if enemy.collision_state == .Grounded {
+//                         enemy.ai_state = .AlertedCharge
+//                         enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+//                         enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
+//                         enemy.collision_state = .Falling
+//                         play_sound_effect(audio_system, game_state.jump_sound)
+//                     }
+//                 }
+//                 case .AlertedCharge: {
+//                     is_affected_by_gravity = true
+//                     enemy.home_position = enemy.position
+//                     if enemy.collision_state == .Grounded {
+//                         enemy.ai_state = .Resting
+//                         enemy.timer_start = time.now()
+//                     }
+//                 }
+//                 case .Resting: {
+//                     if time.diff(enemy.timer_start, time.now()) > time.Duration(0.45 * SECONDS_TO_NANOSECONDS) {
+//                         // Start wandering
+//                         enemy.timer_start = time.now()
+//                         enemy.ai_state = .Wandering
+//                     }
+//                 }
+//             }
+//         }
 
-        // Compute closest point to terrain along with
-        // vector opposing enemy motion
-        if is_affected_by_gravity {
-            scoped_event(&profiler, "Is affected by gravity")
+//         // Compute closest point to terrain along with
+//         // vector opposing enemy motion
+//         if is_affected_by_gravity {
+//             scoped_event(&profiler, "Is affected by gravity")
 
-            // Apply gravity to velocity, clamping downward speed if necessary   
-            enemy.velocity += dt * GRAVITY_ACCELERATION
-            if enemy.velocity.z < TERMINAL_VELOCITY {
-                enemy.velocity.z = TERMINAL_VELOCITY
-            }
+//             // Apply gravity to velocity, clamping downward speed if necessary   
+//             enemy.velocity += dt * GRAVITY_ACCELERATION
+//             if enemy.velocity.z < TERMINAL_VELOCITY {
+//                 enemy.velocity.z = TERMINAL_VELOCITY
+//             }
 
-            phys_sphere := PhysicsSphere {
-                Sphere {
-                    position = enemy.position,
-                    radius = enemy.collision_radius
-                },
-                enemy.velocity,
-                .Falling
-            }
+//             phys_sphere := PhysicsSphere {
+//                 Sphere {
+//                     position = enemy.position,
+//                     radius = enemy.collision_radius
+//                 },
+//                 enemy.velocity,
+//                 .Falling
+//             }
 
-            // Compute motion interval
-            motion_endpoint := phys_sphere.position + dt * enemy.velocity
-            motion_interval := Segment {
-                start = phys_sphere.position,
-                end = motion_endpoint
-            }
+//             // Compute motion interval
+//             motion_endpoint := phys_sphere.position + dt * enemy.velocity
+//             motion_interval := Segment {
+//                 start = phys_sphere.position,
+//                 end = motion_endpoint
+//             }
 
-            closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
-            collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-            dist := hlsl.distance(closest_pt, phys_sphere.position)
+//             closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
+//             collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+//             dist := hlsl.distance(closest_pt, phys_sphere.position)
 
-            switch gravity_affected_sphere(
-                game_state^,
-                &phys_sphere,
-                closest_pt,
-                collision_normal,
-                triangle_normal,
-                motion_interval
-            ) {
-                case .None: {}
-                case .Bump: {}
-                case .HitCeiling: {}
-                case .HitFloor: {}
-                case .PassedThroughGround: {}
-            }
+//             switch gravity_affected_sphere(
+//                 game_state^,
+//                 &phys_sphere,
+//                 closest_pt,
+//                 collision_normal,
+//                 triangle_normal,
+//                 motion_interval
+//             ) {
+//                 case .None: {}
+//                 case .Bump: {}
+//                 case .HitCeiling: {}
+//                 case .HitFloor: {}
+//                 case .PassedThroughGround: {}
+//             }
 
-            // Write updated position to enemy
-            enemy.position = phys_sphere.position
-            enemy.velocity = phys_sphere.velocity
-            enemy.collision_state = phys_sphere.state
+//             // Write updated position to enemy
+//             enemy.position = phys_sphere.position
+//             enemy.velocity = phys_sphere.velocity
+//             enemy.collision_state = phys_sphere.state
 
-            // Restrict enemy movement based on home position
-            {
-                disp := enemy.position - enemy.home_position
-                l := hlsl.length(disp.xy)
-                if l > ENEMY_HOME_RADIUS {
-                    enemy.position += ENEMY_HOME_RADIUS * hlsl.normalize(enemy.home_position - enemy.position)
-                }
-            }
-        }
+//             // Restrict enemy movement based on home position
+//             {
+//                 disp := enemy.position - enemy.home_position
+//                 l := hlsl.length(disp.xy)
+//                 if l > ENEMY_HOME_RADIUS {
+//                     enemy.position += ENEMY_HOME_RADIUS * hlsl.normalize(enemy.home_position - enemy.position)
+//                 }
+//             }
+//         }
 
-        // Check if overlapping air bullet
-        bullet, ok := char.air_vortex.?
-        if ok {
-            col := Sphere {
-                position = enemy.position,
-                radius = enemy.collision_radius * 2.0
-            }
-            if are_spheres_overlapping(bullet.collision, col) {
-                char.held_enemy = game_state.enemies[i]
-                enemy_to_remove = i
-                char.air_vortex = nil
-            }
-        }
-    }
+//         // Check if overlapping air bullet
+//         bullet, ok := char.air_vortex.?
+//         if ok {
+//             col := Sphere {
+//                 position = enemy.position,
+//                 radius = enemy.collision_radius * 2.0
+//             }
+//             if are_spheres_overlapping(bullet.collision, col) {
+//                 char.held_enemy = game_state.enemies[i]
+//                 enemy_to_remove = i
+//                 char.air_vortex = nil
+//             }
+//         }
+//     }
 
-    // Remove enemy
-    {
-        idx, ok := enemy_to_remove.?
-        if ok {
-            unordered_remove(&game_state.enemies, idx)
-        }
-    }
+//     // Remove enemy
+//     {
+//         idx, ok := enemy_to_remove.?
+//         if ok {
+//             unordered_remove(&game_state.enemies, idx)
+//         }
+//     }
 
-    // Simulate thrown enemies
-    thrown_enemy_to_remove: Maybe(int)
-    for &enemy, i in game_state.thrown_enemies {
-        // Check if hitting terrain
-        THROWN_ENEMY_COLLISION_WEIGHT :: 0.8
-        closest_pt := closest_pt_terrain(enemy.position, game_state.triangle_meshes)
-        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * THROWN_ENEMY_COLLISION_WEIGHT {
-            thrown_enemy_to_remove = i
+//     // Simulate thrown enemies
+//     thrown_enemy_to_remove: Maybe(int)
+//     for &enemy, i in game_state.thrown_enemies {
+//         // Check if hitting terrain
+//         THROWN_ENEMY_COLLISION_WEIGHT :: 0.8
+//         closest_pt := closest_pt_terrain(enemy.position, game_state.triangle_meshes)
+//         if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * THROWN_ENEMY_COLLISION_WEIGHT {
+//             thrown_enemy_to_remove = i
             
-            // Respawn enemy
-            e := default_enemy(game_state^)
-            e.position = enemy.respawn_position
-            e.home_position = enemy.respawn_home
-            e.ai_state = enemy.respawn_ai_state
-            e.collision_radius = enemy.collision_radius
-            append(&game_state.enemies, e)
-        }
+//             // Respawn enemy
+//             e := default_enemy(game_state^)
+//             e.position = enemy.respawn_position
+//             e.home_position = enemy.respawn_home
+//             e.ai_state = enemy.respawn_ai_state
+//             e.collision_radius = enemy.collision_radius
+//             append(&game_state.enemies, e)
+//         }
 
-        enemy.position += dt * enemy.velocity
-    }
+//         enemy.position += dt * enemy.velocity
+//     }
 
-    // Remove thrown enemy
-    {
-        idx, ok := thrown_enemy_to_remove.?
-        if ok {
-            unordered_remove(&game_state.thrown_enemies, idx)
-        }
-    }
-}
+//     // Remove thrown enemy
+//     {
+//         idx, ok := thrown_enemy_to_remove.?
+//         if ok {
+//             unordered_remove(&game_state.thrown_enemies, idx)
+//         }
+//     }
+// }
 
-enemies_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
-    scoped_event(&profiler, "Enemies draw")
-    // Live enemies
-    for enemy, i in game_state.enemies {
-        rot: hlsl.float4x4
-        {
-            y := -enemy.facing
-            z := hlsl.float3 {0.0, 0.0, 1.0}
-            x := hlsl.normalize(hlsl.cross(y, z))
-            z = hlsl.normalize(hlsl.cross(x, y))
-            rot = basis_matrix(x, y, z)
-        }
-        world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
+// enemies_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
+//     scoped_event(&profiler, "Enemies draw")
+//     // Live enemies
+//     for enemy, i in game_state.enemies {
+//         rot: hlsl.float4x4
+//         {
+//             y := -enemy.facing
+//             z := hlsl.float3 {0.0, 0.0, 1.0}
+//             x := hlsl.normalize(hlsl.cross(y, z))
+//             z = hlsl.normalize(hlsl.cross(x, y))
+//             rot = basis_matrix(x, y, z)
+//         }
+//         world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
 
-        {
-            flags: InstanceFlags
-            idx, ok := game_state.selected_enemy.?
-            highlighted := ok && i == idx
-            if highlighted {
-                flags += {.Highlighted}
-            }
-            dd := StaticDraw {
-                world_from_model = world_mat,
-                flags = flags
-            }
-            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
-        }
+//         {
+//             flags: InstanceFlags
+//             idx, ok := game_state.selected_enemy.?
+//             highlighted := ok && i == idx
+//             if highlighted {
+//                 flags += {.Highlighted}
+//             }
+//             dd := StaticDraw {
+//                 world_from_model = world_mat,
+//                 flags = flags
+//             }
+//             draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
+//         }
 
-        if enemy.visualize_home {
-            dd := DebugDraw {
-                world_from_model = translation_matrix(enemy.home_position) * uniform_scaling_matrix(ENEMY_HOME_RADIUS),
-                color = {0.5, 0.5, 0.0, 0.8}
-            }
-            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-        }
-    }
+//         if enemy.visualize_home {
+//             dd := DebugDraw {
+//                 world_from_model = translation_matrix(enemy.home_position) * uniform_scaling_matrix(ENEMY_HOME_RADIUS),
+//                 color = {0.5, 0.5, 0.0, 0.8}
+//             }
+//             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+//         }
+//     }
 
-    // Thrown enemies
-    for enemy in game_state.thrown_enemies {
-        mat := translation_matrix(enemy.position) * uniform_scaling_matrix(enemy.collision_radius)
-        dd := StaticDraw {
-            world_from_model = mat,
-            flags = {.Glowing}
-        }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
+//     // Thrown enemies
+//     for enemy in game_state.thrown_enemies {
+//         mat := translation_matrix(enemy.position) * uniform_scaling_matrix(enemy.collision_radius)
+//         dd := StaticDraw {
+//             world_from_model = mat,
+//             flags = {.Glowing}
+//         }
+//         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
 
-        // Light source
-        l := default_point_light()
-        l.world_position = enemy.position
-        l.color = {0.0, 1.0, 0.0}
-        l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-        do_point_light(renderer, l)
-    }
-}
+//         // Light source
+//         l := default_point_light()
+//         l.world_position = enemy.position
+//         l.color = {0.0, 1.0, 0.0}
+//         l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+//         do_point_light(renderer, l)
+//     }
+// }
 
 coins_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
     sb: strings.Builder
