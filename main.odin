@@ -1041,7 +1041,8 @@ main :: proc() {
         enemies_draw(&vgd, &renderer, game_state)
 
         if game_state.do_this_frame {
-            //tick_transform_deltas(&game_state, scaled_dt)
+            tick_transform_deltas(&game_state, scaled_dt)
+            tick_thrown_enemies(&game_state)
             tick_spherical_bodies(&game_state, scaled_dt)
             tick_enemy_ai(&game_state, &audio_system, scaled_dt)
         }
@@ -1134,9 +1135,19 @@ main :: proc() {
             mat[3][1] = tform.position.y
             mat[3][2] = tform.position.z
             draw := StaticDraw {
-                world_from_model = mat
+                world_from_model = mat,
+                flags = model.flags
             }
-            draw_ps1_static_mesh(&vgd, &renderer, model, draw)
+            draw_ps1_static_mesh(&vgd, &renderer, model.handle, draw)
+
+            if .Glowing in model.flags {
+                // Light source
+                l := default_point_light()
+                l.world_position = tform.position
+                l.color = {0.0, 1.0, 0.0}
+                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+                do_point_light(&renderer, l)
+            }
         }
 
         // Rotate sunlight

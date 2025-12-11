@@ -152,29 +152,24 @@ Transform :: struct {
     scale: f32,
 }
 
-// TransformDelta :: struct {
-//     velocity: hlsl.float3,
-//     rotational_velocity: quaternion128,
-// }
+TransformDelta :: struct {
+    velocity: hlsl.float3,
+    rotational_velocity: quaternion128,
+}
 
-// tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
-//     for id, &delta in game_state.transform_deltas {
-//         tform := &game_state.transforms[id]
-
-//         delta.velocity += dt * GRAVITY_ACCELERATION
-//         if delta.velocity.z < TERMINAL_VELOCITY {
-//             delta.velocity.z = TERMINAL_VELOCITY
-//         }
-
-//         tform.position += dt * delta.velocity
-//     }
-// }
+tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
+    for id, &delta in game_state.transform_deltas {
+        tform := &game_state.transforms[id]
+        tform.position += dt * delta.velocity
+    }
+}
 
 EnemyAI :: struct {
     home_position: hlsl.float3,
     facing: hlsl.float3,
     visualize_home: bool,
     state: EnemyState,
+    init_state: EnemyState,
     timer_start: time.Time
 }
 default_enemyai :: proc(game_state: GameState) -> EnemyAI {
@@ -185,6 +180,38 @@ default_enemyai :: proc(game_state: GameState) -> EnemyAI {
         state = .Wandering,
         timer_start = time.now()
     }
+}
+
+new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, state: EnemyState) -> u32 {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = position,
+        rotation = linalg.QUATERNIONF32_IDENTITY,
+        scale = scale
+    }
+    ai := default_enemyai(game_state^)
+    ai.state = state
+    ai.init_state = state
+    ai.home_position = position
+    game_state.enemy_ais[id] = ai
+    
+    game_state.spherical_bodies[id] = SphericalBody {
+        radius = 0.5,
+        state = .Falling
+    }
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.enemy_mesh,
+        flags = {}
+    }
+
+    return id
+}
+
+delete_enemy :: proc(game_state: ^GameState, id: u32) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.spherical_bodies, id)
+    delete_key(&game_state.enemy_ais, id)
+    delete_key(&game_state.static_models, id)
 }
 
 ENEMY_HOME_RADIUS :: 4.0
@@ -257,7 +284,7 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                 }
             }
             case .Resting: {
-                if time.diff(enemy.timer_start, time.now()) > time.Duration(1.75 * SECONDS_TO_NANOSECONDS) {
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
                     // Start wandering
                     enemy.timer_start = time.now()
                     enemy.state = .Wandering
@@ -279,27 +306,104 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
         if ok {
             col := Sphere {
                 position = transform.position,
-                radius = body.radius * 2.0
+                radius = body.radius
             }
             if are_spheres_overlapping(bullet.collision, col) {
                 char.held_enemy = Enemy {
-                    position = transform.position
+                    position = transform.position,
+                    ai_state = enemy.init_state
                 }
                 enemy_to_remove = id
                 char.air_vortex = nil
             }
+        }
+
+        // Get transform rotation quaternion from facing direction
+        {
+            y := enemy.facing
+            z := hlsl.float3 {0.0, 0.0, 1.0}
+            x := hlsl.normalize(hlsl.cross(y, z))
+            z = hlsl.normalize(hlsl.cross(x, y))
+            rot := basis_matrix(x, y, z)
+            transform.rotation = linalg.quaternion_from_matrix4(rot)
         }
     }
 
     {
         to_remove, should_remove := enemy_to_remove.?
         if should_remove {
-            delete_key(&game_state.transforms, to_remove)
-            delete_key(&game_state.spherical_bodies, to_remove)
-            delete_key(&game_state.enemy_ais, to_remove)
-            delete_key(&game_state.static_models, to_remove)
+            delete_enemy(game_state, to_remove)
         }
     }
+}
+
+ThrownEnemyAI :: struct {
+    respawn_position: hlsl.float3,
+    radius: f32,
+    state: EnemyState
+}
+
+tick_thrown_enemies :: proc(game_state: ^GameState) {
+    to_remove: Maybe(u32)
+    for id, enemy in game_state.thrown_enemy_ais {
+        transform := &game_state.transforms[id]
+        closest_pt := closest_pt_terrain(transform.position, game_state.triangle_meshes)
+        
+        if hlsl.distance(closest_pt, transform.position) < enemy.radius {
+            to_remove = id
+            
+            // Respawn enemy
+            // e := default_enemy(game_state^)
+            // e.position = enemy.respawn_position
+            // e.home_position = enemy.respawn_home
+            // e.ai_state = enemy.respawn_ai_state
+            // e.collision_radius = enemy.collision_radius
+            // append(&game_state.enemies, e)
+
+
+            new_enemy(game_state, enemy.respawn_position, transform.scale * 5/4, enemy.state)
+        }
+    }
+
+    remove_id, remove := to_remove.?
+    if remove {
+        delete_thrown_enemy(game_state, remove_id)
+    }
+}
+
+new_thrown_enemy :: proc(
+    game_state: ^GameState,
+    position: hlsl.float3,
+    velocity: hlsl.float3,
+    state: EnemyState,
+    respawn_position: hlsl.float3,
+) -> u32 {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = position,
+        scale = 0.5 * 0.8
+    }
+    game_state.transform_deltas[id] = TransformDelta {
+        velocity = velocity
+    }
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.enemy_mesh,
+        flags = {.Glowing}
+    }
+    game_state.thrown_enemy_ais[id] = ThrownEnemyAI {
+        respawn_position = respawn_position,
+        radius = 0.5 * 0.8,
+        state = state
+    }
+
+    return id
+}
+
+delete_thrown_enemy :: proc(game_state: ^GameState, id: u32) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.transform_deltas, id)
+    delete_key(&game_state.static_models, id)
+    delete_key(&game_state.thrown_enemy_ais, id)
 }
 
 SphericalBody :: struct {
@@ -347,7 +451,6 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                 collided := false
                 segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.triangle_meshes)
                 if segment_ok {
-                    log.infof("Body center %v passed through ground", id)
                     transform.position = segment_pt
                     transform.position += triangle_normal * body.radius
                     body.velocity = {}
@@ -389,8 +492,10 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     }
 }
 
-
-
+StaticModelInstance :: struct {
+    handle: StaticModelHandle,
+    flags: InstanceFlags,
+}
 
 
 
@@ -655,11 +760,12 @@ GameState :: struct {
     // Data-oriented tables
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
-    //transform_deltas: map[u32]TransformDelta,
+    transform_deltas: map[u32]TransformDelta,
     enemy_ais: map[u32]EnemyAI,
+    thrown_enemy_ais: map[u32]ThrownEnemyAI,
     spherical_bodies: map[u32]SphericalBody,
     triangle_meshes: map[u32]TriangleMesh,
-    static_models: map[u32]StaticModelHandle,
+    static_models: map[u32]StaticModelInstance,
     //render_instances: map[u32]RenderInstance,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -837,11 +943,12 @@ gamestate_new_scene :: proc(
 
     game_state._next_id = 0
     game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    //game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.thrown_enemy_ais = make(map[u32]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.spherical_bodies = make(map[u32]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.static_models = make(map[u32]StaticModelHandle, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
@@ -981,7 +1088,10 @@ load_level_file :: proc(
                         rotation = rotation,
                         scale = scale,
                     }
-                    game_state.static_models[id] = model
+                    game_state.static_models[id] = StaticModelInstance {
+                        handle = model,
+                        flags = {}
+                    }
 
                     // append(&game_state.terrain_pieces, TerrainPiece {
                     //     collision = collision,
@@ -1048,26 +1158,7 @@ load_level_file :: proc(
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
 
-                    id := gamestate_next_id(game_state)
-                    game_state.transforms[id] = Transform {
-                        position = position,
-                        rotation = linalg.QUATERNIONF32_IDENTITY,
-                        scale = scale
-                    }
-                    // game_state.transform_deltas[id] = TransformDelta {
-                    //     velocity = {},
-                    //     rotational_velocity = {}
-                    // }
-                    ai := default_enemyai(game_state^)
-                    ai.state = ai_state
-                    ai.home_position = position
-                    game_state.enemy_ais[id] = ai
-                    
-                    game_state.spherical_bodies[id] = SphericalBody {
-                        radius = 0.5,
-                        state = .Falling
-                    }
-                    game_state.static_models[id] = game_state.enemy_mesh
+                    id := new_enemy(game_state, position, scale, ai_state)
                 }
 
             }
@@ -1890,16 +1981,24 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                         char.held_enemy = nil
 
                         // Throw enemy downwards
-                        append(&game_state.thrown_enemies, ThrownEnemy {
-                            position = char.collision.position - {0.0, 0.0, 0.5},
-                            velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-                            respawn_position = held_enemy.position,
-                            respawn_home = held_enemy.home_position,
-                            respawn_ai_state = .Resting,
-                            collision_radius = 0.5,
-                        })
-                        char.collision.velocity.z = 1.3 * char.jump_speed
+                        // append(&game_state.thrown_enemies, ThrownEnemy {
+                        //     position = char.collision.position - {0.0, 0.0, 0.5},
+                        //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
+                        //     respawn_position = held_enemy.position,
+                        //     respawn_home = held_enemy.home_position,
+                        //     respawn_ai_state = .Resting,
+                        //     collision_radius = 0.5,
+                        // })
 
+                        id := new_thrown_enemy(
+                            game_state,
+                            char.collision.position - {0.0, 0.0, 0.5},
+                            {0.0, 0.0, -ENEMY_THROW_SPEED},
+                            held_enemy.ai_state,
+                            held_enemy.position
+                        )
+
+                        char.collision.velocity.z = 1.3 * char.jump_speed
                         play_sound_effect(audio_system, game_state.jump_sound)
                     }
                 } else {
@@ -1979,14 +2078,22 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
                 held_enemy, is_holding_enemy := char.held_enemy.?
                 if is_holding_enemy {
                     // Insert into thrown enemies array
-                    append(&game_state.thrown_enemies, ThrownEnemy {
-                        position = char.collision.position + char.facing,
-                        velocity = ENEMY_THROW_SPEED * char.facing,
-                        respawn_position = held_enemy.position,
-                        respawn_home = held_enemy.home_position,
-                        respawn_ai_state = .Resting,
-                        collision_radius = 0.5,
-                    })
+                    // append(&game_state.thrown_enemies, ThrownEnemy {
+                    //     position = char.collision.position + char.facing,
+                    //     velocity = ENEMY_THROW_SPEED * char.facing,
+                    //     respawn_position = held_enemy.position,
+                    //     respawn_home = held_enemy.home_position,
+                    //     respawn_ai_state = .Resting,
+                    //     collision_radius = 0.5,
+                    // })
+
+                    id := new_thrown_enemy(
+                        game_state,
+                        char.collision.position - {0.0, 0.0, 0.5},
+                        ENEMY_THROW_SPEED * char.facing,
+                        held_enemy.ai_state,
+                        held_enemy.position
+                    )
         
                     char.held_enemy = nil
                 } else {
@@ -2228,7 +2335,7 @@ enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f
                     }
                 }
                 case .Resting: {
-                    if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
+                    if time.diff(enemy.timer_start, time.now()) > time.Duration(0.45 * SECONDS_TO_NANOSECONDS) {
                         // Start wandering
                         enemy.timer_start = time.now()
                         enemy.ai_state = .Wandering
