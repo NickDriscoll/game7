@@ -1175,6 +1175,8 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
     if id < MAX_POINT_LIGHTS {
         renderer.cpu_uniforms.point_light_count += 1
         renderer.cpu_uniforms.point_lights[id] = light
+    } else {
+        log.error("Tried to add too many point lights.")
     }
 }
 
