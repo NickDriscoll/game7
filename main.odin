@@ -1035,10 +1035,10 @@ main :: proc() {
         player_draw(&game_state, &vgd, &renderer)
 
         // Update and draw enemies
-        if game_state.do_this_frame {
-            enemies_update(&game_state, &audio_system, scaled_dt)
-        }
-        enemies_draw(&vgd, &renderer, game_state)
+        // if game_state.do_this_frame {
+        //     enemies_update(&game_state, &audio_system, scaled_dt)
+        // }
+        // enemies_draw(&vgd, &renderer, game_state)
 
         if game_state.do_this_frame {
             tick_transform_deltas(&game_state, scaled_dt)
