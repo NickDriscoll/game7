@@ -164,6 +164,67 @@ tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
     }
 }
 
+LoopingAnimation :: struct {
+    index: u32,              // Index into renderer.animations
+    t: f32
+}
+
+tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: f32) {
+    for id, &animation in game_state.looping_animations {
+        animation.t = (animation.t + dt)
+        duration := get_animation_duration(renderer, animation.index)
+        if animation.t > duration {
+            animation.t -= duration
+        }
+    }
+}
+
+CoinAI :: struct {
+    z: f32,
+}
+
+tick_coin_ais :: proc(game_state: ^GameState) {
+    
+    rot := z_rotate_quaternion(game_state.time)
+    z_offset := 0.25 * math.sin(game_state.time)
+
+    for id, coin in game_state.coin_ais {
+        tform := &game_state.transforms[id]
+        tform.position.z = coin.z + z_offset
+        tform.rotation = rot
+    }
+
+    // sb: strings.Builder
+    // strings.builder_init(&sb, context.temp_allocator)
+    // p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
+    // scoped_event(&profiler, p_string)
+
+    // coin_count := len(game_state.coins)
+
+    // post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
+    // z_offset := 0.25 * math.sin(game_state.time)
+    // draw_datas := make([dynamic]StaticDraw, coin_count, context.temp_allocator)
+    // for i in 0..<coin_count {
+    //     scoped_event(&profiler, "Individual coin draw")
+    //     coin := &game_state.coins[i]
+    //     pos := coin.position
+    //     pos.z += z_offset
+    //     dd := &draw_datas[i]
+    //     dd.world_from_model = post_mul
+    //     dd.world_from_model[3][0] = pos.x
+    //     dd.world_from_model[3][1] = pos.y
+    //     dd.world_from_model[3][2] = pos.z
+
+    //     if .ShowCoinRadius in game_state.debug_vis_flags {
+    //         dd: DebugDraw
+    //         dd.world_from_model = translation_matrix(coin.position) * scaling_matrix(game_state.coin_collision_radius)
+    //         dd.color = {0.0, 0.0, 1.0, 0.4}
+    //         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
+    //     }
+    // }
+    // draw_ps1_static_meshes(gd, renderer, game_state.coin_mesh, draw_datas[:])
+}
+
 EnemyAI :: struct {
     home_position: hlsl.float3,
     facing: hlsl.float3,
@@ -497,6 +558,11 @@ StaticModelInstance :: struct {
     flags: InstanceFlags,
 }
 
+SkinnedModelInstance :: struct {
+    handle: SkinnedModelHandle,
+    flags: InstanceFlags,
+}
+
 
 
 
@@ -761,11 +827,14 @@ GameState :: struct {
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
     transform_deltas: map[u32]TransformDelta,
+    looping_animations: map[u32]LoopingAnimation,
+    coin_ais: map[u32]CoinAI,
     enemy_ais: map[u32]EnemyAI,
     thrown_enemy_ais: map[u32]ThrownEnemyAI,
     spherical_bodies: map[u32]SphericalBody,
     triangle_meshes: map[u32]TriangleMesh,
     static_models: map[u32]StaticModelInstance,
+    skinned_models: map[u32]SkinnedModelInstance,
     //render_instances: map[u32]RenderInstance,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -941,14 +1010,18 @@ gamestate_new_scene :: proc(
     // game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
     game_state.coins = make([dynamic]Coin, scene_allocator)
 
-    game_state._next_id = 0
+    // Initialize data-oriented tables
+    game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.looping_animations = make(map[u32]LoopingAnimation, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.coin_ais = make(map[u32]CoinAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.thrown_enemy_ais = make(map[u32]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.spherical_bodies = make(map[u32]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.skinned_models = make(map[u32]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
@@ -1148,16 +1221,32 @@ load_level_file :: proc(
                     position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-                    
-                    append(&game_state.animated_scenery, AnimatedScenery {
-                        model = model,
+
+                    id := gamestate_next_id(game_state)
+                    game_state.transforms[id] = Transform {
                         position = position,
                         rotation = rotation,
-                        scale = scale,
-                        anim_idx = 0,
-                        anim_t = 0.0,
-                        anim_speed = 1.0,
-                    })
+                        scale = scale
+                    }
+                    game_state.looping_animations[id] = LoopingAnimation {
+                        index = 0,
+                        t = 0.0
+                    }
+                    game_state.skinned_models[id] = SkinnedModelInstance {
+                        handle = model,
+                        flags = {}
+                    }
+                    
+                    // append(&game_state.animated_scenery, AnimatedScenery {
+                    //     model = model,
+                    //     position = position,
+                    //     rotation = rotation,
+                    //     scale = scale,
+                    //     anim_idx = 0,
+                    //     anim_t = 0.0,
+                    //     anim_speed = 1.0,
+                    // })
+
                     strings.builder_reset(&path_builder)
                 }
             }
@@ -1177,9 +1266,23 @@ load_level_file :: proc(
                 coin_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
                 for _ in 0..<coin_len {
                     p := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    append(&game_state.coins, Coin {
-                        position = p
-                    })
+
+                    id := gamestate_next_id(game_state)
+                    game_state.transforms[id] = Transform {
+                        position = p,
+                        scale = 0.6,
+                    }
+                    game_state.coin_ais[id] = CoinAI {
+                        z = p.z
+                    }
+                    game_state.static_models[id] = StaticModelInstance {
+                        handle = game_state.coin_mesh,
+                        flags = {}
+                    }
+
+                    // append(&game_state.coins, Coin {
+                    //     position = p
+                    // })
                 }
             }
         }
@@ -1626,7 +1729,7 @@ scene_editor :: proc(
                     imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
     
                     anim := &renderer.animations[model.first_animation_idx]
-                    imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_endtime(anim))
+                    imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_duration(anim))
                     imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
         
                     disable_button := false
@@ -2199,7 +2302,7 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
 
     model := get_skinned_model(renderer, game_state.character.model)
     
-    end := get_animation_endtime(&renderer.animations[model.first_animation_idx])
+    end := get_animation_duration(&renderer.animations[model.first_animation_idx])
     for character.anim_t > end {
         character.anim_t -= end
     }
