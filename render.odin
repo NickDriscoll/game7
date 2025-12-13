@@ -156,7 +156,16 @@ Animation :: struct {
     channels: [dynamic]AnimationChannel,
     name: string,
 }
-get_animation_endtime :: proc(anim: ^Animation) -> f32 {
+
+get_animation_duration :: proc {
+    get_animation_duration_idx,
+    get_animation_duration_ptr,
+}
+get_animation_duration_idx :: proc(renderer: Renderer, idx: u32) -> f32 {
+    anim := &renderer.animations[idx]
+    return get_animation_duration_ptr(anim)
+}
+get_animation_duration_ptr :: proc(anim: ^Animation) -> f32 {
     idx := len(anim.channels[0].keyframes) - 1
     return anim.channels[0].keyframes[idx].time
 }

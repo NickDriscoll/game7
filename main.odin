@@ -1040,13 +1040,15 @@ main :: proc() {
         // enemies_draw(&vgd, &renderer, game_state)
 
         if game_state.do_this_frame {
+            tick_coin_ais(&game_state)
+            tick_looping_animations(&game_state, renderer, scaled_dt)
             tick_transform_deltas(&game_state, scaled_dt)
             tick_thrown_enemies(&game_state)
             tick_spherical_bodies(&game_state, scaled_dt)
             tick_enemy_ai(&game_state, &audio_system, scaled_dt)
         }
 
-        coins_draw(&vgd, &renderer, game_state)
+        // coins_draw(&vgd, &renderer, game_state)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
@@ -1107,7 +1109,7 @@ main :: proc() {
             scoped_event(&profiler, "Draw animated scenery loop iteration")
             if game_state.do_this_frame {
                 anim := &renderer.animations[mesh.anim_idx]
-                anim_end := get_animation_endtime(anim)
+                anim_end := get_animation_duration(anim)
                 mesh.anim_t += scaled_dt * mesh.anim_speed
                 mesh.anim_t = math.mod(mesh.anim_t, anim_end)
             }
@@ -1147,6 +1149,26 @@ main :: proc() {
                 l.intensity = light_flicker(game_state.rng_seed, game_state.time)
                 do_point_light(&renderer, l)
             }
+        }
+
+        // Draw skinned models
+        for id, model in game_state.skinned_models {
+            tform := &game_state.transforms[id]
+            anim := &game_state.looping_animations[id]
+
+            scale := scaling_matrix(tform.scale)
+            rot := linalg.to_matrix4(tform.rotation)
+            mat := rot * scale
+            mat[3][0] = tform.position.x
+            mat[3][1] = tform.position.y
+            mat[3][2] = tform.position.z
+            draw := SkinnedDraw {
+                world_from_model = mat,
+                anim_idx = anim.index,
+                anim_t = anim.t,
+                //flags = model.flags
+            }
+            draw_ps1_skinned_mesh(&vgd, &renderer, model.handle, &draw)
         }
 
         // Rotate sunlight
