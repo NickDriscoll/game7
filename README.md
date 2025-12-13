@@ -31,6 +31,13 @@ mkdir data/shaders
 git submodule update --init --recursive
 ```
 
+On Linux, install the SDL2 developer libraries and build the `stb` and `cgltf` libraries (packaged with your Odin compiler)
+```
+sudo apt install libsdl2-dev
+make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/stb/src"
+make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/cgltf/src"
+```
+
 ### Build on Windows
 ```
 .\windows_build.bat debug
@@ -38,8 +45,5 @@ git submodule update --init --recursive
 
 ### Build on Linux
 ```
-sudo apt install libsdl2-dev
-make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/stb/src"
-make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/cgltf/src"
 ./linux_build.sh debug
 ```
