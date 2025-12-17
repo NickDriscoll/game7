@@ -146,6 +146,9 @@ do_mouse_raycast :: proc(
     return collision_pt, closest_dist < math.INF_F32
 }
 
+
+
+
 Transform :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
@@ -183,46 +186,36 @@ CoinAI :: struct {
     z: f32,
 }
 
-tick_coin_ais :: proc(game_state: ^GameState) {
-    
+tick_coin_ais := proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
     rot := z_rotate_quaternion(game_state.time)
     z_offset := 0.25 * math.sin(game_state.time)
 
+    to_remove: Maybe(u32)
     for id, coin in game_state.coin_ais {
         tform := &game_state.transforms[id]
+        {
+            // Are we being collected?
+            s := Sphere {
+                position = tform.position,
+                radius = game_state.coin_collision_radius
+            }
+            if are_spheres_overlapping(game_state.character.collision.s, s) {
+                play_sound_effect(audio_system, game_state.coin_sound)
+                to_remove = id
+                continue
+            }
+        }
         tform.position.z = coin.z + z_offset
         tform.rotation = rot
     }
 
-    // sb: strings.Builder
-    // strings.builder_init(&sb, context.temp_allocator)
-    // p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
-    // scoped_event(&profiler, p_string)
-
-    // coin_count := len(game_state.coins)
-
-    // post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
-    // z_offset := 0.25 * math.sin(game_state.time)
-    // draw_datas := make([dynamic]StaticDraw, coin_count, context.temp_allocator)
-    // for i in 0..<coin_count {
-    //     scoped_event(&profiler, "Individual coin draw")
-    //     coin := &game_state.coins[i]
-    //     pos := coin.position
-    //     pos.z += z_offset
-    //     dd := &draw_datas[i]
-    //     dd.world_from_model = post_mul
-    //     dd.world_from_model[3][0] = pos.x
-    //     dd.world_from_model[3][1] = pos.y
-    //     dd.world_from_model[3][2] = pos.z
-
-    //     if .ShowCoinRadius in game_state.debug_vis_flags {
-    //         dd: DebugDraw
-    //         dd.world_from_model = translation_matrix(coin.position) * scaling_matrix(game_state.coin_collision_radius)
-    //         dd.color = {0.0, 0.0, 1.0, 0.4}
-    //         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-    //     }
-    // }
-    // draw_ps1_static_meshes(gd, renderer, game_state.coin_mesh, draw_datas[:])
+    // Remove coin
+    remove_id, ok := to_remove.?
+    if ok {
+        delete_key(&game_state.transforms, remove_id)
+        delete_key(&game_state.coin_ais, remove_id)
+        delete_key(&game_state.static_models, remove_id)
+    }
 }
 
 EnemyAI :: struct {
