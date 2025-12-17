@@ -1041,7 +1041,7 @@ main :: proc() {
         // enemies_draw(&vgd, &renderer, game_state)
 
         if game_state.do_this_frame {
-            tick_coin_ais(&game_state)
+            tick_coin_ais(&game_state, &audio_system)
             tick_looping_animations(&game_state, renderer, scaled_dt)
             tick_transform_deltas(&game_state, scaled_dt)
             tick_thrown_enemies(&game_state)

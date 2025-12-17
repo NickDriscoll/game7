@@ -8,7 +8,7 @@ Sphere :: struct {
     radius: f32,
 }
 
-are_spheres_overlapping :: proc(s1: Sphere, s2: Sphere) -> bool {
+are_spheres_overlapping :: #force_inline proc(s1: Sphere, s2: Sphere) -> bool {
     dist := hlsl.distance(s1.position, s2.position)
     return dist <= (s1.radius + s2.radius)
 }
