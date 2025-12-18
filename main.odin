@@ -1093,39 +1093,6 @@ main :: proc() {
             renderer.cpu_uniforms.view_position.a = 1.0
         }
 
-        // Update and draw static scenery
-        // for &mesh in game_state.static_scenery {
-        //     scoped_event(&profiler, "Draw static scenery loop iteration")
-        //     rot := linalg.to_matrix4(mesh.rotation)
-        //     world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
-
-        //     dd := StaticDraw {
-        //         world_from_model = world_mat,
-        //     }
-        //     draw_ps1_static_mesh(&vgd, &renderer, mesh.model, dd)
-        // }
-
-        // Update and draw animated scenery
-        for &mesh in game_state.animated_scenery {
-            scoped_event(&profiler, "Draw animated scenery loop iteration")
-            if game_state.do_this_frame {
-                anim := &renderer.animations[mesh.anim_idx]
-                anim_end := get_animation_duration(anim)
-                mesh.anim_t += scaled_dt * mesh.anim_speed
-                mesh.anim_t = math.mod(mesh.anim_t, anim_end)
-            }
-
-            rot := linalg.to_matrix4(mesh.rotation)
-
-            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
-            dd := SkinnedDraw {
-                world_from_model = world_mat,
-                anim_idx = mesh.anim_idx,
-                anim_t = mesh.anim_t
-            }
-            draw_ps1_skinned_mesh(&vgd, &renderer, mesh.model, &dd)
-        }
-
         // Draw static models
         for id, model in game_state.static_models {
             tform := &game_state.transforms[id]
