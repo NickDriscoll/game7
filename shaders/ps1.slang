@@ -154,8 +154,16 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
     float3 view_dir = normalize(u_data.view_position.xyz - input.world_pos);
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
+
+    if ((u_data.flags & UniformFlag.VisualizeFaceNormals) != 0) {
+        return float4(face_normal * 0.5 + 0.5, 1.0);
+    }
     
     float4 vtx_color = input.color;
+
+    if ((u_data.flags & UniformFlag.VisualizeVertexColors) != 0) {
+        return vtx_color;
+    }
     
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
     if (material.color_texture != NULL_OFFSET) {
@@ -265,6 +273,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         glow = float3(0.0, 1.0, 0.0);
     }
 
+    if ((u_data.flags & UniformFlag.VisualizeDirectDiffuse) != 0) {
+        return float4(diffuse_contribution, 1.0);
+    }
+
+    if ((u_data.flags & UniformFlag.VisualizeDirectSpecular) != 0) {
+        return float4(specular_contribution, 1.0);
+    }
+
     float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
 
     float3 final_color = (glow + reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
@@ -280,6 +296,4 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     return float4(final_color, 1.0);
-    // return float4(specular_contribution, 1.0);
-    // return float4(reflection_cont, 1.0);
 }

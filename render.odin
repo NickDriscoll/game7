@@ -70,6 +70,10 @@ UniformFlag :: enum u32 {
     ColorTriangles,
     Reflections,
     CRTShader,
+    VisualizeFaceNormals,
+    VisualizeVertexColors,
+    VisualizeDirectDiffuse,
+    VisualizeDirectSpecular,
 }
 
 // Manually aligned to 16 bytes
@@ -2569,6 +2573,10 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.CRTShader)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeFaceNormals)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeVertexColors)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectSpecular)
             }
             imgui.Separator()
 

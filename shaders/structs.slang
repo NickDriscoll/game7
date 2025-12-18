@@ -55,6 +55,10 @@ enum UniformFlag {
     ColorTriangles = 0x01,
     Reflections = 0x02,
     CRTShader = 0x04,
+    VisualizeFaceNormals = 0x08,
+    VisualizeVertexColors = 0x10,
+    VisualizeDirectDiffuse = 0x20,
+    VisualizeDirectSpecular = 0x40,
 }
 
 struct UniformData {
