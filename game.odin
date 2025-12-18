@@ -58,6 +58,7 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]Tria
 }
 
 intersect_segment_terrain :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain")
     cand_t := math.INF_F32
     for _, &piece in terrain {
         t, ok := intersect_segment_triangles_t(segment, &piece)
@@ -72,6 +73,7 @@ intersect_segment_terrain :: proc(segment: ^Segment, terrain: map[u32]TriangleMe
 }
 
 intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (f32, hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain_with_normal")
     cand_t := math.INF_F32
     normal: hlsl.float3
     for _, &piece in terrain {

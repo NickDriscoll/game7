@@ -1213,7 +1213,10 @@ main :: proc() {
             }
 
             // Sync point where we wait if there are already 2 frames in the gfx queue
-            vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
+            {
+                scoped_event(&profiler, "CPU wait on GPU")
+                vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
+            }
 
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
