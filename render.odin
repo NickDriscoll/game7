@@ -1701,7 +1701,6 @@ render_scene :: proc(
     gd: ^vkw.GraphicsDevice,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     renderer: ^Renderer,
-    viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
     scoped_event(&profiler, "render_scene")
