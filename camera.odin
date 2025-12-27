@@ -11,7 +11,7 @@ CameraTarget :: struct {
     distance: f32,
 }
 
-CameraFlags :: bit_set[enum {
+FreecamFlag  :: enum {
     MouseLook,
     MoveForward,
     MoveBackward,
@@ -22,28 +22,66 @@ CameraFlags :: bit_set[enum {
     Speed,
     Slow,
     Follow
-}]
+}
+FreecamFlags :: bit_set[FreecamFlag]
 
-Camera :: struct {
-    position: hlsl.float3,
-
+FreeCameraController :: struct {
     // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
     yaw: f32,
     pitch: f32,
 
+
+}
+
+LookatController :: struct {
+    target: u32,
+    distance: f32,
+}
+
+
+CameraSettings :: struct {
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
-    collision_radius: f32,
-    target: CameraTarget,
-    control_flags: CameraFlags,
 }
 
-camera_view_from_world :: proc(camera: Camera) -> hlsl.float4x4 {
+// Camera :: struct {
+//     position: hlsl.float3,
+
+//     // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
+//     yaw: f32,
+//     pitch: f32,
+
+//     fov_radians: f32,
+//     aspect_ratio: f32,
+//     nearplane: f32,
+//     farplane: f32,
+//     collision_radius: f32,
+//     target: CameraTarget,
+//     control_flags: CameraFlags,
+// }
+
+// camera_view_from_world :: proc(camera: Camera) -> hlsl.float4x4 {
+//     pitch := pitch_rotation_matrix(camera.pitch)
+//     yaw := yaw_rotation_matrix(camera.yaw)
+//     trans := translation_matrix(-camera.position)
+
+//     // Change from right-handed Z-Up to left-handed Y-Up
+//     c_mat := hlsl.float4x4 {
+//         1.0, 0.0, 0.0, 0.0,
+//         0.0, 0.0, 1.0, 0.0,
+//         0.0, -1.0, 0.0, 0.0,
+//         0.0, 0.0, 0.0, 1.0,
+//     }
+
+//     return c_mat * pitch * yaw * trans
+// }
+
+freecam_view_from_world :: proc(transform: Transform, camera: FreeCameraController) -> hlsl.float4x4 {
     pitch := pitch_rotation_matrix(camera.pitch)
     yaw := yaw_rotation_matrix(camera.yaw)
-    trans := translation_matrix(-camera.position)
+    trans := translation_matrix(-transform.position)
 
     // Change from right-handed Z-Up to left-handed Y-Up
     c_mat := hlsl.float4x4 {
@@ -57,7 +95,7 @@ camera_view_from_world :: proc(camera: Camera) -> hlsl.float4x4 {
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
-camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
+camera_projection_from_view :: proc(settings: CameraSettings) -> hlsl.float4x4 {
 
     // Change from left-handed Y-Up to Y-down, Z-forward
     c_matrix := hlsl.float4x4 {
@@ -67,11 +105,11 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
         0.0, 0.0, 0.0, 1.0,
     }
 
-    tan_fovy := math.tan(camera.fov_radians / 2.0)
-    near := camera.nearplane
-    far := camera.farplane
+    tan_fovy := math.tan(settings.fov_radians / 2.0)
+    near := settings.nearplane
+    far := settings.farplane
     proj_matrix := hlsl.float4x4 {
-        1.0 / (tan_fovy * camera.aspect_ratio), 0.0, 0.0, 0.0,
+        1.0 / (tan_fovy * settings.aspect_ratio), 0.0, 0.0, 0.0,
         0.0, 1.0 / tan_fovy, 0.0, 0.0,
         0.0, 0.0, near / (near - far), (near * far) / (far - near),
         0.0, 0.0, 1.0, 0.0,
@@ -79,11 +117,31 @@ camera_projection_from_view :: proc(camera: ^Camera) -> hlsl.float4x4 {
 
     return proj_matrix * c_matrix
 }
+
+// lookat_view_from_world :: proc(
+//     camera: Camera,
+//     up := hlsl.float3 {0.0, 0.0, 1.0}
+// ) -> hlsl.float4x4 {
+//     focus_vector := hlsl.normalize(camera.position - camera.target.position)
+
+//     right := hlsl.normalize(hlsl.cross(up, focus_vector))
+//     local_up := hlsl.cross(focus_vector, right)
+
+//     look := hlsl.float4x4 {
+//         right.x, right.y, right.z, 0.0,
+//         local_up.x, local_up.y, local_up.z, 0.0,
+//         focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
+//         0.0, 0.0, 0.0, 1.0
+//     }
+//     trans := translation_matrix(-camera.position)
+//     return look * trans
+// }
 lookat_view_from_world :: proc(
-    camera: Camera,
+    transform: Transform,
+    target_position: hlsl.float3,
     up := hlsl.float3 {0.0, 0.0, 1.0}
 ) -> hlsl.float4x4 {
-    focus_vector := hlsl.normalize(camera.position - camera.target.position)
+    focus_vector := hlsl.normalize(transform.position - target_position)
 
     right := hlsl.normalize(hlsl.cross(up, focus_vector))
     local_up := hlsl.cross(focus_vector, right)
@@ -94,7 +152,7 @@ lookat_view_from_world :: proc(
         focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
         0.0, 0.0, 0.0, 1.0
     }
-    trans := translation_matrix(-camera.position)
+    trans := translation_matrix(-transform.position)
     return look * trans
 }
 
@@ -105,8 +163,8 @@ pitch_yaw_from_lookat :: proc(pos: hlsl.float3, target: hlsl.float3) -> (yaw, pi
     return yaw, pitch
 }
 
-get_view_ray :: proc(using camera: Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
-    tan_fovy := math.tan(fov_radians / 2.0)
+get_click_view_coords :: proc(camera_settings: CameraSettings, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> hlsl.float4 {
+    tan_fovy := math.tan(camera_settings.fov_radians / 2.0)
     tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
     clip_coords := hlsl.float4 {
         f32(click_coords.x) * 2.0 / f32(resolution.x) - 1.0,
@@ -115,72 +173,50 @@ get_view_ray :: proc(using camera: Camera, click_coords: hlsl.uint2, resolution:
         1.0
     }
 
-    view_coords := hlsl.float4 {
-        clip_coords.x * nearplane * tan_fovx,
-        -clip_coords.y * nearplane * tan_fovy,
-        -nearplane,
+    return hlsl.float4 {
+        clip_coords.x * camera_settings.nearplane * tan_fovx,
+        -clip_coords.y * camera_settings.nearplane * tan_fovy,
+        -camera_settings.nearplane,
         1.0
     }
+}
 
-    world_coords: hlsl.float4
-    if .Follow in control_flags {
-        world_coords = hlsl.inverse(lookat_view_from_world(camera)) * view_coords
-    } else {
-        world_coords = hlsl.inverse(camera_view_from_world(camera)) * view_coords
-    }
+// get_view_ray :: proc(transform: Transform, camera_settings: CameraSettings, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+
+//     view_coords := get_click_view_coords(camera_settings, click_coords, resolution)
+
+//     world_coords: hlsl.float4
+//     if .Follow in camera.control_flags {
+//         world_coords = hlsl.inverse(lookat_view_from_world(camera)) * view_coords
+//     } else {
+//         world_coords = hlsl.inverse(freecam_view_from_world(transform, camera)) * view_coords
+//     }
+
+//     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
+//     return Ray {
+//         start = start,
+//         direction = hlsl.normalize(start - camera.position)
+//     }
+// }
+
+freecam_view_ray :: proc(transform: Transform, settings: CameraSettings, camera: FreeCameraController, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+    view_coords := get_click_view_coords(settings, click_coords, resolution)
+    world_coords := hlsl.inverse(freecam_view_from_world(transform, camera)) * view_coords
 
     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
     return Ray {
         start = start,
-        direction = hlsl.normalize(start - position)
+        direction = hlsl.normalize(start - transform.position)
     }
 }
 
-CameraGuiResponse :: enum {
-    ToggleFollowCam
-}
+lookat_view_ray :: proc(transform: Transform, settings: CameraSettings, target: hlsl.float3, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+    view_coords := get_click_view_coords(settings, click_coords, resolution)
+    world_coords := hlsl.inverse(lookat_view_from_world(transform, target)) * view_coords
 
-camera_gui :: proc(
-    game_state: ^GameState,
-    camera: ^Camera,
-    input_system: ^InputSystem,
-    user_config: ^UserConfiguration,
-    close: ^bool
-) -> (response: CameraGuiResponse, ok: bool) {
-    ok = false
-    if imgui.Begin("Camera controls", close) {
-        imgui.Text("Position: (%f, %f, %f)", camera.position.x, camera.position.y, camera.position.z)
-        imgui.Text("Yaw: %f", camera.yaw)
-        imgui.Text("Pitch: %f", camera.pitch)
-        imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
-        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
-        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 500.0)
-        imgui.SameLine()
-        if imgui.Button("Reset") {
-            game_state.camera_follow_speed = 6.0
-        }
-        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-            user_config.flags[.FreecamCollision] = game_state.freecam_collision
-        }
-    
-        freecam := .Follow not_in camera.control_flags
-        if imgui.Checkbox("Freecam", &freecam) {
-            camera.pitch = 0.0
-            camera.yaw = 0.0
-            camera.control_flags ~= {.Follow}
-            response = .ToggleFollowCam
-            ok = true
-        }
-        imgui.SliderFloat("Camera follow distance", &camera.target.distance, 1.0, 20.0)
-        imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
-        imgui.SameLine()
-        imgui.PushIDInt(1)
-        if imgui.Button("Reset") {
-            camera.fov_radians = math.PI / 2.0
-        }
-        imgui.PopID()
+    start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
+    return Ray {
+        start = start,
+        direction = hlsl.normalize(start - transform.position)
     }
-    imgui.End()
-
-    return response, ok
 }

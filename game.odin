@@ -116,28 +116,77 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: map[u32]TriangleMesh, m
 //     return closest_t, current_n, closest_t < math.INF_F32
 // }
 
+// do_mouse_raycast :: proc(
+//     viewport_camera: Camera,
+//     triangle_meshes: map[u32]TriangleMesh,
+//     mouse_location: [2]i32,
+//     viewport_dimensions: [4]f32
+// ) -> (hlsl.float3, bool) {
+//     viewport_coords := hlsl.uint2 {
+//         u32(mouse_location.x) - u32(viewport_dimensions[0]),
+//         u32(mouse_location.y) - u32(viewport_dimensions[1]),
+//     }
+//     ray := get_view_ray(
+//         viewport_camera,
+//         viewport_coords,
+//         {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+//     )
+
+//     collision_pt: hlsl.float3
+//     closest_dist := math.INF_F32
+//     for _, &piece in triangle_meshes {
+//         candidate, ok := intersect_ray_triangles(&ray, &piece)
+//         if ok {
+//             candidate_dist := hlsl.distance(candidate, viewport_camera.position)
+//             if candidate_dist < closest_dist {
+//                 collision_pt = candidate
+//                 closest_dist = candidate_dist
+//             }
+//         }
+//     }
+
+//     return collision_pt, closest_dist < math.INF_F32
+// }
+
 do_mouse_raycast :: proc(
-    viewport_camera: Camera,
+    game_state: GameState,
+    viewport_camera_id: u32,
     triangle_meshes: map[u32]TriangleMesh,
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
-    viewport_coords := hlsl.uint2 {
+    click_coords := hlsl.uint2 {
         u32(mouse_location.x) - u32(viewport_dimensions[0]),
         u32(mouse_location.y) - u32(viewport_dimensions[1]),
     }
-    ray := get_view_ray(
-        viewport_camera,
-        viewport_coords,
-        {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
-    )
+
+    tform := &game_state.transforms[viewport_camera_id]
+    settings := &game_state.camera_settings[viewport_camera_id]
+    freecam_controller, is_freecam := &game_state.freecam_controllers[viewport_camera_id]
+    lookat_controller, is_lookat := &game_state.lookat_controllers[viewport_camera_id]
+
+    resolution := hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+    ray: Ray
+    if is_lookat {
+        ray = lookat_view_ray(tform^, settings^, lookat_controller^, click_coords, resolution)
+    }
+    if is_freecam {
+        assert(!is_lookat)
+        ray = freecam_view_ray(tform^, settings^, freecam_controller^, click_coords, resolution)
+    }
+
+    // ray := get_view_ray(
+    //     viewport_camera,
+    //     viewport_coords,
+    //     hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+    // )
 
     collision_pt: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in triangle_meshes {
         candidate, ok := intersect_ray_triangles(&ray, &piece)
         if ok {
-            candidate_dist := hlsl.distance(candidate, viewport_camera.position)
+            candidate_dist := hlsl.distance(candidate, tform.position)
             if candidate_dist < closest_dist {
                 collision_pt = candidate
                 closest_dist = candidate_dist
@@ -685,12 +734,13 @@ Coin :: struct {
     position: hlsl.float3,
 }
 
-DebugVisualizationFlags :: bit_set[enum {
+DebugVisualizationFlag :: enum {
     ShowPlayerSpawn,
     ShowPlayerHitSphere,
     ShowPlayerActivityRadius,
     ShowCoinRadius,
-}]
+}
+DebugVisualizationFlags :: bit_set[DebugVisualizationFlag]
 
 AirVortex :: struct {
     collision: Sphere,
@@ -804,17 +854,15 @@ gravity_affected_sphere :: proc(
     return resp
 }
 
+EntityID :: distinct u32
+
 // Megastruct for all game-specific data
 GameState :: struct {
     character: Character,
-    viewport_camera: Camera,
+    //viewport_camera: Camera,
+    viewport_camera_id: u32,
 
     // Scene/Level data
-    // static_scenery: [dynamic]StaticScenery,
-    // animated_scenery: [dynamic]AnimatedScenery,
-    // enemies: [dynamic]Enemy,
-    // thrown_enemies: [dynamic]ThrownEnemy,
-    // coins: [dynamic]Coin,
     character_start: hlsl.float3,
     skybox_texture: vkw.Texture_Handle,
 
@@ -822,6 +870,9 @@ GameState :: struct {
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
     transform_deltas: map[u32]TransformDelta,
+    camera_settings: map[u32]CameraSettings,
+    freecam_controllers: map[u32]FreeCameraController,
+    lookat_controllers: map[u32]LookatController,
     looping_animations: map[u32]LoopingAnimation,
     coin_ais: map[u32]CoinAI,
     enemy_ais: map[u32]EnemyAI,
@@ -831,6 +882,12 @@ GameState :: struct {
     static_models: map[u32]StaticModelInstance,
     skinned_models: map[u32]SkinnedModelInstance,
 
+    // User input mapping structs
+    freecam_key_mappings : map[sdl2.Scancode]VerbType,
+    character_key_mappings: map[sdl2.Scancode]VerbType,
+    mouse_mappings: map[u8]VerbType,
+    button_mappings: map[sdl2.GameControllerButton]VerbType,
+
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
     
@@ -838,7 +895,6 @@ GameState :: struct {
     coin_collision_radius: f32,
 
     enemy_mesh: StaticModelHandle,
-    //selected_enemy: Maybe(int),
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -887,32 +943,53 @@ init_gamestate :: proc(
     game_state.paused = false
     game_state.timescale = 1.0
     game_state.coin_collision_radius = 0.1
+    
+    game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
+    game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
-    // Initialize main viewport camera
-    game_state.viewport_camera = Camera {
-        position = {
-            f32(user_config.floats[.FreecamX]),
-            f32(user_config.floats[.FreecamY]),
-            f32(user_config.floats[.FreecamZ])
-        },
-        yaw = f32(user_config.floats[.FreecamYaw]),
-        pitch = f32(user_config.floats[.FreecamPitch]),
-        fov_radians = f32(user_config.floats[.CameraFOV]),
-        nearplane = 0.1 / math.sqrt_f32(2.0),
-        farplane = 1_000_000.0,
-        collision_radius = 0.1,
-        target = {
-            distance = 5.0
-        },
-    }
-    game_state.freecam_speed_multiplier = 5.0
-    game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags[.FollowCam] {
-        game_state.viewport_camera.control_flags += {.Follow}
-    }
+    {
+        game_state.freecam_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.freecam_key_mappings[.W] = .TranslateFreecamForward
+        game_state.freecam_key_mappings[.S] = .TranslateFreecamBack
+        game_state.freecam_key_mappings[.A] = .TranslateFreecamLeft
+        game_state.freecam_key_mappings[.D] = .TranslateFreecamRight
+        game_state.freecam_key_mappings[.Q] = .TranslateFreecamDown
+        game_state.freecam_key_mappings[.E] = .TranslateFreecamUp
+        game_state.freecam_key_mappings[.LSHIFT] = .Sprint
+        game_state.freecam_key_mappings[.LCTRL] = .Crawl
+        game_state.freecam_key_mappings[.SPACE] = .PlayerJump
+        game_state.freecam_key_mappings[.BACKSLASH] = .FrameAdvance
+        game_state.freecam_key_mappings[.PAUSE] = .Resume
+        game_state.freecam_key_mappings[.F] = .FullscreenHotkey
 
-    game_state.camera_follow_point = game_state.character.collision.position
-    game_state.camera_follow_speed = 6.0
+        game_state.character_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.character_key_mappings[.W] = .PlayerTranslateForward
+        game_state.character_key_mappings[.S] = .PlayerTranslateBack
+        game_state.character_key_mappings[.A] = .PlayerTranslateLeft
+        game_state.character_key_mappings[.D] = .PlayerTranslateRight
+        game_state.character_key_mappings[.LSHIFT] = .Sprint
+        game_state.character_key_mappings[.LCTRL] = .Crawl
+        game_state.character_key_mappings[.SPACE] = .PlayerJump
+        game_state.character_key_mappings[.BACKSLASH] = .FrameAdvance
+        game_state.character_key_mappings[.PAUSE] = .Resume
+        game_state.character_key_mappings[.F] = .FullscreenHotkey
+        game_state.character_key_mappings[.R] = .PlayerReset
+        game_state.character_key_mappings[.E] = .PlayerShoot
+
+        game_state.button_mappings[.A] = .PlayerJump
+        game_state.button_mappings[.X] = .PlayerShoot
+        game_state.button_mappings[.Y] = .PlayerReset
+        game_state.button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
+        game_state.button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+
+
+
+        // Hardcoded default mouse mappings
+        //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
+        game_state.mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
+    }
 
     game_state.rng_seed = time.now()._nsec
 
@@ -996,12 +1073,16 @@ gamestate_new_scene :: proc(
     game_state: ^GameState,
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
+    user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.camera_settings = make(map[u32]CameraSettings, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.freecam_controllers = make(map[u32]FreeCameraController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.lookat_controllers = make(map[u32]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.looping_animations = make(map[u32]LoopingAnimation, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.coin_ais = make(map[u32]CoinAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1010,6 +1091,56 @@ gamestate_new_scene :: proc(
     game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.skinned_models = make(map[u32]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+
+    // Initialize main viewport camera
+    // game_state.viewport_camera = Camera {
+    //     position = {
+    //         f32(user_config.floats[.FreecamX]),
+    //         f32(user_config.floats[.FreecamY]),
+    //         f32(user_config.floats[.FreecamZ])
+    //     },
+    //     yaw = f32(user_config.floats[.FreecamYaw]),
+    //     pitch = f32(user_config.floats[.FreecamPitch]),
+    //     fov_radians = f32(user_config.floats[.CameraFOV]),
+    //     nearplane = 0.1 / math.sqrt_f32(2.0),
+    //     farplane = 1_000_000.0,
+    //     collision_radius = 0.1,
+    //     target = {
+    //         distance = 5.0
+    //     },
+    // }
+
+    {
+        id := gamestate_next_id(game_state)
+        game_state.viewport_camera_id = id
+        game_state.transforms[id] = Transform {
+            position = {
+                f32(user_config.floats[.FreecamX]),
+                f32(user_config.floats[.FreecamY]),
+                f32(user_config.floats[.FreecamZ])
+            }
+        }
+        game_state.camera_settings[id] = CameraSettings {
+            fov_radians = f32(user_config.floats[.CameraFOV]),
+            nearplane = 0.1 / math.sqrt_f32(2.0),
+            farplane = 1_000_000.0
+        }
+        if user_config.flags[.FollowCam] {
+            game_state.lookat_controllers[id] = LookatController {
+
+            }
+        } else {
+            game_state.freecam_controllers[id] = FreeCameraController {
+
+            }
+        }
+    }
+
+    game_state.freecam_speed_multiplier = 5.0
+    game_state.freecam_slow_multiplier = 1.0 / 5.0
+
+    game_state.camera_follow_point = game_state.character.collision.position
+    game_state.camera_follow_speed = 6.0
     
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
@@ -1070,7 +1201,7 @@ load_level_file :: proc(
     free_all(scene_allocator)
     audio_new_scene(audio_system, scene_allocator)
     new_scene(renderer)
-    gamestate_new_scene(game_state, gd, renderer)
+    gamestate_new_scene(game_state, gd, renderer, user_config)
 
     lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
     if lvl_err != nil {
@@ -2337,6 +2468,64 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
     }
 }
 
+lookat_camera_update :: proc(game_state: ^GameState) {
+    HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
+
+    camera.target.distance -= output_verbs.floats[.CameraFollowDistance]
+    camera.target.distance = math.clamp(camera.target.distance, 1.0, 100.0)
+
+    game_state.viewport_camera.target.position = game_state.camera_follow_point
+    game_state.viewport_camera.target.position.z += 1.0
+
+    camera_rotation += output_verbs.float2s[.RotateCamera] * dt
+
+    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    if ok3 {
+        MOUSE_SENSITIVITY :: 0.001
+        if .MouseLook in game_state.viewport_camera.control_flags {
+            camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
+        }
+    }
+
+    game_state.viewport_camera.yaw += camera_rotation.x
+    game_state.viewport_camera.pitch += camera_rotation.y
+    for game_state.viewport_camera.yaw < -2.0 * math.PI {
+        game_state.viewport_camera.yaw += 2.0 * math.PI
+    }
+    for game_state.viewport_camera.yaw > 2.0 * math.PI {
+        game_state.viewport_camera.yaw -= 2.0 * math.PI
+    }
+    if game_state.viewport_camera.pitch <= -math.PI / 2.0 {
+        game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
+    }
+    if game_state.viewport_camera.pitch >= math.PI / 2.0 {
+        game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
+    }
+    
+    pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
+    yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
+    pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
+
+    desired_position := game_state.camera_follow_point + pos_offset.xyz
+    dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
+    interval := Segment {
+        start = game_state.camera_follow_point,
+        end = desired_position
+    }
+    s := Sphere {
+        position = game_state.camera_follow_point,
+        radius = camera.collision_radius
+    }
+    hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
+    if hit {
+        desired_position = interval.start + hit_t * (interval.end - interval.start)
+    }
+
+    game_state.viewport_camera.position = desired_position
+
+    return lookat_view_from_world(game_state.viewport_camera)
+}
+
 
 // @TODO: This should be two separate functions
 camera_update :: proc(
@@ -2344,15 +2533,15 @@ camera_update :: proc(
     output_verbs: ^OutputVerbs,
     dt: f32,
 ) -> hlsl.float4x4 {
-    using game_state.viewport_camera
+    camera := &game_state.viewport_camera
 
     camera_rotation: [2]f32 = {0.0, 0.0}
 
-    if .Follow in control_flags {
+    if .Follow in camera.control_flags {
         HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
-        target.distance -= output_verbs.floats[.CameraFollowDistance]
-        target.distance = math.clamp(target.distance, 1.0, 100.0)
+        camera.target.distance -= output_verbs.floats[.CameraFollowDistance]
+        camera.target.distance = math.clamp(camera.target.distance, 1.0, 100.0)
 
         game_state.viewport_camera.target.position = game_state.camera_follow_point
         game_state.viewport_camera.target.position.z += 1.0
@@ -2394,7 +2583,7 @@ camera_update :: proc(
         }
         s := Sphere {
             position = game_state.camera_follow_point,
-            radius = collision_radius
+            radius = camera.collision_radius
         }
         hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
         if hit {
@@ -2409,61 +2598,37 @@ camera_update :: proc(
         camera_speed_mod : f32 = 1.0
     
         // Input handling part
-        if .Sprint in output_verbs.bools {
-            if output_verbs.bools[.Sprint] {
-                control_flags += {.Speed}
-            } else {
-                control_flags -= {.Speed}
+        {
+            camera_verbs : []VerbType = {
+                .Sprint,
+                .Crawl,
+                .TranslateFreecamUp,
+                .TranslateFreecamDown,
+                .TranslateFreecamLeft,
+                .TranslateFreecamRight,
+                .TranslateFreecamForward,
+                .TranslateFreecamBack,
             }
-        }
-        if .Crawl in output_verbs.bools {
-            if output_verbs.bools[.Crawl] {
-                control_flags += {.Slow}
-            } else {
-                control_flags -= {.Slow}
+            response_flags : []FreecamFlag = {
+                .Speed,
+                .Slow,
+                .MoveUp,
+                .MoveDown,
+                .MoveLeft,
+                .MoveRight,
+                .MoveForward,
+                .MoveBackward,
             }
-        }
-    
-        if .TranslateFreecamUp in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamUp] {
-                control_flags += {.MoveUp}
-            } else {
-                control_flags -= {.MoveUp}
-            }
-        }
-        if .TranslateFreecamDown in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamDown] {
-                control_flags += {.MoveDown}
-            } else {
-                control_flags -= {.MoveDown}
-            }
-        }
-        if .TranslateFreecamLeft in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamLeft] {
-                control_flags += {.MoveLeft}
-            } else {
-                control_flags -= {.MoveLeft}
-            }
-        }
-        if .TranslateFreecamRight in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamRight] {
-                control_flags += {.MoveRight}
-            } else {
-                control_flags -= {.MoveRight}
-            }
-        }
-        if .TranslateFreecamBack in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamBack] {
-                control_flags += {.MoveBackward}
-            } else {
-                control_flags -= {.MoveBackward}
-            }
-        }
-        if .TranslateFreecamForward in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamForward] {
-                control_flags += {.MoveForward}
-            } else {
-                control_flags -= {.MoveForward}
+            assert(len(camera_verbs) == len(response_flags))
+
+            for verb, i in camera_verbs {
+                if verb in output_verbs.bools {
+                    if output_verbs.bools[verb] {
+                        camera.control_flags += {response_flags[i]}
+                    } else {
+                        camera.control_flags -= {response_flags[i]}
+                    }
+                }
             }
         }
     
@@ -2482,16 +2647,16 @@ camera_update :: proc(
         camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
     
         camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
-        //camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
+        camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
     
     
         CAMERA_SPEED :: 10
         per_frame_speed := CAMERA_SPEED * dt
     
-        if .Speed in control_flags {
+        if .Speed in camera.control_flags {
             camera_speed_mod *= game_state.freecam_speed_multiplier
         }
-        if .Slow in control_flags {
+        if .Slow in camera.control_flags {
             camera_speed_mod *= game_state.freecam_slow_multiplier
         }
     
@@ -2511,24 +2676,25 @@ camera_update :: proc(
         }
     
         control_flags_dir: hlsl.float3
-        if .MoveUp in control_flags {
+        if .MoveUp in camera.control_flags {
             control_flags_dir += {0.0, 1.0, 0.0}
         }
-        if .MoveDown in control_flags {
+        if .MoveDown in camera.control_flags {
             control_flags_dir += {0.0, -1.0, 0.0}
         }
-        if .MoveLeft in control_flags {
+        if .MoveLeft in camera.control_flags {
             control_flags_dir += {-1.0, 0.0, 0.0}
         }
-        if .MoveRight in control_flags {
+        if .MoveRight in camera.control_flags {
             control_flags_dir += {1.0, 0.0, 0.0}   
         }
-        if .MoveBackward in control_flags {
+        if .MoveBackward in camera.control_flags {
             control_flags_dir += {0.0, 0.0, 1.0}
         }
-        if .MoveForward in control_flags {
+        if .MoveForward in camera.control_flags {
             control_flags_dir += {0.0, 0.0, -1.0}
         }
+
         if control_flags_dir != {0.0, 0.0, 0.0} {
             camera_direction += hlsl.normalize(control_flags_dir)
         }
@@ -2548,8 +2714,8 @@ camera_update :: proc(
             camera_collision_point: hlsl.float3
             closest_dist := math.INF_F32
             for _, &piece in game_state.triangle_meshes {
-                candidate := closest_pt_triangles(position, &piece)
-                candidate_dist := hlsl.distance(candidate, position)
+                candidate := closest_pt_triangles(camera.position, &piece)
+                candidate_dist := hlsl.distance(candidate, camera.position)
                 if candidate_dist < closest_dist {
                     camera_collision_point = candidate
                     closest_dist = candidate_dist
@@ -2557,14 +2723,74 @@ camera_update :: proc(
             }
     
             if game_state.freecam_collision {
-                dist := hlsl.distance(camera_collision_point, position)
+                dist := hlsl.distance(camera_collision_point, camera.position)
                 if dist < game_state.viewport_camera.collision_radius {
                     diff := game_state.viewport_camera.collision_radius - dist
-                    position += diff * hlsl.normalize(position - camera_collision_point)
+                    camera.position += diff * hlsl.normalize(camera.position - camera_collision_point)
                 }
             }
         }
 
         return camera_view_from_world(game_state.viewport_camera)
     }
+}
+
+camera_gui :: proc(
+    game_state: ^GameState,
+    camera_id: u32,
+    input_system: ^InputSystem,
+    user_config: ^UserConfiguration,
+    close: ^bool
+) {
+    tform := &game_state.transforms[camera_id]
+    settings := &game_state.camera_settings[camera_id]
+
+    freecam_controller, is_freecam := &game_state.freecam_controllers[camera_id]
+    lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
+
+    if imgui.Begin("Camera controls", close) {
+        imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
+
+        if is_freecam {
+            imgui.Text("Yaw: %f", freecam_controller.yaw)
+            imgui.Text("Pitch: %f", freecam_controller.pitch)
+        }
+
+        imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
+        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 500.0)
+        imgui.SameLine()
+        if imgui.Button("Reset") {
+            game_state.camera_follow_speed = 6.0
+        }
+        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+            user_config.flags[.FreecamCollision] = game_state.freecam_collision
+        }
+    
+        freecam := is_freecam
+        if imgui.Checkbox("Freecam", &freecam) {
+            freecam_controller.pitch = 0.0
+            freecam_controller.yaw = 0.0
+            //camera.control_flags ~= {.Follow}
+            
+            if is_lookat {
+                replace_keybindings(input_system, &game_state.character_key_mappings)
+            } else {
+                replace_keybindings(input_system, &game_state.freecam_key_mappings)
+            }
+        }
+
+        if is_lookat {
+            imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
+        }
+
+        imgui.SliderFloat("Camera FOV", &settings.fov_radians, math.PI / 36, math.PI)
+        imgui.SameLine()
+        imgui.PushIDInt(1)
+        if imgui.Button("Reset") {
+            settings.fov_radians = math.PI / 2.0
+        }
+        imgui.PopID()
+    }
+    imgui.End()
 }

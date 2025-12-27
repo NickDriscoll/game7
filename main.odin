@@ -134,11 +134,7 @@ main :: proc() {
     
     // Set up logger
     context.logger = log.create_console_logger(log_level)
-    
-    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    mouse_mappings := make(map[u8]VerbType, 64, allocator = global_allocator)
-    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+
     current_time: time.Time
     previous_time: time.Time
     scene_allocator: mem.Allocator
@@ -327,60 +323,17 @@ main :: proc() {
                 start_level = s
             }
             sb: strings.Builder
-            strings.builder_init(&sb, context.temp_allocator)
+            strings.builder_init(&sb, per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
             load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
-        }
-    
-        // @TODO: Keymappings need to be a part of GameState
-        {
-            freecam_key_mappings[.ESCAPE] = .ToggleImgui
-            freecam_key_mappings[.W] = .TranslateFreecamForward
-            freecam_key_mappings[.S] = .TranslateFreecamBack
-            freecam_key_mappings[.A] = .TranslateFreecamLeft
-            freecam_key_mappings[.D] = .TranslateFreecamRight
-            freecam_key_mappings[.Q] = .TranslateFreecamDown
-            freecam_key_mappings[.E] = .TranslateFreecamUp
-            freecam_key_mappings[.LSHIFT] = .Sprint
-            freecam_key_mappings[.LCTRL] = .Crawl
-            freecam_key_mappings[.SPACE] = .PlayerJump
-            freecam_key_mappings[.BACKSLASH] = .FrameAdvance
-            freecam_key_mappings[.PAUSE] = .Resume
-            freecam_key_mappings[.F] = .FullscreenHotkey
-    
-            character_key_mappings[.ESCAPE] = .ToggleImgui
-            character_key_mappings[.W] = .PlayerTranslateForward
-            character_key_mappings[.S] = .PlayerTranslateBack
-            character_key_mappings[.A] = .PlayerTranslateLeft
-            character_key_mappings[.D] = .PlayerTranslateRight
-            character_key_mappings[.LSHIFT] = .Sprint
-            character_key_mappings[.LCTRL] = .Crawl
-            character_key_mappings[.SPACE] = .PlayerJump
-            character_key_mappings[.BACKSLASH] = .FrameAdvance
-            character_key_mappings[.PAUSE] = .Resume
-            character_key_mappings[.F] = .FullscreenHotkey
-            character_key_mappings[.R] = .PlayerReset
-            character_key_mappings[.E] = .PlayerShoot
-    
-            button_mappings[.A] = .PlayerJump
-            button_mappings[.X] = .PlayerShoot
-            button_mappings[.Y] = .PlayerReset
-            button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
-            button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
-    
-    
-    
-            // Hardcoded default mouse mappings
-            //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
-            mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
         }
     
         // Init input system
         context.allocator = global_allocator
         if .Follow in game_state.viewport_camera.control_flags {
-            input_system = init_input_system(&character_key_mappings, &mouse_mappings, &button_mappings)
+            input_system = init_input_system(&game_state.character_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         } else {
-            input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
+            input_system = init_input_system(&game_state.freecam_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         }
     
         current_time = time.now()          // Time in nanoseconds since UNIX epoch
@@ -537,7 +490,9 @@ main :: proc() {
             renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
             renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
             renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
-            game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+
+            settings := &game_state.camera_settings[game_state.viewport_camera_id]
+            settings.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
         // Update
@@ -767,24 +722,13 @@ main :: proc() {
         }
 
         if imgui_state.show_gui && user_config.flags[.CameraConfig] {
-            res, ok := camera_gui(
+            camera_gui(
                 &game_state,
                 &game_state.viewport_camera,
                 &input_system,
                 &user_config,
                 &user_config.flags[.CameraConfig]
             )
-            if ok {
-                switch res {
-                    case .ToggleFollowCam: {
-                        if .Follow in game_state.viewport_camera.control_flags {
-                            replace_keybindings(&input_system, &character_key_mappings)
-                        } else {
-                            replace_keybindings(&input_system, &freecam_key_mappings)
-                        }
-                    }
-                }    
-            }
         }
 
         if imgui_state.show_gui && user_config.flags[.WindowConfig] {
@@ -1085,6 +1029,7 @@ main :: proc() {
             renderer.cpu_uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
+
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
@@ -1137,6 +1082,15 @@ main :: proc() {
                 //flags = model.flags
             }
             draw_ps1_skinned_mesh(&vgd, &renderer, model.handle, &draw)
+
+            if .Glowing in model.flags {
+                // Light source
+                l := default_point_light()
+                l.world_position = tform.position
+                l.color = {0.0, 1.0, 0.0}
+                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+                do_point_light(&renderer, l)
+            }
         }
 
         // Rotate sunlight
@@ -1242,7 +1196,6 @@ main :: proc() {
                 &vgd,
                 gfx_cb_idx,
                 &renderer,
-                &game_state.viewport_camera,
                 &framebuffer
             )
 
