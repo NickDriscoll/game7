@@ -238,7 +238,12 @@ gui_main_menu_bar :: proc(
             }
             if imgui.MenuItem("Save user config") {
                 user_config.strs[.StartLevel] = game_state.current_level
-                update_user_cfg_camera(user_config, &game_state.viewport_camera)
+
+                tform := &game_state.transforms[game_state.viewport_camera_id]
+                camera := &game_state.cameras[game_state.viewport_camera_id]
+                following := game_state.viewport_camera_id in game_state.lookat_controllers
+                update_user_cfg_camera(user_config, tform.position, following, camera^)
+
                 save_user_config(user_config, USER_CONFIG_FILENAME)
             }
             if imgui.MenuItem("Exit") {

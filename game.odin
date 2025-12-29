@@ -161,18 +161,18 @@ do_mouse_raycast :: proc(
     }
 
     tform := &game_state.transforms[viewport_camera_id]
-    settings := &game_state.camera_settings[viewport_camera_id]
-    freecam_controller, is_freecam := &game_state.freecam_controllers[viewport_camera_id]
+    camera := &game_state.cameras[viewport_camera_id]
     lookat_controller, is_lookat := &game_state.lookat_controllers[viewport_camera_id]
 
     resolution := hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
     ray: Ray
     if is_lookat {
-        ray = lookat_view_ray(tform^, settings^, lookat_controller^, click_coords, resolution)
+        target := &game_state.transforms[lookat_controller.target]
+        ray = lookat_view_ray(tform^, camera^, target.position, click_coords, resolution)
     }
-    if is_freecam {
+    if camera.is_following {
         assert(!is_lookat)
-        ray = freecam_view_ray(tform^, settings^, freecam_controller^, click_coords, resolution)
+        ray = freecam_view_ray(tform^, camera^, click_coords, resolution)
     }
 
     // ray := get_view_ray(
@@ -870,8 +870,7 @@ GameState :: struct {
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[u32]Transform,
     transform_deltas: map[u32]TransformDelta,
-    camera_settings: map[u32]CameraSettings,
-    freecam_controllers: map[u32]FreeCameraController,
+    cameras: map[u32]Camera,
     lookat_controllers: map[u32]LookatController,
     looping_animations: map[u32]LoopingAnimation,
     coin_ais: map[u32]CoinAI,
@@ -1080,8 +1079,7 @@ gamestate_new_scene :: proc(
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.camera_settings = make(map[u32]CameraSettings, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.freecam_controllers = make(map[u32]FreeCameraController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.cameras = make(map[u32]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.lookat_controllers = make(map[u32]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.looping_animations = make(map[u32]LoopingAnimation, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.coin_ais = make(map[u32]CoinAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1120,17 +1118,13 @@ gamestate_new_scene :: proc(
                 f32(user_config.floats[.FreecamZ])
             }
         }
-        game_state.camera_settings[id] = CameraSettings {
+        game_state.cameras[id] = Camera {
             fov_radians = f32(user_config.floats[.CameraFOV]),
             nearplane = 0.1 / math.sqrt_f32(2.0),
             farplane = 1_000_000.0
         }
         if user_config.flags[.FollowCam] {
             game_state.lookat_controllers[id] = LookatController {
-
-            }
-        } else {
-            game_state.freecam_controllers[id] = FreeCameraController {
 
             }
         }
@@ -2106,6 +2100,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
     scoped_event(&profiler, "Player update")
 
     char := &game_state.character
+    camera := &game_state.cameras[game_state.viewport_camera_id]
 
     // Is character taking damage
     taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
@@ -2153,7 +2148,7 @@ player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output
 
         // Input vector is in view space, so we transform to world space
         world_invector := hlsl.float4 {-translate_vector_z, translate_vector_x, 0.0, 0.0}
-        world_invector = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_invector
+        world_invector = yaw_rotation_matrix(-camera.yaw) * world_invector
         if hlsl.length(world_invector) > 1.0 {
             world_invector = hlsl.normalize(world_invector)
         }
@@ -2468,43 +2463,49 @@ player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^
     }
 }
 
-lookat_camera_update :: proc(game_state: ^GameState) {
+lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {
     HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
-    camera.target.distance -= output_verbs.floats[.CameraFollowDistance]
-    camera.target.distance = math.clamp(camera.target.distance, 1.0, 100.0)
+    tform := &game_state.transforms[id]
+    camera := &game_state.cameras[id]
+    lookat_controller := &game_state.lookat_controllers[id]
+    target := &game_state.transforms[lookat_controller.target]
 
-    game_state.viewport_camera.target.position = game_state.camera_follow_point
-    game_state.viewport_camera.target.position.z += 1.0
+    lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
+    lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
-    camera_rotation += output_verbs.float2s[.RotateCamera] * dt
+    target_position := game_state.camera_follow_point
+    target_position.z += 1.0
+
+    camera_rotation := output_verbs.float2s[.RotateCamera] * dt
 
     relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
     if ok3 {
         MOUSE_SENSITIVITY :: 0.001
-        if .MouseLook in game_state.viewport_camera.control_flags {
+
+        if .MouseLook in camera.flags {
             camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
         }
     }
 
-    game_state.viewport_camera.yaw += camera_rotation.x
-    game_state.viewport_camera.pitch += camera_rotation.y
-    for game_state.viewport_camera.yaw < -2.0 * math.PI {
-        game_state.viewport_camera.yaw += 2.0 * math.PI
+    camera.yaw += camera_rotation.x
+    camera.pitch += camera_rotation.y
+    for camera.yaw < -2.0 * math.PI {
+        camera.yaw += 2.0 * math.PI
     }
-    for game_state.viewport_camera.yaw > 2.0 * math.PI {
-        game_state.viewport_camera.yaw -= 2.0 * math.PI
+    for camera.yaw > 2.0 * math.PI {
+        camera.yaw -= 2.0 * math.PI
     }
-    if game_state.viewport_camera.pitch <= -math.PI / 2.0 {
-        game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
+    if camera.pitch <= -math.PI / 2.0 {
+        camera.pitch = -math.PI / 2.0 + 0.0001
     }
-    if game_state.viewport_camera.pitch >= math.PI / 2.0 {
-        game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
+    if camera.pitch >= math.PI / 2.0 {
+        camera.pitch = math.PI / 2.0 - 0.0001
     }
     
-    pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
-    yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-    pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
+    pitchmat := roll_rotation_matrix(-camera.pitch)
+    yawmat := yaw_rotation_matrix(-camera.yaw)
+    pos_offset := lookat_controller.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
     desired_position := game_state.camera_follow_point + pos_offset.xyz
     dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
@@ -2514,225 +2515,161 @@ lookat_camera_update :: proc(game_state: ^GameState) {
     }
     s := Sphere {
         position = game_state.camera_follow_point,
-        radius = camera.collision_radius
+        radius = 0.1
     }
     hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
     if hit {
         desired_position = interval.start + hit_t * (interval.end - interval.start)
     }
 
-    game_state.viewport_camera.position = desired_position
+    tform.position = desired_position
 
-    return lookat_view_from_world(game_state.viewport_camera)
+    //return lookat_view_from_world(tform^, target_position)
 }
 
+freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {
+    camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+    camera_speed_mod : f32 = 1.0
 
-// @TODO: This should be two separate functions
-camera_update :: proc(
-    game_state: ^GameState,
-    output_verbs: ^OutputVerbs,
-    dt: f32,
-) -> hlsl.float4x4 {
-    camera := &game_state.viewport_camera
+    tform := &game_state.transforms[id]
+    camera := &game_state.cameras[id]
+
+    // Input handling part
+    {
+        camera_verbs : []VerbType = {
+            .Sprint,
+            .Crawl,
+            .TranslateFreecamUp,
+            .TranslateFreecamDown,
+            .TranslateFreecamLeft,
+            .TranslateFreecamRight,
+            .TranslateFreecamForward,
+            .TranslateFreecamBack,
+        }
+        response_flags : []CameraFlag = {
+            .Speed,
+            .Slow,
+            .MoveUp,
+            .MoveDown,
+            .MoveLeft,
+            .MoveRight,
+            .MoveForward,
+            .MoveBackward,
+        }
+        assert(len(camera_verbs) == len(response_flags))
+
+        for verb, i in camera_verbs {
+            if verb in output_verbs.bools {
+                if output_verbs.bools[verb] {
+                    camera.flags += {response_flags[i]}
+                } else {
+                    camera.flags -= {response_flags[i]}
+                }
+            }
+        }
+    }
 
     camera_rotation: [2]f32 = {0.0, 0.0}
-
-    if .Follow in camera.control_flags {
-        HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
-
-        camera.target.distance -= output_verbs.floats[.CameraFollowDistance]
-        camera.target.distance = math.clamp(camera.target.distance, 1.0, 100.0)
-
-        game_state.viewport_camera.target.position = game_state.camera_follow_point
-        game_state.viewport_camera.target.position.z += 1.0
-
-        camera_rotation += output_verbs.float2s[.RotateCamera] * dt
-
-        relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-        if ok3 {
-            MOUSE_SENSITIVITY :: 0.001
-            if .MouseLook in game_state.viewport_camera.control_flags {
-                camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-            }
+    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    if ok3 {
+        MOUSE_SENSITIVITY :: 0.001
+        if .MouseLook in camera.flags {
+            camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
         }
-
-        game_state.viewport_camera.yaw += camera_rotation.x
-        game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI {
-            game_state.viewport_camera.yaw += 2.0 * math.PI
-        }
-        for game_state.viewport_camera.yaw > 2.0 * math.PI {
-            game_state.viewport_camera.yaw -= 2.0 * math.PI
-        }
-        if game_state.viewport_camera.pitch <= -math.PI / 2.0 {
-            game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
-        }
-        if game_state.viewport_camera.pitch >= math.PI / 2.0 {
-            game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
-        }
-        
-        pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
-        yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-        pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
-
-        desired_position := game_state.camera_follow_point + pos_offset.xyz
-        dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
-        interval := Segment {
-            start = game_state.camera_follow_point,
-            end = desired_position
-        }
-        s := Sphere {
-            position = game_state.camera_follow_point,
-            radius = camera.collision_radius
-        }
-        hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
-        if hit {
-            desired_position = interval.start + hit_t * (interval.end - interval.start)
-        }
-
-        game_state.viewport_camera.position = desired_position
-
-        return lookat_view_from_world(game_state.viewport_camera)
-    } else {
-        camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
-        camera_speed_mod : f32 = 1.0
-    
-        // Input handling part
-        {
-            camera_verbs : []VerbType = {
-                .Sprint,
-                .Crawl,
-                .TranslateFreecamUp,
-                .TranslateFreecamDown,
-                .TranslateFreecamLeft,
-                .TranslateFreecamRight,
-                .TranslateFreecamForward,
-                .TranslateFreecamBack,
-            }
-            response_flags : []FreecamFlag = {
-                .Speed,
-                .Slow,
-                .MoveUp,
-                .MoveDown,
-                .MoveLeft,
-                .MoveRight,
-                .MoveForward,
-                .MoveBackward,
-            }
-            assert(len(camera_verbs) == len(response_flags))
-
-            for verb, i in camera_verbs {
-                if verb in output_verbs.bools {
-                    if output_verbs.bools[verb] {
-                        camera.control_flags += {response_flags[i]}
-                    } else {
-                        camera.control_flags -= {response_flags[i]}
-                    }
-                }
-            }
-        }
-    
-        relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-        if ok3 {
-            MOUSE_SENSITIVITY :: 0.001
-            if .MouseLook in game_state.viewport_camera.control_flags {
-                camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-            }
-        }
-    
-        camera_rotation += output_verbs.float2s[.RotateCamera]
-        camera_direction.x += output_verbs.floats[.TranslateFreecamX]
-    
-        // Not a sign error. In view-space, -Z is forward
-        camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
-    
-        camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
-        camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
-    
-    
-        CAMERA_SPEED :: 10
-        per_frame_speed := CAMERA_SPEED * dt
-    
-        if .Speed in camera.control_flags {
-            camera_speed_mod *= game_state.freecam_speed_multiplier
-        }
-        if .Slow in camera.control_flags {
-            camera_speed_mod *= game_state.freecam_slow_multiplier
-        }
-    
-        game_state.viewport_camera.yaw += camera_rotation.x
-        game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI {
-            game_state.viewport_camera.yaw += 2.0 * math.PI
-        }
-        for game_state.viewport_camera.yaw > 2.0 * math.PI {
-            game_state.viewport_camera.yaw -= 2.0 * math.PI
-        }
-        if game_state.viewport_camera.pitch < -math.PI / 2.0 {
-            game_state.viewport_camera.pitch = -math.PI / 2.0
-        }
-        if game_state.viewport_camera.pitch > math.PI / 2.0 {
-            game_state.viewport_camera.pitch = math.PI / 2.0
-        }
-    
-        control_flags_dir: hlsl.float3
-        if .MoveUp in camera.control_flags {
-            control_flags_dir += {0.0, 1.0, 0.0}
-        }
-        if .MoveDown in camera.control_flags {
-            control_flags_dir += {0.0, -1.0, 0.0}
-        }
-        if .MoveLeft in camera.control_flags {
-            control_flags_dir += {-1.0, 0.0, 0.0}
-        }
-        if .MoveRight in camera.control_flags {
-            control_flags_dir += {1.0, 0.0, 0.0}   
-        }
-        if .MoveBackward in camera.control_flags {
-            control_flags_dir += {0.0, 0.0, 1.0}
-        }
-        if .MoveForward in camera.control_flags {
-            control_flags_dir += {0.0, 0.0, -1.0}
-        }
-
-        if control_flags_dir != {0.0, 0.0, 0.0} {
-            camera_direction += hlsl.normalize(control_flags_dir)
-        }
-    
-        if camera_direction != {0.0, 0.0, 0.0} {
-            camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
-        }
-    
-        // Compute temporary camera matrix for orienting player inputted direction vector
-        world_from_view := hlsl.inverse(camera_view_from_world(game_state.viewport_camera))
-        camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
-        game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
-    
-        // Collision test the camera's bounding sphere against the terrain
-        if game_state.freecam_collision {
-            scoped_event(&profiler, "Collision with terrain")
-            camera_collision_point: hlsl.float3
-            closest_dist := math.INF_F32
-            for _, &piece in game_state.triangle_meshes {
-                candidate := closest_pt_triangles(camera.position, &piece)
-                candidate_dist := hlsl.distance(candidate, camera.position)
-                if candidate_dist < closest_dist {
-                    camera_collision_point = candidate
-                    closest_dist = candidate_dist
-                }
-            }
-    
-            if game_state.freecam_collision {
-                dist := hlsl.distance(camera_collision_point, camera.position)
-                if dist < game_state.viewport_camera.collision_radius {
-                    diff := game_state.viewport_camera.collision_radius - dist
-                    camera.position += diff * hlsl.normalize(camera.position - camera_collision_point)
-                }
-            }
-        }
-
-        return camera_view_from_world(game_state.viewport_camera)
     }
+
+    camera_rotation += output_verbs.float2s[.RotateCamera]
+    camera_direction.x += output_verbs.floats[.TranslateFreecamX]
+
+    // Not a sign error. In view-space, -Z is forward
+    camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
+
+    camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
+    camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
+
+
+    CAMERA_SPEED :: 10
+    per_frame_speed := CAMERA_SPEED * dt
+
+    if .Speed in camera.flags {
+        camera_speed_mod *= game_state.freecam_speed_multiplier
+    }
+    if .Slow in camera.flags {
+        camera_speed_mod *= game_state.freecam_slow_multiplier
+    }
+
+    camera.yaw += camera_rotation.x
+    camera.pitch += camera_rotation.y
+    for camera.yaw < -2.0 * math.PI {
+        camera.yaw += 2.0 * math.PI
+    }
+    for camera.yaw > 2.0 * math.PI {
+        camera.yaw -= 2.0 * math.PI
+    }
+    if camera.pitch < -math.PI / 2.0 {
+        camera.pitch = -math.PI / 2.0
+    }
+    if camera.pitch > math.PI / 2.0 {
+        camera.pitch = math.PI / 2.0
+    }
+
+    control_flags_dir: hlsl.float3
+    if .MoveUp in camera.flags {
+        control_flags_dir += {0.0, 1.0, 0.0}
+    }
+    if .MoveDown in camera.flags {
+        control_flags_dir += {0.0, -1.0, 0.0}
+    }
+    if .MoveLeft in camera.flags {
+        control_flags_dir += {-1.0, 0.0, 0.0}
+    }
+    if .MoveRight in camera.flags {
+        control_flags_dir += {1.0, 0.0, 0.0}   
+    }
+    if .MoveBackward in camera.flags {
+        control_flags_dir += {0.0, 0.0, 1.0}
+    }
+    if .MoveForward in camera.flags {
+        control_flags_dir += {0.0, 0.0, -1.0}
+    }
+
+    if control_flags_dir != {0.0, 0.0, 0.0} {
+        camera_direction += hlsl.normalize(control_flags_dir)
+    }
+
+    if camera_direction != {0.0, 0.0, 0.0} {
+        camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
+    }
+
+    // Compute temporary camera matrix for orienting player inputted direction vector
+    world_from_view := hlsl.inverse(freecam_view_from_world(tform^, camera^))
+    camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
+    tform.position += (world_from_view * camera_direction4).xyz
+
+    // Collision test the camera's bounding sphere against the terrain
+    if game_state.freecam_collision {
+        scoped_event(&profiler, "Collision with terrain")
+        camera_collision_point: hlsl.float3
+        closest_dist := math.INF_F32
+        for _, &piece in game_state.triangle_meshes {
+            candidate := closest_pt_triangles(tform.position, &piece)
+            candidate_dist := hlsl.distance(candidate, tform.position)
+            if candidate_dist < closest_dist {
+                camera_collision_point = candidate
+                closest_dist = candidate_dist
+            }
+        }
+
+        if game_state.freecam_collision {
+            dist := hlsl.distance(camera_collision_point, tform.position)
+            if dist < CAMERA_COLLISION_RADIUS {
+                diff := CAMERA_COLLISION_RADIUS - dist
+                tform.position += diff * hlsl.normalize(tform.position - camera_collision_point)
+            }
+        }
+    }
+
+    //return camera_view_from_world(game_state.viewport_camera)
 }
 
 camera_gui :: proc(
@@ -2743,18 +2680,14 @@ camera_gui :: proc(
     close: ^bool
 ) {
     tform := &game_state.transforms[camera_id]
-    settings := &game_state.camera_settings[camera_id]
+    camera := &game_state.cameras[camera_id]
 
-    freecam_controller, is_freecam := &game_state.freecam_controllers[camera_id]
     lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
 
     if imgui.Begin("Camera controls", close) {
         imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
-
-        if is_freecam {
-            imgui.Text("Yaw: %f", freecam_controller.yaw)
-            imgui.Text("Pitch: %f", freecam_controller.pitch)
-        }
+        imgui.Text("Yaw: %f", camera.yaw)
+        imgui.Text("Pitch: %f", camera.pitch)
 
         imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
         imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
@@ -2767,10 +2700,10 @@ camera_gui :: proc(
             user_config.flags[.FreecamCollision] = game_state.freecam_collision
         }
     
-        freecam := is_freecam
+        freecam := !is_lookat
         if imgui.Checkbox("Freecam", &freecam) {
-            freecam_controller.pitch = 0.0
-            freecam_controller.yaw = 0.0
+            camera.pitch = 0.0
+            camera.yaw = 0.0
             //camera.control_flags ~= {.Follow}
             
             if is_lookat {
@@ -2784,11 +2717,11 @@ camera_gui :: proc(
             imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
         }
 
-        imgui.SliderFloat("Camera FOV", &settings.fov_radians, math.PI / 36, math.PI)
+        imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
         imgui.SameLine()
         imgui.PushIDInt(1)
         if imgui.Button("Reset") {
-            settings.fov_radians = math.PI / 2.0
+            camera.fov_radians = math.PI / 2.0
         }
         imgui.PopID()
     }
