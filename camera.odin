@@ -118,24 +118,6 @@ camera_projection_from_view :: proc(camera: Camera) -> hlsl.float4x4 {
     return proj_matrix * c_matrix
 }
 
-// lookat_view_from_world :: proc(
-//     camera: Camera,
-//     up := hlsl.float3 {0.0, 0.0, 1.0}
-// ) -> hlsl.float4x4 {
-//     focus_vector := hlsl.normalize(camera.position - camera.target.position)
-
-//     right := hlsl.normalize(hlsl.cross(up, focus_vector))
-//     local_up := hlsl.cross(focus_vector, right)
-
-//     look := hlsl.float4x4 {
-//         right.x, right.y, right.z, 0.0,
-//         local_up.x, local_up.y, local_up.z, 0.0,
-//         focus_vector.x, focus_vector.y, focus_vector.z, 0.0,
-//         0.0, 0.0, 0.0, 1.0
-//     }
-//     trans := translation_matrix(-camera.position)
-//     return look * trans
-// }
 lookat_view_from_world :: proc(
     transform: Transform,
     target_position: hlsl.float3,
@@ -180,24 +162,6 @@ get_click_view_coords :: proc(camera_settings: Camera, click_coords: hlsl.uint2,
         1.0
     }
 }
-
-// get_view_ray :: proc(transform: Transform, camera_settings: CameraSettings, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
-
-//     view_coords := get_click_view_coords(camera_settings, click_coords, resolution)
-
-//     world_coords: hlsl.float4
-//     if .Follow in camera.control_flags {
-//         world_coords = hlsl.inverse(lookat_view_from_world(camera)) * view_coords
-//     } else {
-//         world_coords = hlsl.inverse(freecam_view_from_world(transform, camera)) * view_coords
-//     }
-
-//     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
-//     return Ray {
-//         start = start,
-//         direction = hlsl.normalize(start - camera.position)
-//     }
-// }
 
 freecam_view_ray :: proc(transform: Transform, camera: Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
     view_coords := get_click_view_coords(camera, click_coords, resolution)

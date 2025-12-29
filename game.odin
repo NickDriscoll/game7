@@ -1090,24 +1090,6 @@ gamestate_new_scene :: proc(
     game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.skinned_models = make(map[u32]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
-    // Initialize main viewport camera
-    // game_state.viewport_camera = Camera {
-    //     position = {
-    //         f32(user_config.floats[.FreecamX]),
-    //         f32(user_config.floats[.FreecamY]),
-    //         f32(user_config.floats[.FreecamZ])
-    //     },
-    //     yaw = f32(user_config.floats[.FreecamYaw]),
-    //     pitch = f32(user_config.floats[.FreecamPitch]),
-    //     fov_radians = f32(user_config.floats[.CameraFOV]),
-    //     nearplane = 0.1 / math.sqrt_f32(2.0),
-    //     farplane = 1_000_000.0,
-    //     collision_radius = 0.1,
-    //     target = {
-    //         distance = 5.0
-    //     },
-    // }
-
     {
         id := gamestate_next_id(game_state)
         game_state.viewport_camera_id = id
@@ -2478,7 +2460,6 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
     target_position := target.position
-    target_position.z += 1.0
 
     camera_rotation := output_verbs.float2s[.RotateCamera] * dt
 
@@ -2499,12 +2480,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     for camera.yaw > 2.0 * math.PI {
         camera.yaw -= 2.0 * math.PI
     }
-    if camera.pitch <= -math.PI / 2.0 {
-        camera.pitch = -math.PI / 2.0 + 0.0001
-    }
-    if camera.pitch >= math.PI / 2.0 {
-        camera.pitch = math.PI / 2.0 - 0.0001
-    }
+    camera.pitch = clamp(camera.pitch, -math.PI / 2.0 + 0.0001, math.PI / 2.0 - 0.0001)
     
     pitchmat := roll_rotation_matrix(-camera.pitch)
     yawmat := yaw_rotation_matrix(-camera.yaw)
@@ -2609,12 +2585,8 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u3
     for camera.yaw > 2.0 * math.PI {
         camera.yaw -= 2.0 * math.PI
     }
-    if camera.pitch < -math.PI / 2.0 {
-        camera.pitch = -math.PI / 2.0
-    }
-    if camera.pitch > math.PI / 2.0 {
-        camera.pitch = math.PI / 2.0
-    }
+
+    camera.pitch = clamp(camera.pitch, -math.PI / 2.0, math.PI / 2.0)
 
     control_flags_dir: hlsl.float3
     if .MoveUp in camera.flags {
