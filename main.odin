@@ -514,7 +514,10 @@ main :: proc() {
                 imgui.Separator()
 
                 {
-                    player := &game_state.character
+                    //player := &game_state.character
+                    tform := &game_state.transforms[game_state.player_id]
+                    collision := &game_state.spherical_bodies[game_state.player_id]
+                    player := &game_state.character_controllers[game_state.player_id]
 
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
@@ -533,17 +536,17 @@ main :: proc() {
                         game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     }
 
-                    gui_print_value(&sb, "Player position", player.collision.position)
-                    gui_print_value(&sb, "Player velocity", player.collision.velocity)
+                    gui_print_value(&sb, "Player position", tform.position)
+                    gui_print_value(&sb, "Player velocity", collision.velocity)
                     gui_print_value(&sb, "Player acceleration", player.acceleration)
-                    gui_print_value(&sb, "Player state", player.collision.state)
+                    gui_print_value(&sb, "Player state", collision.state)
 
                     imgui.SliderFloat("Player move speed", &player.move_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player sprint speed", &player.sprint_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player deceleration speed", &player.deceleration_speed, 0.01, 2.0)
                     imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
-                    imgui.SliderFloat("Bullet travel time", &game_state.character.bullet_travel_time, 0.0, 1.0)
+                    imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
                     imgui.SliderFloat("Coin radius", &game_state.coin_collision_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {
                         output_verbs.bools[.PlayerReset] = true
@@ -979,12 +982,13 @@ main :: proc() {
         }
 
         // Update and draw player
-        if game_state.do_this_frame {
-            player_update(&game_state, &audio_system, &output_verbs, scaled_dt)
-        }
-        player_draw(&game_state, &vgd, &renderer)
+        // if game_state.do_this_frame {
+        //     player_update(&game_state, &audio_system, &output_verbs, scaled_dt)
+        // }
+        // player_draw(&game_state, &vgd, &renderer)
 
         if game_state.do_this_frame {
+            //tick_character_controllers(&game_state, output_verbs, &audio_system, scaled_dt)
             tick_coin_ais(&game_state, &audio_system)
             tick_looping_animations(&game_state, renderer, scaled_dt)
             tick_transform_deltas(&game_state, scaled_dt)
@@ -996,6 +1000,8 @@ main :: proc() {
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
             scoped_event(&profiler, "Move player cheat")
+            tform := &game_state.transforms[game_state.player_id]
+            col := &game_state.spherical_bodies[game_state.player_id]
             dims : [4]f32 = {
                 cast(f32)renderer.viewport_dimensions.offset.x,
                 cast(f32)renderer.viewport_dimensions.offset.y,
@@ -1010,9 +1016,8 @@ main :: proc() {
                 dims
             )
             if hit {
-                col := &game_state.character.collision
-                col.position = collision_pt
-                col.position.z += col.radius
+                tform.position = collision_pt
+                tform.position.z += col.radius
             }
 
             if input_system.mouse_clicked {

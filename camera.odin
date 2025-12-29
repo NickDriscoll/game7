@@ -41,9 +41,6 @@ Camera :: struct {
     pitch: f32,
 
     flags: CameraFlags,
-
-    // @TODO: Remove this
-    is_following: bool,
 }
 
 // Camera :: struct {
