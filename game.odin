@@ -1121,11 +1121,14 @@ gamestate_new_scene :: proc(
         game_state.cameras[id] = Camera {
             fov_radians = f32(user_config.floats[.CameraFOV]),
             nearplane = 0.1 / math.sqrt_f32(2.0),
-            farplane = 1_000_000.0
+            farplane = 1_000_000.0,
+            yaw = f32(user_config.floats[.FreecamYaw]),
+            pitch = f32(user_config.floats[.FreecamPitch]),
         }
         if user_config.flags[.FollowCam] {
             game_state.lookat_controllers[id] = LookatController {
-
+                target = 25,
+                distance = 5.0
             }
         }
     }
@@ -2474,7 +2477,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
     lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
-    target_position := game_state.camera_follow_point
+    target_position := target.position
     target_position.z += 1.0
 
     camera_rotation := output_verbs.float2s[.RotateCamera] * dt
@@ -2507,14 +2510,14 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     yawmat := yaw_rotation_matrix(-camera.yaw)
     pos_offset := lookat_controller.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
-    desired_position := game_state.camera_follow_point + pos_offset.xyz
-    dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
+    desired_position := target_position + pos_offset.xyz
+    dir := hlsl.normalize(target_position - desired_position)
     interval := Segment {
-        start = game_state.camera_follow_point,
+        start = target_position,
         end = desired_position
     }
     s := Sphere {
-        position = game_state.camera_follow_point,
+        position = target_position,
         radius = 0.1
     }
     hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
@@ -2699,22 +2702,30 @@ camera_gui :: proc(
         if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
             user_config.flags[.FreecamCollision] = game_state.freecam_collision
         }
-    
+
         freecam := !is_lookat
         if imgui.Checkbox("Freecam", &freecam) {
             camera.pitch = 0.0
             camera.yaw = 0.0
-            //camera.control_flags ~= {.Follow}
             
-            if is_lookat {
+            if !freecam {
                 replace_keybindings(input_system, &game_state.character_key_mappings)
+                game_state.lookat_controllers[camera_id] = LookatController {
+                    target = 25, // @TODO: CHANGE THIS!!!
+                    distance = 4.0
+                }
             } else {
                 replace_keybindings(input_system, &game_state.freecam_key_mappings)
+                delete_key(&game_state.lookat_controllers, camera_id)
             }
         }
 
         if is_lookat {
             imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
+            tgt: c.int = c.int(lookat_controller.target)
+            if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
+                lookat_controller.target = u32(tgt)
+            }
         }
 
         imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)

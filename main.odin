@@ -984,12 +984,6 @@ main :: proc() {
         }
         player_draw(&game_state, &vgd, &renderer)
 
-        // Update and draw enemies
-        // if game_state.do_this_frame {
-        //     enemies_update(&game_state, &audio_system, scaled_dt)
-        // }
-        // enemies_draw(&vgd, &renderer, game_state)
-
         if game_state.do_this_frame {
             tick_coin_ais(&game_state, &audio_system)
             tick_looping_animations(&game_state, renderer, scaled_dt)
@@ -998,8 +992,6 @@ main :: proc() {
             tick_spherical_bodies(&game_state, scaled_dt)
             tick_enemy_ai(&game_state, &audio_system, scaled_dt)
         }
-
-        // coins_draw(&vgd, &renderer, game_state)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
