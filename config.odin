@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math/linalg/hlsl"
 import "core:os"
 import "core:text/scanner"
 import "core:strconv"
@@ -275,11 +276,11 @@ raw_load_user_config :: proc(filename: string, allocator := context.allocator) -
     return u, true
 }
 
-update_user_cfg_camera :: proc(using s: ^UserConfiguration, camera: ^Camera) {
-    flags[.FollowCam] = .Follow in camera.control_flags
-    floats[.FreecamX] = f64(camera.position.x)
-    floats[.FreecamY] = f64(camera.position.y)
-    floats[.FreecamZ] = f64(camera.position.z)
+update_user_cfg_camera :: proc(using s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: Camera) {
+    flags[.FollowCam] = following
+    floats[.FreecamX] = f64(position.x)
+    floats[.FreecamY] = f64(position.y)
+    floats[.FreecamZ] = f64(position.z)
     floats[.CameraFOV] = f64(camera.fov_radians)
     floats[.FreecamPitch] = f64(camera.pitch)
     floats[.FreecamYaw] = f64(camera.yaw)

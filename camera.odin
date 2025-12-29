@@ -4,14 +4,14 @@ import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
 
-import imgui "odin-imgui"
+// CameraTarget :: struct {
+//     position: hlsl.float3,
+//     distance: f32,
+// }
 
-CameraTarget :: struct {
-    position: hlsl.float3,
-    distance: f32,
-}
+CAMERA_COLLISION_RADIUS :: 0.1
 
-FreecamFlag  :: enum {
+CameraFlag  :: enum {
     MouseLook,
     MoveForward,
     MoveBackward,
@@ -21,17 +21,8 @@ FreecamFlag  :: enum {
     MoveDown,
     Speed,
     Slow,
-    Follow
 }
-FreecamFlags :: bit_set[FreecamFlag]
-
-FreeCameraController :: struct {
-    // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
-    yaw: f32,
-    pitch: f32,
-
-
-}
+CameraFlags :: bit_set[CameraFlag]
 
 LookatController :: struct {
     target: u32,
@@ -39,11 +30,20 @@ LookatController :: struct {
 }
 
 
-CameraSettings :: struct {
+Camera :: struct {
     fov_radians: f32,
     aspect_ratio: f32,
     nearplane: f32,
     farplane: f32,
+
+    // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
+    yaw: f32,
+    pitch: f32,
+
+    flags: CameraFlags,
+
+    // @TODO: Remove this
+    is_following: bool,
 }
 
 // Camera :: struct {
@@ -78,7 +78,7 @@ CameraSettings :: struct {
 //     return c_mat * pitch * yaw * trans
 // }
 
-freecam_view_from_world :: proc(transform: Transform, camera: FreeCameraController) -> hlsl.float4x4 {
+freecam_view_from_world :: proc(transform: Transform, camera: Camera) -> hlsl.float4x4 {
     pitch := pitch_rotation_matrix(camera.pitch)
     yaw := yaw_rotation_matrix(camera.yaw)
     trans := translation_matrix(-transform.position)
@@ -95,7 +95,7 @@ freecam_view_from_world :: proc(transform: Transform, camera: FreeCameraControll
 }
 
 // Returns a projection matrix with reversed near and far values for reverse-Z
-camera_projection_from_view :: proc(settings: CameraSettings) -> hlsl.float4x4 {
+camera_projection_from_view :: proc(camera: Camera) -> hlsl.float4x4 {
 
     // Change from left-handed Y-Up to Y-down, Z-forward
     c_matrix := hlsl.float4x4 {
@@ -105,11 +105,11 @@ camera_projection_from_view :: proc(settings: CameraSettings) -> hlsl.float4x4 {
         0.0, 0.0, 0.0, 1.0,
     }
 
-    tan_fovy := math.tan(settings.fov_radians / 2.0)
-    near := settings.nearplane
-    far := settings.farplane
+    tan_fovy := math.tan(camera.fov_radians / 2.0)
+    near := camera.nearplane
+    far := camera.farplane
     proj_matrix := hlsl.float4x4 {
-        1.0 / (tan_fovy * settings.aspect_ratio), 0.0, 0.0, 0.0,
+        1.0 / (tan_fovy * camera.aspect_ratio), 0.0, 0.0, 0.0,
         0.0, 1.0 / tan_fovy, 0.0, 0.0,
         0.0, 0.0, near / (near - far), (near * far) / (far - near),
         0.0, 0.0, 1.0, 0.0,
@@ -163,7 +163,7 @@ pitch_yaw_from_lookat :: proc(pos: hlsl.float3, target: hlsl.float3) -> (yaw, pi
     return yaw, pitch
 }
 
-get_click_view_coords :: proc(camera_settings: CameraSettings, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> hlsl.float4 {
+get_click_view_coords :: proc(camera_settings: Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> hlsl.float4 {
     tan_fovy := math.tan(camera_settings.fov_radians / 2.0)
     tan_fovx := tan_fovy * f32(resolution.x) / f32(resolution.y)
     clip_coords := hlsl.float4 {
@@ -199,8 +199,8 @@ get_click_view_coords :: proc(camera_settings: CameraSettings, click_coords: hls
 //     }
 // }
 
-freecam_view_ray :: proc(transform: Transform, settings: CameraSettings, camera: FreeCameraController, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
-    view_coords := get_click_view_coords(settings, click_coords, resolution)
+freecam_view_ray :: proc(transform: Transform, camera: Camera, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+    view_coords := get_click_view_coords(camera, click_coords, resolution)
     world_coords := hlsl.inverse(freecam_view_from_world(transform, camera)) * view_coords
 
     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}
@@ -210,8 +210,8 @@ freecam_view_ray :: proc(transform: Transform, settings: CameraSettings, camera:
     }
 }
 
-lookat_view_ray :: proc(transform: Transform, settings: CameraSettings, target: hlsl.float3, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
-    view_coords := get_click_view_coords(settings, click_coords, resolution)
+lookat_view_ray :: proc(transform: Transform, camera: Camera, target: hlsl.float3, click_coords: hlsl.uint2, resolution: hlsl.uint2) -> Ray {
+    view_coords := get_click_view_coords(camera, click_coords, resolution)
     world_coords := hlsl.inverse(lookat_view_from_world(transform, target)) * view_coords
 
     start := hlsl.float3 {world_coords.x, world_coords.y, world_coords.z}

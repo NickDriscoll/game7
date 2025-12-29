@@ -213,7 +213,6 @@ main :: proc() {
             app_name = "Game7",
             frames_in_flight = FRAMES_IN_FLIGHT,
             desired_features = {.Window,.Raytracing},
-            //features = {.Window},
             vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
         }
         {
@@ -329,7 +328,8 @@ main :: proc() {
     
         // Init input system
         context.allocator = global_allocator
-        if .Follow in game_state.viewport_camera.control_flags {
+        is_lookat := game_state.viewport_camera_id in game_state.lookat_controllers
+        if is_lookat {
             input_system = init_input_system(&game_state.character_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         } else {
             input_system = init_input_system(&game_state.freecam_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
@@ -403,8 +403,11 @@ main :: proc() {
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
+            tform := &game_state.transforms[game_state.viewport_camera_id]
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            following := game_state.viewport_camera_id in game_state.lookat_controllers
             user_config.strs[.StartLevel] = game_state.current_level
-            update_user_cfg_camera(&user_config, &game_state.viewport_camera)
+            update_user_cfg_camera(&user_config, tform.position, following, camera^)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config.last_saved = current_time
         }
@@ -445,6 +448,8 @@ main :: proc() {
         {
             scoped_event(&profiler, "Tell Dear ImGUI about events")
 
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+
             if output_verbs.bools[.ToggleImgui] {
                 imgui_state.show_gui = !imgui_state.show_gui
                 user_config.flags[.ImguiEnabled] = imgui_state.show_gui
@@ -457,7 +462,7 @@ main :: proc() {
 
             mlook_coords, ok := output_verbs.int2s[.ToggleMouseLook]
             if ok && mlook_coords != {0, 0} {
-                mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
+                mlook := !(.MouseLook in camera.flags)
                 // Do nothing if Dear ImGUI wants mouse input
                 if !(mlook && io.WantCaptureMouse) {
                     sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
@@ -469,11 +474,11 @@ main :: proc() {
                     }
                     // The ~ is "symmetric difference" for bit_sets
                     // Basically like XOR
-                    game_state.viewport_camera.control_flags ~= {.MouseLook}
+                    camera.flags ~= {.MouseLook}
                 }
             }
 
-            if .MouseLook not_in game_state.viewport_camera.control_flags {
+            if .MouseLook not_in camera.flags {
                 x, y: c.int
                 sdl2.GetMouseState(&x, &y)
                 imgui.IO_AddMousePosEvent(io, f32(x), f32(y))
@@ -490,8 +495,8 @@ main :: proc() {
             renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
             renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
 
-            settings := &game_state.camera_settings[game_state.viewport_camera_id]
-            settings.aspect_ratio = docknode.Size.x / docknode.Size.y
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
         // Update
@@ -723,7 +728,7 @@ main :: proc() {
         if imgui_state.show_gui && user_config.flags[.CameraConfig] {
             camera_gui(
                 &game_state,
-                &game_state.viewport_camera,
+                game_state.viewport_camera_id,
                 &input_system,
                 &user_config,
                 &user_config.flags[.CameraConfig]
@@ -1004,7 +1009,8 @@ main :: proc() {
                 cast(f32)renderer.viewport_dimensions.extent.height,
             }
             collision_pt, hit := do_mouse_raycast(
-                game_state.viewport_camera,
+                game_state,
+                game_state.viewport_camera_id,
                 game_state.triangle_meshes,
                 input_system.mouse_location,
                 dims
@@ -1023,8 +1029,22 @@ main :: proc() {
         // Camera update
         {
             scoped_event(&profiler, "Camera update")
-            current_view_from_world := camera_update(&game_state, &output_verbs, dt)
-            projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
+
+            //current_view_from_world := camera_update(&game_state, &output_verbs, dt)
+            tform := &game_state.transforms[game_state.viewport_camera_id]
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            lookat_controller, is_lookat := &game_state.lookat_controllers[game_state.viewport_camera_id]
+            current_view_from_world: hlsl.float4x4 
+            if is_lookat {
+                target := &game_state.transforms[lookat_controller.target]
+                lookat_camera_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                current_view_from_world = lookat_view_from_world(tform^, target.position)
+            } else {
+                freecam_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                current_view_from_world = freecam_view_from_world(tform^, camera^)
+            }
+
+            projection_from_view := camera_projection_from_view(camera^)
             renderer.cpu_uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
@@ -1033,7 +1053,7 @@ main :: proc() {
             vfw4 := hlsl.float4x4(vfw)
             renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
             
-            renderer.cpu_uniforms.view_position.xyz = game_state.viewport_camera.position
+            renderer.cpu_uniforms.view_position.xyz = tform.position
             renderer.cpu_uniforms.view_position.a = 1.0
         }
 
