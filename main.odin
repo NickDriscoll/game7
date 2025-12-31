@@ -526,6 +526,14 @@ main :: proc() {
                     flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player collision", &flag) {
                         game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                        if flag {
+                            game_state.debug_models[game_state.player_id] = DebugModelInstance {
+                                handle = game_state.sphere_mesh,
+                                color = {0.2, 0.0, 1.0, 0.5}
+                            }
+                        } else {
+                            delete_key(&game_state.debug_models, game_state.player_id)
+                        }
                     }
                     flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player activity radius", &flag) {
@@ -971,31 +979,7 @@ main :: proc() {
             }
         }
 
-        // Determine if we're simulating a tick of game logic this frame
-        game_state.do_this_frame = !game_state.paused
-        if output_verbs.bools[.FrameAdvance] {
-            game_state.do_this_frame = true
-            game_state.paused = true
-        }
-        if output_verbs.bools[.Resume] {
-            game_state.paused = !game_state.paused
-        }
-
-        // Update and draw player
-        // if game_state.do_this_frame {
-        //     player_update(&game_state, &audio_system, &output_verbs, scaled_dt)
-        // }
-        // player_draw(&game_state, &vgd, &renderer)
-
-        if game_state.do_this_frame {
-            //tick_character_controllers(&game_state, output_verbs, &audio_system, scaled_dt)
-            tick_coin_ais(&game_state, &audio_system)
-            tick_looping_animations(&game_state, renderer, scaled_dt)
-            tick_transform_deltas(&game_state, scaled_dt)
-            tick_thrown_enemies(&game_state)
-            tick_spherical_bodies(&game_state, scaled_dt)
-            tick_enemy_ai(&game_state, &audio_system, scaled_dt)
-        }
+        game_tick(&game_state, &vgd, &renderer, output_verbs, &audio_system, scaled_dt)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
@@ -1060,14 +1044,8 @@ main :: proc() {
         for id, model in game_state.static_models {
             tform := &game_state.transforms[id]
 
-            scale := scaling_matrix(tform.scale)
-            rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
-            mat := rot * scale
-            mat[3][0] = tform.position.x
-            mat[3][1] = tform.position.y
-            mat[3][2] = tform.position.z
             draw := StaticDraw {
-                world_from_model = mat,
+                world_from_model = get_transform_matrix(tform^),
                 flags = model.flags
             }
             draw_ps1_static_mesh(&vgd, &renderer, model.handle, draw)
@@ -1085,18 +1063,11 @@ main :: proc() {
         // Draw skinned models
         for id, model in game_state.skinned_models {
             tform := &game_state.transforms[id]
-            anim := &game_state.looping_animations[id]
 
-            scale := scaling_matrix(tform.scale)
-            rot := linalg.to_matrix4(tform.rotation)
-            mat := rot * scale
-            mat[3][0] = tform.position.x
-            mat[3][1] = tform.position.y
-            mat[3][2] = tform.position.z
             draw := SkinnedDraw {
-                world_from_model = mat,
-                anim_idx = anim.index,
-                anim_t = anim.t,
+                world_from_model = get_transform_matrix(tform^),
+                anim_idx = model.anim_idx,
+                anim_t = model.anim_t,
                 //flags = model.flags
             }
             draw_ps1_skinned_mesh(&vgd, &renderer, model.handle, &draw)
@@ -1110,6 +1081,18 @@ main :: proc() {
                 do_point_light(&renderer, l)
             }
         }
+
+        // Draw debug models
+        for id, model in game_state.debug_models {
+            tform := &game_state.transforms[id]
+
+            draw := DebugDraw {
+                world_from_model = get_transform_matrix(tform^),
+                color = model.color
+            }
+            draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &draw)
+        }
+        
 
         // Rotate sunlight
         if rotate_sun {

@@ -151,6 +151,16 @@ Transform :: struct {
     rotation: quaternion128,
     scale: f32,
 }
+get_transform_matrix :: proc(tform: Transform) -> hlsl.float4x4 {
+    scale := scaling_matrix(tform.scale)
+    rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
+    mat := rot * scale
+    mat[3][0] = tform.position.x
+    mat[3][1] = tform.position.y
+    mat[3][2] = tform.position.z
+
+    return mat
+}
 
 TransformDelta :: struct {
     velocity: hlsl.float3,
@@ -170,11 +180,12 @@ LoopingAnimation :: struct {
 }
 
 tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: f32) {
-    for id, &animation in game_state.looping_animations {
-        animation.t = (animation.t + dt)
-        duration := get_animation_duration(renderer, animation.index)
-        if animation.t > duration {
-            animation.t -= duration
+    for id in game_state.looping_animations {
+        instance := &game_state.skinned_models[id]
+        instance.anim_t = instance.anim_t + dt
+        duration := get_animation_duration(renderer, instance.anim_idx)
+        for instance.anim_t > duration {
+            instance.anim_t -= duration
         }
     }
 }
@@ -551,6 +562,38 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     }
 }
 
+CharacterFlag :: enum {
+    MovingLeft,
+    MovingRight,
+    MovingBack,
+    MovingForward,
+    AlreadyJumped,
+    Sprinting,
+}
+CharacterFlags :: bit_set[CharacterFlag]
+CHARACTER_MAX_HEALTH :: 3
+CHARACTER_INVULNERABILITY_DURATION :: 0.5
+BULLET_MAX_RADIUS :: 0.8
+// Character :: struct {
+//     collision: PhysicsSphere,
+//     gravity_factor: f32,
+//     acceleration: hlsl.float3,
+//     deceleration_speed: f32,
+//     facing: hlsl.float3,
+//     move_speed: f32,
+//     sprint_speed: f32,
+//     jump_speed: f32,
+//     anim_t: f32,
+//     anim_speed: f32,
+//     health: u32,
+//     control_flags: CharacterFlags,
+//     damage_timer: time.Time,
+//     model: SkinnedModelHandle,
+
+//     air_vortex: Maybe(AirVortex),
+//     bullet_travel_time: f32,
+//     held_enemy: Maybe(Enemy),
+// }
 CharacterController :: struct {
     acceleration: hlsl.float3,
     deceleration_speed: f32,
@@ -568,11 +611,11 @@ CharacterController :: struct {
     flags: CharacterFlags,
 }
 
-tick_character_controllers :: proc(game_state: ^GameState, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    camera := &game_state.cameras[game_state.viewport_camera_id]
     for id, &char in game_state.character_controllers {
         tform := &game_state.transforms[id]
         collision := &game_state.spherical_bodies[id]
-        camera := &game_state.cameras[game_state.viewport_camera_id]
 
         // Is character taking damage
         taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
@@ -668,76 +711,76 @@ tick_character_controllers :: proc(game_state: ^GameState, output_verbs: OutputV
         }
 
         // Handle jump command
-        {
-            jumped, jump_ok := output_verbs.bools[.PlayerJump]
-            if jump_ok {
-                flags := &char.flags
-                // If jump state changed...
-                if jumped {
-                    // To jumping...
-                    if .AlreadyJumped in flags {
-                        // Do thrown-enemy double-jump
-                        // held_enemy, is_holding_enemy := char.held_enemy.?
-                        // if is_holding_enemy {
-                        //     char.held_enemy = nil
+        // {
+        //     jumped, jump_ok := output_verbs.bools[.PlayerJump]
+        //     if jump_ok {
+        //         flags := &char.flags
+        //         // If jump state changed...
+        //         if jumped {
+        //             // To jumping...
+        //             if .AlreadyJumped in flags {
+        //                 // Do thrown-enemy double-jump
+        //                 // held_enemy, is_holding_enemy := char.held_enemy.?
+        //                 // if is_holding_enemy {
+        //                 //     char.held_enemy = nil
 
-                        //     // Throw enemy downwards
-                        //     // append(&game_state.thrown_enemies, ThrownEnemy {
-                        //     //     position = char.collision.position - {0.0, 0.0, 0.5},
-                        //     //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-                        //     //     respawn_position = held_enemy.position,
-                        //     //     respawn_home = held_enemy.home_position,
-                        //     //     respawn_ai_state = .Resting,
-                        //     //     collision_radius = 0.5,
-                        //     // })
+        //                 //     // Throw enemy downwards
+        //                 //     // append(&game_state.thrown_enemies, ThrownEnemy {
+        //                 //     //     position = char.collision.position - {0.0, 0.0, 0.5},
+        //                 //     //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
+        //                 //     //     respawn_position = held_enemy.position,
+        //                 //     //     respawn_home = held_enemy.home_position,
+        //                 //     //     respawn_ai_state = .Resting,
+        //                 //     //     collision_radius = 0.5,
+        //                 //     // })
 
-                        //     id := new_thrown_enemy(
-                        //         game_state,
-                        //         char.collision.position - {0.0, 0.0, 0.5},
-                        //         {0.0, 0.0, -ENEMY_THROW_SPEED},
-                        //         held_enemy.ai_state,
-                        //         held_enemy.position
-                        //     )
+        //                 //     id := new_thrown_enemy(
+        //                 //         game_state,
+        //                 //         char.collision.position - {0.0, 0.0, 0.5},
+        //                 //         {0.0, 0.0, -ENEMY_THROW_SPEED},
+        //                 //         held_enemy.ai_state,
+        //                 //         held_enemy.position
+        //                 //     )
 
-                        //     char.collision.velocity.z = 1.3 * char.jump_speed
-                        //     play_sound_effect(audio_system, game_state.jump_sound)
-                        // }
-                    } else {
-                        // Do first jump
-                        collision.velocity.z = char.jump_speed
-                        flags^ += {.AlreadyJumped}
+        //                 //     char.collision.velocity.z = 1.3 * char.jump_speed
+        //                 //     play_sound_effect(audio_system, game_state.jump_sound)
+        //                 // }
+        //             } else {
+        //                 // Do first jump
+        //                 collision.velocity.z = char.jump_speed
+        //                 flags^ += {.AlreadyJumped}
 
-                        play_sound_effect(audio_system, game_state.jump_sound)
-                    }
+        //                 play_sound_effect(audio_system, game_state.jump_sound)
+        //             }
 
-                    char.gravity_factor = 1.0
-                    collision.state = .Falling
-                } else {
-                    // To not jumping...
-                    char.gravity_factor = 2.2
-                }
-            }
-        }
+        //             char.gravity_factor = 1.0
+        //             collision.state = .Falling
+        //         } else {
+        //             // To not jumping...
+        //             char.gravity_factor = 2.2
+        //         }
+        //     }
+        // }
 
         // Apply gravity to velocity, clamping downward speed if necessary
-        collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
-        if collision.velocity.z < TERMINAL_VELOCITY {
-            collision.velocity.z = TERMINAL_VELOCITY
-        }
+        // collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
+        // if collision.velocity.z < TERMINAL_VELOCITY {
+        //     collision.velocity.z = TERMINAL_VELOCITY
+        // }
 
         // Compute motion interval
-        motion_endpoint := tform.position + dt * collision.velocity
-        motion_interval := Segment {
-            start = tform.position,
-            end = motion_endpoint
-        }
+        // motion_endpoint := tform.position + dt * collision.velocity
+        // motion_interval := Segment {
+        //     start = tform.position,
+        //     end = motion_endpoint
+        // }
 
         // Compute closest point to terrain along with
         // vector opposing player motion
         //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
 
-        closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
-        collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
+        // closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
+        // collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
 
         // Main player character state machine
         // switch gravity_affected_sphere(
@@ -803,28 +846,28 @@ tick_character_controllers :: proc(game_state: ^GameState, output_verbs: OutputV
         }
 
         // Check if we're being hit by an enemy
-        if !taking_damage {
-            for enemy_id, enemy in game_state.enemy_ais {
-                enemy_tform := &game_state.transforms[enemy_id]
-                sphere := &game_state.spherical_bodies[enemy_id]
-                s := Sphere {
-                    position = enemy_tform.position,
-                    radius = sphere.radius
-                }
-                char_sphere := Sphere {
-                    position = enemy_tform.position,
-                    radius = collision.radius
-                }
-                if are_spheres_overlapping(s, char_sphere) {
-                    collision.velocity.z = 3.0
-                    collision.state = .Falling
-                    char.damage_timer = time.now()
-                    char.health -= 1
-                    play_sound_effect(audio_system, game_state.ow_sound)
-                }
+        // if !taking_damage {
+        //     for enemy_id, enemy in game_state.enemy_ais {
+        //         enemy_tform := &game_state.transforms[enemy_id]
+        //         sphere := &game_state.spherical_bodies[enemy_id]
+        //         s := Sphere {
+        //             position = enemy_tform.position,
+        //             radius = sphere.radius
+        //         }
+        //         char_sphere := Sphere {
+        //             position = enemy_tform.position,
+        //             radius = collision.radius
+        //         }
+        //         if are_spheres_overlapping(s, char_sphere) {
+        //             collision.velocity.z = 3.0
+        //             collision.state = .Falling
+        //             char.damage_timer = time.now()
+        //             char.health -= 1
+        //             play_sound_effect(audio_system, game_state.ow_sound)
+        //         }
 
-            }
-        }
+        //     }
+        // }
 
         // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
         // bullet, bok := &char.air_vortex.?
@@ -853,9 +896,15 @@ StaticModelInstance :: struct {
 
 SkinnedModelInstance :: struct {
     handle: SkinnedModelHandle,
+    anim_idx: u32,
+    anim_t: f32,
     flags: InstanceFlags,
 }
 
+DebugModelInstance :: struct {
+    handle: StaticModelHandle,
+    color: hlsl.float4,
+}
 
 
 
@@ -869,39 +918,6 @@ PhysicsSphere :: struct {
     velocity: hlsl.float3,
     state: CollisionState,
 }
-
-CharacterFlag :: enum {
-    MovingLeft,
-    MovingRight,
-    MovingBack,
-    MovingForward,
-    AlreadyJumped,
-    Sprinting,
-}
-CharacterFlags :: bit_set[CharacterFlag]
-CHARACTER_MAX_HEALTH :: 3
-CHARACTER_INVULNERABILITY_DURATION :: 0.5
-BULLET_MAX_RADIUS :: 0.8
-// Character :: struct {
-//     collision: PhysicsSphere,
-//     gravity_factor: f32,
-//     acceleration: hlsl.float3,
-//     deceleration_speed: f32,
-//     facing: hlsl.float3,
-//     move_speed: f32,
-//     sprint_speed: f32,
-//     jump_speed: f32,
-//     anim_t: f32,
-//     anim_speed: f32,
-//     health: u32,
-//     control_flags: CharacterFlags,
-//     damage_timer: time.Time,
-//     model: SkinnedModelHandle,
-
-//     air_vortex: Maybe(AirVortex),
-//     bullet_travel_time: f32,
-//     held_enemy: Maybe(Enemy),
-// }
 
 EnemyState :: enum {
     BrainDead,
@@ -921,48 +937,6 @@ ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
     .Hovering = "Hovering",
     .AlertedBounce = "Alerted Bounce",
     .AlertedCharge = "Alerted Charge"
-}
-Enemy :: struct {
-    position: hlsl.float3,
-    velocity: hlsl.float3,
-    collision_radius: f32,
-    facing: hlsl.float3,
-    home_position: hlsl.float3,
-    visualize_home: bool,
-
-    ai_state: EnemyState,
-    collision_state: CollisionState,
-    timer_start: time.Time,
-
-    model: StaticModelHandle,
-}
-
-default_enemy :: proc(game_state: GameState) -> Enemy {
-    return {
-        position = {},
-        velocity = {},
-        collision_radius = 0.5,
-        facing = {0.0, 1.0, 0.0},
-        home_position = {},
-        visualize_home = false,
-        ai_state = .Wandering,
-        collision_state = .Grounded,
-        timer_start = time.now(),
-        model = game_state.enemy_mesh
-    }
-}
-
-ThrownEnemy :: struct {
-    position: hlsl.float3,
-    velocity: hlsl.float3,
-    collision_radius: f32,
-    respawn_position: hlsl.float3,
-    respawn_home: hlsl.float3,
-    respawn_ai_state: EnemyState,
-}
-
-Coin :: struct {
-    position: hlsl.float3,
 }
 
 DebugVisualizationFlag :: enum {
@@ -1089,9 +1063,7 @@ EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    //character: Character,
     player_id: u32,
-    //viewport_camera: Camera,
     viewport_camera_id: u32,
 
     // Scene/Level data
@@ -1104,7 +1076,7 @@ GameState :: struct {
     transform_deltas: map[u32]TransformDelta,
     cameras: map[u32]Camera,
     lookat_controllers: map[u32]LookatController,
-    looping_animations: map[u32]LoopingAnimation,
+    //looping_animations: map[u32]LoopingAnimation,
     character_controllers: map[u32]CharacterController,
     coin_ais: map[u32]CoinAI,
     enemy_ais: map[u32]EnemyAI,
@@ -1113,6 +1085,11 @@ GameState :: struct {
     triangle_meshes: map[u32]TriangleMesh,
     static_models: map[u32]StaticModelInstance,
     skinned_models: map[u32]SkinnedModelInstance,
+    debug_models: map[u32]DebugModelInstance,
+
+    // Sometimes we need behavior associated with a group of ids
+    // without actually needing to store additional state
+    looping_animations: [dynamic]u32,
 
     // User input mapping structs
     freecam_key_mappings : map[sdl2.Scancode]VerbType,
@@ -1155,7 +1132,6 @@ GameState :: struct {
     borderless_fullscreen: bool,
     exclusive_fullscreen: bool,
 
-    do_this_frame: bool,
     paused: bool,
 }
 
@@ -1171,7 +1147,6 @@ init_gamestate :: proc(
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
-    game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
     game_state.coin_collision_radius = 0.1
@@ -1314,7 +1289,6 @@ gamestate_new_scene :: proc(
     game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.cameras = make(map[u32]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.lookat_controllers = make(map[u32]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.looping_animations = make(map[u32]LoopingAnimation, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.character_controllers = make(map[u32]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.coin_ais = make(map[u32]CoinAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1323,6 +1297,9 @@ gamestate_new_scene :: proc(
     game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.skinned_models = make(map[u32]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.debug_models = make(map[u32]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    
+    game_state.looping_animations = make([dynamic]u32, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
     // Initialize player character
     {
@@ -1333,7 +1310,7 @@ gamestate_new_scene :: proc(
             scale = 1.0,
         }
         game_state.spherical_bodies[id] = SphericalBody {
-            velocity = 0.0,
+            velocity = {},
             radius = 0.6,
             state = .Falling
         }
@@ -1360,10 +1337,10 @@ gamestate_new_scene :: proc(
             path : cstring = "data/models/CesiumMan.glb"
             skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
         }
-        // game_state.skinned_models[id] = SkinnedModelInstance {
-        //     handle = skinned_model,
-        //     flags = {}
-        // }
+        game_state.skinned_models[id] = SkinnedModelInstance {
+            handle = skinned_model,
+            flags = {}
+        }
 
     }
 
@@ -1405,7 +1382,7 @@ gamestate_new_scene :: proc(
         }
         if user_config.flags[.FollowCam] {
             game_state.lookat_controllers[id] = LookatController {
-                target = 25,
+                target = game_state.player_id,
                 distance = 5.0
             }
         }
@@ -1431,6 +1408,28 @@ gamestate_next_id :: proc(gamestate: ^GameState) -> u32 {
     r := gamestate._next_id
     gamestate._next_id += 1
     return r
+}
+
+game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    // Determine if we're simulating a tick of game logic this frame
+    do_this_frame := !game_state.paused
+    if output_verbs.bools[.FrameAdvance] {
+        do_this_frame = true
+        game_state.paused = true
+    }
+    if output_verbs.bools[.Resume] {
+        game_state.paused = !game_state.paused
+    }
+
+    if do_this_frame {
+        tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
+        tick_coin_ais(game_state, audio_system)
+        tick_looping_animations(game_state, renderer^, dt)
+        tick_transform_deltas(game_state, dt)
+        tick_thrown_enemies(game_state)
+        tick_spherical_bodies(game_state, dt)
+        tick_enemy_ai(game_state, audio_system, dt)
+    }
 }
 
 load_level_file :: proc(
@@ -1571,13 +1570,7 @@ load_level_file :: proc(
                         handle = model,
                         flags = {},
                     }
-            
-                    // append(&game_state.static_scenery, StaticScenery {
-                    //     model = model,
-                    //     position = position,
-                    //     rotation = rotation,
-                    //     scale = scale
-                    // })
+
                     strings.builder_reset(&path_builder)
                 }
             }
@@ -1600,24 +1593,11 @@ load_level_file :: proc(
                         rotation = rotation,
                         scale = scale
                     }
-                    game_state.looping_animations[id] = LoopingAnimation {
-                        index = 0,
-                        t = 0.0
-                    }
                     game_state.skinned_models[id] = SkinnedModelInstance {
                         handle = model,
                         flags = {}
                     }
-                    
-                    // append(&game_state.animated_scenery, AnimatedScenery {
-                    //     model = model,
-                    //     position = position,
-                    //     rotation = rotation,
-                    //     scale = scale,
-                    //     anim_idx = 0,
-                    //     anim_t = 0.0,
-                    //     anim_speed = 1.0,
-                    // })
+                    append(&game_state.looping_animations, id)
 
                     strings.builder_reset(&path_builder)
                 }
@@ -2957,7 +2937,7 @@ camera_gui :: proc(
             if !freecam {
                 replace_keybindings(input_system, &game_state.character_key_mappings)
                 game_state.lookat_controllers[camera_id] = LookatController {
-                    target = 25, // @TODO: CHANGE THIS!!!
+                    target = game_state.player_id,
                     distance = 4.0
                 }
             } else {
