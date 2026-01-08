@@ -151,10 +151,10 @@ Transform :: struct {
     rotation: quaternion128,
     scale: f32,
 }
-get_transform_matrix :: proc(tform: Transform) -> hlsl.float4x4 {
-    scale := scaling_matrix(tform.scale)
+get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
+    scale_mat := scaling_matrix(tform.scale)
     rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
-    mat := rot * scale
+    mat := rot * scale_mat * scaling_matrix(scale)
     mat[3][0] = tform.position.x
     mat[3][1] = tform.position.y
     mat[3][2] = tform.position.z
@@ -689,21 +689,21 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
 
             // Now we have a representation of the player's input vector in world space
 
-            if !taking_damage {
-                char.acceleration = {world_invector.x, world_invector.y, 0.0}
-                accel_len := hlsl.length(char.acceleration)
-                this_frame_move_speed *= accel_len
-                if accel_len == 0 && collision.state == .Grounded {
-                    to_zero := hlsl.float2 {0.0, 0.0} - collision.velocity.xy
-                    collision.velocity.xy += char.deceleration_speed * to_zero
-                }
-                collision.velocity.xy += char.acceleration.xy
-                if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
-                    collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
-                }
-                movement_dist := hlsl.length(collision.velocity.xy)
-                char.anim_t += char.anim_speed * dt * movement_dist
-            }
+            // if !taking_damage {
+            //     char.acceleration = {world_invector.x, world_invector.y, 0.0}
+            //     accel_len := hlsl.length(char.acceleration)
+            //     this_frame_move_speed *= accel_len
+            //     if accel_len == 0 && collision.state == .Grounded {
+            //         to_zero := hlsl.float2 {0.0, 0.0} - collision.velocity.xy
+            //         collision.velocity.xy += char.deceleration_speed * to_zero
+            //     }
+            //     collision.velocity.xy += char.acceleration.xy
+            //     if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
+            //         collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
+            //     }
+            //     movement_dist := hlsl.length(collision.velocity.xy)
+            //     char.anim_t += char.anim_speed * dt * movement_dist
+            // }
 
             if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
                 char.facing = hlsl.normalize(world_invector).xyz
@@ -891,11 +891,13 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
 
 StaticModelInstance :: struct {
     handle: StaticModelHandle,
+    pos_offset: hlsl.float3,
     flags: InstanceFlags,
 }
 
 SkinnedModelInstance :: struct {
     handle: SkinnedModelHandle,
+    pos_offset: hlsl.float3,
     anim_idx: u32,
     anim_t: f32,
     flags: InstanceFlags,
@@ -904,6 +906,8 @@ SkinnedModelInstance :: struct {
 DebugModelInstance :: struct {
     handle: StaticModelHandle,
     color: hlsl.float4,
+    pos_offset: hlsl.float3,
+    scale: f32,
 }
 
 
@@ -960,103 +964,6 @@ LevelBlock :: enum u8 {
     BgmFile = 4,
     DirectionalLights = 5,
     Coins = 6,
-}
-
-CollisionResponse :: enum {
-    None,
-    HitFloor,
-    HitCeiling,
-    PassedThroughGround,
-    Bump,
-}
-gravity_affected_sphere :: proc(
-    game_state: GameState,
-    sphere: ^PhysicsSphere,
-    closest_pt: hlsl.float3,
-    collision_normal: hlsl.float3,
-    triangle_normal: hlsl.float3,
-    motion_interval: Segment
-) -> CollisionResponse {
-    scoped_event(&profiler, "gravity_affected_sphere")
-    resp: CollisionResponse
-    switch sphere.state {
-        case .Grounded: {
-            // Push out of ground
-            dist := hlsl.distance(closest_pt, sphere.position)
-            if dist < sphere.radius {
-                remaining_dist := sphere.radius - dist
-                if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                    sphere.position = motion_interval.end + remaining_dist * collision_normal
-                } else {
-                    sphere.position = motion_interval.end
-                }
-                sphere.state = .Grounded
-            } else {
-                sphere.position = motion_interval.end
-            }
-
-            // Check if we need to bump ourselves up or down
-            {
-                tolerance_segment := Segment {
-                    start = sphere.position + {0.0, 0.0, 0.0},
-                    end = sphere.position + {0.0, 0.0, -sphere.radius - 0.1}
-                }
-                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.triangle_meshes)
-                if okt {
-                    tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                    sphere.position = tolerance_point + {0.0, 0.0, sphere.radius}
-                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        sphere.velocity.z = 0.0
-                        sphere.state = .Grounded
-                        resp = .Bump
-                    }
-                } else {
-                    sphere.state = .Falling
-                }
-            }
-        }
-        case .Falling: {
-            // Then do collision test against triangles
-
-            collided := false
-            inv := motion_interval
-            segment_pt, segment_ok := intersect_segment_terrain(&inv, game_state.triangle_meshes)
-            if segment_ok {
-                log.info("Player center passed through ground")
-                sphere.position = segment_pt
-                sphere.position += triangle_normal * sphere.radius
-                sphere.velocity.z = 0
-                sphere.state = .Grounded
-            } else {
-
-                d := hlsl.distance(sphere.position, closest_pt)
-                collided = d < sphere.radius
-    
-                if collided {
-                    // Hit terrain
-                    remaining_d := sphere.radius - d
-                    sphere.position = motion_interval.end + remaining_d * collision_normal
-                    
-                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && sphere.velocity.z < 0.0 {
-                        // Floor
-                        sphere.velocity.z = 0
-                        sphere.state = .Grounded
-                        resp = .HitFloor
-                    } else if n_dot < -0.1 && sphere.velocity.z > 0.0 {
-                        // Ceiling
-                        sphere.velocity.z = 0.0
-                        resp = .HitCeiling
-                    }
-                } else {
-                    // Didn't hit anything, still falling.
-                    sphere.position = motion_interval.end
-                }
-            }
-
-        }
-    }
-    return resp
 }
 
 EntityID :: distinct u32
@@ -1339,6 +1246,7 @@ gamestate_new_scene :: proc(
         }
         game_state.skinned_models[id] = SkinnedModelInstance {
             handle = skinned_model,
+            pos_offset = {0.0, 0.0, -0.6},
             flags = {}
         }
 
