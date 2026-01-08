@@ -529,6 +529,7 @@ main :: proc() {
                         if flag {
                             game_state.debug_models[game_state.player_id] = DebugModelInstance {
                                 handle = game_state.sphere_mesh,
+                                scale = collision.radius,
                                 color = {0.2, 0.0, 1.0, 0.5}
                             }
                         } else {
@@ -1064,8 +1065,12 @@ main :: proc() {
         for id, model in game_state.skinned_models {
             tform := &game_state.transforms[id]
 
+            mat := get_transform_matrix(tform^)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
             draw := SkinnedDraw {
-                world_from_model = get_transform_matrix(tform^),
+                world_from_model = mat,
                 anim_idx = model.anim_idx,
                 anim_t = model.anim_t,
                 //flags = model.flags
@@ -1086,8 +1091,12 @@ main :: proc() {
         for id, model in game_state.debug_models {
             tform := &game_state.transforms[id]
 
+            mat := get_transform_matrix(tform^, model.scale)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
             draw := DebugDraw {
-                world_from_model = get_transform_matrix(tform^),
+                world_from_model = mat,
                 color = model.color
             }
             draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &draw)
