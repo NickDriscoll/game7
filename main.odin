@@ -1045,8 +1045,12 @@ main :: proc() {
         for id, model in game_state.static_models {
             tform := &game_state.transforms[id]
 
+            mat := get_transform_matrix(tform^)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
             draw := StaticDraw {
-                world_from_model = get_transform_matrix(tform^),
+                world_from_model = mat,
                 flags = model.flags
             }
             draw_ps1_static_mesh(&vgd, &renderer, model.handle, draw)
