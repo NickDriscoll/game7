@@ -190,47 +190,52 @@ tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: 
     }
 }
 
-CoinAI :: struct {
-    z: f32,
-}
+// CoinAI :: struct {
+//     z: f32,
+// }
 
-tick_coin_ais := proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
+tick_coins := proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
     rot := z_rotate_quaternion(game_state.time)
     z_offset := 0.25 * math.sin(game_state.time)
 
-    player_tform := &game_state.transforms[game_state.player_id]
-    player_collision := &game_state.spherical_bodies[game_state.player_id]
-    player_sphere := Sphere {
-        position = player_tform.position,
-        radius = player_collision.radius
+    for id in game_state.coins {
+        model := &game_state.static_models[id]
+        model.pos_offset.z = z_offset
     }
 
-    to_remove: Maybe(u32)
-    for id, coin in game_state.coin_ais {
-        tform := &game_state.transforms[id]
-        {
-            // Are we being collected?
-            s := Sphere {
-                position = tform.position,
-                radius = game_state.coin_collision_radius
-            }
-            if are_spheres_overlapping(player_sphere, s) {
-                play_sound_effect(audio_system, game_state.coin_sound)
-                to_remove = id
-                continue
-            }
-        }
-        tform.position.z = coin.z + z_offset
-        tform.rotation = rot
-    }
+    // player_tform := &game_state.transforms[game_state.player_id]
+    // player_collision := &game_state.spherical_bodies[game_state.player_id]
+    // player_sphere := Sphere {
+    //     position = player_tform.position,
+    //     radius = player_collision.radius
+    // }
 
-    // Remove coin
-    remove_id, ok := to_remove.?
-    if ok {
-        delete_key(&game_state.transforms, remove_id)
-        delete_key(&game_state.coin_ais, remove_id)
-        delete_key(&game_state.static_models, remove_id)
-    }
+    // to_remove: Maybe(u32)
+    // for id, coin in game_state.coin_ais {
+    //     tform := &game_state.transforms[id]
+    //     {
+    //         // Are we being collected?
+    //         s := Sphere {
+    //             position = tform.position,
+    //             radius = game_state.coin_collision_radius
+    //         }
+    //         if are_spheres_overlapping(player_sphere, s) {
+    //             play_sound_effect(audio_system, game_state.coin_sound)
+    //             to_remove = id
+    //             continue
+    //         }
+    //     }
+    //     tform.position.z = coin.z + z_offset
+    //     tform.rotation = rot
+    // }
+
+    // // Remove coin
+    // remove_id, ok := to_remove.?
+    // if ok {
+    //     delete_key(&game_state.transforms, remove_id)
+    //     delete_key(&game_state.coin_ais, remove_id)
+    //     delete_key(&game_state.static_models, remove_id)
+    // }
 }
 
 EnemyAI :: struct {
@@ -266,6 +271,7 @@ new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, sta
     
     game_state.spherical_bodies[id] = SphericalBody {
         radius = 0.5,
+        gravity_factor = 1.0,
         state = .Falling
     }
     game_state.static_models[id] = StaticModelInstance {
@@ -479,6 +485,7 @@ delete_thrown_enemy :: proc(game_state: ^GameState, id: u32) {
 SphericalBody :: struct {
     velocity: hlsl.float3,
     radius: f32,
+    gravity_factor: f32,
     state: CollisionState,
 }
 
@@ -550,7 +557,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
         }
 
         // Update velocity
-        body.velocity += dt * GRAVITY_ACCELERATION
+        body.velocity += dt * body.gravity_factor * GRAVITY_ACCELERATION
         if body.velocity.z < TERMINAL_VELOCITY {
             body.velocity.z = TERMINAL_VELOCITY
         }
@@ -574,6 +581,7 @@ CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
 BULLET_MAX_RADIUS :: 0.8
+CHARACTER_HEAVY_GRAVITY :: 2.2
 // Character :: struct {
 //     collision: PhysicsSphere,
 //     gravity_factor: f32,
@@ -597,7 +605,6 @@ BULLET_MAX_RADIUS :: 0.8
 CharacterController :: struct {
     acceleration: hlsl.float3,
     deceleration_speed: f32,
-    gravity_factor: f32,
     move_speed: f32,
     sprint_speed: f32,
     jump_speed: f32,
@@ -605,7 +612,6 @@ CharacterController :: struct {
     health: u32,
     facing: hlsl.float3,
     vortex_t: f32,
-    anim_t: f32,
     anim_speed: f32,
     damage_timer: time.Time,
     flags: CharacterFlags,
@@ -616,6 +622,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
     for id, &char in game_state.character_controllers {
         tform := &game_state.transforms[id]
         collision := &game_state.spherical_bodies[id]
+        model := &game_state.skinned_models[id]
 
         // Is character taking damage
         taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
@@ -689,21 +696,27 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
 
             // Now we have a representation of the player's input vector in world space
 
-            // if !taking_damage {
-            //     char.acceleration = {world_invector.x, world_invector.y, 0.0}
-            //     accel_len := hlsl.length(char.acceleration)
-            //     this_frame_move_speed *= accel_len
-            //     if accel_len == 0 && collision.state == .Grounded {
-            //         to_zero := hlsl.float2 {0.0, 0.0} - collision.velocity.xy
-            //         collision.velocity.xy += char.deceleration_speed * to_zero
-            //     }
-            //     collision.velocity.xy += char.acceleration.xy
-            //     if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
-            //         collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
-            //     }
-            //     movement_dist := hlsl.length(collision.velocity.xy)
-            //     char.anim_t += char.anim_speed * dt * movement_dist
-            // }
+            //if !taking_damage {
+            {
+                char.acceleration = {world_invector.x, world_invector.y, 0.0}
+                accel_len := hlsl.length(char.acceleration)
+                this_frame_move_speed *= accel_len
+                if accel_len == 0 && collision.state == .Grounded {
+                    to_zero := hlsl.float2 {0.0, 0.0} - collision.velocity.xy
+                    collision.velocity.xy += char.deceleration_speed * to_zero
+                }
+                collision.velocity.xy += char.acceleration.xy
+                if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
+                    collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
+                }
+                movement_dist := hlsl.length(collision.velocity.xy)
+
+                duration := get_animation_duration(renderer^, model.anim_idx)
+                model.anim_t += char.anim_speed * dt * movement_dist
+                for model.anim_t >= duration {
+                    model.anim_t -= duration
+                }
+            }
 
             if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
                 char.facing = hlsl.normalize(world_invector).xyz
@@ -711,97 +724,60 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         }
 
         // Handle jump command
-        // {
-        //     jumped, jump_ok := output_verbs.bools[.PlayerJump]
-        //     if jump_ok {
-        //         flags := &char.flags
-        //         // If jump state changed...
-        //         if jumped {
-        //             // To jumping...
-        //             if .AlreadyJumped in flags {
-        //                 // Do thrown-enemy double-jump
-        //                 // held_enemy, is_holding_enemy := char.held_enemy.?
-        //                 // if is_holding_enemy {
-        //                 //     char.held_enemy = nil
+        {
+            flags := &char.flags
+            if collision.state == .Grounded {
+                flags^ -= {.AlreadyJumped}
+            }
 
-        //                 //     // Throw enemy downwards
-        //                 //     // append(&game_state.thrown_enemies, ThrownEnemy {
-        //                 //     //     position = char.collision.position - {0.0, 0.0, 0.5},
-        //                 //     //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-        //                 //     //     respawn_position = held_enemy.position,
-        //                 //     //     respawn_home = held_enemy.home_position,
-        //                 //     //     respawn_ai_state = .Resting,
-        //                 //     //     collision_radius = 0.5,
-        //                 //     // })
+            jumped, jump_ok := output_verbs.bools[.PlayerJump]
+            if jump_ok {
+                // If jump state changed...
+                if jumped {
+                    // To jumping...
+                    if .AlreadyJumped in flags {
+                        // Do thrown-enemy double-jump
+                        // held_enemy, is_holding_enemy := char.held_enemy.?
+                        // if is_holding_enemy {
+                        //     char.held_enemy = nil
 
-        //                 //     id := new_thrown_enemy(
-        //                 //         game_state,
-        //                 //         char.collision.position - {0.0, 0.0, 0.5},
-        //                 //         {0.0, 0.0, -ENEMY_THROW_SPEED},
-        //                 //         held_enemy.ai_state,
-        //                 //         held_enemy.position
-        //                 //     )
+                        //     // Throw enemy downwards
+                        //     // append(&game_state.thrown_enemies, ThrownEnemy {
+                        //     //     position = char.collision.position - {0.0, 0.0, 0.5},
+                        //     //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
+                        //     //     respawn_position = held_enemy.position,
+                        //     //     respawn_home = held_enemy.home_position,
+                        //     //     respawn_ai_state = .Resting,
+                        //     //     collision_radius = 0.5,
+                        //     // })
 
-        //                 //     char.collision.velocity.z = 1.3 * char.jump_speed
-        //                 //     play_sound_effect(audio_system, game_state.jump_sound)
-        //                 // }
-        //             } else {
-        //                 // Do first jump
-        //                 collision.velocity.z = char.jump_speed
-        //                 flags^ += {.AlreadyJumped}
+                        //     id := new_thrown_enemy(
+                        //         game_state,
+                        //         char.collision.position - {0.0, 0.0, 0.5},
+                        //         {0.0, 0.0, -ENEMY_THROW_SPEED},
+                        //         held_enemy.ai_state,
+                        //         held_enemy.position
+                        //     )
 
-        //                 play_sound_effect(audio_system, game_state.jump_sound)
-        //             }
+                        //     char.collision.velocity.z = 1.3 * char.jump_speed
+                        //     play_sound_effect(audio_system, game_state.jump_sound)
+                        // }
+                    } else {
+                        // Do first jump
+                        collision.velocity.z = char.jump_speed
+                        flags^ += {.AlreadyJumped}
 
-        //             char.gravity_factor = 1.0
-        //             collision.state = .Falling
-        //         } else {
-        //             // To not jumping...
-        //             char.gravity_factor = 2.2
-        //         }
-        //     }
-        // }
+                        play_sound_effect(audio_system, game_state.jump_sound)
+                    }
 
-        // Apply gravity to velocity, clamping downward speed if necessary
-        // collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
-        // if collision.velocity.z < TERMINAL_VELOCITY {
-        //     collision.velocity.z = TERMINAL_VELOCITY
-        // }
-
-        // Compute motion interval
-        // motion_endpoint := tform.position + dt * collision.velocity
-        // motion_interval := Segment {
-        //     start = tform.position,
-        //     end = motion_endpoint
-        // }
-
-        // Compute closest point to terrain along with
-        // vector opposing player motion
-        //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
-
-        // closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
-        // collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-
-        // Main player character state machine
-        // switch gravity_affected_sphere(
-        //     game_state^,
-        //     &char.collision,
-        //     closest_pt,
-        //     collision_normal,
-        //     triangle_normal,
-        //     motion_interval
-        // ) {
-        //     case .None: {}
-        //     case .Bump: {
-        //         char.control_flags -= {.AlreadyJumped}
-        //     }
-        //     case .HitCeiling: {
-        //     }
-        //     case .HitFloor: {
-        //     }
-        //     case .PassedThroughGround: {
-        //     }
-        // }
+                    collision.gravity_factor = 1.0
+                    collision.state = .Falling
+                } else {
+                    // To not jumping...
+                    collision.gravity_factor = CHARACTER_HEAVY_GRAVITY
+                }
+            }
+        }
 
         // Teleport player back to spawn if hit death plane
         respawn := output_verbs.bools[.PlayerReset]
@@ -846,28 +822,62 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         }
 
         // Check if we're being hit by an enemy
-        // if !taking_damage {
-        //     for enemy_id, enemy in game_state.enemy_ais {
-        //         enemy_tform := &game_state.transforms[enemy_id]
-        //         sphere := &game_state.spherical_bodies[enemy_id]
-        //         s := Sphere {
-        //             position = enemy_tform.position,
-        //             radius = sphere.radius
-        //         }
-        //         char_sphere := Sphere {
-        //             position = enemy_tform.position,
-        //             radius = collision.radius
-        //         }
-        //         if are_spheres_overlapping(s, char_sphere) {
-        //             collision.velocity.z = 3.0
-        //             collision.state = .Falling
-        //             char.damage_timer = time.now()
-        //             char.health -= 1
-        //             play_sound_effect(audio_system, game_state.ow_sound)
-        //         }
+        if !taking_damage {
+            for enemy_id, enemy in game_state.enemy_ais {
+                enemy_tform := &game_state.transforms[enemy_id]
+                sphere := &game_state.spherical_bodies[enemy_id]
+                s := Sphere {
+                    position = enemy_tform.position,
+                    radius = sphere.radius
+                }
+                char_sphere := Sphere {
+                    position = tform.position,
+                    radius = collision.radius
+                }
+                if are_spheres_overlapping(s, char_sphere) {
+                    collision.velocity.z = 3.0
+                    collision.state = .Falling
+                    char.damage_timer = time.now()
+                    char.health -= 1
+                    play_sound_effect(audio_system, game_state.ow_sound)
+                }
 
-        //     }
-        // }
+            }
+        }
+
+        {
+            player_sphere := Sphere {
+                position = tform.position,
+                radius = collision.radius
+            }
+    
+            to_remove: Maybe(u32)
+            for coin_id, idx in game_state.coins {
+                coin_tform := &game_state.transforms[coin_id]
+                {
+                    // Are we being collected?
+                    s := Sphere {
+                        position = coin_tform.position,
+                        //radius = game_state.coin_collision_radius
+                        radius = coin_tform.scale
+                    }
+                    if are_spheres_overlapping(player_sphere, s) {
+                        play_sound_effect(audio_system, game_state.coin_sound)
+                        to_remove = u32(idx)
+                        continue
+                    }
+                }
+            }
+    
+            // Remove coin
+            remove_idx, ok := to_remove.?
+            if ok {
+                remove_id := game_state.coins[remove_idx]
+                delete_key(&game_state.transforms, remove_id)
+                delete_key(&game_state.static_models, remove_id)
+                unordered_remove(&game_state.coins, remove_idx)
+            }
+        }
 
         // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
         // bullet, bok := &char.air_vortex.?
@@ -885,7 +895,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         // Camera follow point chases player
         // target_pt := char.collision.position
         // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
-        game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, tform.position, game_state.camera_follow_speed, dt)
+        //game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, tform.position, game_state.camera_follow_speed, dt)
     }
 }
 
@@ -898,6 +908,7 @@ StaticModelInstance :: struct {
 SkinnedModelInstance :: struct {
     handle: SkinnedModelHandle,
     pos_offset: hlsl.float3,
+    rot_offset: quaternion128,
     anim_idx: u32,
     anim_t: f32,
     flags: InstanceFlags,
@@ -985,7 +996,6 @@ GameState :: struct {
     lookat_controllers: map[u32]LookatController,
     //looping_animations: map[u32]LoopingAnimation,
     character_controllers: map[u32]CharacterController,
-    coin_ais: map[u32]CoinAI,
     enemy_ais: map[u32]EnemyAI,
     thrown_enemy_ais: map[u32]ThrownEnemyAI,
     spherical_bodies: map[u32]SphericalBody,
@@ -997,6 +1007,7 @@ GameState :: struct {
     // Sometimes we need behavior associated with a group of ids
     // without actually needing to store additional state
     looping_animations: [dynamic]u32,
+    coins: [dynamic]u32,
 
     // User input mapping structs
     freecam_key_mappings : map[sdl2.Scancode]VerbType,
@@ -1197,7 +1208,6 @@ gamestate_new_scene :: proc(
     game_state.cameras = make(map[u32]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.lookat_controllers = make(map[u32]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.character_controllers = make(map[u32]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.coin_ais = make(map[u32]CoinAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.thrown_enemy_ais = make(map[u32]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.spherical_bodies = make(map[u32]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1207,6 +1217,7 @@ gamestate_new_scene :: proc(
     game_state.debug_models = make(map[u32]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     
     game_state.looping_animations = make([dynamic]u32, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.coins = make([dynamic]u32, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
     // Initialize player character
     {
@@ -1219,12 +1230,12 @@ gamestate_new_scene :: proc(
         game_state.spherical_bodies[id] = SphericalBody {
             velocity = {},
             radius = 0.6,
+            gravity_factor = CHARACTER_HEAVY_GRAVITY,
             state = .Falling
         }
         game_state.character_controllers[id] = CharacterController {
             acceleration = {},
             deceleration_speed = 0.1,
-            gravity_factor = 1.0,
             move_speed = 7.0,
             sprint_speed = 14.0,
             jump_speed = 10.0,
@@ -1232,7 +1243,6 @@ gamestate_new_scene :: proc(
             health = CHARACTER_MAX_HEALTH,
             facing = {0.0, 1.0, 0.0},
             vortex_t = 0.0,
-            anim_t = 0.0,
             anim_speed = 0.856,
             damage_timer = {},
             flags = {}
@@ -1331,7 +1341,7 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
 
     if do_this_frame {
         tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
-        tick_coin_ais(game_state, audio_system)
+        tick_coins(game_state, audio_system)
         tick_looping_animations(game_state, renderer^, dt)
         tick_transform_deltas(game_state, dt)
         tick_thrown_enemies(game_state)
@@ -1532,17 +1542,12 @@ load_level_file :: proc(
                         position = p,
                         scale = 0.6,
                     }
-                    game_state.coin_ais[id] = CoinAI {
-                        z = p.z
-                    }
                     game_state.static_models[id] = StaticModelInstance {
                         handle = game_state.coin_mesh,
                         flags = {}
                     }
 
-                    // append(&game_state.coins, Coin {
-                    //     position = p
-                    // })
+                    append(&game_state.coins, id)
                 }
             }
         }
