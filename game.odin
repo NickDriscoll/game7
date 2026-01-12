@@ -152,9 +152,11 @@ Transform :: struct {
     scale: f32,
 }
 get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
-    scale_mat := scaling_matrix(tform.scale)
-    rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
-    mat := rot * scale_mat * scaling_matrix(scale)
+    final_scale := tform.scale * scale
+    mat := linalg.matrix4_from_quaternion_f32(tform.rotation)
+    mat[0][0] *= final_scale
+    mat[1][1] *= final_scale
+    mat[2][2] *= final_scale
     mat[3][0] = tform.position.x
     mat[3][1] = tform.position.y
     mat[3][2] = tform.position.z
@@ -494,7 +496,6 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     for id, &body in game_state.spherical_bodies {
         transform := &game_state.transforms[id]
 
-        closest_pt, triangle_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
         switch body.state {
             case .Grounded: {
                 // Check if we need to bump ourselves up or down
@@ -517,7 +518,15 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                 }
             }
             case .Falling: {
+
+                // Update velocity
+                body.velocity += dt * body.gravity_factor * GRAVITY_ACCELERATION
+                if body.velocity.z < TERMINAL_VELOCITY {
+                    body.velocity.z = TERMINAL_VELOCITY
+                }
+
                 // Then do collision test against triangles
+                closest_pt, triangle_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
 
                 motion_interval := Segment {
                     start = transform.position,
@@ -554,12 +563,6 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     }
                 }
             }
-        }
-
-        // Update velocity
-        body.velocity += dt * body.gravity_factor * GRAVITY_ACCELERATION
-        if body.velocity.z < TERMINAL_VELOCITY {
-            body.velocity.z = TERMINAL_VELOCITY
         }
 
         // Update transform component
