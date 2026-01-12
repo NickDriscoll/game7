@@ -192,10 +192,6 @@ tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: 
     }
 }
 
-// CoinAI :: struct {
-//     z: f32,
-// }
-
 tick_coins := proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
     rot := z_rotate_quaternion(game_state.time)
     z_offset := 0.25 * math.sin(game_state.time)
@@ -204,40 +200,6 @@ tick_coins := proc(game_state: ^GameState, audio_system: ^AudioSystem) {
         model := &game_state.static_models[id]
         model.pos_offset.z = z_offset
     }
-
-    // player_tform := &game_state.transforms[game_state.player_id]
-    // player_collision := &game_state.spherical_bodies[game_state.player_id]
-    // player_sphere := Sphere {
-    //     position = player_tform.position,
-    //     radius = player_collision.radius
-    // }
-
-    // to_remove: Maybe(u32)
-    // for id, coin in game_state.coin_ais {
-    //     tform := &game_state.transforms[id]
-    //     {
-    //         // Are we being collected?
-    //         s := Sphere {
-    //             position = tform.position,
-    //             radius = game_state.coin_collision_radius
-    //         }
-    //         if are_spheres_overlapping(player_sphere, s) {
-    //             play_sound_effect(audio_system, game_state.coin_sound)
-    //             to_remove = id
-    //             continue
-    //         }
-    //     }
-    //     tform.position.z = coin.z + z_offset
-    //     tform.rotation = rot
-    // }
-
-    // // Remove coin
-    // remove_id, ok := to_remove.?
-    // if ok {
-    //     delete_key(&game_state.transforms, remove_id)
-    //     delete_key(&game_state.coin_ais, remove_id)
-    //     delete_key(&game_state.static_models, remove_id)
-    // }
 }
 
 EnemyAI :: struct {
