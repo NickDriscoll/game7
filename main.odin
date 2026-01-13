@@ -211,25 +211,7 @@ main :: proc() {
                 return
             }
         }
-    
-        // Initialize graphics device
-        init_params := vkw.InitParameters {
-            app_name = "Game7",
-            frames_in_flight = FRAMES_IN_FLIGHT,
-            desired_features = {.Window,.Raytracing},
-            //features = {.Window},
-            vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
-        }
-        {
-            scoped_event(&profiler, "Init Vulkan")
-            res: vk.Result
-            vgd, res = vkw.init_vulkan(init_params)
-            if res != .SUCCESS {
-                log.errorf("Failed to initialize Vulkan : %v", res)
-                return
-            }
-        }
-
+        
         {
             scoped_event(&profiler, "Window setup")
 
@@ -283,7 +265,26 @@ main :: proc() {
                 app_window.flags
             )
             sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
-        
+        }
+    
+        // Initialize graphics device
+        init_params := vkw.InitParameters {
+            app_name = "Game7",
+            frames_in_flight = FRAMES_IN_FLIGHT,
+            desired_features = {.Window,.Raytracing},
+            vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
+        }
+        {
+            scoped_event(&profiler, "Init Vulkan")
+            res: vk.Result
+            vgd, res = vkw.init_vulkan(init_params)
+            if res != .SUCCESS {
+                log.errorf("Failed to initialize Vulkan : %v", res)
+                return
+            }
+        }
+
+        {
             // Initialize the state required for rendering to the window
             {
                 scoped_event(&profiler, "vkw.init_sdl2_window()")
