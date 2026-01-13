@@ -45,8 +45,8 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]Tria
     candidate: hlsl.float3
     cn: hlsl.float3
     closest_dist := math.INF_F32
-    for _, &piece in terrain {
-        p, n := closest_pt_triangles_with_normal(point, &piece)
+    for _, piece in terrain {
+        p, n := closest_pt_triangles_with_normal(point, piece)
         d := hlsl.distance(point, p)
         if d < closest_dist {
             candidate = p
@@ -57,11 +57,11 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]Tria
     return candidate, cn
 }
 
-intersect_segment_terrain :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (hlsl.float3, bool) {
+intersect_segment_terrain :: proc(segment: Segment, terrain: map[u32]TriangleMesh) -> (hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain")
     cand_t := math.INF_F32
     for _, &piece in terrain {
-        t, ok := intersect_segment_triangles_t(segment, &piece)
+        t, ok := intersect_segment_triangles_t(segment, piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -72,12 +72,12 @@ intersect_segment_terrain :: proc(segment: ^Segment, terrain: map[u32]TriangleMe
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
-intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: map[u32]TriangleMesh) -> (f32, hlsl.float3, bool) {
+intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[u32]TriangleMesh) -> (f32, hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain_with_normal")
     cand_t := math.INF_F32
     normal: hlsl.float3
-    for _, &piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, &piece)
+    for _, piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -89,10 +89,10 @@ intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: map[u3
     return cand_t, normal, cand_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: map[u32]TriangleMesh, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[u32]TriangleMesh, motion_interval: Segment) -> (f32, bool) {
     closest_t := math.INF_F32
-    for _, &piece in terrain {
-        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece, motion_interval)
+    for _, piece in terrain {
+        t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
         if ok3 {
             if t < closest_t {
                 closest_t = t
@@ -130,7 +130,7 @@ do_mouse_raycast :: proc(
     collision_pt: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in triangle_meshes {
-        candidate, ok := intersect_ray_triangles(&ray, &piece)
+        candidate, ok := intersect_ray_triangles(ray, piece)
         if ok {
             candidate_dist := hlsl.distance(candidate, tform.position)
             if candidate_dist < closest_dist {
@@ -152,11 +152,9 @@ Transform :: struct {
     scale: f32,
 }
 get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
-    final_scale := tform.scale * scale
-    mat := linalg.matrix4_from_quaternion_f32(tform.rotation)
-    mat[0][0] *= final_scale
-    mat[1][1] *= final_scale
-    mat[2][2] *= final_scale
+    scale_mat := scaling_matrix(tform.scale)
+    rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
+    mat := rot * scale_mat * scaling_matrix(scale)
     mat[3][0] = tform.position.x
     mat[3][1] = tform.position.y
     mat[3][2] = tform.position.z
@@ -235,7 +233,7 @@ new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, sta
     
     game_state.spherical_bodies[id] = SphericalBody {
         radius = 0.5,
-        gravity_factor = 1.0,
+        gravity_scale = 1.0,
         state = .Falling
     }
     game_state.static_models[id] = StaticModelInstance {
@@ -360,6 +358,7 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
 
         // Get transform rotation quaternion from facing direction
         {
+            // START HERE
             y := enemy.facing
             z := hlsl.float3 {0.0, 0.0, 1.0}
             x := hlsl.normalize(hlsl.cross(y, z))
@@ -449,7 +448,7 @@ delete_thrown_enemy :: proc(game_state: ^GameState, id: u32) {
 SphericalBody :: struct {
     velocity: hlsl.float3,
     radius: f32,
-    gravity_factor: f32,
+    gravity_scale: f32,
     state: CollisionState,
 }
 
@@ -466,7 +465,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         start = transform.position + {0.0, 0.0, 0.0},
                         end = transform.position + {0.0, 0.0, -body.radius - 0.1}
                     }
-                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.triangle_meshes)
+                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
                     if okt {
                         tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
                         transform.position = tolerance_point + {0.0, 0.0, body.radius}
@@ -480,9 +479,8 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                 }
             }
             case .Falling: {
-
                 // Update velocity
-                body.velocity += dt * body.gravity_factor * GRAVITY_ACCELERATION
+                body.velocity += dt * body.gravity_scale * GRAVITY_ACCELERATION
                 if body.velocity.z < TERMINAL_VELOCITY {
                     body.velocity.z = TERMINAL_VELOCITY
                 }
@@ -496,17 +494,16 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                 }
                 collision_normal := hlsl.normalize(motion_interval.end - closest_pt)
 
-                collided := false
-                segment_pt, segment_ok := intersect_segment_terrain(&motion_interval, game_state.triangle_meshes)
-                if segment_ok {
+                segment_pt, segment_intersected := intersect_segment_terrain(motion_interval, game_state.triangle_meshes)
+                if segment_intersected {
                     transform.position = segment_pt
                     transform.position += triangle_normal * body.radius
-                    body.velocity = {}
+                    body.velocity.z = 0.0
                     body.state = .Grounded
                 } else {
 
                     d := hlsl.distance(transform.position, closest_pt)
-                    collided = d < body.radius
+                    collided := d < body.radius
 
                     if collided {
                         // Hit terrain
@@ -516,7 +513,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
                         if n_dot >= 0.5 && body.velocity.z < 0.0 {
                             // Floor
-                            body.velocity = {}
+                            body.velocity.z = 0.0
                             body.state = .Grounded
                         } else if n_dot < -0.1 && body.velocity.z > 0.0 {
                             // Ceiling
@@ -735,11 +732,11 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                         play_sound_effect(audio_system, game_state.jump_sound)
                     }
 
-                    collision.gravity_factor = 1.0
+                    collision.gravity_scale = 1.0
                     collision.state = .Falling
                 } else {
                     // To not jumping...
-                    collision.gravity_factor = CHARACTER_HEAVY_GRAVITY
+                    collision.gravity_scale = CHARACTER_HEAVY_GRAVITY
                 }
             }
         }
@@ -1195,7 +1192,7 @@ gamestate_new_scene :: proc(
         game_state.spherical_bodies[id] = SphericalBody {
             velocity = {},
             radius = 0.6,
-            gravity_factor = CHARACTER_HEAVY_GRAVITY,
+            gravity_scale = CHARACTER_HEAVY_GRAVITY,
             state = .Falling
         }
         game_state.character_controllers[id] = CharacterController {
@@ -2628,7 +2625,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
         position = target_position,
         radius = 0.1
     }
-    hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.triangle_meshes, &interval)
+    hit_t, hit := dynamic_sphere_vs_terrain_t(s, game_state.triangle_meshes, interval)
     if hit {
         desired_position = interval.start + hit_t * (interval.end - interval.start)
     }
