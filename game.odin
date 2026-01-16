@@ -459,6 +459,10 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
 
         switch body.state {
             case .Grounded: {
+
+                
+                // Check for walking into walls
+
                 // Check if we need to bump ourselves up or down
                 {
                     tolerance_segment := Segment {
@@ -467,7 +471,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     }
                     tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
                     if okt {
-                        tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
+                        tolerance_point := get_segment_point(tolerance_segment, tolerance_t)
                         transform.position = tolerance_point + {0.0, 0.0, body.radius}
                         if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
                             body.velocity.z = 0.0
@@ -485,32 +489,34 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     body.velocity.z = TERMINAL_VELOCITY
                 }
 
-                // Then do collision test against triangles
-                closest_pt, triangle_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
-
+                // Body's desired motion interval
                 motion_interval := Segment {
                     start = transform.position,
                     end = transform.position + dt * body.velocity
                 }
-                collision_normal := hlsl.normalize(motion_interval.end - closest_pt)
 
-                segment_pt, segment_intersected := intersect_segment_terrain(motion_interval, game_state.triangle_meshes)
+                segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
                 if segment_intersected {
-                    transform.position = segment_pt
-                    transform.position += triangle_normal * body.radius
-                    body.velocity.z = 0.0
-                    body.state = .Grounded
+                    segment_collision := get_segment_point(motion_interval, segment_collision_t)
+                    transform.position = segment_collision
+                    transform.position += segment_collision_normal * body.radius
+                    n_dot := hlsl.dot(segment_collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 && body.velocity.z < 0.0 {
+                        // Floor
+                        body.velocity.z = 0.0
+                        body.state = .Grounded
+                    } else if n_dot < -0.1 && body.velocity.z > 0.0 {
+                        // Ceiling
+                        body.velocity.z = 0.0
+                    }
                 } else {
-
+                    closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
                     d := hlsl.distance(transform.position, closest_pt)
-                    collided := d < body.radius
-
-                    if collided {
+                    if d < body.radius {
                         // Hit terrain
                         remaining_d := body.radius - d
-                        transform.position = motion_interval.end + remaining_d * collision_normal
-                        
-                        n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                        transform.position = motion_interval.end + remaining_d * closest_pt_normal
+                        n_dot := hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0})
                         if n_dot >= 0.5 && body.velocity.z < 0.0 {
                             // Floor
                             body.velocity.z = 0.0
@@ -521,6 +527,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         }
                     }
                 }
+
             }
         }
 

@@ -23,6 +23,10 @@ Segment :: struct {
     end: hlsl.float3,
 }
 
+get_segment_point :: proc(segment: Segment, t: f32) -> hlsl.float3 {
+    return segment.start + t * (segment.end - segment.start)
+}
+
 // Point-normal form of plane
 // Plane :: struct {
 //     p: hlsl.float3,
