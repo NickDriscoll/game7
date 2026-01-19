@@ -190,13 +190,16 @@ tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: 
     }
 }
 
-tick_coins := proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
+tick_coins :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
     rot := z_rotate_quaternion(game_state.time)
     z_offset := 0.25 * math.sin(game_state.time)
 
     for id in game_state.coins {
         model := &game_state.static_models[id]
         model.pos_offset.z = z_offset
+
+        tform := &game_state.transforms[id]
+        tform.rotation = rot
     }
 }
 
@@ -256,7 +259,6 @@ ENEMY_LUNGE_SPEED :: 20.0
 ENEMY_JUMP_SPEED :: 6.0                 // m/s
 ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
-    //char := &game_state.character
     char_tform := &game_state.transforms[game_state.player_id]
 
     enemy_to_remove: Maybe(u32)
@@ -358,13 +360,7 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
 
         // Get transform rotation quaternion from facing direction
         {
-            // START HERE
-            y := enemy.facing
-            z := hlsl.float3 {0.0, 0.0, 1.0}
-            x := hlsl.normalize(hlsl.cross(y, z))
-            z = hlsl.normalize(hlsl.cross(x, y))
-            rot := basis_matrix(x, y, z)
-            transform.rotation = linalg.quaternion_from_matrix4(rot)
+            transform.rotation = linalg.quaternion_between_two_vector3_f32(hlsl.float3{0.0, 1.0, 0.0}, enemy.facing)
         }
     }
 
@@ -457,11 +453,59 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     for id, &body in game_state.spherical_bodies {
         transform := &game_state.transforms[id]
 
+        // Body's desired motion interval
+        motion_interval := Segment {
+            start = transform.position,
+            end = transform.position + dt * body.velocity
+        }
+
+        simple_continuous_collision_detection :: proc(
+            motion_interval: Segment,
+            transform: ^Transform,
+            radius: f32,
+            terrain: map[u32]TriangleMesh
+        ) -> (collision_normal: hlsl.float3, ok: bool) {
+            segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, terrain)
+            if segment_intersected {
+                segment_collision := sample_segment(motion_interval, segment_collision_t)
+                transform.position = segment_collision + segment_collision_normal * radius
+                collision_normal = segment_collision_normal
+                ok = true
+            } else {
+                closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(motion_interval.end, terrain)
+                d := hlsl.distance(motion_interval.end, closest_pt)
+                if d < radius {
+                    // Hit terrain
+                    remaining_d := radius - d
+                    transform.position = motion_interval.end + remaining_d * closest_pt_normal
+                    collision_normal = closest_pt_normal
+                    ok = true
+                }
+            }
+            return
+        }
+
+        collided_this_frame: bool
         switch body.state {
             case .Grounded: {
-
-                
                 // Check for walking into walls
+                collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
+                if ok {
+                    collided_this_frame = true
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 {
+                        // Floor
+                        body.velocity.z = 0.0
+                        body.state = .Grounded
+                    } else if n_dot < -0.1 {
+                        // Ceiling
+                        body.velocity.z = 0.0
+                    } else {
+                        // Wall
+                        
+                    }
+                }
+
 
                 // Check if we need to bump ourselves up or down
                 {
@@ -471,7 +515,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     }
                     tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
                     if okt {
-                        tolerance_point := get_segment_point(tolerance_segment, tolerance_t)
+                        tolerance_point := sample_segment(tolerance_segment, tolerance_t)
                         transform.position = tolerance_point + {0.0, 0.0, body.radius}
                         if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
                             body.velocity.z = 0.0
@@ -489,50 +533,29 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     body.velocity.z = TERMINAL_VELOCITY
                 }
 
-                // Body's desired motion interval
-                motion_interval := Segment {
-                    start = transform.position,
-                    end = transform.position + dt * body.velocity
-                }
-
-                segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
-                if segment_intersected {
-                    segment_collision := get_segment_point(motion_interval, segment_collision_t)
-                    transform.position = segment_collision
-                    transform.position += segment_collision_normal * body.radius
-                    n_dot := hlsl.dot(segment_collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && body.velocity.z < 0.0 {
+                collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
+                if ok {
+                    collided_this_frame = true
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 {
                         // Floor
                         body.velocity.z = 0.0
                         body.state = .Grounded
-                    } else if n_dot < -0.1 && body.velocity.z > 0.0 {
+                    } else if n_dot < -0.1 {
                         // Ceiling
                         body.velocity.z = 0.0
-                    }
-                } else {
-                    closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
-                    d := hlsl.distance(transform.position, closest_pt)
-                    if d < body.radius {
-                        // Hit terrain
-                        remaining_d := body.radius - d
-                        transform.position = motion_interval.end + remaining_d * closest_pt_normal
-                        n_dot := hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0})
-                        if n_dot >= 0.5 && body.velocity.z < 0.0 {
-                            // Floor
-                            body.velocity.z = 0.0
-                            body.state = .Grounded
-                        } else if n_dot < -0.1 && body.velocity.z > 0.0 {
-                            // Ceiling
-                            body.velocity.z = 0.0
-                        }
+                    } else {
+                        // Wall
+                        
                     }
                 }
 
             }
         }
 
-        // Update transform component
-        {
+        // Update transform component if collision resolution didn't
+        // already write to the transform
+        if !collided_this_frame {
             transform.position += dt * body.velocity
         }
     }
@@ -579,7 +602,6 @@ CharacterController :: struct {
     jump_speed: f32,
     bullet_travel_time: f32,
     health: u32,
-    facing: hlsl.float3,
     vortex_t: f32,
     anim_speed: f32,
     damage_timer: time.Time,
@@ -688,7 +710,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
 
             if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
-                char.facing = hlsl.normalize(world_invector).xyz
+                tform.rotation = linalg.quaternion_between_two_vector3_f32(hlsl.float3 {1.0, 0.0, 0.0}, hlsl.normalize(world_invector).xyz)
             }
         }
 
@@ -877,7 +899,6 @@ StaticModelInstance :: struct {
 SkinnedModelInstance :: struct {
     handle: SkinnedModelHandle,
     pos_offset: hlsl.float3,
-    rot_offset: quaternion128,
     anim_idx: u32,
     anim_t: f32,
     flags: InstanceFlags,
@@ -963,7 +984,6 @@ GameState :: struct {
     transform_deltas: map[u32]TransformDelta,
     cameras: map[u32]Camera,
     lookat_controllers: map[u32]LookatController,
-    //looping_animations: map[u32]LoopingAnimation,
     character_controllers: map[u32]CharacterController,
     enemy_ais: map[u32]EnemyAI,
     thrown_enemy_ais: map[u32]ThrownEnemyAI,
@@ -1210,7 +1230,6 @@ gamestate_new_scene :: proc(
             jump_speed = 10.0,
             bullet_travel_time = 0.144,
             health = CHARACTER_MAX_HEALTH,
-            facing = {0.0, 1.0, 0.0},
             vortex_t = 0.0,
             anim_speed = 0.856,
             damage_timer = {},
