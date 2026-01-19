@@ -174,11 +174,6 @@ tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
     }
 }
 
-LoopingAnimation :: struct {
-    index: u32,              // Index into renderer.animations
-    t: f32
-}
-
 tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: f32) {
     for id in game_state.looping_animations {
         instance := &game_state.skinned_models[id]
@@ -278,7 +273,6 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                 t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
                 rotq := z_rotate_quaternion(t)
                 enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
-                //transform.rotation = linalg.quaternion_from_forward_and_up(enemy.facing, hlsl.float3 {0.0, 0.0, 1.0})
 
                 body.velocity.xy = hlsl.normalize(enemy.facing.xy)
 
@@ -489,23 +483,24 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
         switch body.state {
             case .Grounded: {
                 // Check for walking into walls
-                collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
-                if ok {
-                    collided_this_frame = true
-                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 {
-                        // Floor
-                        body.velocity.z = 0.0
-                        body.state = .Grounded
-                    } else if n_dot < -0.1 {
-                        // Ceiling
-                        body.velocity.z = 0.0
-                    } else {
-                        // Wall
-                        
+                if body.velocity != {} {
+                    collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
+                    if ok {
+                        collided_this_frame = true
+                        n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                        if n_dot >= 0.5 {
+                            // Floor
+                            body.velocity.z = 0.0
+                            body.state = .Grounded
+                        } else if n_dot < -0.1 {
+                            // Ceiling
+                            body.velocity.z = 0.0
+                        } else {
+                            // Wall
+                            
+                        }
                     }
                 }
-
 
                 // Check if we need to bump ourselves up or down
                 {
@@ -574,26 +569,6 @@ CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
 BULLET_MAX_RADIUS :: 0.8
 CHARACTER_HEAVY_GRAVITY :: 2.2
-// Character :: struct {
-//     collision: PhysicsSphere,
-//     gravity_factor: f32,
-//     acceleration: hlsl.float3,
-//     deceleration_speed: f32,
-//     facing: hlsl.float3,
-//     move_speed: f32,
-//     sprint_speed: f32,
-//     jump_speed: f32,
-//     anim_t: f32,
-//     anim_speed: f32,
-//     health: u32,
-//     control_flags: CharacterFlags,
-//     damage_timer: time.Time,
-//     model: SkinnedModelHandle,
-
-//     air_vortex: Maybe(AirVortex),
-//     bullet_travel_time: f32,
-//     held_enemy: Maybe(Enemy),
-// }
 CharacterController :: struct {
     acceleration: hlsl.float3,
     deceleration_speed: f32,
@@ -1338,7 +1313,9 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
     }
 }
 
-load_level_file :: proc(
+load_level_file :: legacy_load_level_file
+
+legacy_load_level_file :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     audio_system: ^AudioSystem,
@@ -1550,7 +1527,13 @@ load_level_file :: proc(
     return true
 }
 
-write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
+save_level_file :: legacy_save_level_file
+
+new_save_level_file :: proc(game_state: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
+
+}
+
+legacy_save_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
     mesh_data_size :: proc(renderer: ^Renderer, mesh: $T) -> int {
         model := get_static_model(renderer, mesh.model)
         s := 0
