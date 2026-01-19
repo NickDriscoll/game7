@@ -505,7 +505,6 @@ main :: proc() {
 
         // Misc imgui window for testing
         @static cpu_limiter_ms : c.int = 100
-        @static rotate_sun := false
         @static move_player := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
@@ -571,8 +570,6 @@ main :: proc() {
                     }
                     imgui.EndDisabled()
                 }
-
-                imgui.Checkbox("Rotate sun", &rotate_sun)
 
                 imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
@@ -1014,7 +1011,6 @@ main :: proc() {
         {
             scoped_event(&profiler, "Camera update")
 
-            //current_view_from_world := camera_update(&game_state, &output_verbs, dt)
             tform := &game_state.transforms[game_state.viewport_camera_id]
             camera := &game_state.cameras[game_state.viewport_camera_id]
             lookat_controller, is_lookat := &game_state.lookat_controllers[game_state.viewport_camera_id]
@@ -1104,17 +1100,6 @@ main :: proc() {
                 color = model.color
             }
             draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &draw)
-        }
-        
-
-        // Rotate sunlight
-        if rotate_sun {
-            scoped_event(&profiler, "Rotate sunlight")
-            for i in 0..<renderer.cpu_uniforms.directional_light_count {
-                light := &renderer.cpu_uniforms.directional_lights[i]
-                d := hlsl.float4 {light.direction.x, light.direction.y, light.direction.z, 0.0}
-                light.direction = (d * yaw_rotation_matrix(dt)).xyz
-            }
         }
 
         // Window update
