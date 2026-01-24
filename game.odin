@@ -649,9 +649,6 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         collision := &game_state.spherical_bodies[id]
         model := &game_state.skinned_models[id]
 
-        // Is character invulnerable?
-        //invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
-
         // Set current xy velocity (and character facing) to whatever user input is
         {
             // X and Z bc view space is x-right, y-up, z-back
@@ -818,7 +815,10 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         // Shoot command
         {
             res, have_shoot := output_verbs.bools[.PlayerShoot]
-            if have_shoot {
+            if have_shoot && res {
+                char.vortex_t = 0.0
+                log.info("Shoot!")
+
                 // if res && char.air_vortex == nil {
                 //     held_enemy, is_holding_enemy := char.held_enemy.?
                 //     if is_holding_enemy {
@@ -846,31 +846,6 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
         }
 
-        // Check if we're being hit by an enemy
-        // if !invulnerable {
-        //     for enemy_id, enemy in game_state.enemy_ais {
-        //         enemy_tform := &game_state.transforms[enemy_id]
-        //         sphere, ok := &game_state.spherical_bodies[enemy_id]
-        //         if ok {
-        //             s := Sphere {
-        //                 position = enemy_tform.position,
-        //                 radius = sphere.radius
-        //             }
-        //             char_sphere := Sphere {
-        //                 position = tform.position,
-        //                 radius = collision.radius
-        //             }
-        //             if are_spheres_overlapping(s, char_sphere) {
-        //                 collision.velocity.z = 3.0
-        //                 collision.state = .Falling
-        //                 char.time_last_damaged = time.now()
-        //                 char.health -= 1
-        //                 play_sound_effect(audio_system, game_state.ow_sound)
-        //             }
-        //         }
-        //     }
-        // }
-
         {
             player_sphere := Sphere {
                 position = tform.position,
@@ -894,7 +869,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                     }
                 }
             }
-    
+
             // Remove coin
             remove_idx, ok := to_remove.?
             if ok {
@@ -905,18 +880,26 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
         }
 
-        // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
-        // bullet, bok := &char.air_vortex.?
-        // if bok {
-        //     // Bullet update
-        //     col := char.collision
-        //     bullet.t += dt
-        //     bullet.collision.position = char.collision.position
-        //     bullet.collision.radius = BULLET_MAX_RADIUS
-        //     if bullet.t > char.bullet_travel_time {
-        //         char.air_vortex = nil
-        //     }
-        // }
+        //bullet, bok := &char.air_vortex.?
+        if char.vortex_t < char.bullet_travel_time {
+            // Update graphics of vortex move
+            char.vortex_t += dt
+            radius := math.lerp(f32(0.0), BULLET_MAX_RADIUS, char.vortex_t)
+            draw := DebugDraw {
+                world_from_model = get_transform_matrix(tform^, radius),
+                color = {0.0, 0.4, 0.0, 0.3}
+            }
+            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
+
+            // Bullet update
+            // col := char.collision
+            // bullet.t += dt
+            // bullet.collision.position = char.collision.position
+            // bullet.collision.radius = BULLET_MAX_RADIUS
+            // if bullet.t > char.bullet_travel_time {
+            //     char.air_vortex = nil
+            // }
+        }
 
         // Camera follow point chases player
         // target_pt := char.collision.position
@@ -1287,7 +1270,7 @@ gamestate_new_scene :: proc(
             jump_speed = 10.0,
             bullet_travel_time = 0.144,
             health = CHARACTER_MAX_HEALTH,
-            vortex_t = 0.0,
+            vortex_t = 0.144 + 1.0,
             anim_speed = 0.856,
             time_last_damaged = {},
             flags = {}
