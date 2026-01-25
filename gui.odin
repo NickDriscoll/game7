@@ -165,7 +165,6 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     }
 
     handles := vkw.create_graphics_pipelines(gd, {pipeline_info})
-    defer delete(handles)
 
     imgui_state.pipeline = handles[0]
 
@@ -458,7 +457,10 @@ render_imgui :: proc(
 
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
-    imgui.Render()
+    {
+        scoped_event(&profiler, "imgui.Render()")
+        imgui.Render()
+    }
 
     // Insert a barrier to sync ImGUI's color attachment write
     // With the previous color attachment write

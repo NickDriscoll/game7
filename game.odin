@@ -504,6 +504,7 @@ SphericalBody :: struct {
 tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     scoped_event(&profiler, "tick_spherical_bodies")
     for id, &body in game_state.spherical_bodies {
+        scoped_event(&profiler, "tick_spherical_bodies iteration")
         transform := &game_state.transforms[id]
 
         // Body's desired motion interval
@@ -626,7 +627,7 @@ CharacterFlag :: enum {
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
-BULLET_MAX_RADIUS :: 0.8
+BULLET_MAX_RADIUS :: 1.0
 CHARACTER_HEAVY_GRAVITY :: 2.2
 CharacterController :: struct {
     acceleration: hlsl.float3,
@@ -884,9 +885,13 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         if char.vortex_t < char.bullet_travel_time {
             // Update graphics of vortex move
             char.vortex_t += dt
-            radius := math.lerp(f32(0.0), BULLET_MAX_RADIUS, char.vortex_t)
+            radius := BULLET_MAX_RADIUS * char.vortex_t / char.bullet_travel_time
+            mat := scaling_matrix(radius)
+            mat[3][0] = tform.position.x
+            mat[3][1] = tform.position.y
+            mat[3][2] = tform.position.z
             draw := DebugDraw {
-                world_from_model = get_transform_matrix(tform^, radius),
+                world_from_model = mat,
                 color = {0.0, 0.4, 0.0, 0.3}
             }
             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
