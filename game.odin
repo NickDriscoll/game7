@@ -818,7 +818,6 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             res, have_shoot := output_verbs.bools[.PlayerShoot]
             if have_shoot && res {
                 char.vortex_t = 0.0
-                log.info("Shoot!")
 
                 // if res && char.air_vortex == nil {
                 //     held_enemy, is_holding_enemy := char.held_enemy.?
@@ -895,21 +894,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 color = {0.0, 0.4, 0.0, 0.3}
             }
             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
-
-            // Bullet update
-            // col := char.collision
-            // bullet.t += dt
-            // bullet.collision.position = char.collision.position
-            // bullet.collision.radius = BULLET_MAX_RADIUS
-            // if bullet.t > char.bullet_travel_time {
-            //     char.air_vortex = nil
-            // }
         }
-
-        // Camera follow point chases player
-        // target_pt := char.collision.position
-        // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
-        //game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, tform.position, game_state.camera_follow_speed, dt)
     }
 }
 
@@ -2298,373 +2283,6 @@ scene_editor :: proc(
     }
 }
 
-// player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
-//     scoped_event(&profiler, "Player update")
-
-//     //char := &game_state.character
-//     camera := &game_state.cameras[game_state.viewport_camera_id]
-
-//     // Is character taking damage
-//     taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
-
-//     // Set current xy velocity (and character facing) to whatever user input is
-//     {
-//         // X and Z bc view space is x-right, y-up, z-back
-//         translate_vector := output_verbs.float2s[.PlayerTranslate]
-//         translate_vector_x := translate_vector.x
-//         translate_vector_z := translate_vector.y
-
-//         // Boolean (keyboard) input handling
-//         {
-//             flags := &char.control_flags
-
-//             set_character_flags_from_verb :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
-//                 r, ok := d[verb]
-//                 if ok {
-//                     if r {
-//                         flags^ += {action}
-//                     } else {
-//                         flags^ -= {action}
-//                     }
-//                 }
-//             }
-
-//             set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
-//             set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
-//             set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
-//             set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
-            
-//             if .MovingLeft in flags^ {
-//                 translate_vector_x += -1.0
-//             }
-//             if .MovingRight in flags^ {
-//                 translate_vector_x += 1.0
-//             }
-//             if .MovingBack in flags^ {
-//                 translate_vector_z += -1.0
-//             }
-//             if .MovingForward in flags^ {
-//                 translate_vector_z += 1.0
-//             }
-//         }
-
-//         // Input vector is in view space, so we transform to world space
-//         world_invector := hlsl.float4 {-translate_vector_z, translate_vector_x, 0.0, 0.0}
-//         world_invector = yaw_rotation_matrix(-camera.yaw) * world_invector
-//         if hlsl.length(world_invector) > 1.0 {
-//             world_invector = hlsl.normalize(world_invector)
-//         }
-
-//         // Handle sprint
-//         this_frame_move_speed := char.move_speed
-//         {
-//             amount, ok := output_verbs.floats[.Sprint]
-//             if ok {
-//                 this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
-//             }
-//             if .Sprint in output_verbs.bools {
-//                 if output_verbs.bools[.Sprint] {
-//                     char.control_flags += {.Sprinting}
-//                 } else {
-//                     char.control_flags -= {.Sprinting}
-//                 }
-//             }
-//             if .Sprinting in char.control_flags {
-//                 this_frame_move_speed = char.sprint_speed
-//             }
-//         }
-
-//         // Now we have a representation of the player's input vector in world space
-
-//         if !taking_damage {
-//             char.acceleration = {world_invector.x, world_invector.y, 0.0}
-//             accel_len := hlsl.length(char.acceleration)
-//             this_frame_move_speed *= accel_len
-//             if accel_len == 0 && char.collision.state == .Grounded {
-//                 to_zero := hlsl.float2 {0.0, 0.0} - char.collision.velocity.xy
-//                 char.collision.velocity.xy += char.deceleration_speed * to_zero
-//             }
-//             char.collision.velocity.xy += char.acceleration.xy
-//             if math.abs(hlsl.length(char.collision.velocity.xy)) > this_frame_move_speed {
-//                 char.collision.velocity.xy = this_frame_move_speed * hlsl.normalize(char.collision.velocity.xy)
-//             }
-//             movement_dist := hlsl.length(char.collision.velocity.xy)
-//             char.anim_t += char.anim_speed * dt * movement_dist
-//         }
-
-//         if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
-//             char.facing = hlsl.normalize(world_invector).xyz
-//         }
-//     }
-
-//     // Handle jump command
-//     {
-//         jumped, jump_ok := output_verbs.bools[.PlayerJump]
-//         if jump_ok {
-//             // If jump state changed...
-//             if jumped {
-//                 // To jumping...
-//                 if .AlreadyJumped in char.control_flags {
-//                     // Do thrown-enemy double-jump
-//                     held_enemy, is_holding_enemy := char.held_enemy.?
-//                     if is_holding_enemy {
-//                         char.held_enemy = nil
-
-//                         // Throw enemy downwards
-//                         // append(&game_state.thrown_enemies, ThrownEnemy {
-//                         //     position = char.collision.position - {0.0, 0.0, 0.5},
-//                         //     velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-//                         //     respawn_position = held_enemy.position,
-//                         //     respawn_home = held_enemy.home_position,
-//                         //     respawn_ai_state = .Resting,
-//                         //     collision_radius = 0.5,
-//                         // })
-
-//                         id := new_thrown_enemy(
-//                             game_state,
-//                             char.collision.position - {0.0, 0.0, 0.5},
-//                             {0.0, 0.0, -ENEMY_THROW_SPEED},
-//                             held_enemy.ai_state,
-//                             held_enemy.position
-//                         )
-
-//                         char.collision.velocity.z = 1.3 * char.jump_speed
-//                         play_sound_effect(audio_system, game_state.jump_sound)
-//                     }
-//                 } else {
-//                     // Do first jump
-//                     char.collision.velocity.z = char.jump_speed
-//                     char.control_flags += {.AlreadyJumped}
-
-//                     play_sound_effect(audio_system, game_state.jump_sound)
-//                 }
-
-//                 char.gravity_factor = 1.0
-//                 char.collision.state = .Falling
-//             } else {
-//                 // To not jumping...
-//                 char.gravity_factor = 2.2
-//             }
-//         }
-//     }
-
-//     // Apply gravity to velocity, clamping downward speed if necessary
-//     char.collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
-//     if char.collision.velocity.z < TERMINAL_VELOCITY {
-//         char.collision.velocity.z = TERMINAL_VELOCITY
-//     }
-
-//     // Compute motion interval
-//     motion_endpoint := char.collision.position + dt * char.collision.velocity
-//     motion_interval := Segment {
-//         start = char.collision.position,
-//         end = motion_endpoint
-//     }
-
-//     // Compute closest point to terrain along with
-//     // vector opposing player motion
-//     //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
-
-//     closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.triangle_meshes)
-//     collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-
-//     // Main player character state machine
-//     switch gravity_affected_sphere(
-//         game_state^,
-//         &char.collision,
-//         closest_pt,
-//         collision_normal,
-//         triangle_normal,
-//         motion_interval
-//     ) {
-//         case .None: {}
-//         case .Bump: {
-//             char.control_flags -= {.AlreadyJumped}
-//         }
-//         case .HitCeiling: {
-//         }
-//         case .HitFloor: {
-//         }
-//         case .PassedThroughGround: {
-//         }
-//     }
-
-//     // Teleport player back to spawn if hit death plane
-//     respawn := output_verbs.bools[.PlayerReset]
-//     respawn |= char.collision.position.z < -50.0
-//     respawn |= char.health == 0
-//     if respawn {
-//         char.collision.position = game_state.level_start
-//         char.collision.velocity = {}
-//         char.acceleration = {}
-//         char.health = CHARACTER_MAX_HEALTH
-//     }
-
-//     // Shoot command
-//     {
-//         res, have_shoot := output_verbs.bools[.PlayerShoot]
-//         if have_shoot {
-//             if res && char.air_vortex == nil {
-//                 held_enemy, is_holding_enemy := char.held_enemy.?
-//                 if is_holding_enemy {
-//                     id := new_thrown_enemy(
-//                         game_state,
-//                         char.collision.position + char.facing,
-//                         ENEMY_THROW_SPEED * char.facing,
-//                         held_enemy.ai_state,
-//                         held_enemy.position
-//                     )
-//                     char.held_enemy = nil
-//                 } else {
-//                     start_pos := char.collision.position
-//                     char.air_vortex = AirVortex {
-//                         collision = Sphere {
-//                             position = start_pos,
-//                             radius = 0.1
-//                         },
-    
-//                         t = 0.0,
-//                     }
-//                 }
-//                 play_sound_effect(audio_system, game_state.shoot_sound)
-//             }
-//         }
-//     }
-
-//     // Check if we're being hit by an enemy
-//     if !taking_damage {
-//         for id, enemy in game_state.enemy_ais {
-//             tform := &game_state.transforms[id]
-//             sphere := &game_state.spherical_bodies[id]
-//             s := Sphere {
-//                 position = tform.position,
-//                 radius = sphere.radius
-//             }
-//             if are_spheres_overlapping(s, char.collision) {
-//                 char.collision.velocity.z = 3.0
-//                 char.collision.state = .Falling
-//                 char.damage_timer = time.now()
-//                 char.health -= 1
-//                 play_sound_effect(audio_system, game_state.ow_sound)
-//             }
-
-//         }
-//     }
-
-//     // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
-//     bullet, bok := &char.air_vortex.?
-//     if bok {
-//         // Bullet update
-//         col := char.collision
-//         bullet.t += dt
-//         bullet.collision.position = char.collision.position
-//         bullet.collision.radius = BULLET_MAX_RADIUS
-//         if bullet.t > char.bullet_travel_time {
-//             char.air_vortex = nil
-//         }
-//     }
-
-//     // Camera follow point chases player
-//     target_pt := char.collision.position
-//     game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
-// }
-
-// player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
-//     scoped_event(&profiler, "Player draw")
-//     character := &game_state.character
-
-//     y := -character.facing
-//     z := hlsl.float3 {0.0, 0.0, 1.0}
-//     x := hlsl.cross(y, z)
-//     rotate_mat := basis_matrix(x, y, z)
-
-//     // @TODO: Remove this matmul as this is just to correct an error with the model
-//     rotate_mat *= yaw_rotation_matrix(-math.PI / 2.0)
-
-//     model := get_skinned_model(renderer, game_state.character.model)
-    
-//     end := get_animation_duration(&renderer.animations[model.first_animation_idx])
-//     for character.anim_t > end {
-//         character.anim_t -= end
-//     }
-//     ddata := SkinnedDraw {
-//         world_from_model = rotate_mat,
-//         anim_idx = 0,
-//         anim_t = character.anim_t,
-//     }
-//     col := &game_state.character.collision
-
-//     // Blink if taking damage
-//     do_draw := timer_expired(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) ||
-//              (gd.frame_count >> 4) % 2 == 0
-//     if do_draw {
-//         ddata.world_from_model[3][0] = col.position.x
-//         ddata.world_from_model[3][1] = col.position.y
-//         ddata.world_from_model[3][2] = col.position.z - col.radius
-//         draw_ps1_skinned_mesh(gd, renderer, game_state.character.model, &ddata)
-//     }
-
-//     // Draw enemy above player head
-//     held_enemy, is_holding_enemy := character.held_enemy.?
-//     if is_holding_enemy {
-//         bob := 0.2 * math.sin(game_state.time * 1.7)
-//         pos := character.collision.position + {0.0, 0.0, 1.5 + bob}
-//         mat := translation_matrix(pos)
-//         mat *= yaw_rotation_matrix(game_state.time)
-//         mat *= uniform_scaling_matrix(0.5)
-//         dd := StaticDraw {
-//             world_from_model = mat,
-//             flags = {.Glowing}
-//         }
-//         draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
-
-//         // Light source
-//         l := default_point_light()
-//         l.color = {0.0, 1.0, 0.0}
-//         l.world_position = pos
-//         l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-//         do_point_light(renderer, l)
-//     }
-        
-//     // Air bullet draw
-//     {
-//         bullet, ok := game_state.character.air_vortex.?
-//         if ok {
-//             dd := DebugDraw {
-//                 world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
-//                 color = {0.0, 1.0, 0.0, 0.2}
-//             }
-//             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-
-//             // Make air bullet a point light source
-//             l := default_point_light()
-//             l.color = {0.0, 1.0, 0.0}
-//             l.world_position = bullet.collision.position
-//             do_point_light(renderer, l)
-//         }
-//     }
-
-//     // Debug draw logic
-//     if .ShowPlayerHitSphere in game_state.debug_vis_flags {
-//         dd: DebugDraw
-//         dd.world_from_model = translation_matrix(col.position) * scaling_matrix(col.radius)
-//         dd.color = {0.3, 0.4, 1.0, 0.5}
-//         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-//     }
-//     if .ShowPlayerSpawn in game_state.debug_vis_flags {
-//         dd: DebugDraw
-//         dd.world_from_model = translation_matrix(game_state.level_start) * scaling_matrix(0.2)
-//         dd.color = {0.0, 1.0, 0.0, 0.5}
-//         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-//     }
-//     if .ShowPlayerActivityRadius in game_state.debug_vis_flags {
-//         dd: DebugDraw
-//         dd.world_from_model = translation_matrix(col.position) * scaling_matrix(ENEMY_PLAYER_MIN_DISTANCE)
-//         dd.color = {0.0, 1.0, 0.5, 0.2}
-//         draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-//     }
-// }
-
 lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {
     HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
@@ -2699,18 +2317,28 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     }
     camera.pitch = clamp(camera.pitch, -math.PI / 2.0 + 0.0001, math.PI / 2.0 - 0.0001)
     
+    // @TODO: Quaternions
     pitchmat := roll_rotation_matrix(-camera.pitch)
     yawmat := yaw_rotation_matrix(-camera.yaw)
     pos_offset := lookat_controller.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
-    desired_position := target_position + pos_offset.xyz
-    dir := hlsl.normalize(target_position - desired_position)
+    // Camera follow point chases player
+    // target_pt := char.collision.position
+    // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
+    lookat_controller.current_focal_point = exponential_smoothing(
+        lookat_controller.current_focal_point,
+        target_position,
+        game_state.camera_follow_speed,
+        dt
+    )
+
+    desired_position := lookat_controller.current_focal_point + pos_offset.xyz
     interval := Segment {
-        start = target_position,
+        start = lookat_controller.current_focal_point,
         end = desired_position
     }
     s := Sphere {
-        position = target_position,
+        position = lookat_controller.current_focal_point,
         radius = 0.1
     }
     hit_t, hit := dynamic_sphere_vs_terrain_t(s, game_state.triangle_meshes, interval)
@@ -2719,8 +2347,6 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     }
 
     tform.position = desired_position
-
-    //return lookat_view_from_world(tform^, target_position)
 }
 
 freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {

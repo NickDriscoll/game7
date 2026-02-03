@@ -1016,9 +1016,8 @@ main :: proc() {
             lookat_controller, is_lookat := &game_state.lookat_controllers[game_state.viewport_camera_id]
             current_view_from_world: hlsl.float4x4 
             if is_lookat {
-                target := &game_state.transforms[lookat_controller.target]
                 lookat_camera_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
-                current_view_from_world = lookat_view_from_world(tform^, target.position)
+                current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
             } else {
                 freecam_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
