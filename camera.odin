@@ -4,11 +4,6 @@ import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
 
-// CameraTarget :: struct {
-//     position: hlsl.float3,
-//     distance: f32,
-// }
-
 CAMERA_COLLISION_RADIUS :: 0.1
 
 CameraFlag  :: enum {
@@ -25,6 +20,7 @@ CameraFlag  :: enum {
 CameraFlags :: bit_set[CameraFlag]
 
 LookatController :: struct {
+    current_focal_point: hlsl.float3,
     target: u32,
     distance: f32,
 }
@@ -42,38 +38,6 @@ Camera :: struct {
 
     flags: CameraFlags,
 }
-
-// Camera :: struct {
-//     position: hlsl.float3,
-
-//     // Pitch and yaw are oriented around {0.0, 0.0, 1.0} in world space
-//     yaw: f32,
-//     pitch: f32,
-
-//     fov_radians: f32,
-//     aspect_ratio: f32,
-//     nearplane: f32,
-//     farplane: f32,
-//     collision_radius: f32,
-//     target: CameraTarget,
-//     control_flags: CameraFlags,
-// }
-
-// camera_view_from_world :: proc(camera: Camera) -> hlsl.float4x4 {
-//     pitch := pitch_rotation_matrix(camera.pitch)
-//     yaw := yaw_rotation_matrix(camera.yaw)
-//     trans := translation_matrix(-camera.position)
-
-//     // Change from right-handed Z-Up to left-handed Y-Up
-//     c_mat := hlsl.float4x4 {
-//         1.0, 0.0, 0.0, 0.0,
-//         0.0, 0.0, 1.0, 0.0,
-//         0.0, -1.0, 0.0, 0.0,
-//         0.0, 0.0, 0.0, 1.0,
-//     }
-
-//     return c_mat * pitch * yaw * trans
-// }
 
 freecam_view_from_world :: proc(transform: Transform, camera: Camera) -> hlsl.float4x4 {
     pitch := pitch_rotation_matrix(camera.pitch)
