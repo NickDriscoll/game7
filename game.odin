@@ -26,8 +26,9 @@ DEFAULT_COMPONENT_MAP_CAPACITY :: 64
 GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
+DEFAULT_FACING_DIRECTION :: hlsl.float3 {1.0, 0.0, 0.0}
 
-closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) -> hlsl.float3 {
+closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
     candidate: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in terrain {
@@ -40,7 +41,7 @@ closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) ->
     }
     return candidate
 }
-closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
+closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
     scoped_event(&profiler, "closest_pt_terrain_with_normal")
     candidate: hlsl.float3
     cn: hlsl.float3
@@ -57,7 +58,7 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[u32]Tria
     return candidate, cn
 }
 
-intersect_segment_terrain :: proc(segment: Segment, terrain: map[u32]TriangleMesh) -> (hlsl.float3, bool) {
+intersect_segment_terrain :: proc(segment: Segment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain")
     cand_t := math.INF_F32
     for _, &piece in terrain {
@@ -72,7 +73,7 @@ intersect_segment_terrain :: proc(segment: Segment, terrain: map[u32]TriangleMes
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
-intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[u32]TriangleMesh) -> (f32, hlsl.float3, bool) {
+intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain_with_normal")
     cand_t := math.INF_F32
     normal: hlsl.float3
@@ -89,7 +90,7 @@ intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[u32
     return cand_t, normal, cand_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[u32]TriangleMesh, motion_interval: Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: Segment) -> (f32, bool) {
     closest_t := math.INF_F32
     for _, piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
@@ -104,8 +105,8 @@ dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[u32]TriangleMesh, mo
 
 do_mouse_raycast :: proc(
     game_state: GameState,
-    viewport_camera_id: u32,
-    triangle_meshes: map[u32]TriangleMesh,
+    viewport_camera_id: EntityID,
+    triangle_meshes: map[EntityID]TriangleMesh,
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
@@ -216,7 +217,7 @@ default_enemyai :: proc(game_state: GameState) -> EnemyAI {
     }
 }
 
-new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, state: EnemyState) -> u32 {
+new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, state: EnemyState) -> EntityID {
     id := gamestate_next_id(game_state)
     game_state.transforms[id] = Transform {
         position = position,
@@ -243,7 +244,7 @@ new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, sta
     return id
 }
 
-delete_enemy :: proc(game_state: ^GameState, id: u32) {
+delete_enemy :: proc(game_state: ^GameState, id: EntityID) {
     delete_key(&game_state.transforms, id)
     delete_key(&game_state.spherical_bodies, id)
     delete_key(&game_state.enemy_ais, id)
@@ -257,7 +258,7 @@ ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
     char_tform := &game_state.transforms[game_state.player_id]
 
-    enemy_to_remove: Maybe(u32)
+    enemy_to_remove: Maybe(EntityID)
     for id, &enemy in game_state.enemy_ais {
         transform := &game_state.transforms[id]
         
@@ -388,7 +389,7 @@ HoveringEnemy :: struct {
     radius: f32,
 }
 
-new_hovering_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32) -> u32 {
+new_hovering_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32) -> EntityID {
     id := gamestate_next_id(game_state)
     game_state.transforms[id] = Transform {
         position = position,
@@ -440,7 +441,7 @@ ThrownEnemyAI :: struct {
 }
 
 tick_thrown_enemies :: proc(game_state: ^GameState) {
-    to_remove: Maybe(u32)
+    to_remove: Maybe(EntityID)
     for id, enemy in game_state.thrown_enemy_ais {
         transform := &game_state.transforms[id]
         closest_pt := closest_pt_terrain(transform.position, game_state.triangle_meshes)
@@ -465,7 +466,7 @@ new_thrown_enemy :: proc(
     velocity: hlsl.float3,
     state: EnemyState,
     respawn_position: hlsl.float3,
-) -> u32 {
+) -> EntityID {
     id := gamestate_next_id(game_state)
     game_state.transforms[id] = Transform {
         position = position,
@@ -487,7 +488,7 @@ new_thrown_enemy :: proc(
     return id
 }
 
-delete_thrown_enemy :: proc(game_state: ^GameState, id: u32) {
+delete_thrown_enemy :: proc(game_state: ^GameState, id: EntityID) {
     delete_key(&game_state.transforms, id)
     delete_key(&game_state.transform_deltas, id)
     delete_key(&game_state.static_models, id)
@@ -517,7 +518,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
             motion_interval: Segment,
             transform: ^Transform,
             radius: f32,
-            terrain: map[u32]TriangleMesh
+            terrain: map[EntityID]TriangleMesh
         ) -> (collision_normal: hlsl.float3, ok: bool) {
             segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, terrain)
             if segment_intersected {
@@ -623,6 +624,7 @@ CharacterFlag :: enum {
     MovingForward,
     AlreadyJumped,
     Sprinting,
+    HoldingEnemy
 }
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
@@ -742,7 +744,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
 
             if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
-                tform.rotation = linalg.quaternion_between_two_vector3_f32(hlsl.float3 {1.0, 0.0, 0.0}, hlsl.normalize(world_invector).xyz)
+                tform.rotation = linalg.quaternion_between_two_vector3_f32(DEFAULT_FACING_DIRECTION, hlsl.normalize(world_invector).xyz)
             }
         }
 
@@ -760,6 +762,8 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                     // To jumping...
                     if .AlreadyJumped in flags {
                         // Do thrown-enemy double-jump
+                        
+
                         // held_enemy, is_holding_enemy := char.held_enemy.?
                         // if is_holding_enemy {
                         //     char.held_enemy = nil
@@ -817,7 +821,14 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
         {
             res, have_shoot := output_verbs.bools[.PlayerShoot]
             if have_shoot && res {
-                char.vortex_t = 0.0
+                if .HoldingEnemy in char.flags {
+                    char.flags -= {.HoldingEnemy}
+                    throw_dir := ENEMY_THROW_SPEED * linalg.quaternion128_mul_vector3(tform.rotation, DEFAULT_FACING_DIRECTION)
+                    new_thrown_enemy(game_state, tform.position, throw_dir, .BrainDead, {})
+                } else {
+                    char.vortex_t = 0.0
+                }
+
 
                 // if res && char.air_vortex == nil {
                 //     held_enemy, is_holding_enemy := char.held_enemy.?
@@ -846,12 +857,12 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
         }
 
+        player_sphere := Sphere {
+            position = tform.position,
+            radius = collision.radius
+        }
+
         {
-            player_sphere := Sphere {
-                position = tform.position,
-                radius = collision.radius
-            }
-    
             to_remove: Maybe(u32)
             for coin_id, idx in game_state.coins {
                 coin_tform := &game_state.transforms[coin_id]
@@ -880,11 +891,34 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
             }
         }
 
+        // Do logic for vortex move
         //bullet, bok := &char.air_vortex.?
         if char.vortex_t < char.bullet_travel_time {
-            // Update graphics of vortex move
             char.vortex_t += dt
             radius := BULLET_MAX_RADIUS * char.vortex_t / char.bullet_travel_time
+
+            // Check for collision with enemies
+            enemy_to_remove: Maybe(EntityID)
+            for enemy_id, _ in game_state.enemy_ais {
+                enemy_tform := &game_state.transforms[enemy_id]
+
+                tsphere := Sphere {
+                    position = enemy_tform.position,
+                    radius = radius
+                }
+                if are_spheres_overlapping(player_sphere, tsphere) {
+                    enemy_to_remove = enemy_id
+                    break
+                }
+            }
+            enemy_remove_id, ok := enemy_to_remove.?
+            if ok {
+                char.vortex_t = char.bullet_travel_time
+                char.flags += {.HoldingEnemy}
+                delete_enemy(game_state, enemy_remove_id)
+            }
+
+            // Update graphics
             mat := scaling_matrix(radius)
             mat[3][0] = tform.position.x
             mat[3][1] = tform.position.y
@@ -894,6 +928,12 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 color = {0.0, 0.4, 0.0, 0.3}
             }
             draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
+
+            do_point_light(renderer, PointLight {
+                world_position = tform.position,
+                intensity = radius,
+                color = {0.0, 1.0, 0.0}
+            })
         }
     }
 }
@@ -944,12 +984,6 @@ CollisionState :: enum {
     Falling
 }
 
-PhysicsSphere :: struct {
-    using s: Sphere,
-    velocity: hlsl.float3,
-    state: CollisionState,
-}
-
 EnemyState :: enum {
     BrainDead,
 
@@ -997,8 +1031,8 @@ EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    player_id: u32,
-    viewport_camera_id: u32,
+    player_id: EntityID,
+    viewport_camera_id: EntityID,
 
     // Scene/Level data
     level_start: hlsl.float3,
@@ -1006,24 +1040,24 @@ GameState :: struct {
 
     // Data-oriented tables
     _next_id: u32,                   // Components with the same id are associated with one another
-    transforms: map[u32]Transform,
-    transform_deltas: map[u32]TransformDelta,
-    cameras: map[u32]Camera,
-    lookat_controllers: map[u32]LookatController,
-    character_controllers: map[u32]CharacterController,
-    enemy_ais: map[u32]EnemyAI,
-    hovering_enemies: map[u32]HoveringEnemy,
-    thrown_enemy_ais: map[u32]ThrownEnemyAI,
-    spherical_bodies: map[u32]SphericalBody,
-    triangle_meshes: map[u32]TriangleMesh,
-    static_models: map[u32]StaticModelInstance,
-    skinned_models: map[u32]SkinnedModelInstance,
-    debug_models: map[u32]DebugModelInstance,
+    transforms: map[EntityID]Transform,
+    transform_deltas: map[EntityID]TransformDelta,
+    cameras: map[EntityID]Camera,
+    lookat_controllers: map[EntityID]LookatController,
+    character_controllers: map[EntityID]CharacterController,
+    enemy_ais: map[EntityID]EnemyAI,
+    hovering_enemies: map[EntityID]HoveringEnemy,
+    thrown_enemy_ais: map[EntityID]ThrownEnemyAI,
+    spherical_bodies: map[EntityID]SphericalBody,
+    triangle_meshes: map[EntityID]TriangleMesh,
+    static_models: map[EntityID]StaticModelInstance,
+    skinned_models: map[EntityID]SkinnedModelInstance,
+    debug_models: map[EntityID]DebugModelInstance,
 
     // Sometimes we need behavior associated with a group of ids
     // without actually needing to store additional state
-    looping_animations: [dynamic]u32,
-    coins: [dynamic]u32,
+    looping_animations: [dynamic]EntityID,
+    coins: [dynamic]EntityID,
 
     character_damage_events: [dynamic]DamageEvent,
 
@@ -1221,22 +1255,22 @@ gamestate_new_scene :: proc(
 ) {
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
-    game_state.transforms = make(map[u32]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.transform_deltas = make(map[u32]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.cameras = make(map[u32]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.lookat_controllers = make(map[u32]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.character_controllers = make(map[u32]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.enemy_ais = make(map[u32]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.hovering_enemies = make(map[u32]HoveringEnemy, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.thrown_enemy_ais = make(map[u32]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.spherical_bodies = make(map[u32]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.triangle_meshes = make(map[u32]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.static_models = make(map[u32]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.skinned_models = make(map[u32]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.debug_models = make(map[u32]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.transform_deltas = make(map[EntityID]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.cameras = make(map[EntityID]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.lookat_controllers = make(map[EntityID]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.character_controllers = make(map[EntityID]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.enemy_ais = make(map[EntityID]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.hovering_enemies = make(map[EntityID]HoveringEnemy, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.thrown_enemy_ais = make(map[EntityID]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.spherical_bodies = make(map[EntityID]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.triangle_meshes = make(map[EntityID]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.static_models = make(map[EntityID]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.skinned_models = make(map[EntityID]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.debug_models = make(map[EntityID]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     
-    game_state.looping_animations = make([dynamic]u32, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.coins = make([dynamic]u32, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.looping_animations = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.coins = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
     // Initialize player character
     {
@@ -1339,11 +1373,11 @@ gamestate_new_scene :: proc(
     game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb", scene_allocator)
 }
 
-gamestate_next_id :: proc(gamestate: ^GameState) -> u32 {
+gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
     assert(gamestate._next_id < max(u32), "Overflowed entity id!")
     r := gamestate._next_id
     gamestate._next_id += 1
-    return r
+    return EntityID(r)
 }
 
 game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
@@ -1370,6 +1404,24 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
         tick_hovering_enemies(game_state, dt)
         tick_damage_events(game_state, audio_system)
     }
+}
+
+
+ComponentFlags :: bit_set[ComponentFlag]
+ComponentFlag :: enum {
+    Transform,
+    TransformDelta,
+    Camera,
+    LookatController,
+    CharacterController,
+    EnemyAI,
+    HoveringEnemy,
+    ThrownEnemyAI,
+    SphericalBody,
+    TriangleMesh,
+    StaticModel,
+    SkinnedModel,
+    DebugModel,
 }
 
 load_level_file :: legacy_load_level_file
@@ -1552,7 +1604,7 @@ legacy_load_level_file :: proc(
                     scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
                     ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
 
-                    id: u32
+                    id: EntityID
                     if ai_state == .Hovering {
                         id = new_hovering_enemy(game_state, position, scale)
                     } else {
@@ -1593,8 +1645,72 @@ legacy_load_level_file :: proc(
 
 save_level_file :: legacy_save_level_file
 
-new_save_level_file :: proc(game_state: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
+new_save_level_file :: proc(
+    game_state: GameState,
+    renderer: Renderer,
+    audio_system: AudioSystem,
+    path: string,
+    temp_allocator := context.temp_allocator
+) {
+    // Idea: For each entity, store id followed by component mask followed by component data
 
+    // Level file size equals:
+    // (entity_count * (size_of(EntityID) + size_of(ComponentFlags))) +
+    // for_each_component(num_components * size_of(ComponentType)) +
+    // for_each_entity_array(num_ids * size_of(EntityID))
+    calc_level_file_size :: proc(game_state: GameState) -> u32 {
+        entity_metadata_size := (game_state._next_id - 1) * (size_of(EntityID) + size_of(ComponentFlags))
+        
+        components_size := 0
+        components_size += len(game_state.transforms) * size_of(Transform)
+        components_size += len(game_state.transform_deltas) * size_of(TransformDelta)
+        components_size += len(game_state.cameras) * size_of(Camera)
+        components_size += len(game_state.lookat_controllers) * size_of(LookatController)
+        components_size += len(game_state.character_controllers) * size_of(CharacterController)
+        components_size += len(game_state.enemy_ais) * size_of(EnemyAI)
+        components_size += len(game_state.hovering_enemies) * size_of(HoveringEnemy)
+        components_size += len(game_state.thrown_enemy_ais) * size_of(ThrownEnemyAI)
+        components_size += len(game_state.spherical_bodies) * size_of(SphericalBody)
+        components_size += len(game_state.triangle_meshes) * size_of(TriangleMesh)
+        components_size += len(game_state.static_models) * size_of(StaticModelInstance)
+        components_size += len(game_state.skinned_models) * size_of(SkinnedModelInstance)
+        components_size += len(game_state.debug_models) * size_of(DebugModelInstance)
+
+        entity_array_size := 0
+        entity_array_size += len(game_state.looping_animations) * size_of(EntityID)
+        entity_array_size += len(game_state.coins) * size_of(EntityID)
+
+        return entity_metadata_size + u32(components_size)
+    }
+
+    write_thing_to_buffer :: proc(buffer: []byte, ptr: ^$T, head: ^u32) {
+        amount := size_of(T)
+        mem.copy_non_overlapping(&buffer[head^], ptr, amount)
+        head^ += u32(amount)
+    }
+
+    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
+        amount := u32(len(st))
+        write_thing_to_buffer(buffer, &amount, head)
+        mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
+        head^ += amount
+    }
+
+    // Set up intermediate buffer for gathering file data
+    write_head := 0
+    output_buffer := make([dynamic]byte, calc_level_file_size(game_state), temp_allocator)
+
+    // Iterate over every entity and write relevant data
+    for i in 0..<game_state._next_id {
+        id := EntityID(i)
+
+        {
+            tform, ok := game_state.transforms[id]
+            if ok {
+
+            }
+        }
+    }
 }
 
 legacy_save_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
@@ -2283,7 +2399,7 @@ scene_editor :: proc(
     }
 }
 
-lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {
+lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
     HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
     tform := &game_state.transforms[id]
@@ -2349,7 +2465,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     tform.position = desired_position
 }
 
-freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u32, dt: f32) {
+freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
     camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
     camera_speed_mod : f32 = 1.0
 
@@ -2492,7 +2608,7 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: u3
 
 camera_gui :: proc(
     game_state: ^GameState,
-    camera_id: u32,
+    camera_id: EntityID,
     input_system: ^InputSystem,
     user_config: ^UserConfiguration,
     close: ^bool
@@ -2509,7 +2625,7 @@ camera_gui :: proc(
 
         imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
         imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
-        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 500.0)
+        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
         imgui.SameLine()
         if imgui.Button("Reset") {
             game_state.camera_follow_speed = 6.0
@@ -2539,7 +2655,7 @@ camera_gui :: proc(
             imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
             tgt: c.int = c.int(lookat_controller.target)
             if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
-                lookat_controller.target = u32(tgt)
+                lookat_controller.target = EntityID(tgt)
             }
         }
 
