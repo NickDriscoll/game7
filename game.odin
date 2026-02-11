@@ -1686,6 +1686,12 @@ new_save_level_file :: proc(
         final_size += len(game_state.debug_models) * (size_of(DebugModelInstance) + size_of(EntityID))
         final_size += size_of(u32)
 
+        // Special entities that don't need extra state
+        final_size += size_of(u32)
+        final_size += len(game_state.looping_animations) * size_of(EntityID)
+        final_size += size_of(u32)
+        final_size += len(game_state.coins) * size_of(EntityID)
+
         return u32(final_size)
     }
 
@@ -1721,9 +1727,22 @@ new_save_level_file :: proc(
         }
     }
 
+    write_naked_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
+        size := u32(len(ids))
+        write_thing_to_buffer(buffer, &size, head)
+        if size == 0 {
+            return
+        }
+
+        len_bytes := size * size_of(EntityID)
+        mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
+        head^ += len_bytes
+    }
+
     // Set up intermediate buffer for gathering file data
+    total_size := calc_level_file_size(game_state^)
     write_head : u32 = 0
-    output_buffer := make([dynamic]byte, calc_level_file_size(game_state^), temp_allocator)
+    output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
     // Write components to file
     write_component_map(output_buffer[:], game_state.transforms, &write_head)
@@ -1741,7 +1760,10 @@ new_save_level_file :: proc(
     write_component_map(output_buffer[:], game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
+    write_naked_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
+    write_naked_entities(output_buffer[:], game_state.coins[:], &write_head)
 
+    assert(write_head == total_size)
 
     // Actually write the buffer to the file
     lvl_file, lvl_err := create_write_file(path)
@@ -1760,7 +1782,7 @@ new_save_level_file :: proc(
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
-    game_state.current_level = path_clone
+    //game_state.current_level = path_clone
 
     log.infof("Finished saving level to \"%v\"", path)
 }
