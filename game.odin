@@ -1426,6 +1426,115 @@ ComponentFlag :: enum {
 
 load_level_file :: legacy_load_level_file
 
+new_load_level_file :: proc(
+    gd: ^vkw.GraphicsDevice,
+    renderer: ^Renderer,
+    audio_system: ^AudioSystem,
+    game_state: ^GameState,
+    user_config: ^UserConfiguration,
+    path: string,
+    scene_allocator := context.allocator
+) -> bool {
+    // Audio lock while loading level data
+    sdl2.LockAudioDevice(audio_system.device_id)
+    defer sdl2.UnlockAudioDevice(audio_system.device_id)
+
+    vkw.device_wait_idle(gd)
+
+    free_all(context.temp_allocator)
+    free_all(scene_allocator)
+    audio_new_scene(audio_system)
+    new_scene(renderer, scene_allocator)
+    gamestate_new_scene(game_state, gd, renderer, user_config)
+
+    lvl_data: []byte
+    {
+        err: os2.Error
+        lvl_data, err = os2.read_entire_file(path, context.temp_allocator)
+        if err != nil {
+            log.errorf("Error reading entire level file \"%v\": %v", path, err)
+            return false
+        }
+    }
+
+    read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
+        thing: type
+        mem.copy_non_overlapping(&thing, &buffer[read_head^], size_of(type))
+        read_head^ += size_of(type)
+        return thing
+    }
+
+    read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
+        // Read the u32 string length, then read the string itself
+        str_len := read_thing_from_buffer(buffer, u32, read_head)
+        s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
+        read_head^ += str_len
+        return s
+    }
+
+    read_component_map :: proc(buffer: []byte, components: ^map[EntityID]$T, head: ^u32) -> u32 {
+        // Read component count
+        count := read_thing_from_buffer(buffer, u32, head)
+
+        largest_id: u32
+        for i in 0..<count {
+            id := read_thing_from_buffer(buffer, EntityID, head)
+            comp := read_thing_from_buffer(buffer, T, head)
+            components[id] = comp
+            if u32(id) > largest_id {
+                largest_id = u32(id)
+            }
+        }
+
+        // We want to return the largest id in order to initialize game_state._next_id
+        return largest_id
+        
+        // size := u32(len(components))
+        // write_thing_to_buffer(buffer, &size, head)
+
+        // for id, &comp in components {
+        //     id := id
+        //     write_thing_to_buffer(buffer[:], &id, head)
+        //     write_thing_to_buffer(buffer[:], &comp, head)
+        // }
+    }
+
+    read_naked_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
+        
+        
+        
+        // size := u32(len(ids))
+        // write_thing_to_buffer(buffer, &size, head)
+        // if size == 0 {
+        //     return
+        // }
+
+        // len_bytes := size * size_of(EntityID)
+        // mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
+        // head^ += len_bytes
+    }
+
+    read_head : u32 = 0
+    
+    // Read components in order
+    read_component_map(lvl_data, &game_state.transforms, &read_head)
+    read_component_map(lvl_data, &game_state.transform_deltas, &read_head)
+    read_component_map(lvl_data, &game_state.cameras, &read_head)
+    read_component_map(lvl_data, &game_state.lookat_controllers, &read_head)
+    read_component_map(lvl_data, &game_state.character_controllers, &read_head)
+    read_component_map(lvl_data, &game_state.enemy_ais, &read_head)
+    read_component_map(lvl_data, &game_state.hovering_enemies, &read_head)
+    read_component_map(lvl_data, &game_state.thrown_enemy_ais, &read_head)
+    read_component_map(lvl_data, &game_state.spherical_bodies, &read_head)
+    read_component_map(lvl_data, &game_state.triangle_meshes, &read_head)
+    read_component_map(lvl_data, &game_state.static_models, &read_head)
+    read_component_map(lvl_data, &game_state.skinned_models, &read_head)
+    read_component_map(lvl_data, &game_state.debug_models, &read_head)
+    
+
+    return true
+}
+
 legacy_load_level_file :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
@@ -1476,7 +1585,6 @@ legacy_load_level_file :: proc(
     // Character start
     game_state.level_start = read_thing_from_buffer(lvl_bytes, type_of(game_state.level_start), &read_head)
     player_tform.position = game_state.level_start
-    //game_state.camera_follow_point = game_state.character.collision.position
     
     path_builder: strings.Builder
     strings.builder_init(&path_builder, context.temp_allocator)
