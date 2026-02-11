@@ -1643,44 +1643,50 @@ legacy_load_level_file :: proc(
     return true
 }
 
-save_level_file :: legacy_save_level_file
+save_level_file :: new_save_level_file
 
 new_save_level_file :: proc(
-    game_state: GameState,
-    renderer: Renderer,
+    game_state: ^GameState,
+    renderer: ^Renderer,
     audio_system: AudioSystem,
     path: string,
     temp_allocator := context.temp_allocator
 ) {
     // Idea: For each entity, store id followed by component mask followed by component data
+    // Better idea: Just store components along with their ids
 
-    // Level file size equals:
-    // (entity_count * (size_of(EntityID) + size_of(ComponentFlags))) +
-    // for_each_component(num_components * size_of(ComponentType)) +
-    // for_each_entity_array(num_ids * size_of(EntityID))
     calc_level_file_size :: proc(game_state: GameState) -> u32 {
-        entity_metadata_size := (game_state._next_id - 1) * (size_of(EntityID) + size_of(ComponentFlags))
-        
-        components_size := 0
-        components_size += len(game_state.transforms) * size_of(Transform)
-        components_size += len(game_state.transform_deltas) * size_of(TransformDelta)
-        components_size += len(game_state.cameras) * size_of(Camera)
-        components_size += len(game_state.lookat_controllers) * size_of(LookatController)
-        components_size += len(game_state.character_controllers) * size_of(CharacterController)
-        components_size += len(game_state.enemy_ais) * size_of(EnemyAI)
-        components_size += len(game_state.hovering_enemies) * size_of(HoveringEnemy)
-        components_size += len(game_state.thrown_enemy_ais) * size_of(ThrownEnemyAI)
-        components_size += len(game_state.spherical_bodies) * size_of(SphericalBody)
-        components_size += len(game_state.triangle_meshes) * size_of(TriangleMesh)
-        components_size += len(game_state.static_models) * size_of(StaticModelInstance)
-        components_size += len(game_state.skinned_models) * size_of(SkinnedModelInstance)
-        components_size += len(game_state.debug_models) * size_of(DebugModelInstance)
+        final_size := 0
 
-        entity_array_size := 0
-        entity_array_size += len(game_state.looping_animations) * size_of(EntityID)
-        entity_array_size += len(game_state.coins) * size_of(EntityID)
+        // Component data + counts
+        final_size += len(game_state.transforms) * (size_of(Transform) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.transform_deltas) * (size_of(TransformDelta) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.cameras) * (size_of(Camera) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.lookat_controllers) * (size_of(LookatController) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.character_controllers) * (size_of(CharacterController) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.enemy_ais) * (size_of(EnemyAI) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.hovering_enemies) * (size_of(HoveringEnemy) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.thrown_enemy_ais) * (size_of(ThrownEnemyAI) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.spherical_bodies) * (size_of(SphericalBody) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.triangle_meshes) * (size_of(TriangleMesh) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.static_models) * (size_of(StaticModelInstance) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.skinned_models) * (size_of(SkinnedModelInstance) + size_of(EntityID))
+        final_size += size_of(u32)
+        final_size += len(game_state.debug_models) * (size_of(DebugModelInstance) + size_of(EntityID))
+        final_size += size_of(u32)
 
-        return entity_metadata_size + u32(components_size)
+        return u32(final_size)
     }
 
     write_thing_to_buffer :: proc(buffer: []byte, ptr: ^$T, head: ^u32) {
@@ -1696,21 +1702,67 @@ new_save_level_file :: proc(
         head^ += amount
     }
 
-    // Set up intermediate buffer for gathering file data
-    write_head := 0
-    output_buffer := make([dynamic]byte, calc_level_file_size(game_state), temp_allocator)
+    // write_component_to_buffer :: proc(buffer: []byte, id: ^EntityID, component_map: map[EntityID]$T, head: ^u32) {
+    //     comp, ok := &component_map[id^]
+    //     if ok {
+    //         write_thing_to_buffer(buffer[:], id, head)
+    //         write_thing_to_buffer(buffer[:], comp, head)
+    //     }
+    // }
 
-    // Iterate over every entity and write relevant data
-    for i in 0..<game_state._next_id {
-        id := EntityID(i)
+    write_component_map :: proc(buffer: []byte, components: map[EntityID]$T, head: ^u32) {
+        size := u32(len(components))
+        write_thing_to_buffer(buffer, &size, head)
 
-        {
-            tform, ok := game_state.transforms[id]
-            if ok {
-
-            }
+        for id, &comp in components {
+            id := id
+            write_thing_to_buffer(buffer[:], &id, head)
+            write_thing_to_buffer(buffer[:], &comp, head)
         }
     }
+
+    // Set up intermediate buffer for gathering file data
+    write_head : u32 = 0
+    output_buffer := make([dynamic]byte, calc_level_file_size(game_state^), temp_allocator)
+
+    // Write components to file
+    write_component_map(output_buffer[:], game_state.transforms, &write_head)
+    write_component_map(output_buffer[:], game_state.transform_deltas, &write_head)
+    write_component_map(output_buffer[:], game_state.cameras, &write_head)
+    write_component_map(output_buffer[:], game_state.lookat_controllers, &write_head)
+    write_component_map(output_buffer[:], game_state.character_controllers, &write_head)
+    write_component_map(output_buffer[:], game_state.enemy_ais, &write_head)
+    write_component_map(output_buffer[:], game_state.hovering_enemies, &write_head)
+    write_component_map(output_buffer[:], game_state.thrown_enemy_ais, &write_head)
+    write_component_map(output_buffer[:], game_state.spherical_bodies, &write_head)
+    write_component_map(output_buffer[:], game_state.triangle_meshes, &write_head)
+    write_component_map(output_buffer[:], game_state.static_models, &write_head)
+    write_component_map(output_buffer[:], game_state.skinned_models, &write_head)
+    write_component_map(output_buffer[:], game_state.debug_models, &write_head)
+
+    // Write the looping animations and coins lists
+
+
+    // Actually write the buffer to the file
+    lvl_file, lvl_err := create_write_file(path)
+    if lvl_err != nil {
+        log.errorf("Error opening level file: %v", lvl_err)
+    }
+    defer os.close(lvl_file)
+
+    _, err := os.write(lvl_file, output_buffer[:])
+    if err != nil {
+        log.errorf("Error writing level data: %v", err)
+    }
+
+    base_path := filepath.stem(path)
+    path_clone, p_err := strings.clone(base_path)
+    if p_err != nil {
+        log.errorf("Error allocating current_level_path string: %v", err)
+    }
+    game_state.current_level = path_clone
+
+    log.infof("Finished saving level to \"%v\"", path)
 }
 
 legacy_save_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
