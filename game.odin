@@ -1760,6 +1760,27 @@ new_save_level_file :: proc(
     path: string,
     temp_allocator := context.temp_allocator
 ) {
+    StringTable :: struct {
+        data: [dynamic]StringTableEntry,
+        total_len: int
+    }
+    StringTableEntry :: struct {
+        s: string,
+        offset: int,
+    }
+    string_table_init :: proc(capacity: int, allocator := context.allocator) -> StringTable {
+        table: StringTable
+        table.data = make([dynamic]StringTableEntry, 0, capacity, allocator)
+        return table
+    }
+    string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEntry {
+        entry: StringTableEntry
+        entry.s = elem
+        entry.offset = table.total_len
+        table.total_len += len(elem)
+        return entry
+    }
+
     // Idea: For each entity, store id followed by component mask followed by component data
     // Better idea: Just store components along with their ids
 
@@ -1816,14 +1837,6 @@ new_save_level_file :: proc(
         head^ += amount
     }
 
-    // write_component_to_buffer :: proc(buffer: []byte, id: ^EntityID, component_map: map[EntityID]$T, head: ^u32) {
-    //     comp, ok := &component_map[id^]
-    //     if ok {
-    //         write_thing_to_buffer(buffer[:], id, head)
-    //         write_thing_to_buffer(buffer[:], comp, head)
-    //     }
-    // }
-
     write_component_map :: proc(buffer: []byte, components: map[EntityID]$T, head: ^u32) {
         size := u32(len(components))
         write_thing_to_buffer(buffer, &size, head)
@@ -1831,7 +1844,12 @@ new_save_level_file :: proc(
         for id, &comp in components {
             id := id
             write_thing_to_buffer(buffer[:], &id, head)
-            write_thing_to_buffer(buffer[:], &comp, head)
+
+            when T == StaticModelInstance {
+
+            } else {
+                write_thing_to_buffer(buffer[:], &comp, head)
+            }
         }
     }
 
@@ -1846,11 +1864,13 @@ new_save_level_file :: proc(
         mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
         head^ += len_bytes
     }
-
+    
     // Set up intermediate buffer for gathering file data
     total_size := calc_level_file_size(game_state^)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
+
+    string_table := string_table_init(64, temp_allocator)
 
     // Write components to file
     write_component_map(output_buffer[:], game_state.transforms, &write_head)
