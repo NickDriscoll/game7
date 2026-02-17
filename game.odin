@@ -1760,8 +1760,12 @@ new_save_level_file :: proc(
     path: string,
     temp_allocator := context.temp_allocator
 ) {
+
+    // Strings in the StringTable are written back-to-back when serialized
+    // Components can have a pair of u32 (offset, size) to address into it
     StringTable :: struct {
         data: [dynamic]StringTableEntry,
+        string_map: map[string]int,
         total_len: int
     }
     StringTableEntry :: struct {
@@ -1771,14 +1775,24 @@ new_save_level_file :: proc(
     string_table_init :: proc(capacity: int, allocator := context.allocator) -> StringTable {
         table: StringTable
         table.data = make([dynamic]StringTableEntry, 0, capacity, allocator)
+        table.string_map = make(map[string]int, capacity, allocator)
         return table
     }
     string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEntry {
-        entry: StringTableEntry
-        entry.s = elem
-        entry.offset = table.total_len
-        table.total_len += len(elem)
-        return entry
+        idx: int
+        ok: bool
+        idx, ok = table.string_map[elem]
+        if ok {
+            return table.data[idx]
+        } else {
+            entry: StringTableEntry
+            entry.s = elem
+            entry.offset = table.total_len
+            table.total_len += len(elem)
+            append(&table.data, entry)
+            table.string_map[elem] = len(table.data) - 1
+            return entry
+        }
     }
 
     // Idea: For each entity, store id followed by component mask followed by component data
@@ -1820,6 +1834,9 @@ new_save_level_file :: proc(
         final_size += len(game_state.looping_animations) * size_of(EntityID)
         final_size += size_of(u32)
         final_size += len(game_state.coins) * size_of(EntityID)
+
+        // String table
+        
 
         return u32(final_size)
     }
@@ -1871,6 +1888,7 @@ new_save_level_file :: proc(
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
     string_table := string_table_init(64, temp_allocator)
+
 
     // Write components to file
     write_component_map(output_buffer[:], game_state.transforms, &write_head)
