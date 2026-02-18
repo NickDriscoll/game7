@@ -144,9 +144,6 @@ do_mouse_raycast :: proc(
     return collision_pt, closest_dist < math.INF_F32
 }
 
-
-
-
 Transform :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
@@ -1424,6 +1421,50 @@ ComponentFlag :: enum {
     DebugModel,
 }
 
+// Returns the size in bytes of component when serialized
+get_serialized_size :: proc(renderer: Renderer, component: $ComponentType) -> int {
+    when ComponentType == StaticModelInstance {
+        size := 0
+        size += size_of(component.pos_offset)
+        size += size_of(component.flags)
+
+        {
+            model := get_static_model(&renderer, component.handle)
+            size += len(model.name)
+        }
+
+        return size
+    } else when ComponentType == SkinnedModelInstance {
+        size := 0
+        size += size_of(component.pos_offset)
+        size += size_of(component.flags)
+        size += size_of(component.anim_idx)
+
+        {
+            model := get_skinned_model(&renderer, component.handle)
+            size += len(model.name)
+        }
+
+        return size
+        
+    } else when ComponentType == DebugModelInstance {
+        size := 0
+        size += size_of(component.pos_offset)
+        size += size_of(component.color)
+        size += size_of(component.scale)
+
+        {
+            model := get_static_model(&renderer, component.handle)
+            size += len(model.name)
+        }
+
+        return size        
+    } else {
+        // Type doesn't need special handling
+        return size_of(ComponentType)
+    }
+}
+
 load_level_file :: legacy_load_level_file
 
 new_load_level_file :: proc(
@@ -1822,12 +1863,16 @@ new_save_level_file :: proc(
         final_size += size_of(u32)
         final_size += len(game_state.triangle_meshes) * (size_of(TriangleMesh) + size_of(EntityID))
         final_size += size_of(u32)
-        final_size += len(game_state.static_models) * (size_of(StaticModelInstance) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.skinned_models) * (size_of(SkinnedModelInstance) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.debug_models) * (size_of(DebugModelInstance) + size_of(EntityID))
-        final_size += size_of(u32)
+
+        // Components that can't be naively serialized
+        
+
+        // final_size += len(game_state.static_models) * (size_of(StaticModelInstance) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.skinned_models) * (size_of(SkinnedModelInstance) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.debug_models) * (size_of(DebugModelInstance) + size_of(EntityID))
+        // final_size += size_of(u32)
 
         // Special entities that don't need extra state
         final_size += size_of(u32)
@@ -1836,7 +1881,7 @@ new_save_level_file :: proc(
         final_size += len(game_state.coins) * size_of(EntityID)
 
         // String table
-        
+
 
         return u32(final_size)
     }
