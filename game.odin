@@ -1839,39 +1839,35 @@ new_save_level_file :: proc(
     // Idea: For each entity, store id followed by component mask followed by component data
     // Better idea: Just store components along with their ids
 
-    calc_level_file_size :: proc(game_state: GameState) -> u32 {
+    calc_level_file_size :: proc(game_state: GameState, renderer: Renderer) -> u32 {
         final_size := 0
 
         // Component data + counts
-        final_size += len(game_state.transforms) * (size_of(Transform) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.transform_deltas) * (size_of(TransformDelta) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.cameras) * (size_of(Camera) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.lookat_controllers) * (size_of(LookatController) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.character_controllers) * (size_of(CharacterController) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.enemy_ais) * (size_of(EnemyAI) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.hovering_enemies) * (size_of(HoveringEnemy) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.thrown_enemy_ais) * (size_of(ThrownEnemyAI) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.spherical_bodies) * (size_of(SphericalBody) + size_of(EntityID))
-        final_size += size_of(u32)
-        final_size += len(game_state.triangle_meshes) * (size_of(TriangleMesh) + size_of(EntityID))
-        final_size += size_of(u32)
-
-        // Components that can't be naively serialized
-        
-
-        // final_size += len(game_state.static_models) * (size_of(StaticModelInstance) + size_of(EntityID))
+        // final_size += len(game_state.transforms) * (get_serialized_size(renderer, Transform) + size_of(EntityID))
         // final_size += size_of(u32)
-        // final_size += len(game_state.skinned_models) * (size_of(SkinnedModelInstance) + size_of(EntityID))
+        // final_size += len(game_state.transform_deltas) * (get_serialized_size(renderer, TransformDelta) + size_of(EntityID))
         // final_size += size_of(u32)
-        // final_size += len(game_state.debug_models) * (size_of(DebugModelInstance) + size_of(EntityID))
+        // final_size += len(game_state.cameras) * (get_serialized_size(renderer, Camera) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.lookat_controllers) * (get_serialized_size(renderer, LookatController) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.character_controllers) * (get_serialized_size(renderer, CharacterController) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.enemy_ais) * (get_serialized_size(renderer, EnemyAI) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.hovering_enemies) * (get_serialized_size(renderer, HoveringEnemy) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.thrown_enemy_ais) * (get_serialized_size(renderer, ThrownEnemyAI) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.spherical_bodies) * (get_serialized_size(renderer, SphericalBody) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.triangle_meshes) * (get_serialized_size(renderer, TriangleMesh) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.static_models) * (get_serialized_size(renderer, StaticModelInstance) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.skinned_models) * (get_serialized_size(renderer, SkinnedModelInstance) + size_of(EntityID))
+        // final_size += size_of(u32)
+        // final_size += len(game_state.debug_models) * (get_serialized_size(renderer, DebugModelInstance) + size_of(EntityID))
         // final_size += size_of(u32)
 
         // Special entities that don't need extra state
@@ -1928,7 +1924,7 @@ new_save_level_file :: proc(
     }
     
     // Set up intermediate buffer for gathering file data
-    total_size := calc_level_file_size(game_state^)
+    total_size := calc_level_file_size(game_state^, renderer^)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
