@@ -1406,38 +1406,52 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
 }
 
 // Returns the size in bytes of component when serialized
-get_serialized_size :: proc(renderer: ^Renderer, component: $ComponentType) -> int {
+get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
+    lil_helper :: proc(renderer: ^Renderer, string_table: ^StringTable, handle: $HandleType) -> int {
+        // This proc returns the size in bytes of _this_
+        // instance of the string in the level file
+        size := 2 * size_of(u32)
+
+        when HandleType == SkinnedModelHandle {
+            model := get_skinned_model(renderer, handle)
+        } else {
+            model := get_static_model(renderer, handle)
+        }
+
+        seen_it := model.name in string_table.string_map
+        if !seen_it {
+            // Only if this is the first time seeing this string
+            // do we want to add it's length to the total size
+            size += len(model.name)
+            string_table_append(string_table, model.name)
+            log.infof("appended \"%v\" to table.", model.name)
+        }
+
+        return size
+    }
+    
     size := size_of(EntityID)
 
     when ComponentType == StaticModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
-        size += 2 * size_of(u32)
 
-        {
-            model := get_static_model(renderer, component.handle)
-            size += len(model.name)
-        }
+        // Size of string instance
+        size += lil_helper(renderer, string_table, component.handle)
     } else when ComponentType == SkinnedModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
         size += size_of(component.anim_idx)
-        size += 2 * size_of(u32)
 
-        {
-            model := get_skinned_model(renderer, component.handle)
-            size += len(model.name)
-        }
+        // Size of string instance
+        size += lil_helper(renderer, string_table, component.handle)
     } else when ComponentType == DebugModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.color)
         size += size_of(component.scale)
-        size += 2 * size_of(u32)
 
-        {
-            model := get_static_model(renderer, component.handle)
-            size += len(model.name)
-        }
+        // Size of string instance
+        size += lil_helper(renderer, string_table, component.handle)
     } else {
         // Type doesn't need special handling
         size += size_of(ComponentType)
@@ -1795,6 +1809,7 @@ string_table_init :: proc(capacity: int, allocator := context.allocator) -> Stri
 string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEntry {
     idx, ok := table.string_map[elem]
     if ok {
+        log.info("cache hit baby!")
         return table.data[idx]
     } else {
         entry: StringTableEntry
@@ -1828,31 +1843,31 @@ new_save_level_file :: proc(
     // Idea: For each entity, store id followed by component mask followed by component data
     // Better idea: Just store components along with their ids
 
-    calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, component_map: map[EntityID]$T) -> int {
+    calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
         size := size_of(u32)
         for _, comp in component_map {
-            size += get_serialized_size(renderer, comp)
+            size += get_serialized_size(renderer, string_table, comp)
         }
         return size
     }
 
-    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer) -> u32 {
+    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable) -> u32 {
         final_size := 0
 
         // Component data + counts
-        final_size += calc_component_map_size(game_state, renderer, game_state.transforms)
-        final_size += calc_component_map_size(game_state, renderer, game_state.transform_deltas)
-        final_size += calc_component_map_size(game_state, renderer, game_state.cameras)
-        final_size += calc_component_map_size(game_state, renderer, game_state.lookat_controllers)
-        final_size += calc_component_map_size(game_state, renderer, game_state.character_controllers)
-        final_size += calc_component_map_size(game_state, renderer, game_state.enemy_ais)
-        final_size += calc_component_map_size(game_state, renderer, game_state.hovering_enemies)
-        final_size += calc_component_map_size(game_state, renderer, game_state.thrown_enemy_ais)
-        final_size += calc_component_map_size(game_state, renderer, game_state.spherical_bodies)
-        final_size += calc_component_map_size(game_state, renderer, game_state.triangle_meshes)
-        final_size += calc_component_map_size(game_state, renderer, game_state.static_models)
-        // final_size += calc_component_map_size(game_state, renderer, game_state.skinned_models)
-        // final_size += calc_component_map_size(game_state, renderer, game_state.debug_models)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.cameras)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.lookat_controllers)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.character_controllers)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.spherical_bodies)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.triangle_meshes)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.static_models)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.skinned_models)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.debug_models)
 
         // Special entities that don't need extra state
         final_size += size_of(u32)
@@ -1934,11 +1949,11 @@ new_save_level_file :: proc(
     }
     
     // Set up intermediate buffer for gathering file data
-    total_size := calc_level_file_size(game_state^, renderer)
+    string_table := string_table_init(64, temp_allocator)
+    total_size := calc_level_file_size(game_state^, renderer, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
-
-    string_table := string_table_init(64, temp_allocator)
+    log.info("finished with size calcs")
 
 
     // Write components to file
@@ -1953,8 +1968,8 @@ new_save_level_file :: proc(
     write_component_map(renderer, &string_table, output_buffer[:], game_state.spherical_bodies, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.triangle_meshes, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.static_models, &write_head)
-    // write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
-    // write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
     write_stateless_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
