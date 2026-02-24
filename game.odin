@@ -1039,7 +1039,7 @@ GameState :: struct {
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[EntityID]Transform,
     transform_deltas: map[EntityID]TransformDelta,
-    cameras: map[EntityID]Camera,
+    cameras: map[EntityID]FreecamController,
     lookat_controllers: map[EntityID]LookatController,
     character_controllers: map[EntityID]CharacterController,
     enemy_ais: map[EntityID]EnemyAI,
@@ -1254,7 +1254,7 @@ gamestate_new_scene :: proc(
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.transform_deltas = make(map[EntityID]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
-    game_state.cameras = make(map[EntityID]Camera, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.cameras = make(map[EntityID]FreecamController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.lookat_controllers = make(map[EntityID]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.character_controllers = make(map[EntityID]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.enemy_ais = make(map[EntityID]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1340,7 +1340,7 @@ gamestate_new_scene :: proc(
                 f32(user_config.floats[.FreecamZ])
             }
         }
-        game_state.cameras[id] = Camera {
+        game_state.cameras[id] = FreecamController {
             fov_radians = f32(user_config.floats[.CameraFOV]),
             nearplane = 0.1 / math.sqrt_f32(2.0),
             farplane = 1_000_000.0,

@@ -276,7 +276,7 @@ raw_load_user_config :: proc(filename: string, allocator := context.allocator) -
     return u, true
 }
 
-update_user_cfg_camera :: proc(using s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: Camera) {
+update_user_cfg_camera :: proc(using s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: FreecamController) {
     flags[.FollowCam] = following
     floats[.FreecamX] = f64(position.x)
     floats[.FreecamY] = f64(position.y)
