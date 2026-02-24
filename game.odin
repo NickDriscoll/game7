@@ -1407,34 +1407,43 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
 
 // Returns the size in bytes of component when serialized
 get_serialized_size :: proc(renderer: ^Renderer, component: $ComponentType) -> int {
+    size := size_of(EntityID)
+
     when ComponentType == StaticModelInstance {
-        size := 0
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
-        size += size_of(StringTableEntry)
+        size += 2 * size_of(u32)
 
-        return size
+        {
+            model := get_static_model(renderer, component.handle)
+            size += len(model.name)
+        }
     } else when ComponentType == SkinnedModelInstance {
-        size := 0
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
         size += size_of(component.anim_idx)
-        size += size_of(StringTableEntry)
+        size += 2 * size_of(u32)
 
-        return size
-        
+        {
+            model := get_skinned_model(renderer, component.handle)
+            size += len(model.name)
+        }
     } else when ComponentType == DebugModelInstance {
-        size := 0
         size += size_of(component.pos_offset)
         size += size_of(component.color)
         size += size_of(component.scale)
-        size += size_of(StringTableEntry)
+        size += 2 * size_of(u32)
 
-        return size        
+        {
+            model := get_static_model(renderer, component.handle)
+            size += len(model.name)
+        }
     } else {
         // Type doesn't need special handling
-        return size_of(ComponentType)
+        size += size_of(ComponentType)
     }
+
+    return size
 }
 
 load_level_file :: legacy_load_level_file
@@ -1842,8 +1851,8 @@ new_save_level_file :: proc(
         final_size += calc_component_map_size(game_state, renderer, game_state.spherical_bodies)
         final_size += calc_component_map_size(game_state, renderer, game_state.triangle_meshes)
         final_size += calc_component_map_size(game_state, renderer, game_state.static_models)
-        final_size += calc_component_map_size(game_state, renderer, game_state.skinned_models)
-        final_size += calc_component_map_size(game_state, renderer, game_state.debug_models)
+        // final_size += calc_component_map_size(game_state, renderer, game_state.skinned_models)
+        // final_size += calc_component_map_size(game_state, renderer, game_state.debug_models)
 
         // Special entities that don't need extra state
         final_size += size_of(u32)
@@ -1851,8 +1860,8 @@ new_save_level_file :: proc(
         final_size += size_of(u32)
         final_size += len(game_state.coins) * size_of(EntityID)
 
-        // Don't need to compute string table size bc strings
-        // should have been accounted for in get_serialized_size()
+        // Don't need to compute string table size explicitly bc
+        // string sizes are accounted for in get_serialized_size()
 
         return u32(final_size)
     }
@@ -1861,13 +1870,6 @@ new_save_level_file :: proc(
         amount := size_of(T)
         mem.copy_non_overlapping(&buffer[head^], ptr, amount)
         head^ += u32(amount)
-    }
-
-    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
-        amount := u32(len(st))
-        write_thing_to_buffer(buffer, &amount, head)
-        mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
-        head^ += amount
     }
 
     write_component_map :: proc(renderer: ^Renderer, string_table: ^StringTable, buffer: []byte, components: map[EntityID]$T, head: ^u32) {
@@ -1884,10 +1886,34 @@ new_save_level_file :: proc(
 
                 model := get_static_model(renderer, comp.handle)
                 table_entry := string_table_append(string_table, model.name)
-                write_thing_to_buffer(buffer, &table_entry, head)
+
+                l := u32(len(table_entry.str))
+                write_thing_to_buffer(buffer, &table_entry.offset, head)
+                write_thing_to_buffer(buffer, &l, head)
                 
             } else when T == SkinnedModelInstance {
+                write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                write_thing_to_buffer(buffer, &comp.flags, head)
+                write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
+                model := get_skinned_model(renderer, comp.handle)
+                table_entry := string_table_append(string_table, model.name)
+
+                l := u32(len(table_entry.str))
+                write_thing_to_buffer(buffer, &table_entry.offset, head)
+                write_thing_to_buffer(buffer, &l, head)
+
+            } else when T == DebugModelInstance {
+                write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                write_thing_to_buffer(buffer, &comp.color, head)
+                write_thing_to_buffer(buffer, &comp.scale, head)
+
+                model := get_static_model(renderer, comp.handle)
+                table_entry := string_table_append(string_table, model.name)
+
+                l := u32(len(table_entry.str))
+                write_thing_to_buffer(buffer, &table_entry.offset, head)
+                write_thing_to_buffer(buffer, &l, head)
             } else {
                 // Directly serialize the component struct
                 write_thing_to_buffer(buffer, &comp, head)
@@ -1895,7 +1921,7 @@ new_save_level_file :: proc(
         }
     }
 
-    write_naked_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
+    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
         size := u32(len(ids))
         write_thing_to_buffer(buffer, &size, head)
         if size == 0 {
@@ -1927,12 +1953,12 @@ new_save_level_file :: proc(
     write_component_map(renderer, &string_table, output_buffer[:], game_state.spherical_bodies, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.triangle_meshes, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.static_models, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
+    // write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
+    // write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
-    write_naked_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
-    write_naked_entities(output_buffer[:], game_state.coins[:], &write_head)
+    write_stateless_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
+    write_stateless_entities(output_buffer[:], game_state.coins[:], &write_head)
 
     write_string_table_to_buffer(output_buffer[:], string_table, &write_head)
 
