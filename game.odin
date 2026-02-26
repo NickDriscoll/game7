@@ -12,6 +12,7 @@ import "core:mem"
 import "core:os"
 import "core:os/os2"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -951,8 +952,8 @@ SkinnedModelInstance :: struct {
 
 DebugModelInstance :: struct {
     handle: StaticModelHandle,
-    color: hlsl.float4,
     pos_offset: hlsl.float3,
+    color: hlsl.float4,
     scale: f32,
 }
 
@@ -1500,23 +1501,105 @@ new_load_level_file :: proc(
         return thing
     }
 
-    read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
-        // Read the u32 string length, then read the string itself
-        str_len := read_thing_from_buffer(buffer, u32, read_head)
-        s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
-        read_head^ += str_len
-        return s
+    read_naked_string_from_buffer :: proc(buffer: []byte, offset: u32, length: u32) -> string {
+        // Precondition: buffer should start at the first byte of the string table
+
+        start_ptr := slice.ptr_add(&buffer[0], int(offset))
+        return strings.string_from_ptr(start_ptr, int(length))
     }
 
-    read_component_map :: proc(buffer: []byte, components: ^map[EntityID]$T, head: ^u32) -> u32 {
+    // read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
+    //     // Read the u32 string length, then read the string itself
+    //     str_len := read_thing_from_buffer(buffer, u32, read_head)
+    //     s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
+    //     read_head^ += str_len
+    //     return s
+    // }
+
+    read_component_map :: proc(
+        gd: ^vkw.GraphicsDevice,
+        renderer: ^Renderer,
+        buffer: []byte,
+        components: ^map[EntityID]$T,
+        head: ^u32,
+        string_table_offset: u32,
+        scene_allocator: runtime.Allocator
+    ) -> u32 {
         // Read component count
         count := read_thing_from_buffer(buffer, u32, head)
+
+        get_model_path :: proc(
+            buffer: []byte,
+            head: ^u32,
+            string_table_offset: u32,
+        ) -> cstring {
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
+
+            // Read offset and length of model string and then load it
+            offset := read_thing_from_buffer(buffer, u32, head)
+            length := read_thing_from_buffer(buffer, u32, head)
+            model_string := read_naked_string_from_buffer(buffer[string_table_offset:], offset, length)
+            fmt.sbprintf(&sb, "data/models/%v", model_string)
+            return strings.to_cstring(&sb)
+        }
 
         largest_id: u32
         for i in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
-            comp := read_thing_from_buffer(buffer, T, head)
-            components[id] = comp
+
+            // comp := read_thing_from_buffer(buffer, T, head)
+            // components[id] = comp
+
+            comp: T
+            when T == StaticModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+
+                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                // write_thing_to_buffer(buffer, &comp.flags, head)
+                // model := get_static_model(renderer, comp.handle)
+                // table_entry := string_table_append(string_table, model.name)
+                // l := u32(len(table_entry.str))
+                // write_thing_to_buffer(buffer, &table_entry.offset, head)
+                // write_thing_to_buffer(buffer, &l, head)
+            } else when T == SkinnedModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
+                comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_skinned_model(gd, renderer, model_path, scene_allocator)
+
+
+                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                // write_thing_to_buffer(buffer, &comp.flags, head)
+                // write_thing_to_buffer(buffer, &comp.anim_idx, head)
+                // model := get_skinned_model(renderer, comp.handle)
+                // table_entry := string_table_append(string_table, model.name)
+                // l := u32(len(table_entry.str))
+                // write_thing_to_buffer(buffer, &table_entry.offset, head)
+                // write_thing_to_buffer(buffer, &l, head)
+            } else when T == DebugModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+
+
+                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                // write_thing_to_buffer(buffer, &comp.color, head)
+                // write_thing_to_buffer(buffer, &comp.scale, head)
+                // model := get_static_model(renderer, comp.handle)
+                // table_entry := string_table_append(string_table, model.name)
+                // l := u32(len(table_entry.str))
+                // write_thing_to_buffer(buffer, &table_entry.offset, head)
+                // write_thing_to_buffer(buffer, &l, head)
+            } else {
+                comp = read_thing_from_buffer(buffer, T, head)
+            }
+
             if u32(id) > largest_id {
                 largest_id = u32(id)
             }
@@ -1524,49 +1607,30 @@ new_load_level_file :: proc(
 
         // We want to return the largest id in order to initialize game_state._next_id
         return largest_id
-        
-        // size := u32(len(components))
-        // write_thing_to_buffer(buffer, &size, head)
-
-        // for id, &comp in components {
-        //     id := id
-        //     write_thing_to_buffer(buffer[:], &id, head)
-        //     write_thing_to_buffer(buffer[:], &comp, head)
-        // }
-    }
-
-    read_naked_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
-        
-        
-        
-        // size := u32(len(ids))
-        // write_thing_to_buffer(buffer, &size, head)
-        // if size == 0 {
-        //     return
-        // }
-
-        // len_bytes := size * size_of(EntityID)
-        // mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
-        // head^ += len_bytes
     }
 
     read_head : u32 = 0
+
+    // Read string table global offset
+    string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
     
     // Read components in order
-    read_component_map(lvl_data, &game_state.transforms, &read_head)
-    read_component_map(lvl_data, &game_state.transform_deltas, &read_head)
-    read_component_map(lvl_data, &game_state.cameras, &read_head)
-    read_component_map(lvl_data, &game_state.lookat_controllers, &read_head)
-    read_component_map(lvl_data, &game_state.character_controllers, &read_head)
-    read_component_map(lvl_data, &game_state.enemy_ais, &read_head)
-    read_component_map(lvl_data, &game_state.hovering_enemies, &read_head)
-    read_component_map(lvl_data, &game_state.thrown_enemy_ais, &read_head)
-    read_component_map(lvl_data, &game_state.spherical_bodies, &read_head)
-    read_component_map(lvl_data, &game_state.triangle_meshes, &read_head)
-    read_component_map(lvl_data, &game_state.static_models, &read_head)
-    read_component_map(lvl_data, &game_state.skinned_models, &read_head)
-    read_component_map(lvl_data, &game_state.debug_models, &read_head)
+    read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.spherical_bodies, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.triangle_meshes, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.static_models, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.skinned_models, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, scene_allocator)
     
+    // Read stateless entities
+
 
     return true
 }
@@ -1809,7 +1873,6 @@ string_table_init :: proc(capacity: int, allocator := context.allocator) -> Stri
 string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEntry {
     idx, ok := table.string_map[elem]
     if ok {
-        log.info("cache hit baby!")
         return table.data[idx]
     } else {
         entry: StringTableEntry
@@ -1853,6 +1916,9 @@ new_save_level_file :: proc(
 
     calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable) -> u32 {
         final_size := 0
+
+        // Global offset of string table
+        final_size += size_of(u32)
 
         // Component data + counts
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
@@ -1953,8 +2019,12 @@ new_save_level_file :: proc(
     total_size := calc_level_file_size(game_state^, renderer, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
-    log.info("finished with size calcs")
 
+    // Write global offset of string table
+    {
+        global_offset := total_size - u32(string_table.total_len)
+        write_thing_to_buffer(output_buffer[:], &global_offset, &write_head)
+    }
 
     // Write components to file
     write_component_map(renderer, &string_table, output_buffer[:], game_state.transforms, &write_head)
