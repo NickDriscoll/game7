@@ -40,6 +40,8 @@ Triangle :: struct {
 TriangleMesh :: struct {
     local_positions: []f32,
     triangles: [dynamic]Triangle,
+    model_matrix: hlsl.float4x4,
+    name: string
 }
 
 delete_static_triangles :: proc(s: ^TriangleMesh) {
@@ -81,6 +83,7 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
 
     static_mesh: TriangleMesh
     static_mesh.triangles = make([dynamic]Triangle, 0, len(positions) / FLOATS_PER_TRIANGLE, allocator)
+    static_mesh.model_matrix = model_matrix
 
     // For each implicit triangle
     for i := 0; i < len(positions); i += FLOATS_PER_TRIANGLE {

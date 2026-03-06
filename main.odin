@@ -28,7 +28,7 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 MAXIMUM_FRAME_DT :: 1.0 / 30.0
 
 SCENE_ARENA_SIZE :: 16 * 1024 * 1024          // Memory pool for per-scene allocations
-TEMP_ARENA_SIZE :: 1024 * 1024                // Memory pool for per-frame allocations
+TEMP_ARENA_SIZE :: 4 * 1024 * 1024                // Memory pool for per-frame allocations
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
@@ -326,6 +326,7 @@ main :: proc() {
             strings.builder_init(&sb, per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
             load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+            //new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
         }
     
         // Init input system
@@ -402,8 +403,16 @@ main :: proc() {
         // @TODO: Wrap this value at some point?
         game_state.time += scaled_dt
 
+        @static REMOVE_THIS := true
+        if REMOVE_THIS {
+            REMOVE_THIS = false
+
+            save_level_file(&game_state, &renderer, audio_system, "data/levels/new_save_level_test.lvl", per_frame_allocator)
+            new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/new_save_level_test.lvl", scene_allocator)
+        }
+
         // Save user configuration every 100ms
-        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
+        if false && user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
             tform := &game_state.transforms[game_state.viewport_camera_id]
             camera := &game_state.cameras[game_state.viewport_camera_id]

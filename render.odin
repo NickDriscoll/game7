@@ -2417,7 +2417,7 @@ load_gltf_skinned_model :: proc(
                         mem.copy(&keyframe_values[0], ptr, int(size_of(hlsl.float4) * keyframe_count))
                     }
                     case: {
-                        log.error("Invalid animation sampler output type.")
+                        log.errorf("Invalid animation sampler output type: %v", channel.sampler.output.type)
                     }
                 }
 

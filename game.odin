@@ -1408,24 +1408,17 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
 
 // Returns the size in bytes of component when serialized
 get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
-    lil_helper :: proc(renderer: ^Renderer, string_table: ^StringTable, handle: $HandleType) -> int {
+    lil_helper :: proc(string_table: ^StringTable, str: string) -> int {
         // This proc returns the size in bytes of _this_
         // instance of the string in the level file
         size := 2 * size_of(u32)
-
-        when HandleType == SkinnedModelHandle {
-            model := get_skinned_model(renderer, handle)
-        } else {
-            model := get_static_model(renderer, handle)
-        }
-
-        seen_it := model.name in string_table.string_map
+        seen_it := str in string_table.string_map
         if !seen_it {
             // Only if this is the first time seeing this string
             // do we want to add it's length to the total size
-            size += len(model.name)
-            string_table_append(string_table, model.name)
-            log.infof("appended \"%v\" to table.", model.name)
+            size += len(str)
+            string_table_append(string_table, str)
+            log.infof("appended \"%v\" to table.", str)
         }
 
         return size
@@ -1433,26 +1426,32 @@ get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, com
     
     size := size_of(EntityID)
 
-    when ComponentType == StaticModelInstance {
+    when ComponentType == TriangleMesh {
+        size += size_of(hlsl.float4x4)
+        size += lil_helper(string_table, component.name)
+    } else when ComponentType == StaticModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
 
         // Size of string instance
-        size += lil_helper(renderer, string_table, component.handle)
+        model := get_static_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
     } else when ComponentType == SkinnedModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.flags)
         size += size_of(component.anim_idx)
 
         // Size of string instance
-        size += lil_helper(renderer, string_table, component.handle)
+        model := get_skinned_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
     } else when ComponentType == DebugModelInstance {
         size += size_of(component.pos_offset)
         size += size_of(component.color)
         size += size_of(component.scale)
 
         // Size of string instance
-        size += lil_helper(renderer, string_table, component.handle)
+        model := get_static_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
     } else {
         // Type doesn't need special handling
         size += size_of(ComponentType)
@@ -1478,7 +1477,6 @@ new_load_level_file :: proc(
 
     vkw.device_wait_idle(gd)
 
-    free_all(context.temp_allocator)
     free_all(scene_allocator)
     audio_new_scene(audio_system)
     new_scene(renderer, scene_allocator)
@@ -1507,14 +1505,6 @@ new_load_level_file :: proc(
         start_ptr := slice.ptr_add(&buffer[0], int(offset))
         return strings.string_from_ptr(start_ptr, int(length))
     }
-
-    // read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
-    //     // Read the u32 string length, then read the string itself
-    //     str_len := read_thing_from_buffer(buffer, u32, read_head)
-    //     s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
-    //     read_head^ += str_len
-    //     return s
-    // }
 
     read_component_map :: proc(
         gd: ^vkw.GraphicsDevice,
@@ -1548,11 +1538,17 @@ new_load_level_file :: proc(
         for i in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
 
-            // comp := read_thing_from_buffer(buffer, T, head)
-            // components[id] = comp
-
             comp: T
-            when T == StaticModelInstance {
+            when T == TriangleMesh {
+                mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                positions := get_glb_positions(model_path, scene_allocator)
+                
+                comp = new_static_triangle_mesh(positions[:], mmat)
+                comp.model_matrix = mmat
+                comp.name = filepath.base(string(model_path))
+
+            } else when T == StaticModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 model_path := get_model_path(buffer, head, string_table_offset)
@@ -1584,6 +1580,7 @@ new_load_level_file :: proc(
             } else when T == DebugModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
+                comp.scale = read_thing_from_buffer(buffer, f32, head)
                 model_path := get_model_path(buffer, head, string_table_offset)
                 comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
 
@@ -1600,6 +1597,8 @@ new_load_level_file :: proc(
                 comp = read_thing_from_buffer(buffer, T, head)
             }
 
+            components[id] = comp
+
             if u32(id) > largest_id {
                 largest_id = u32(id)
             }
@@ -1609,7 +1608,20 @@ new_load_level_file :: proc(
         return largest_id
     }
 
+    read_stateless_entities :: proc(buffer: []byte, ids: ^[dynamic]EntityID, head: ^u32) {
+        size := read_thing_from_buffer(buffer, u32, head)
+        if size == 0 {
+            return
+        }
+        resize(ids, size)
+
+        len_bytes := size * size_of(EntityID)
+        mem.copy_non_overlapping(&ids[0], &buffer[head^], int(len_bytes))
+        head^ += len_bytes
+    }
+
     read_head : u32 = 0
+    final_next_entity_id: u32 = 0
 
     // Read string table global offset
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
@@ -1630,7 +1642,11 @@ new_load_level_file :: proc(
     read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, scene_allocator)
     
     // Read stateless entities
+    read_stateless_entities(lvl_data, &game_state.looping_animations, &read_head)
+    read_stateless_entities(lvl_data, &game_state.coins, &read_head)
 
+    // Should have read entire buffer
+    assert(read_head == string_table_offset)
 
     return true
 }
@@ -1726,6 +1742,7 @@ legacy_load_level_file :: proc(
                     
                     positions := get_glb_positions(path)
                     collision := new_static_triangle_mesh(positions[:], mmat)
+                    collision.name = strings.clone(filepath.base(string(path)), scene_allocator)
 
                     id := gamestate_next_id(game_state)
                     game_state.triangle_meshes[id] = collision
@@ -1843,7 +1860,7 @@ legacy_load_level_file :: proc(
     }
 
     path_base := filepath.stem(path)
-    path_clone, err := strings.clone(path_base)
+    path_clone, err := strings.clone(path_base, scene_allocator)
     if err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
@@ -1954,23 +1971,28 @@ new_save_level_file :: proc(
     }
 
     write_component_map :: proc(renderer: ^Renderer, string_table: ^StringTable, buffer: []byte, components: map[EntityID]$T, head: ^u32) {
+        write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^u32) {
+            table_entry := string_table_append(string_table, str)
+            l := u32(len(table_entry.str))
+            write_thing_to_buffer(buffer, &table_entry.offset, head)
+            write_thing_to_buffer(buffer, &l, head)
+        }
+        
         component_count := u32(len(components))
         write_thing_to_buffer(buffer, &component_count, head)
 
         for id, &comp in components {
             id := id
             write_thing_to_buffer(buffer, &id, head)
-
-            when T == StaticModelInstance {
+            when T == TriangleMesh {
+                write_thing_to_buffer(buffer, &comp.model_matrix, head)
+                write_component_string_to_table(buffer, string_table, comp.name, head)
+            } else when T == StaticModelInstance {
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
                 write_thing_to_buffer(buffer, &comp.flags, head)
 
                 model := get_static_model(renderer, comp.handle)
-                table_entry := string_table_append(string_table, model.name)
-
-                l := u32(len(table_entry.str))
-                write_thing_to_buffer(buffer, &table_entry.offset, head)
-                write_thing_to_buffer(buffer, &l, head)
+                write_component_string_to_table(buffer, string_table, model.name, head)
                 
             } else when T == SkinnedModelInstance {
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
@@ -1978,11 +2000,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
                 model := get_skinned_model(renderer, comp.handle)
-                table_entry := string_table_append(string_table, model.name)
-
-                l := u32(len(table_entry.str))
-                write_thing_to_buffer(buffer, &table_entry.offset, head)
-                write_thing_to_buffer(buffer, &l, head)
+                write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == DebugModelInstance {
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
@@ -1990,11 +2008,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.scale, head)
 
                 model := get_static_model(renderer, comp.handle)
-                table_entry := string_table_append(string_table, model.name)
-
-                l := u32(len(table_entry.str))
-                write_thing_to_buffer(buffer, &table_entry.offset, head)
-                write_thing_to_buffer(buffer, &l, head)
+                write_component_string_to_table(buffer, string_table, model.name, head)
             } else {
                 // Directly serialize the component struct
                 write_thing_to_buffer(buffer, &comp, head)
