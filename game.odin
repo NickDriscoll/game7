@@ -1521,8 +1521,9 @@ new_load_level_file :: proc(
         components: ^map[EntityID]$T,
         head: ^u32,
         string_table_offset: u32,
+        largest_seen_id: ^u32,
         scene_allocator: runtime.Allocator
-    ) -> u32 {
+    ) {
         // Read component count
         count := read_thing_from_buffer(buffer, u32, head)
 
@@ -1542,7 +1543,6 @@ new_load_level_file :: proc(
             return strings.to_cstring(&sb)
         }
 
-        largest_id: u32
         for i in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
 
@@ -1607,13 +1607,10 @@ new_load_level_file :: proc(
 
             components[id] = comp
 
-            if u32(id) > largest_id {
-                largest_id = u32(id)
+            if u32(id) > largest_seen_id^ {
+                largest_seen_id^ = u32(id)
             }
         }
-
-        // We want to return the largest id in order to initialize game_state._next_id
-        return largest_id
     }
 
     read_stateless_entities :: proc(buffer: []byte, ids: ^[dynamic]EntityID, head: ^u32) {
@@ -1632,7 +1629,7 @@ new_load_level_file :: proc(
     strings.builder_init(&path_builder, context.temp_allocator)
 
     read_head : u32 = 0
-    final_next_entity_id: u32 = 0
+    largest_saved_entity_id: u32 = 0
 
     // Read string table global offset
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
@@ -1657,19 +1654,19 @@ new_load_level_file :: proc(
     }
     
     // Read components in order
-    read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.spherical_bodies, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.triangle_meshes, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.static_models, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.skinned_models, &read_head, string_table_offset, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     
     // Read stateless entities
     read_stateless_entities(lvl_data, &game_state.looping_animations, &read_head)
@@ -1677,6 +1674,8 @@ new_load_level_file :: proc(
 
     // Should have read entire buffer
     assert(read_head == string_table_offset)
+
+    game_state._next_id = largest_saved_entity_id + 1
 
     return true
 }
