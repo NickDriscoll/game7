@@ -1499,6 +1499,14 @@ new_load_level_file :: proc(
         return thing
     }
 
+    read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
+        // Read the u32 string length, then read the string itself
+        str_len := read_thing_from_buffer(buffer, u32, read_head)
+        s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
+        read_head^ += str_len
+        return s
+    }
+
     read_naked_string_from_buffer :: proc(buffer: []byte, offset: u32, length: u32) -> string {
         // Precondition: buffer should start at the first byte of the string table
 
@@ -1620,11 +1628,33 @@ new_load_level_file :: proc(
         head^ += len_bytes
     }
 
+    path_builder: strings.Builder
+    strings.builder_init(&path_builder, context.temp_allocator)
+
     read_head : u32 = 0
     final_next_entity_id: u32 = 0
 
     // Read string table global offset
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
+
+    // Read bgm name
+    {
+        bgm_name := read_string_from_buffer(lvl_data, &read_head)
+        fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
+        path := strings.to_cstring(&path_builder)
+        game_state.bgm_id, _ = open_music_file(audio_system, path)
+        strings.builder_reset(&path_builder)
+    }
+
+    // Read directional light data
+    {
+        count := read_thing_from_buffer(lvl_data, u32, &read_head)
+        renderer.cpu_uniforms.directional_light_count = count
+        for i in 0..<count {
+            light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
+            renderer.cpu_uniforms.directional_lights[i] = light
+        }
+    }
     
     // Read components in order
     read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, scene_allocator)
@@ -1923,19 +1953,29 @@ new_save_level_file :: proc(
     // Idea: For each entity, store id followed by component mask followed by component data
     // Better idea: Just store components along with their ids
 
-    calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
-        size := size_of(u32)
-        for _, comp in component_map {
-            size += get_serialized_size(renderer, string_table, comp)
+    
+    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, audio_system: AudioSystem, string_table: ^StringTable) -> u32 {
+        calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
+            size := size_of(u32)
+            for _, comp in component_map {
+                size += get_serialized_size(renderer, string_table, comp)
+            }
+            return size
         }
-        return size
-    }
 
-    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable) -> u32 {
         final_size := 0
 
         // Global offset of string table
         final_size += size_of(u32)
+
+        // Size of bgm pascal string
+        bgm := audio_system.music_files[game_state.bgm_id]
+        final_size += size_of(u32)
+        final_size += size_of(byte) * len(bgm.name)
+
+        // Directional lights count + data
+        final_size += size_of(u32)
+        final_size += size_of(DirectionalLight) * int(renderer.cpu_uniforms.directional_light_count)
 
         // Component data + counts
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
@@ -1968,6 +2008,13 @@ new_save_level_file :: proc(
         amount := size_of(T)
         mem.copy_non_overlapping(&buffer[head^], ptr, amount)
         head^ += u32(amount)
+    }
+
+    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
+        amount := u32(len(st))
+        write_thing_to_buffer(buffer, &amount, head)
+        mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
+        head^ += amount
     }
 
     write_component_map :: proc(renderer: ^Renderer, string_table: ^StringTable, buffer: []byte, components: map[EntityID]$T, head: ^u32) {
@@ -2030,7 +2077,7 @@ new_save_level_file :: proc(
     
     // Set up intermediate buffer for gathering file data
     string_table := string_table_init(64, temp_allocator)
-    total_size := calc_level_file_size(game_state^, renderer, &string_table)
+    total_size := calc_level_file_size(game_state^, renderer, audio_system, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
@@ -2038,6 +2085,22 @@ new_save_level_file :: proc(
     {
         global_offset := total_size - u32(string_table.total_len)
         write_thing_to_buffer(output_buffer[:], &global_offset, &write_head)
+    }
+
+    // Write bgm filename
+    {
+        bgm := &audio_system.music_files[game_state.bgm_id]
+        write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
+    }
+
+    // Write directional lights data
+    {
+        count := renderer.cpu_uniforms.directional_light_count
+        write_thing_to_buffer(output_buffer[:], &count, &write_head)
+        for i in 0..<count {
+            light := &renderer.cpu_uniforms.directional_lights[i]
+            write_thing_to_buffer(output_buffer[:], light, &write_head)
+        }
     }
 
     // Write components to file

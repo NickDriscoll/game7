@@ -65,7 +65,7 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
-UniformsFlags :: bit_set[UniformFlag]
+UniformFlags :: bit_set[UniformFlag]
 UniformFlag :: enum u32 {
     ColorTriangles,
     Reflections,
@@ -110,7 +110,7 @@ UniformBuffer :: struct {
     time: f32,
     distortion_strength: f32,
 
-    flags: UniformsFlags,
+    flags: UniformFlags,
     skybox_idx: u32,
     cloud_speed: f32,
     cloud_scale: f32,
