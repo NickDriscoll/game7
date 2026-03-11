@@ -1,7 +1,10 @@
 package main
 
 import "core:math/linalg/hlsl"
+import "core:log"
 import "core:math"
+import "core:os"
+import "core:path/filepath"
 import "core:time"
 import hm "desktop_vulkan_wrapper/handlemap"
 import imgui "odin-imgui"
@@ -120,7 +123,39 @@ z_rotate_quaternion :: proc (angle: f32) -> quaternion128 {
     return quaternion(w = math.cos(half_angle), x = imag.x, y = imag.y, z = imag.z)
 }
 
+list_files :: proc(directory: string, allocator := context.temp_allocator) -> [dynamic]os.File_Info {
+    filewalk_proc :: proc(
+        info: os.File_Info,
+        in_err: os.Error,
+        user_data: rawptr
+    ) -> (err: os.Error, skip_dir: bool) {
+        if !info.is_dir {
+            item_array := cast(^[dynamic]os.File_Info)user_data
+            append(item_array, info)
+        }
 
+        err = nil
+        skip_dir = false
+        return
+    }
+
+    infos := make([dynamic]os.File_Info, 0, 64, allocator)
+
+    // @TODO: Is this a bug in the filepath package?
+    // The File_Info structs are supposed to be allocated
+    // with context.temp_allocator, but it appears that it
+    // actually uses context.allocator
+    old_alloc := context.allocator
+    context.allocator = allocator
+    walk_error := filepath.walk(directory, filewalk_proc, &infos)
+    context.allocator = old_alloc
+
+    if walk_error != nil {
+        log.errorf("Error walking models dir: %v", walk_error)
+    }
+
+    return infos
+}
 
 timer_expired  :: proc (timer: time.Time, d: $T/time.Duration) -> bool {
     return time.diff(timer, time.now()) > time.Duration(d)

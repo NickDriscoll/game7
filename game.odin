@@ -1418,7 +1418,6 @@ get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, com
             // do we want to add it's length to the total size
             size += len(str)
             string_table_append(string_table, str)
-            log.infof("appended \"%v\" to table.", str)
         }
 
         return size
@@ -1561,46 +1560,18 @@ new_load_level_file :: proc(
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 model_path := get_model_path(buffer, head, string_table_offset)
                 comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
-
-                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                // write_thing_to_buffer(buffer, &comp.flags, head)
-                // model := get_static_model(renderer, comp.handle)
-                // table_entry := string_table_append(string_table, model.name)
-                // l := u32(len(table_entry.str))
-                // write_thing_to_buffer(buffer, &table_entry.offset, head)
-                // write_thing_to_buffer(buffer, &l, head)
             } else when T == SkinnedModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
                 model_path := get_model_path(buffer, head, string_table_offset)
                 comp.handle = load_gltf_skinned_model(gd, renderer, model_path, scene_allocator)
-
-
-                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                // write_thing_to_buffer(buffer, &comp.flags, head)
-                // write_thing_to_buffer(buffer, &comp.anim_idx, head)
-                // model := get_skinned_model(renderer, comp.handle)
-                // table_entry := string_table_append(string_table, model.name)
-                // l := u32(len(table_entry.str))
-                // write_thing_to_buffer(buffer, &table_entry.offset, head)
-                // write_thing_to_buffer(buffer, &l, head)
             } else when T == DebugModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
                 comp.scale = read_thing_from_buffer(buffer, f32, head)
                 model_path := get_model_path(buffer, head, string_table_offset)
                 comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
-
-
-                // write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                // write_thing_to_buffer(buffer, &comp.color, head)
-                // write_thing_to_buffer(buffer, &comp.scale, head)
-                // model := get_static_model(renderer, comp.handle)
-                // table_entry := string_table_append(string_table, model.name)
-                // l := u32(len(table_entry.str))
-                // write_thing_to_buffer(buffer, &table_entry.offset, head)
-                // write_thing_to_buffer(buffer, &l, head)
             } else {
                 comp = read_thing_from_buffer(buffer, T, head)
             }
@@ -1613,16 +1584,20 @@ new_load_level_file :: proc(
         }
     }
 
-    read_stateless_entities :: proc(buffer: []byte, ids: ^[dynamic]EntityID, head: ^u32) {
+    read_stateless_entities :: proc(buffer: []byte, head: ^u32) -> [dynamic]EntityID {
+        ids: [dynamic]EntityID
+
         size := read_thing_from_buffer(buffer, u32, head)
         if size == 0 {
-            return
+            return ids
         }
-        resize(ids, size)
+        resize(&ids, size)
 
         len_bytes := size * size_of(EntityID)
         mem.copy_non_overlapping(&ids[0], &buffer[head^], int(len_bytes))
         head^ += len_bytes
+
+        return ids
     }
 
     path_builder: strings.Builder
@@ -1633,6 +1608,9 @@ new_load_level_file :: proc(
 
     // Read string table global offset
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
+
+    // Read player spawn position
+    game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
 
     // Read bgm name
     {
@@ -1669,13 +1647,20 @@ new_load_level_file :: proc(
     read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     
     // Read stateless entities
-    read_stateless_entities(lvl_data, &game_state.looping_animations, &read_head)
-    read_stateless_entities(lvl_data, &game_state.coins, &read_head)
+    game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
+    game_state.coins = read_stateless_entities(lvl_data, &read_head)
 
     // Should have read entire buffer
     assert(read_head == string_table_offset)
 
     game_state._next_id = largest_saved_entity_id + 1
+
+    path_base := filepath.stem(path)
+    path_clone, err := strings.clone(path_base, scene_allocator)
+    if err != nil {
+        log.errorf("Error allocating current_level_path string: %v", err)
+    }
+    game_state.current_level = path_clone
 
     return true
 }
@@ -1967,6 +1952,9 @@ new_save_level_file :: proc(
         // Global offset of string table
         final_size += size_of(u32)
 
+        // Size of player spawn position
+        final_size += size_of(hlsl.float3)
+
         // Size of bgm pascal string
         bgm := audio_system.music_files[game_state.bgm_id]
         final_size += size_of(u32)
@@ -2085,6 +2073,9 @@ new_save_level_file :: proc(
         global_offset := total_size - u32(string_table.total_len)
         write_thing_to_buffer(output_buffer[:], &global_offset, &write_head)
     }
+
+    // Write player spawn position
+    write_thing_to_buffer(output_buffer[:], &game_state.level_start, &write_head)
 
     // Write bgm filename
     {

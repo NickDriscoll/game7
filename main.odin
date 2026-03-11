@@ -315,6 +315,26 @@ main :: proc() {
     
         // Main app structure storing the game's overall state
         game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
+
+        if false {
+            sb: strings.Builder
+            strings.builder_init(&sb, per_frame_allocator)
+
+            files := list_files("data/levels", per_frame_allocator)
+            for f in files {
+                path := fmt.sbprintf(&sb, "data/levels/%v", f.name)
+                log.infof("Converting %v...", path)
+                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path, scene_allocator)
+                strings.builder_reset(&sb)
+                
+                out_path := fmt.sbprintf(&sb, "data/levels/new_%v", f.name)
+                strings.builder_reset(&sb)
+                save_level_file(&game_state, &renderer, audio_system, out_path, per_frame_allocator)
+                
+                log.info("Converted!")
+
+            }
+        }
     
         {
             start_level := "test02"
@@ -325,8 +345,8 @@ main :: proc() {
             sb: strings.Builder
             strings.builder_init(&sb, per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-            load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
-            //new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+            //load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+            new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
         }
     
         // Init input system
@@ -403,7 +423,7 @@ main :: proc() {
         // @TODO: Wrap this value at some point?
         game_state.time += scaled_dt
 
-        @static REMOVE_THIS := true
+        @static REMOVE_THIS := false
         if REMOVE_THIS {
             REMOVE_THIS = false
 
@@ -412,7 +432,7 @@ main :: proc() {
         }
 
         // Save user configuration every 100ms
-        if false && user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
+        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
             tform := &game_state.transforms[game_state.viewport_camera_id]
             camera := &game_state.cameras[game_state.viewport_camera_id]
@@ -431,7 +451,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
+                new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
                 load_new_level = nil
             }
         }
