@@ -1459,6 +1459,7 @@ get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, com
     return size
 }
 
+LEVEL_FILE_MAGIC_STRING :: "katawari"
 load_level_file :: legacy_load_level_file
 
 new_load_level_file :: proc(
@@ -1475,11 +1476,8 @@ new_load_level_file :: proc(
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
 
     vkw.device_wait_idle(gd)
-
-    free_all(scene_allocator)
-    audio_new_scene(audio_system)
-    new_scene(renderer, scene_allocator)
-    gamestate_new_scene(game_state, gd, renderer, user_config)
+    
+    read_head : u32 = 0
 
     lvl_data: []byte
     {
@@ -1490,6 +1488,18 @@ new_load_level_file :: proc(
             return false
         }
     }
+
+    // Read magic string
+    magic := read_string_from_buffer(lvl_data, &read_head)
+    if magic != LEVEL_FILE_MAGIC_STRING {
+        log.errorf("%v has wrong magic string.", path)
+        return false
+    }
+
+    free_all(scene_allocator)
+    audio_new_scene(audio_system)
+    new_scene(renderer, scene_allocator)
+    gamestate_new_scene(game_state, gd, renderer, user_config)
 
     read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
         thing: type
@@ -1603,7 +1613,6 @@ new_load_level_file :: proc(
     path_builder: strings.Builder
     strings.builder_init(&path_builder, context.temp_allocator)
 
-    read_head : u32 = 0
     largest_saved_entity_id: u32 = 0
 
     // Read string table global offset
@@ -1949,6 +1958,10 @@ new_save_level_file :: proc(
 
         final_size := 0
 
+        // Magic string
+        final_size += size_of(u32)
+        final_size += len(LEVEL_FILE_MAGIC_STRING)
+
         // Global offset of string table
         final_size += size_of(u32)
 
@@ -2067,6 +2080,9 @@ new_save_level_file :: proc(
     total_size := calc_level_file_size(game_state^, renderer, audio_system, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
+
+    // Write magic string
+    write_string_to_buffer(output_buffer[:], LEVEL_FILE_MAGIC_STRING, &write_head)
 
     // Write global offset of string table
     {
