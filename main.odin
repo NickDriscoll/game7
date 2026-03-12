@@ -328,8 +328,8 @@ main :: proc() {
                 strings.builder_reset(&sb)
                 
                 out_path := fmt.sbprintf(&sb, "data/levels/new_%v", f.name)
-                strings.builder_reset(&sb)
                 save_level_file(&game_state, &renderer, audio_system, out_path, per_frame_allocator)
+                strings.builder_reset(&sb)
                 
                 log.info("Converted!")
 
