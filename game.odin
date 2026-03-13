@@ -541,26 +541,6 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
         collided_this_frame: bool
         switch body.state {
             case .Grounded: {
-                // Check for walking into walls
-                if body.velocity != {} {
-                    collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
-                    if ok {
-                        collided_this_frame = true
-                        n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                        if n_dot >= 0.5 {
-                            // Floor
-                            body.velocity.z = 0.0
-                            body.state = .Grounded
-                        } else if n_dot < -0.1 {
-                            // Ceiling
-                            body.velocity.z = 0.0
-                        } else {
-                            // Wall
-                            
-                        }
-                    }
-                }
-
                 // Check if we need to bump ourselves up or down
                 {
                     tolerance_segment := Segment {
@@ -569,15 +549,35 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     }
                     tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
                     if okt {
-                        tolerance_point := sample_segment(tolerance_segment, tolerance_t)
-                        transform.position = tolerance_point + {0.0, 0.0, body.radius}
                         if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                            tolerance_point := sample_segment(tolerance_segment, tolerance_t)
+                            transform.position = tolerance_point + {0.0, 0.0, body.radius}
                             body.velocity.z = 0.0
                             body.state = .Grounded
+                        } else {
+                            // Floor too steep
+                            body.state = .Falling
                         }
                     } else {
                         body.state = .Falling
                     }
+                }
+
+                // Check for walking into walls
+                closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(motion_interval.end, game_state.triangle_meshes)
+                if hlsl.distance(closest_pt, transform.position) < body.radius && hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                    direction: hlsl.float3
+                    direction.xy = hlsl.normalize((transform.position - closest_pt).xy)
+
+                    // Solve "dot(((r_start + r_dir * t) - closest_pt), closest_pt_normal) = r"
+                    // for t and compute it
+                    t := ((body.radius + hlsl.dot(closest_pt, closest_pt_normal) - hlsl.dot(transform.position, closest_pt_normal)) /
+                    //   -----------------------------------------------------------------------------------------------------------
+                                                          hlsl.dot(direction, closest_pt_normal))
+
+
+                    // Use computed t value to move position along direction by the appropriate amount
+                    transform.position += direction * t
                 }
             }
             case .Falling: {
@@ -1236,7 +1236,7 @@ init_gamestate :: proc(
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
 
             if create_ok {
-                renderer.cpu_uniforms.skybox_idx = image_handle.index
+                renderer.uniforms.skybox_idx = image_handle.index
             }
         }
     }
@@ -1633,10 +1633,10 @@ new_load_level_file :: proc(
     // Read directional light data
     {
         count := read_thing_from_buffer(lvl_data, u32, &read_head)
-        renderer.cpu_uniforms.directional_light_count = count
+        renderer.uniforms.directional_light_count = count
         for i in 0..<count {
             light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
-            renderer.cpu_uniforms.directional_lights[i] = light
+            renderer.uniforms.directional_lights[i] = light
         }
     }
     
@@ -1645,7 +1645,7 @@ new_load_level_file :: proc(
     read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    //read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
@@ -1741,12 +1741,12 @@ legacy_load_level_file :: proc(
             }
             case .DirectionalLights: {
                 count := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                renderer.cpu_uniforms.directional_light_count = count
+                renderer.uniforms.directional_light_count = count
                 for i in 0..<count {
                     light: DirectionalLight
                     light.direction = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
                     light.color = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    renderer.cpu_uniforms.directional_lights[i] = light
+                    renderer.uniforms.directional_lights[i] = light
                 }
             }
             case .Terrain: {
@@ -1975,14 +1975,14 @@ new_save_level_file :: proc(
 
         // Directional lights count + data
         final_size += size_of(u32)
-        final_size += size_of(DirectionalLight) * int(renderer.cpu_uniforms.directional_light_count)
+        final_size += size_of(DirectionalLight) * int(renderer.uniforms.directional_light_count)
 
         // Component data + counts
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.cameras)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.lookat_controllers)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.character_controllers)
+        //final_size += calc_component_map_size(game_state, renderer, string_table, game_state.character_controllers)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
@@ -2101,10 +2101,10 @@ new_save_level_file :: proc(
 
     // Write directional lights data
     {
-        count := renderer.cpu_uniforms.directional_light_count
+        count := renderer.uniforms.directional_light_count
         write_thing_to_buffer(output_buffer[:], &count, &write_head)
         for i in 0..<count {
-            light := &renderer.cpu_uniforms.directional_lights[i]
+            light := &renderer.uniforms.directional_lights[i]
             write_thing_to_buffer(output_buffer[:], light, &write_head)
         }
     }
@@ -2114,7 +2114,7 @@ new_save_level_file :: proc(
     write_component_map(renderer, &string_table, output_buffer[:], game_state.transform_deltas, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.cameras, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.lookat_controllers, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.character_controllers, &write_head)
+    //write_component_map(renderer, &string_table, output_buffer[:], game_state.character_controllers, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.enemy_ais, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.hovering_enemies, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.thrown_enemy_ais, &write_head)
@@ -2182,7 +2182,7 @@ legacy_save_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio
     // Directional lights
     output_size += size_of(u8)      //block
     output_size += size_of(u32)     // Directional light count
-    output_size += 2 * size_of(hlsl.float3) * int(renderer.cpu_uniforms.directional_light_count)
+    output_size += 2 * size_of(hlsl.float3) * int(renderer.uniforms.directional_light_count)
 
     // Terrain pieces
     // if len(gamestate.terrain_pieces) > 0 {
@@ -2281,9 +2281,9 @@ legacy_save_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio
     {
         block = .DirectionalLights
         write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &renderer.cpu_uniforms.directional_light_count, &write_head)
-        for i in 0..<renderer.cpu_uniforms.directional_light_count {
-            light := &renderer.cpu_uniforms.directional_lights[i]
+        write_thing_to_buffer(raw_output_buffer[:], &renderer.uniforms.directional_light_count, &write_head)
+        for i in 0..<renderer.uniforms.directional_light_count {
+            light := &renderer.uniforms.directional_lights[i]
             write_thing_to_buffer(raw_output_buffer[:], &light.direction, &write_head)
             write_thing_to_buffer(raw_output_buffer[:], &light.color, &write_head)
         }
@@ -2847,7 +2847,13 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     tform := &game_state.transforms[id]
     camera := &game_state.cameras[id]
     lookat_controller := &game_state.lookat_controllers[id]
-    target := &game_state.transforms[lookat_controller.target]
+
+    // Make sure we have a valid target
+    target, ok := &game_state.transforms[lookat_controller.target]
+    for !ok {
+        lookat_controller.target = EntityID((u32(lookat_controller.target) + 1) % game_state._next_id)
+        target, ok = &game_state.transforms[lookat_controller.target]
+    }
 
     lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
     lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)

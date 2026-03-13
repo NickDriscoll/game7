@@ -316,12 +316,16 @@ main :: proc() {
         // Main app structure storing the game's overall state
         game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
 
-        if false {
+        if true {
             sb: strings.Builder
             strings.builder_init(&sb, per_frame_allocator)
 
             files := list_files("data/levels", per_frame_allocator)
             for f in files {
+                if f.name[0:3] == "new" {
+                    log.warnf("Skipping %v", f.name)
+                    continue
+                }
                 path := fmt.sbprintf(&sb, "data/levels/%v", f.name)
                 log.infof("Converting %v...", path)
                 load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path, scene_allocator)
@@ -330,8 +334,6 @@ main :: proc() {
                 out_path := fmt.sbprintf(&sb, "data/levels/new_%v", f.name)
                 save_level_file(&game_state, &renderer, audio_system, out_path, per_frame_allocator)
                 strings.builder_reset(&sb)
-                
-                log.info("Converted!")
 
             }
         }
@@ -460,7 +462,7 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        renderer.cpu_uniforms.time += scaled_dt
+        renderer.uniforms.time += scaled_dt
 
         new_frame(&renderer)
 
@@ -600,7 +602,7 @@ main :: proc() {
                     imgui.EndDisabled()
                 }
 
-                imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Distortion Strength", &renderer.uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") {
@@ -1053,16 +1055,16 @@ main :: proc() {
             }
 
             projection_from_view := camera_projection_from_view(camera^)
-            renderer.cpu_uniforms.clip_from_world =
+            renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
 
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
-            renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
+            renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
             
-            renderer.cpu_uniforms.view_position.xyz = tform.position
-            renderer.cpu_uniforms.view_position.a = 1.0
+            renderer.uniforms.view_position.xyz = tform.position
+            renderer.uniforms.view_position.a = 1.0
         }
 
         // Draw static models

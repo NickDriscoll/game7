@@ -335,7 +335,7 @@ Renderer :: struct {
 
 
     // Per-frame shader uniforms
-    cpu_uniforms: UniformBuffer,
+    uniforms: UniformBuffer,
     uniform_buffer: vkw.Buffer_Handle,
 
     dirty_flags: GPUBufferDirtyFlags,               // Represents which GPU buffers need synced this frame
@@ -394,7 +394,7 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
 
     // Default values for shader uniforms
     {
-        unis := &renderer.cpu_uniforms
+        unis := &renderer.uniforms
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
@@ -574,15 +574,15 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
         log.debugf("joint_weights_buffer base pointer == 0x%X", joint_weights_buffer.address)
         log.debugf("joint_matrices_buffer base pointer == 0x%X", joint_matrices_buffer.address)
     
-        renderer.cpu_uniforms.mesh_ptr = mesh_buffer.address
-        renderer.cpu_uniforms.material_ptr = material_buffer.address
-        renderer.cpu_uniforms.instance_ptr = instance_buffer.address
-        renderer.cpu_uniforms.position_ptr = position_buffer.address
-        renderer.cpu_uniforms.uv_ptr = uv_buffer.address
-        renderer.cpu_uniforms.color_ptr = color_buffer.address
-        renderer.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
-        renderer.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
-        renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
+        renderer.uniforms.mesh_ptr = mesh_buffer.address
+        renderer.uniforms.material_ptr = material_buffer.address
+        renderer.uniforms.instance_ptr = instance_buffer.address
+        renderer.uniforms.position_ptr = position_buffer.address
+        renderer.uniforms.uv_ptr = uv_buffer.address
+        renderer.uniforms.color_ptr = color_buffer.address
+        renderer.uniforms.joint_id_ptr = joint_ids_buffer.address
+        renderer.uniforms.joint_weight_ptr = joint_weights_buffer.address
+        renderer.uniforms.joint_mats_ptr = joint_matrices_buffer.address
 
         renderer.indices_ptr = indices_buffer.address
     }
@@ -923,7 +923,7 @@ queue_blas_build :: proc(
     mesh: ^CPUStaticMesh,
     update: bool
 ) {
-    pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
+    pos_addr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
 
     if mesh.current_blas_head == u32(len(mesh.blases)) {
         append(&mesh.blases, vkw.Acceleration_Structure_Handle {})
@@ -1057,6 +1057,7 @@ create_skinned_mesh :: proc(
     
         vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
     }
+    assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
     indices_start: u32
     indices_len: u32
@@ -1098,8 +1099,6 @@ create_skinned_mesh :: proc(
         blases = make([dynamic]vkw.Acceleration_Structure_Handle, 0, 4, context.allocator)
     }
     static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
-
-    //assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
@@ -1180,10 +1179,10 @@ add_material :: proc(r: ^Renderer, new_mat: ^Material) -> Material_Handle {
 }
 
 do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
-    id := renderer.cpu_uniforms.point_light_count
+    id := renderer.uniforms.point_light_count
     if id < MAX_POINT_LIGHTS {
-        renderer.cpu_uniforms.point_light_count += 1
-        renderer.cpu_uniforms.point_lights[id] = light
+        renderer.uniforms.point_light_count += 1
+        renderer.uniforms.point_lights[id] = light
     } else {
         log.error("Tried to add too many point lights.")
     }
@@ -1498,12 +1497,12 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
             // Insert another compute shader dispatch
             
             // @TODO: use a different buffer for vertex stream-out
-            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
+            out_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
             
-            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
-            joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
-            joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
-            joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
+            in_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
+            joint_ids_ptr := renderer.uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
+            joint_weights_ptr := renderer.uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
+            joint_mats_ptr := renderer.uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
             pcs := ComputeSkinningPushConstants {
                 in_positions = in_pos_ptr,
                 out_positions = out_pos_ptr,
@@ -1692,7 +1691,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
         }
 
         // Put new TLAS address in uniform buffer
-        //renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
+        //renderer.uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
 }
 
@@ -1878,7 +1877,7 @@ render_scene :: proc(
 
     // After all imgui work, update clip_from_screen matrix
     io := imgui.GetIO()
-    renderer.cpu_uniforms.clip_from_screen = {
+    renderer.uniforms.clip_from_screen = {
         2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
         0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
         0.0, 0.0, 1.0, 0.0,
@@ -1895,7 +1894,7 @@ render_scene :: proc(
     // Update uniforms buffer
     {
         scoped_event(&profiler, "Uniform buffer upload")
-        in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
+        in_slice := slice.from_ptr(&renderer.uniforms, 1)
         if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice, uniforms_offset) {
             log.error("Failed to write uniform buffer data")
         }
@@ -2075,7 +2074,7 @@ render_scene :: proc(
     
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
     
-        renderer.cpu_uniforms.point_light_count = 0
+        renderer.uniforms.point_light_count = 0
     }
 }
 
@@ -2535,19 +2534,19 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
         strings.builder_init(&sb, context.temp_allocator)
         if imgui.Begin("Graphics settings", do_window) {
             if imgui.CollapsingHeader("Fake cloud settings") {
-                imgui.SliderFloat("Speed", &renderer.cpu_uniforms.cloud_speed, 0.0, 0.5)
-                imgui.SliderFloat("Scale", &renderer.cpu_uniforms.cloud_scale, 0.0, 2.0)
+                imgui.SliderFloat("Speed", &renderer.uniforms.cloud_speed, 0.0, 0.5)
+                imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
             }
 
             if imgui.CollapsingHeader("Directional lights") {
-                for i in 0..<renderer.cpu_uniforms.directional_light_count {
-                    light := &renderer.cpu_uniforms.directional_lights[i]
+                for i in 0..<renderer.uniforms.directional_light_count {
+                    light := &renderer.uniforms.directional_lights[i]
                     imgui.PushIDInt(c.int(i))
                     imgui.ColorPicker3("Color", &light.color)
                     imgui.PopID()
                 }
     
-                light_count := &renderer.cpu_uniforms.directional_light_count
+                light_count := &renderer.uniforms.directional_light_count
                 can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
                 imgui.BeginDisabled(can_add)
                 if imgui.Button("Add") {
@@ -2555,7 +2554,7 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                         direction = {0.0, 0.0, 1.0},
                         color = {1.0, 1.0, 1.0},
                     }
-                    renderer.cpu_uniforms.directional_lights[light_count^] = l
+                    renderer.uniforms.directional_lights[light_count^] = l
                     light_count^ += 1
                 }
                 imgui.EndDisabled()
@@ -2581,14 +2580,14 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                     return false
                 }
 
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.CRTShader)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeFaceNormals)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeVertexColors)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectSpecular)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Unlit)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.ColorTriangles)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.CRTShader)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeFaceNormals)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeVertexColors)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
             }
             imgui.Separator()
 
