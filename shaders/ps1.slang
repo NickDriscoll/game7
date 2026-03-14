@@ -170,6 +170,10 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
 
+    if ((u_data.flags & UniformFlag.Unlit) != 0) {
+        return float4(color_sample.rgb, 1.0);
+    }
+
     // These terms represent the incoming light at a point
     float3 ambient_contribution = {};
     float3 diffuse_contribution = {};
