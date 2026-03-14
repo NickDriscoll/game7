@@ -23,7 +23,7 @@ Segment :: struct {
     end: hlsl.float3,
 }
 
-sample_segment :: proc(segment: Segment, t: f32) -> hlsl.float3 {
+sample_segment :: #force_inline proc(segment: Segment, t: f32) -> hlsl.float3 {
     return segment.start + t * (segment.end - segment.start)
 }
 

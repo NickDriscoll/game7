@@ -538,9 +538,43 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
             return
         }
 
-        collided_this_frame: bool
+        collided_this_frame := false
         switch body.state {
             case .Grounded: {
+                closest_pt, closest_pt_normal: hlsl.float3
+
+                // Compute closest_pt and closest_pt_normal and do preliminary transform update
+                segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
+                if segment_intersected {
+                    transform.position = sample_segment(motion_interval, segment_collision_t)
+                    closest_pt = transform.position
+                    closest_pt_normal = segment_collision_normal
+                } else {
+                    transform.position = motion_interval.end
+                    closest_pt, closest_pt_normal = closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
+                }
+
+                // Check for walking into walls
+                if hlsl.distance(closest_pt, transform.position) < body.radius {
+                    collided_this_frame = true
+                    if hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                        direction: hlsl.float3
+                        direction.xy = hlsl.normalize((motion_interval.start - closest_pt).xy)
+    
+                        // Solve "dot(((r_start + r_dir * t) - closest_pt), closest_pt_normal) = r"
+                        // for t and compute it
+                        t := (body.radius + hlsl.dot(closest_pt, closest_pt_normal) - hlsl.dot(transform.position, closest_pt_normal)) /
+                        //   ---------------------------------------------------------------------------------------------------------
+                                                              hlsl.dot(direction, closest_pt_normal)
+    
+    
+                        // Use computed t value to move position along direction by the appropriate amount
+                        if t > 0.0 {
+                            transform.position += direction * t
+                        }
+                    }
+                }
+
                 // Check if we need to bump ourselves up or down
                 {
                     tolerance_segment := Segment {
@@ -549,6 +583,8 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     }
                     tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
                     if okt {
+                        // The test line segment intersected with the ground
+
                         if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
                             tolerance_point := sample_segment(tolerance_segment, tolerance_t)
                             transform.position = tolerance_point + {0.0, 0.0, body.radius}
@@ -561,23 +597,6 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     } else {
                         body.state = .Falling
                     }
-                }
-
-                // Check for walking into walls
-                closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(motion_interval.end, game_state.triangle_meshes)
-                if hlsl.distance(closest_pt, transform.position) < body.radius && hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                    direction: hlsl.float3
-                    direction.xy = hlsl.normalize((transform.position - closest_pt).xy)
-
-                    // Solve "dot(((r_start + r_dir * t) - closest_pt), closest_pt_normal) = r"
-                    // for t and compute it
-                    t := ((body.radius + hlsl.dot(closest_pt, closest_pt_normal) - hlsl.dot(transform.position, closest_pt_normal)) /
-                    //   -----------------------------------------------------------------------------------------------------------
-                                                          hlsl.dot(direction, closest_pt_normal))
-
-
-                    // Use computed t value to move position along direction by the appropriate amount
-                    transform.position += direction * t
                 }
             }
             case .Falling: {
@@ -602,16 +621,18 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         // Wall
                         
                     }
+                } else {
+                    // Free fallin'
+                    transform.position += dt * body.velocity
                 }
-
             }
         }
 
         // Update transform component if collision resolution didn't
         // already write to the transform
-        if !collided_this_frame {
-            transform.position += dt * body.velocity
-        }
+        // if !collided_this_frame {
+        //     transform.position += dt * body.velocity
+        // }
     }
 }
 
@@ -790,6 +811,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                     } else {
                         // Do first jump
                         collision.velocity.z = char.jump_speed
+                        collision.state = .Falling
                         flags^ += {.AlreadyJumped}
 
                         play_sound_effect(audio_system, game_state.jump_sound)
@@ -2858,8 +2880,6 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
     lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
-    target_position := target.position
-
     camera_rotation := output_verbs.float2s[.RotateCamera] * dt
 
     relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
@@ -2891,7 +2911,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
     lookat_controller.current_focal_point = exponential_smoothing(
         lookat_controller.current_focal_point,
-        target_position,
+        target.position,
         game_state.camera_follow_speed,
         dt
     )
