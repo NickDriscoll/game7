@@ -955,6 +955,18 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 color = {0.0, 1.0, 0.0}
             })
         }
+
+        if .HoldingEnemy in char.flags {
+            m := scaling_matrix(0.6)
+            m[3][0] = tform.position.x
+            m[3][1] = tform.position.y
+            m[3][2] = tform.position.z + 2.5
+            d := StaticDraw {
+                world_from_model = m,
+                flags = {.Highlighted}
+            }
+            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, d)
+        }
     }
 }
 
