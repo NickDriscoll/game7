@@ -59,6 +59,7 @@ enum UniformFlag {
     VisualizeVertexColors = 0x10,
     VisualizeDirectDiffuse = 0x20,
     VisualizeDirectSpecular = 0x40,
+    Unlit = 0x80,
 }
 
 struct UniformData {

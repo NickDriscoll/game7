@@ -74,6 +74,7 @@ UniformFlag :: enum u32 {
     VisualizeVertexColors,
     VisualizeDirectDiffuse,
     VisualizeDirectSpecular,
+    Unlit,
 }
 
 // Manually aligned to 16 bytes
@@ -2577,6 +2578,7 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeVertexColors)
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
                 flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectSpecular)
+                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Unlit)
             }
             imgui.Separator()
 
