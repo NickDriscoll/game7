@@ -59,7 +59,7 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID
     return candidate, cn
 }
 
-intersect_segment_terrain :: proc(segment: Segment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
+intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain")
     cand_t := math.INF_F32
     for _, &piece in terrain {
@@ -74,7 +74,7 @@ intersect_segment_terrain :: proc(segment: Segment, terrain: map[EntityID]Triang
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
-intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
+intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
     scoped_event(&profiler, "intersect_segment_terrain_with_normal")
     cand_t := math.INF_F32
     normal: hlsl.float3
@@ -91,7 +91,7 @@ intersect_segment_terrain_with_normal :: proc(segment: Segment, terrain: map[Ent
     return cand_t, normal, cand_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
     closest_t := math.INF_F32
     for _, piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
@@ -505,15 +505,9 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
     for id, &body in game_state.spherical_bodies {
         scoped_event(&profiler, "tick_spherical_bodies iteration")
         transform := &game_state.transforms[id]
-
-        // Body's desired motion interval
-        motion_interval := Segment {
-            start = transform.position,
-            end = transform.position + dt * body.velocity
-        }
-
+        
         simple_continuous_collision_detection :: proc(
-            motion_interval: Segment,
+            motion_interval: LineSegment,
             transform: ^Transform,
             radius: f32,
             terrain: map[EntityID]TriangleMesh
@@ -538,13 +532,21 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
             return
         }
 
+        // Body's desired motion interval
+        motion_interval := LineSegment {
+            start = transform.position,
+            end = transform.position + dt * body.velocity
+        }
+        
         collided_this_frame := false
         switch body.state {
             case .Grounded: {
                 closest_pt, closest_pt_normal: hlsl.float3
 
                 // Compute closest_pt and closest_pt_normal and do preliminary transform update
-                segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
+                segment_collision_t, segment_collision_normal, segment_intersected :=
+                    intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
+
                 if segment_intersected {
                     transform.position = sample_segment(motion_interval, segment_collision_t)
                     closest_pt = transform.position
@@ -559,17 +561,17 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     collided_this_frame = true
                     if hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
                         direction: hlsl.float3
-                        direction.xy = hlsl.normalize((motion_interval.start - closest_pt).xy)
+                        direction.xy = hlsl.normalize(closest_pt_normal.xy)
     
                         // Solve "dot(((r_start + r_dir * t) - closest_pt), closest_pt_normal) = r"
                         // for t and compute it
                         t := (body.radius + hlsl.dot(closest_pt, closest_pt_normal) - hlsl.dot(transform.position, closest_pt_normal)) /
                         //   ---------------------------------------------------------------------------------------------------------
                                                               hlsl.dot(direction, closest_pt_normal)
-    
-    
+
                         // Use computed t value to move position along direction by the appropriate amount
                         if t > 0.0 {
+                            log.infof("Pushing player with t == %v", t)
                             transform.position += direction * t
                         }
                     }
@@ -577,7 +579,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
 
                 // Check if we need to bump ourselves up or down
                 {
-                    tolerance_segment := Segment {
+                    tolerance_segment := LineSegment {
                         start = transform.position + {0.0, 0.0, 0.0},
                         end = transform.position + {0.0, 0.0, -body.radius - 0.1}
                     }
@@ -1679,7 +1681,6 @@ new_load_level_file :: proc(
     read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    //read_component_map(gd, renderer, lvl_data, &game_state.character_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
@@ -2016,7 +2017,6 @@ new_save_level_file :: proc(
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.cameras)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.lookat_controllers)
-        //final_size += calc_component_map_size(game_state, renderer, string_table, game_state.character_controllers)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
@@ -2148,7 +2148,6 @@ new_save_level_file :: proc(
     write_component_map(renderer, &string_table, output_buffer[:], game_state.transform_deltas, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.cameras, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.lookat_controllers, &write_head)
-    //write_component_map(renderer, &string_table, output_buffer[:], game_state.character_controllers, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.enemy_ais, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.hovering_enemies, &write_head)
     write_component_map(renderer, &string_table, output_buffer[:], game_state.thrown_enemy_ais, &write_head)
@@ -2929,7 +2928,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     )
 
     desired_position := lookat_controller.current_focal_point + pos_offset.xyz
-    interval := Segment {
+    interval := LineSegment {
         start = lookat_controller.current_focal_point,
         end = desired_position
     }
@@ -3082,8 +3081,6 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: En
             }
         }
     }
-
-    //return camera_view_from_world(game_state.viewport_camera)
 }
 
 camera_gui :: proc(
@@ -3104,7 +3101,7 @@ camera_gui :: proc(
         imgui.Text("Pitch: %f", camera.pitch)
 
         imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
-        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1.0/5.0)
+        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
         imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
         imgui.SameLine()
         if imgui.Button("Reset") {
