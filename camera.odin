@@ -1,6 +1,5 @@
 package main
 
-import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
 

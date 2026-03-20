@@ -45,7 +45,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     imgui_state: ImguiState
     imgui_state.show_gui = user_config.flags[.ImguiEnabled]
     imgui_state.ctxt = imgui.CreateContext()
-    
+
     io := imgui.GetIO()
     io.DisplaySize.x = f32(resolution.x)
     io.DisplaySize.y = f32(resolution.y)
@@ -224,7 +224,7 @@ gui_main_menu_bar :: proc(
     if imgui.BeginMainMenuBar() {
         if imgui.BeginMenu("File") {
             if imgui.MenuItem("New") {
-                
+
             }
             if imgui.MenuItem("Load") {
                 retval = .LoadLevel
@@ -256,7 +256,7 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Scene", "idk", selected = bool(user_config.flags[.SceneEditor])) {
                 user_config.flags[.SceneEditor] = !user_config.flags[.SceneEditor]
             }
-            
+
             imgui.EndMenu()
         }
 
@@ -298,7 +298,7 @@ gui_main_menu_bar :: proc(
                 user_config.flags[.BorderlessFullscreen] = !game_state.borderless_fullscreen
                 retval = .ToggleBorderlessFullscreen
             }
-            
+
             if imgui.MenuItem("Exclusive Fullscreen", selected = game_state.exclusive_fullscreen) {
                 // Update config map
                 user_config.flags[.ExclusiveFullscreen] = !game_state.exclusive_fullscreen
@@ -321,7 +321,7 @@ gui_main_menu_bar :: proc(
 
             imgui.EndMenu()
         }
-        
+
         imgui.EndMainMenuBar()
     }
 
@@ -443,7 +443,7 @@ render_imgui :: proc(
     in_flight_frame := gd.frame_count % u64(gd.frames_in_flight)
 
     // Update uniform buffer
-    
+
     io := imgui.GetIO()
     uniforms: ImguiUniforms
     uniforms.clip_from_screen = {
@@ -520,7 +520,7 @@ render_imgui :: proc(
     } 
     vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, imgui_state.pipeline)
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
-    
+
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
 
     // Compute a fixed vertex/index offset based on frame index
@@ -580,7 +580,7 @@ render_imgui :: proc(
                 0
             )
         }
-        
+
         // Update offsets within local vertex/index buffers
         local_vtx_offset += u32(cmd_list.VtxBuffer.Size)
         local_idx_offset += u32(cmd_list.IdxBuffer.Size)
@@ -589,7 +589,7 @@ render_imgui :: proc(
     // Upload vertex and index data to GPU buffers
     vkw.sync_write_buffer(gd, imgui_state.vertex_buffer, vertex_staging[:], global_vtx_offset)
     vkw.sync_write_buffer(gd, imgui_state.index_buffer, index_staging[:], global_idx_offset)
-    
+
     vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 }
 

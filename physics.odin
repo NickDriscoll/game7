@@ -98,7 +98,7 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
 
 rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
     FLOATS_PER_TRIANGLE :: 9
-    
+
     // For each implicit triangle
     tri_count := len(collision.local_positions) / FLOATS_PER_TRIANGLE
     for i := 0; i < tri_count; i += 1 {
@@ -114,7 +114,7 @@ copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.
     new_triangles := make([dynamic]Triangle, len(collision.triangles), allocator)
     copy(new_positions, collision.local_positions)
     copy(new_triangles[:], collision.triangles[:])
-    
+
     return TriangleMesh {
         local_positions = new_positions,
         triangles = new_triangles
@@ -502,7 +502,7 @@ intersect_ray_sphere_t :: proc(r: Ray, s: Sphere) -> (f32, bool) {
     m := r.start - s.position
     b := hlsl.dot(m, r.direction)
     c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
-    
+
     // Exit if r's origin is outside s (c > 0) and r is pointing away from s (b > 0.0)
     if c > 0.0 && b > 0.0 {
         return {}, false

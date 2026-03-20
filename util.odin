@@ -6,10 +6,6 @@ import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:time"
-import hm "desktop_vulkan_wrapper/handlemap"
-import imgui "odin-imgui"
-import vk "vendor:vulkan"
-import vkw "desktop_vulkan_wrapper"
 
 // angle is in radians
 pitch_rotation_matrix :: proc(angle: f32) -> hlsl.float4x4 {

@@ -4,8 +4,6 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:math"
-import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:os"
@@ -17,7 +15,6 @@ import "vendor:sdl2"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
-import hm "desktop_vulkan_wrapper/handlemap"
 
 USER_CONFIG_FILENAME :: "user.cfg"
 
@@ -131,7 +128,7 @@ main :: proc() {
     }
     defer quit_profiler(&profiler)
     scoped_event(&profiler, "Main proc")
-    
+
     // Set up logger
     context.logger = log.create_console_logger(log_level)
 
@@ -152,10 +149,10 @@ main :: proc() {
     game_state: GameState
     {
         scoped_event(&profiler, "App initialization")
-    
+
         log.info("Initiating swag mode...")
-    
-    
+
+
         // Set up per-scene allocator
         {
             scoped_event(&profiler, "Create per-scene allocator")
@@ -164,11 +161,11 @@ main :: proc() {
             if err != nil {
                 log.error("Error allocating scene allocator backing buffer.")
             }
-    
+
             mem.arena_init(&per_scene_arena, scene_backing_memory)
             scene_allocator = mem.arena_allocator(&per_scene_arena)
         }
-    
+
         // Set up per-frame temp allocator
         {
             scoped_event(&profiler, "Create per-frame allocator")
@@ -177,7 +174,7 @@ main :: proc() {
             if err != nil {
                 log.error("Error allocating temporary allocator backing buffer.")
             }
-    
+
             mem.arena_init(&per_frame_arena, temp_backing_memory)
             per_frame_allocator = mem.arena_allocator(&per_frame_arena)
         }
@@ -189,14 +186,14 @@ main :: proc() {
             log.error("Failed to load user config.")
         }
         user_config = cfg
-    
+
         // Initialize SDL2
         {
             scoped_event(&profiler, "Initialize SDL2")
             sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
             log.info("Initialized SDL2")
         }
-    
+
         // Use SDL2 to dynamically link against the Vulkan loader
         // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
         {
@@ -207,7 +204,7 @@ main :: proc() {
                 return
             }
         }
-        
+
         {
             scoped_event(&profiler, "Window setup")
 
@@ -232,7 +229,7 @@ main :: proc() {
                 }
                 app_window.present_mode = .FIFO
             }
-        
+
             // Determine SDL window flags
             app_window.flags = {.VULKAN,.RESIZABLE}
             if user_config.flags[.ExclusiveFullscreen] {
@@ -240,7 +237,7 @@ main :: proc() {
             } else if user_config.flags[.BorderlessFullscreen] {
                 app_window.flags += {.BORDERLESS}
             }
-        
+
             // Determine SDL window position
             app_window.position.x = sdl2.WINDOWPOS_CENTERED
             app_window.position.y = sdl2.WINDOWPOS_CENTERED
@@ -251,7 +248,7 @@ main :: proc() {
                 user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
                 user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
             }
-        
+
             app_window.window = sdl2.CreateWindow(
                 TITLE_WITHOUT_IMGUI,
                 app_window.position.x,
@@ -262,7 +259,7 @@ main :: proc() {
             )
             sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
         }
-    
+
         // Initialize graphics device
         init_params := vkw.InitParameters {
             app_name = "Game7",
@@ -296,48 +293,26 @@ main :: proc() {
 
         // Now that we're done with global allocations, switch context.allocator to scene_allocator
         context.allocator = scene_allocator
-    
+
         // Initialize the renderer
         renderer = init_renderer(&vgd, app_window.resolution, want_rt)
         if !renderer.do_raytracing {
             log.warn("Raytracing features are not supported by your GPU.")
         }
-    
+
         //Dear ImGUI init
         imgui_state = imgui_init(&vgd, user_config, app_window.resolution)
         if imgui_state.show_gui {
             sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
         }
-    
+
         // Init audio system
         init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
         toggle_device_playback(&audio_system, true)
-    
+
         // Main app structure storing the game's overall state
         game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
 
-        if true {
-            sb: strings.Builder
-            strings.builder_init(&sb, per_frame_allocator)
-
-            files := list_files("data/levels", per_frame_allocator)
-            for f in files {
-                if f.name[0:3] == "new" {
-                    log.warnf("Skipping %v", f.name)
-                    continue
-                }
-                path := fmt.sbprintf(&sb, "data/levels/%v", f.name)
-                log.infof("Converting %v...", path)
-                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path, scene_allocator)
-                strings.builder_reset(&sb)
-                
-                out_path := fmt.sbprintf(&sb, "data/levels/new_%v", f.name)
-                save_level_file(&game_state, &renderer, audio_system, out_path, per_frame_allocator)
-                strings.builder_reset(&sb)
-
-            }
-        }
-    
         {
             start_level := "test02"
             s, ok := user_config.strs[.StartLevel]
@@ -347,10 +322,9 @@ main :: proc() {
             sb: strings.Builder
             strings.builder_init(&sb, per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-            //load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
-            new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
+            load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
         }
-    
+
         // Init input system
         context.allocator = global_allocator
         is_lookat := game_state.viewport_camera_id in game_state.lookat_controllers
@@ -359,7 +333,7 @@ main :: proc() {
         } else {
             input_system = init_input_system(&game_state.freecam_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         }
-    
+
         current_time = time.now()          // Time in nanoseconds since UNIX epoch
         previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         saved_mouse_coords = hlsl.int2 {0, 0}
@@ -425,14 +399,6 @@ main :: proc() {
         // @TODO: Wrap this value at some point?
         game_state.time += scaled_dt
 
-        @static REMOVE_THIS := false
-        if REMOVE_THIS {
-            REMOVE_THIS = false
-
-            save_level_file(&game_state, &renderer, audio_system, "data/levels/new_save_level_test.lvl", per_frame_allocator)
-            new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, "data/levels/new_save_level_test.lvl", scene_allocator)
-        }
-
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
@@ -453,7 +419,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                new_load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
+                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
                 load_new_level = nil
             }
         }
@@ -676,7 +642,7 @@ main :: proc() {
         if output_verbs.bools[.FullscreenHotkey] {
             do_fullscreen = true
         }
-        
+
         if do_fullscreen {
             game_state.borderless_fullscreen = !game_state.borderless_fullscreen
             game_state.exclusive_fullscreen = false
@@ -752,7 +718,7 @@ main :: proc() {
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
-                
+
                 imgui.Separator()
                 if imgui.Button("Back") {
                     show_save_modal = false
@@ -881,7 +847,7 @@ main :: proc() {
         //                     scale : f32 = 1.0
         //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
         //                     model := load_gltf_static_model(&vgd, &renderer, path)
-                            
+
         //                     positions := get_glb_positions(path)
         //                     collision := new_static_triangle_mesh(positions[:], mmat)
 
@@ -911,7 +877,7 @@ main :: proc() {
         //                     scale : f32 = 1.0
         //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
         //                     model := load_gltf_static_model(&vgd, &renderer, path)
-                            
+
         //                     append(&game_state.static_scenery, StaticScenery {
         //                         position = position,
         //                         rotation = rotation,
@@ -1062,7 +1028,7 @@ main :: proc() {
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
-            
+
             renderer.uniforms.view_position.xyz = tform.position
             renderer.uniforms.view_position.a = 1.0
         }
@@ -1254,7 +1220,7 @@ main :: proc() {
                 }
             }
             free_all(context.temp_allocator)
-    
+
             // Clear sync info for next frame
             vkw.clear_sync_info(&renderer.gfx_sync)
             vkw.clear_sync_info(&renderer.compute_sync)
