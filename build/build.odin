@@ -44,6 +44,7 @@ when ODIN_DEBUG {
         ".",
         "-debug",
         "-vet-shadowing",
+        //"-vet-unused-imports",
         "-disallow-do",
     }
 } else {
@@ -53,6 +54,7 @@ when ODIN_DEBUG {
         ".",
         "-o:speed",
         "-vet-shadowing",
+        //"-vet-unused-imports",
         "-disallow-do",
         "-disable-assert",
         "-no-bounds-check",
@@ -121,7 +123,7 @@ main :: proc() {
         for shader in list {
             out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
             in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
-    
+
             slangc_command := os2.Process_Desc {
                 command = {
                     "slangc",
@@ -151,7 +153,7 @@ main :: proc() {
             for extra in SHADER_EXTRAS {
                 out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v%v.%v.spv", shader, extra[1], type[0:4])
                 in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
-        
+
                 slangc_command := os2.Process_Desc {
                     command = {
                         "slangc",
@@ -205,7 +207,7 @@ main :: proc() {
         log.debugf("Launching:\n\"%v\"", command_str)
         odin_process, _ = os2.process_start(odin_proc)
     }
-    
+
     // wait for the odin compiler
     log.info("waiting on odin compiler...")
     {
@@ -216,6 +218,6 @@ main :: proc() {
         }
     }
 
-    
+
     log.info("Program compilation succeeded!")
 }

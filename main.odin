@@ -4,8 +4,6 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:math"
-import "core:math/linalg"
 import "core:math/linalg/hlsl"
 import "core:mem"
 import "core:os"
@@ -17,7 +15,6 @@ import "vendor:sdl2"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
-import hm "desktop_vulkan_wrapper/handlemap"
 
 USER_CONFIG_FILENAME :: "user.cfg"
 
@@ -28,7 +25,7 @@ DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 MAXIMUM_FRAME_DT :: 1.0 / 30.0
 
 SCENE_ARENA_SIZE :: 16 * 1024 * 1024          // Memory pool for per-scene allocations
-TEMP_ARENA_SIZE :: 1024 * 1024                // Memory pool for per-frame allocations
+TEMP_ARENA_SIZE :: 4 * 1024 * 1024                // Memory pool for per-frame allocations
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
@@ -131,14 +128,10 @@ main :: proc() {
     }
     defer quit_profiler(&profiler)
     scoped_event(&profiler, "Main proc")
-    
+
     // Set up logger
     context.logger = log.create_console_logger(log_level)
-    
-    freecam_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    character_key_mappings := make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
-    mouse_mappings := make(map[u8]VerbType, 64, allocator = global_allocator)
-    button_mappings := make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+
     current_time: time.Time
     previous_time: time.Time
     scene_allocator: mem.Allocator
@@ -156,10 +149,10 @@ main :: proc() {
     game_state: GameState
     {
         scoped_event(&profiler, "App initialization")
-    
+
         log.info("Initiating swag mode...")
-    
-    
+
+
         // Set up per-scene allocator
         {
             scoped_event(&profiler, "Create per-scene allocator")
@@ -168,11 +161,11 @@ main :: proc() {
             if err != nil {
                 log.error("Error allocating scene allocator backing buffer.")
             }
-    
+
             mem.arena_init(&per_scene_arena, scene_backing_memory)
             scene_allocator = mem.arena_allocator(&per_scene_arena)
         }
-    
+
         // Set up per-frame temp allocator
         {
             scoped_event(&profiler, "Create per-frame allocator")
@@ -181,7 +174,7 @@ main :: proc() {
             if err != nil {
                 log.error("Error allocating temporary allocator backing buffer.")
             }
-    
+
             mem.arena_init(&per_frame_arena, temp_backing_memory)
             per_frame_allocator = mem.arena_allocator(&per_frame_arena)
         }
@@ -193,14 +186,14 @@ main :: proc() {
             log.error("Failed to load user config.")
         }
         user_config = cfg
-    
+
         // Initialize SDL2
         {
             scoped_event(&profiler, "Initialize SDL2")
             sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
             log.info("Initialized SDL2")
         }
-    
+
         // Use SDL2 to dynamically link against the Vulkan loader
         // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
         {
@@ -211,7 +204,7 @@ main :: proc() {
                 return
             }
         }
-        
+
         {
             scoped_event(&profiler, "Window setup")
 
@@ -236,7 +229,7 @@ main :: proc() {
                 }
                 app_window.present_mode = .FIFO
             }
-        
+
             // Determine SDL window flags
             app_window.flags = {.VULKAN,.RESIZABLE}
             if user_config.flags[.ExclusiveFullscreen] {
@@ -244,7 +237,7 @@ main :: proc() {
             } else if user_config.flags[.BorderlessFullscreen] {
                 app_window.flags += {.BORDERLESS}
             }
-        
+
             // Determine SDL window position
             app_window.position.x = sdl2.WINDOWPOS_CENTERED
             app_window.position.y = sdl2.WINDOWPOS_CENTERED
@@ -255,7 +248,7 @@ main :: proc() {
                 user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
                 user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
             }
-        
+
             app_window.window = sdl2.CreateWindow(
                 TITLE_WITHOUT_IMGUI,
                 app_window.position.x,
@@ -266,7 +259,7 @@ main :: proc() {
             )
             sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
         }
-    
+
         // Initialize graphics device
         init_params := vkw.InitParameters {
             app_name = "Game7",
@@ -300,26 +293,26 @@ main :: proc() {
 
         // Now that we're done with global allocations, switch context.allocator to scene_allocator
         context.allocator = scene_allocator
-    
+
         // Initialize the renderer
         renderer = init_renderer(&vgd, app_window.resolution, want_rt)
         if !renderer.do_raytracing {
             log.warn("Raytracing features are not supported by your GPU.")
         }
-    
+
         //Dear ImGUI init
         imgui_state = imgui_init(&vgd, user_config, app_window.resolution)
         if imgui_state.show_gui {
             sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
         }
-    
+
         // Init audio system
         init_audio_system(&audio_system, user_config, global_allocator, scene_allocator)
         toggle_device_playback(&audio_system, true)
-    
+
         // Main app structure storing the game's overall state
         game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, global_allocator)
-    
+
         {
             start_level := "test02"
             s, ok := user_config.strs[.StartLevel]
@@ -327,62 +320,20 @@ main :: proc() {
                 start_level = s
             }
             sb: strings.Builder
-            strings.builder_init(&sb, context.temp_allocator)
+            strings.builder_init(&sb, per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
             load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
         }
-    
-        // @TODO: Keymappings need to be a part of GameState
-        {
-            freecam_key_mappings[.ESCAPE] = .ToggleImgui
-            freecam_key_mappings[.W] = .TranslateFreecamForward
-            freecam_key_mappings[.S] = .TranslateFreecamBack
-            freecam_key_mappings[.A] = .TranslateFreecamLeft
-            freecam_key_mappings[.D] = .TranslateFreecamRight
-            freecam_key_mappings[.Q] = .TranslateFreecamDown
-            freecam_key_mappings[.E] = .TranslateFreecamUp
-            freecam_key_mappings[.LSHIFT] = .Sprint
-            freecam_key_mappings[.LCTRL] = .Crawl
-            freecam_key_mappings[.SPACE] = .PlayerJump
-            freecam_key_mappings[.BACKSLASH] = .FrameAdvance
-            freecam_key_mappings[.PAUSE] = .Resume
-            freecam_key_mappings[.F] = .FullscreenHotkey
-    
-            character_key_mappings[.ESCAPE] = .ToggleImgui
-            character_key_mappings[.W] = .PlayerTranslateForward
-            character_key_mappings[.S] = .PlayerTranslateBack
-            character_key_mappings[.A] = .PlayerTranslateLeft
-            character_key_mappings[.D] = .PlayerTranslateRight
-            character_key_mappings[.LSHIFT] = .Sprint
-            character_key_mappings[.LCTRL] = .Crawl
-            character_key_mappings[.SPACE] = .PlayerJump
-            character_key_mappings[.BACKSLASH] = .FrameAdvance
-            character_key_mappings[.PAUSE] = .Resume
-            character_key_mappings[.F] = .FullscreenHotkey
-            character_key_mappings[.R] = .PlayerReset
-            character_key_mappings[.E] = .PlayerShoot
-    
-            button_mappings[.A] = .PlayerJump
-            button_mappings[.X] = .PlayerShoot
-            button_mappings[.Y] = .PlayerReset
-            button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
-            button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
-    
-    
-    
-            // Hardcoded default mouse mappings
-            //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
-            mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
-        }
-    
+
         // Init input system
         context.allocator = global_allocator
-        if .Follow in game_state.viewport_camera.control_flags {
-            input_system = init_input_system(&character_key_mappings, &mouse_mappings, &button_mappings)
+        is_lookat := game_state.viewport_camera_id in game_state.lookat_controllers
+        if is_lookat {
+            input_system = init_input_system(&game_state.character_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         } else {
-            input_system = init_input_system(&freecam_key_mappings, &mouse_mappings, &button_mappings)
+            input_system = init_input_system(&game_state.freecam_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
         }
-    
+
         current_time = time.now()          // Time in nanoseconds since UNIX epoch
         previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         saved_mouse_coords = hlsl.int2 {0, 0}
@@ -451,8 +402,11 @@ main :: proc() {
         // Save user configuration every 100ms
         if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
+            tform := &game_state.transforms[game_state.viewport_camera_id]
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            following := game_state.viewport_camera_id in game_state.lookat_controllers
             user_config.strs[.StartLevel] = game_state.current_level
-            update_user_cfg_camera(&user_config, &game_state.viewport_camera)
+            update_user_cfg_camera(&user_config, tform.position, following, camera^)
             save_user_config(&user_config, USER_CONFIG_FILENAME)
             user_config.last_saved = current_time
         }
@@ -474,7 +428,7 @@ main :: proc() {
         begin_gui(&imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        renderer.cpu_uniforms.time += scaled_dt
+        renderer.uniforms.time += scaled_dt
 
         new_frame(&renderer)
 
@@ -493,6 +447,8 @@ main :: proc() {
         {
             scoped_event(&profiler, "Tell Dear ImGUI about events")
 
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+
             if output_verbs.bools[.ToggleImgui] {
                 imgui_state.show_gui = !imgui_state.show_gui
                 user_config.flags[.ImguiEnabled] = imgui_state.show_gui
@@ -505,7 +461,7 @@ main :: proc() {
 
             mlook_coords, ok := output_verbs.int2s[.ToggleMouseLook]
             if ok && mlook_coords != {0, 0} {
-                mlook := !(.MouseLook in game_state.viewport_camera.control_flags)
+                mlook := !(.MouseLook in camera.flags)
                 // Do nothing if Dear ImGUI wants mouse input
                 if !(mlook && io.WantCaptureMouse) {
                     sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
@@ -517,11 +473,11 @@ main :: proc() {
                     }
                     // The ~ is "symmetric difference" for bit_sets
                     // Basically like XOR
-                    game_state.viewport_camera.control_flags ~= {.MouseLook}
+                    camera.flags ~= {.MouseLook}
                 }
             }
 
-            if .MouseLook not_in game_state.viewport_camera.control_flags {
+            if .MouseLook not_in camera.flags {
                 x, y: c.int
                 sdl2.GetMouseState(&x, &y)
                 imgui.IO_AddMousePosEvent(io, f32(x), f32(y))
@@ -537,14 +493,15 @@ main :: proc() {
             renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
             renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
             renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
-            game_state.viewport_camera.aspect_ratio = docknode.Size.x / docknode.Size.y
+
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
         // Update
 
         // Misc imgui window for testing
         @static cpu_limiter_ms : c.int = 100
-        @static rotate_sun := false
         @static move_player := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
@@ -553,7 +510,10 @@ main :: proc() {
                 imgui.Separator()
 
                 {
-                    player := &game_state.character
+                    //player := &game_state.character
+                    tform := &game_state.transforms[game_state.player_id]
+                    collision := &game_state.spherical_bodies[game_state.player_id]
+                    player := &game_state.character_controllers[game_state.player_id]
 
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
@@ -562,6 +522,15 @@ main :: proc() {
                     flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player collision", &flag) {
                         game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                        if flag {
+                            game_state.debug_models[game_state.player_id] = DebugModelInstance {
+                                handle = game_state.sphere_mesh,
+                                scale = collision.radius,
+                                color = {0.2, 0.0, 1.0, 0.5}
+                            }
+                        } else {
+                            delete_key(&game_state.debug_models, game_state.player_id)
+                        }
                     }
                     flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
                     if imgui.Checkbox("Show player activity radius", &flag) {
@@ -572,17 +541,17 @@ main :: proc() {
                         game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     }
 
-                    gui_print_value(&sb, "Player position", player.collision.position)
-                    gui_print_value(&sb, "Player velocity", player.collision.velocity)
+                    gui_print_value(&sb, "Player position", tform.position)
+                    gui_print_value(&sb, "Player velocity", collision.velocity)
                     gui_print_value(&sb, "Player acceleration", player.acceleration)
-                    gui_print_value(&sb, "Player state", player.collision.state)
+                    gui_print_value(&sb, "Player state", collision.state)
 
                     imgui.SliderFloat("Player move speed", &player.move_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player sprint speed", &player.sprint_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player deceleration speed", &player.deceleration_speed, 0.01, 2.0)
                     imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
-                    imgui.SliderFloat("Bullet travel time", &game_state.character.bullet_travel_time, 0.0, 1.0)
+                    imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
                     imgui.SliderFloat("Coin radius", &game_state.coin_collision_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {
                         output_verbs.bools[.PlayerReset] = true
@@ -599,9 +568,7 @@ main :: proc() {
                     imgui.EndDisabled()
                 }
 
-                imgui.Checkbox("Rotate sun", &rotate_sun)
-
-                imgui.SliderFloat("Distortion Strength", &renderer.cpu_uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Distortion Strength", &renderer.uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") {
@@ -635,7 +602,7 @@ main :: proc() {
                 sb: strings.Builder
                 strings.builder_init(&sb, context.temp_allocator)
                 path := fmt.sbprintf(&sb, "data/levels/%v.lvl", game_state.current_level)
-                write_level_file(&game_state, &renderer, audio_system, path)
+                save_level_file(&game_state, &renderer, audio_system, path)
             }
             case .SaveLevelAs: {
                 show_save_modal = true
@@ -675,7 +642,7 @@ main :: proc() {
         if output_verbs.bools[.FullscreenHotkey] {
             do_fullscreen = true
         }
-        
+
         if do_fullscreen {
             game_state.borderless_fullscreen = !game_state.borderless_fullscreen
             game_state.exclusive_fullscreen = false
@@ -751,7 +718,7 @@ main :: proc() {
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
-                
+
                 imgui.Separator()
                 if imgui.Button("Back") {
                     show_save_modal = false
@@ -759,7 +726,7 @@ main :: proc() {
                 }
 
                 if len(level_savename) > 0 {
-                    write_level_file(&game_state, &renderer, audio_system, level_savename)
+                    save_level_file(&game_state, &renderer, audio_system, level_savename)
                 }
 
                 imgui.EndPopup()
@@ -767,24 +734,13 @@ main :: proc() {
         }
 
         if imgui_state.show_gui && user_config.flags[.CameraConfig] {
-            res, ok := camera_gui(
+            camera_gui(
                 &game_state,
-                &game_state.viewport_camera,
+                game_state.viewport_camera_id,
                 &input_system,
                 &user_config,
                 &user_config.flags[.CameraConfig]
             )
-            if ok {
-                switch res {
-                    case .ToggleFollowCam: {
-                        if .Follow in game_state.viewport_camera.control_flags {
-                            replace_keybindings(&input_system, &character_key_mappings)
-                        } else {
-                            replace_keybindings(&input_system, &freecam_key_mappings)
-                        }
-                    }
-                }    
-            }
         }
 
         if imgui_state.show_gui && user_config.flags[.WindowConfig] {
@@ -807,189 +763,199 @@ main :: proc() {
         }
 
         // Handle current editor state
-        {
-            move_positionable :: proc(
-                game_state: ^GameState,
-                input_system: InputSystem,
-                viewport_dimensions: vk.Rect2D,
-                position: ^hlsl.float3
-            ) -> bool {
-                collision_pt: hlsl.float3
-                hit := false
-                io := imgui.GetIO()
-                if !io.WantCaptureMouse {
-                    dims : [4]f32 = {
-                        cast(f32)viewport_dimensions.offset.x,
-                        cast(f32)viewport_dimensions.offset.y,
-                        cast(f32)viewport_dimensions.extent.width,
-                        cast(f32)viewport_dimensions.extent.height,
-                    }
-                    collision_pt, hit = do_mouse_raycast(
-                        game_state.viewport_camera,
-                        game_state.terrain_pieces[:],
-                        input_system.mouse_location,
-                        dims
-                    )
-                    if hit {
-                        position^ = collision_pt
-                    }
+        // {
+        //     move_positionable :: proc(
+        //         game_state: ^GameState,
+        //         input_system: InputSystem,
+        //         viewport_dimensions: vk.Rect2D,
+        //         position: ^hlsl.float3
+        //     ) -> bool {
+        //         collision_pt: hlsl.float3
+        //         hit := false
+        //         io := imgui.GetIO()
+        //         if !io.WantCaptureMouse {
+        //             dims : [4]f32 = {
+        //                 cast(f32)viewport_dimensions.offset.x,
+        //                 cast(f32)viewport_dimensions.offset.y,
+        //                 cast(f32)viewport_dimensions.extent.width,
+        //                 cast(f32)viewport_dimensions.extent.height,
+        //             }
+        //             collision_pt, hit = do_mouse_raycast(
+        //                 game_state.viewport_camera,
+        //                 game_state.triangle_meshes,
+        //                 input_system.mouse_location,
+        //                 dims
+        //             )
+        //             if hit {
+        //                 position^ = collision_pt
+        //             }
 
-                    if input_system.mouse_clicked {
-                        game_state.editor_response = nil
-                    }
-                }
-                return hit
-            }
+        //             if input_system.mouse_clicked {
+        //                 game_state.editor_response = nil
+        //             }
+        //         }
+        //         return hit
+        //     }
 
-            pick_path :: proc(
-                modal_title: cstring,
-                path: string,
-                builder: ^strings.Builder,
-                resp: ^Maybe(EditorResponse)
-            ) -> (cstring, bool) {
-                result: cstring
-                ok := false
+        //     pick_path :: proc(
+        //         modal_title: cstring,
+        //         path: string,
+        //         builder: ^strings.Builder,
+        //         resp: ^Maybe(EditorResponse)
+        //     ) -> (cstring, bool) {
+        //         result: cstring
+        //         ok := false
 
-                imgui.OpenPopup(modal_title)
-                center := imgui.GetMainViewport().Size / 2.0
-                imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-                imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
+        //         imgui.OpenPopup(modal_title)
+        //         center := imgui.GetMainViewport().Size / 2.0
+        //         imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+        //         imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
 
-                if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
-                    selected_item: c.int
-                    list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-                    if gui_list_files(path, &list_items, &selected_item, "models") {
-                        fmt.sbprintf(builder, "%v/%v", path, list_items[selected_item])
-                        path_cstring, _ := strings.to_cstring(builder)
+        //         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
+        //             selected_item: c.int
+        //             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
+        //             if gui_list_files(path, &list_items, &selected_item, "models") {
+        //                 fmt.sbprintf(builder, "%v/%v", path, list_items[selected_item])
+        //                 path_cstring, _ := strings.to_cstring(builder)
 
-                        result = path_cstring
-                        ok = true
-                        resp^ = nil
-                        imgui.CloseCurrentPopup()
-                    }
-                    imgui.Separator()
-                    if imgui.Button("Return") {
-                        resp^ = nil
-                        imgui.CloseCurrentPopup()
-                    }
-                    imgui.EndPopup()
-                }
-                strings.builder_reset(builder)
-                return result, ok
-            }
+        //                 result = path_cstring
+        //                 ok = true
+        //                 resp^ = nil
+        //                 imgui.CloseCurrentPopup()
+        //             }
+        //             imgui.Separator()
+        //             if imgui.Button("Return") {
+        //                 resp^ = nil
+        //                 imgui.CloseCurrentPopup()
+        //             }
+        //             imgui.EndPopup()
+        //         }
+        //         strings.builder_reset(builder)
+        //         return result, ok
+        //     }
 
-            resp, edit_ok := game_state.editor_response.(EditorResponse)
-            if edit_ok {
-                builder: strings.Builder
-                strings.builder_init(&builder, context.temp_allocator)
-                #partial switch resp.type {
-                    case .AddTerrainPiece: {
-                        path, ok := pick_path("Add terrain piece", "data/models", &builder, &game_state.editor_response)
-                        if ok {
-                            position := hlsl.float3 {}
-                            rotation := quaternion128 {}
-                            scale : f32 = 1.0
-                            mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-                            model := load_gltf_static_model(&vgd, &renderer, path)
-                            
-                            positions := get_glb_positions(path)
-                            collision := new_static_triangle_mesh(positions[:], mmat)
-                            append(&game_state.terrain_pieces, TerrainPiece {
-                                collision = collision,
-                                position = position,
-                                rotation = rotation,
-                                scale = scale,
-                                model = model,
-                            })
-                        }
-                    }
-                    case .AddStaticScenery: {
-                        path, ok := pick_path("Add static scenery", "data/models", &builder, &game_state.editor_response)
-                        if ok {
-                            position := hlsl.float3 {}
-                            rotation := quaternion128 {}
-                            scale : f32 = 1.0
-                            mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-                            model := load_gltf_static_model(&vgd, &renderer, path)
-                            
-                            append(&game_state.static_scenery, StaticScenery {
-                                position = position,
-                                rotation = rotation,
-                                scale = scale,
-                                model = model,
-                            })
-                        }
-                    }
-                    case .AddAnimatedScenery: {
-                        path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
-                        if ok {
-                            model := load_gltf_skinned_model(&vgd, &renderer, path, scene_allocator)
-                            position := hlsl.float3 {}
-                            rotation := quaternion128 {}
-                            scale : f32 = 1.0
-                            append(&game_state.animated_scenery, AnimatedScenery {
-                                position = position,
-                                rotation = rotation,
-                                scale = scale,
-                                model = model,
-                                anim_speed = 1.0,
-                            })
-                        }
-                    }
-                    case .MoveTerrainPiece: {
-                        position := &game_state.terrain_pieces[resp.index].position
-                        move_positionable(
-                            &game_state,
-                            input_system,
-                            renderer.viewport_dimensions,
-                            position
-                        )
-                    }
-                    case .MoveStaticScenery: {
-                        position := &game_state.static_scenery[resp.index].position
-                        move_positionable(
-                            &game_state,
-                            input_system,
-                            renderer.viewport_dimensions,
-                            position
-                        )
-                    }
-                    case .MoveAnimatedScenery: {
-                        position := &game_state.animated_scenery[resp.index].position
-                        move_positionable(
-                            &game_state,
-                            input_system,
-                            renderer.viewport_dimensions,
-                            position
-                        )
-                    }
-                    case .MoveEnemy: {
-                        enemy := &game_state.enemies[resp.index]
-                        if move_positionable(
-                            &game_state,
-                            input_system,
-                            renderer.viewport_dimensions,
-                            &enemy.position
-                        ) {
-                            e := &game_state.enemies[resp.index]
-                            e.velocity = {}
-                            e.position.z += 1.0
-                            e.home_position = enemy.position
-                        }
-                    }
-                    case .MoveCoin: {
-                        coin := &game_state.coins[resp.index]
-                        if move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position) {
-                            coin.position.z += 1.0
-                        }
-                    }
-                    case .MovePlayerSpawn: {
-                        move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
-                    }
-                    case: {}
-                }
-            }
-        }
+        //     resp, edit_ok := game_state.editor_response.(EditorResponse)
+        //     if edit_ok {
+        //         builder: strings.Builder
+        //         strings.builder_init(&builder, context.temp_allocator)
+        //         #partial switch resp.type {
+        //             case .AddTerrainPiece: {
+        //                 path, ok := pick_path("Add terrain piece", "data/models", &builder, &game_state.editor_response)
+        //                 if ok {
+        //                     position := hlsl.float3 {}
+        //                     rotation := quaternion128 {}
+        //                     scale : f32 = 1.0
+        //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+        //                     model := load_gltf_static_model(&vgd, &renderer, path)
+
+        //                     positions := get_glb_positions(path)
+        //                     collision := new_static_triangle_mesh(positions[:], mmat)
+
+        //                     id := gamestate_next_id(&game_state)
+        //                     game_state.triangle_meshes[id] = collision
+        //                     game_state.transforms[id] = Transform {
+        //                         position = position,
+        //                         rotation = rotation,
+        //                         scale = scale
+        //                     }
+        //                     game_state.static_models[id] = model
+
+        //                     // append(&game_state.terrain_pieces, TerrainPiece {
+        //                     //     collision = collision,
+        //                     //     position = position,
+        //                     //     rotation = rotation,
+        //                     //     scale = scale,
+        //                     //     model = model,
+        //                     // })
+        //                 }
+        //             }
+        //             case .AddStaticScenery: {
+        //                 path, ok := pick_path("Add static scenery", "data/models", &builder, &game_state.editor_response)
+        //                 if ok {
+        //                     position := hlsl.float3 {}
+        //                     rotation := quaternion128 {}
+        //                     scale : f32 = 1.0
+        //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
+        //                     model := load_gltf_static_model(&vgd, &renderer, path)
+
+        //                     append(&game_state.static_scenery, StaticScenery {
+        //                         position = position,
+        //                         rotation = rotation,
+        //                         scale = scale,
+        //                         model = model,
+        //                     })
+        //                 }
+        //             }
+        //             case .AddAnimatedScenery: {
+        //                 path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
+        //                 if ok {
+        //                     model := load_gltf_skinned_model(&vgd, &renderer, path, scene_allocator)
+        //                     position := hlsl.float3 {}
+        //                     rotation := quaternion128 {}
+        //                     scale : f32 = 1.0
+        //                     append(&game_state.animated_scenery, AnimatedScenery {
+        //                         position = position,
+        //                         rotation = rotation,
+        //                         scale = scale,
+        //                         model = model,
+        //                         anim_speed = 1.0,
+        //                     })
+        //                 }
+        //             }
+        //             case .MoveTerrainPiece: {
+        //                 position := &game_state.terrain_pieces[resp.index].position
+        //                 move_positionable(
+        //                     &game_state,
+        //                     input_system,
+        //                     renderer.viewport_dimensions,
+        //                     position
+        //                 )
+        //             }
+        //             case .MoveStaticScenery: {
+        //                 position := &game_state.static_scenery[resp.index].position
+        //                 move_positionable(
+        //                     &game_state,
+        //                     input_system,
+        //                     renderer.viewport_dimensions,
+        //                     position
+        //                 )
+        //             }
+        //             case .MoveAnimatedScenery: {
+        //                 position := &game_state.animated_scenery[resp.index].position
+        //                 move_positionable(
+        //                     &game_state,
+        //                     input_system,
+        //                     renderer.viewport_dimensions,
+        //                     position
+        //                 )
+        //             }
+        //             case .MoveEnemy: {
+        //                 enemy := &game_state.enemies[resp.index]
+        //                 if move_positionable(
+        //                     &game_state,
+        //                     input_system,
+        //                     renderer.viewport_dimensions,
+        //                     &enemy.position
+        //                 ) {
+        //                     e := &game_state.enemies[resp.index]
+        //                     e.velocity = {}
+        //                     e.position.z += 1.0
+        //                     e.home_position = enemy.position
+        //                 }
+        //             }
+        //             case .MoveCoin: {
+        //                 coin := &game_state.coins[resp.index]
+        //                 if move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position) {
+        //                     coin.position.z += 1.0
+        //                 }
+        //             }
+        //             case .MovePlayerSpawn: {
+        //                 move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
+        //             }
+        //             case: {}
+        //         }
+        //     }
+        // }
 
         // Memory viewer
         when ODIN_DEBUG {
@@ -1008,33 +974,13 @@ main :: proc() {
             }
         }
 
-        // Determine if we're simulating a tick of game logic this frame
-        game_state.do_this_frame = !game_state.paused
-        if output_verbs.bools[.FrameAdvance] {
-            game_state.do_this_frame = true
-            game_state.paused = true
-        }
-        if output_verbs.bools[.Resume] {
-            game_state.paused = !game_state.paused
-        }
-
-        // Update and draw player
-        if game_state.do_this_frame {
-            player_update(&game_state, &audio_system, &output_verbs, scaled_dt)
-        }
-        player_draw(&game_state, &vgd, &renderer)
-
-        // Update and draw enemies
-        if game_state.do_this_frame {
-            enemies_update(&game_state, &audio_system, scaled_dt)
-        }
-        enemies_draw(&vgd, &renderer, game_state)
-
-        coins_draw(&vgd, &renderer, game_state)
+        game_tick(&game_state, &vgd, &renderer, output_verbs, &audio_system, scaled_dt)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
             scoped_event(&profiler, "Move player cheat")
+            tform := &game_state.transforms[game_state.player_id]
+            col := &game_state.spherical_bodies[game_state.player_id]
             dims : [4]f32 = {
                 cast(f32)renderer.viewport_dimensions.offset.x,
                 cast(f32)renderer.viewport_dimensions.offset.y,
@@ -1042,15 +988,15 @@ main :: proc() {
                 cast(f32)renderer.viewport_dimensions.extent.height,
             }
             collision_pt, hit := do_mouse_raycast(
-                game_state.viewport_camera,
-                game_state.terrain_pieces[:],
+                game_state,
+                game_state.viewport_camera_id,
+                game_state.triangle_meshes,
                 input_system.mouse_location,
                 dims
             )
             if hit {
-                col := &game_state.character.collision
-                col.position = collision_pt
-                col.position.z += col.radius
+                tform.position = collision_pt
+                tform.position.z += col.radius
             }
 
             if input_system.mouse_clicked {
@@ -1061,73 +1007,95 @@ main :: proc() {
         // Camera update
         {
             scoped_event(&profiler, "Camera update")
-            current_view_from_world := camera_update(&game_state, &output_verbs, dt)
-            projection_from_view := camera_projection_from_view(&game_state.viewport_camera)
-            renderer.cpu_uniforms.clip_from_world =
+
+            tform := &game_state.transforms[game_state.viewport_camera_id]
+            camera := &game_state.cameras[game_state.viewport_camera_id]
+            lookat_controller, is_lookat := &game_state.lookat_controllers[game_state.viewport_camera_id]
+            current_view_from_world: hlsl.float4x4 
+            if is_lookat {
+                lookat_camera_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
+            } else {
+                freecam_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                current_view_from_world = freecam_view_from_world(tform^, camera^)
+            }
+
+            projection_from_view := camera_projection_from_view(camera^)
+            renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
+
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
-            renderer.cpu_uniforms.clip_from_skybox = projection_from_view * vfw4;
-            
-            renderer.cpu_uniforms.view_position.xyz = game_state.viewport_camera.position
-            renderer.cpu_uniforms.view_position.a = 1.0
+            renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
+
+            renderer.uniforms.view_position.xyz = tform.position
+            renderer.uniforms.view_position.a = 1.0
         }
 
-        // Update and draw static scenery
-        for &mesh in game_state.static_scenery {
-            scoped_event(&profiler, "Draw static scenery loop iteration")
-            rot := linalg.to_matrix4(mesh.rotation)
-            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
+        // Draw static models
+        for id, model in game_state.static_models {
+            tform := &game_state.transforms[id]
 
-            dd := StaticDraw {
-                world_from_model = world_mat,
+            mat := get_transform_matrix(tform^)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
+            draw := StaticDraw {
+                world_from_model = mat,
+                flags = model.flags
             }
-            draw_ps1_static_mesh(&vgd, &renderer, mesh.model, dd)
+            draw_ps1_static_mesh(&vgd, &renderer, model.handle, draw)
+
+            if .Glowing in model.flags {
+                // Light source
+                l := default_point_light()
+                l.world_position = tform.position
+                l.color = {0.0, 1.0, 0.0}
+                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+                do_point_light(&renderer, l)
+            }
         }
 
-        // Update and draw animated scenery
-        for &mesh in game_state.animated_scenery {
-            scoped_event(&profiler, "Draw animated scenery loop iteration")
-            if game_state.do_this_frame {
-                anim := &renderer.animations[mesh.anim_idx]
-                anim_end := get_animation_endtime(anim)
-                mesh.anim_t += scaled_dt * mesh.anim_speed
-                mesh.anim_t = math.mod(mesh.anim_t, anim_end)
-            }
+        // Draw skinned models
+        for id, model in game_state.skinned_models {
+            tform := &game_state.transforms[id]
 
-            rot := linalg.to_matrix4(mesh.rotation)
-
-            world_mat := translation_matrix(mesh.position) * rot * uniform_scaling_matrix(mesh.scale)
-            dd := SkinnedDraw {
-                world_from_model = world_mat,
-                anim_idx = mesh.anim_idx,
-                anim_t = mesh.anim_t
+            mat := get_transform_matrix(tform^)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
+            draw := SkinnedDraw {
+                world_from_model = mat,
+                anim_idx = model.anim_idx,
+                anim_t = model.anim_t,
+                //flags = model.flags
             }
-            draw_ps1_skinned_mesh(&vgd, &renderer, mesh.model, &dd)
+            draw_ps1_skinned_mesh(&vgd, &renderer, model.handle, &draw)
+
+            if .Glowing in model.flags {
+                // Light source
+                l := default_point_light()
+                l.world_position = tform.position
+                l.color = {0.0, 1.0, 0.0}
+                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+                do_point_light(&renderer, l)
+            }
         }
 
-        // Draw terrain pieces
-        for &piece in game_state.terrain_pieces {
-            scoped_event(&profiler, "Draw terrain pieces loop iteration")
-            scale := scaling_matrix(piece.scale)
-            rot := linalg.matrix4_from_quaternion_f32(piece.rotation)
-            trans := translation_matrix(piece.position)
-            mat := trans * rot * scale
-            tform := StaticDraw {
-                world_from_model = mat
-            }
-            draw_ps1_static_mesh(&vgd, &renderer, piece.model, tform)
-        }
+        // Draw debug models
+        for id, model in game_state.debug_models {
+            tform := &game_state.transforms[id]
 
-        // Rotate sunlight
-        if rotate_sun {
-            scoped_event(&profiler, "Rotate sunlight")
-            for i in 0..<renderer.cpu_uniforms.directional_light_count {
-                light := &renderer.cpu_uniforms.directional_lights[i]
-                d := hlsl.float4 {light.direction.x, light.direction.y, light.direction.z, 0.0}
-                light.direction = (d * yaw_rotation_matrix(dt)).xyz
+            mat := get_transform_matrix(tform^, model.scale)
+            mat[3][0] += model.pos_offset.x
+            mat[3][1] += model.pos_offset.y
+            mat[3][2] += model.pos_offset.z
+            draw := DebugDraw {
+                world_from_model = mat,
+                color = model.color
             }
+            draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &draw)
         }
 
         // Window update
@@ -1194,7 +1162,10 @@ main :: proc() {
             }
 
             // Sync point where we wait if there are already 2 frames in the gfx queue
-            vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
+            {
+                scoped_event(&profiler, "CPU wait on GPU")
+                vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
+            }
 
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
 
@@ -1220,7 +1191,6 @@ main :: proc() {
                 &vgd,
                 gfx_cb_idx,
                 &renderer,
-                &game_state.viewport_camera,
                 &framebuffer
             )
 
@@ -1240,6 +1210,7 @@ main :: proc() {
             gui_cancel_frame(&imgui_state)
         }
 
+        // End-of-frame cleanup
         {
             scoped_event(&profiler, "End-of-frame cleanup")
             // CLear temp allocator for next frame
@@ -1249,7 +1220,7 @@ main :: proc() {
                 }
             }
             free_all(context.temp_allocator)
-    
+
             // Clear sync info for next frame
             vkw.clear_sync_info(&renderer.gfx_sync)
             vkw.clear_sync_info(&renderer.compute_sync)
