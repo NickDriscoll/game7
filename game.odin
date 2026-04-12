@@ -766,6 +766,8 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 world_invector = hlsl.normalize(world_invector)
             }
 
+            // Now we have a representation of the player's input vector in world space
+
             // Handle sprint
             this_frame_move_speed := char.move_speed
             {
@@ -786,9 +788,6 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 }
             }
 
-            // Now we have a representation of the player's input vector in world space
-
-            //if !taking_damage {
             {
                 char.acceleration = {world_invector.x, world_invector.y, 0.0}
                 accel_len := hlsl.length(char.acceleration)
