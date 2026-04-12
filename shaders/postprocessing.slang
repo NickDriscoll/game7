@@ -150,7 +150,7 @@ float Scan(float2 pos, float off) {
     float dst = Dist(pos).y;
     return Gaus(dst + off, hardScan);
 }
-    
+
 // Allow nearest three lines to effect pixel.
 float3 Tri(float2 pos) {
     float3 a = Horz3(pos, -1.0);
@@ -204,14 +204,14 @@ float4 fragment_main(VertexOutput input) {
             my_noise(input.uv + 0.5 * u_data.time),
             my_noise(input.uv + 0.5 * u_data.time + 1.0)
         );
-        
+
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
         // Extract resolution from clip_from_screen matrix
         float2 framebuffer_resolution;
         framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
         framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
-        
+
         float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
         float2 pos = Warp(crt_sample_pos / framebuffer_resolution + float2(0.0, 0.0));
         float3 tri = Tri(pos);

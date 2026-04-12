@@ -3,12 +3,11 @@ package main
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:mem"
-import "core:os/os2"
 import "core:slice"
 
 import "vendor:cgltf"
 import vk "vendor:vulkan"
-    
+
 get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
     base_ptr := buffer_view.buffer.data
     offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
@@ -29,7 +28,7 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
     }
     defer cgltf.free(gltf_data)
-    
+
     // Load buffers
     res = cgltf.load_buffers({}, gltf_data, path)
     if res != .success {
@@ -43,7 +42,7 @@ get_glb_positions :: proc(path: cstring, allocator := context.allocator) -> [dyn
         }
     }
     out_positions := make([dynamic]f32, 3 * total_indices, allocator)
-    
+
     head_index : uint = 0
     for mesh in gltf_data.meshes {
         for &prim in mesh.primitives {
@@ -143,7 +142,7 @@ load_gltf_joint_ids :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.uint4 {
     data := make([dynamic]hlsl.uint4, attrib.data.count, context.temp_allocator)
     ptr := get_accessor_ptr(attrib.data, [4]u16)
     bytes := attrib.data.count * size_of(hlsl.uint4)
-    
+
     // Loop to convert from u16 to u32
     for i in 0..<attrib.data.count {
         id := ptr[i]

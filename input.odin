@@ -22,7 +22,7 @@ VerbType :: enum {
     ResizeWindow,
     MinimizeWindow,
     FocusWindow,
-    
+
     MouseMotion,
     MouseMotionRel,
     ToggleMouseLook,
@@ -163,7 +163,7 @@ poll_sdl2_events :: proc(
     state: ^InputSystem,
     allocator := context.temp_allocator
 ) -> OutputVerbs {
-    
+
     outputs: OutputVerbs
     outputs.bools = make(map[VerbType]bool, 16, allocator)
     outputs.ints = make(map[VerbType]i64, 16, allocator)
@@ -254,7 +254,7 @@ poll_sdl2_events :: proc(
             }
             case .KEYUP: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
-                
+
                 // Do nothing if Dear ImGUI wants keyboard input
                 if io.WantCaptureKeyboard {
                     continue
@@ -342,7 +342,7 @@ poll_sdl2_events :: proc(
                             state.currently_remapping = false
                             continue
                         }
-                        
+
                         state.button_mappings[button] = verb
                         delete_key(state.button_mappings, state.input_being_remapped.button)
                         state.input_being_remapped.button = nil
@@ -364,7 +364,7 @@ poll_sdl2_events :: proc(
             }
         }
     }
-    
+
     // Set imgui mod keys
     io.KeyCtrl = imgui.IsKeyDown(.LeftCtrl) || imgui.IsKeyDown(.RightCtrl)
     io.KeyShift = imgui.IsKeyDown(.LeftShift) || imgui.IsKeyDown(.RightShift)
@@ -426,7 +426,7 @@ poll_sdl2_events :: proc(
             if ax in state.reverse_axes {
                 val = -val
             }
-        
+
             sensitivity := state.axis_sensitivities[ax]
 
             floats[verbtype] = val
@@ -477,7 +477,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         for i in indices {
             key := keys[i]
             verb := m[key]
-            
+
             imgui.TableNextRow()
 
             imgui.TableNextColumn()
@@ -510,7 +510,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         if width > largest_button_width {
             largest_button_width = width
         }
-        
+
         strings.builder_reset(&sb)
     }
 
@@ -589,7 +589,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
                 ss := strings.clone_to_cstring(slider_id, allocator)
                 strings.builder_reset(sb)
                 imgui.SliderFloat(ss, sensitivity, 0.0, 10.0)
-                
+
                 discriminator^ += 1
             }
         }

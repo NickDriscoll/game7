@@ -66,7 +66,7 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
             relative_progress := audio_system.speed_scale * f32(i)
             first_idx := int(relative_progress)
             interpolant := relative_progress - f32(first_idx)
-            
+
             // Interpolate two samples based on the relative progress through the file samples buffer
             first_sample := file_stream_buffer[first_idx]
             second_sample := file_stream_buffer[first_idx + 1]
@@ -129,7 +129,7 @@ AudioSystem :: struct {
     out_channels: u8,
     master_volume: f32,            // Between 0.0 and 1.0
     speed_scale: f32,
-    
+
     sine_time: f32,
     play_tone: bool,
     tone_freq: f32,
@@ -257,7 +257,7 @@ play_sound_effect :: proc(audio_system: ^AudioSystem, i: uint) {
 open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
     playback: FilePlayback
     playback.name = filepath.stem(strings.clone_from_cstring(path))
-    
+
     err: vorbis.Error
     playback.file = vorbis.open_filename(path, &err, nil)
     if err != nil {
@@ -318,7 +318,7 @@ audio_gui :: proc(
             user_config.floats[.SFXVolume] = f64(audio_system.sfx_volume)
         }
         imgui.SliderFloat("Audio playback speed", &audio_system.speed_scale, 0.1, MAX_PLAYBACK_SCALE)
-        
+
         imgui.SameLine()
         if imgui.Button("Reset") {
             audio_system.speed_scale = 1.0
@@ -361,7 +361,7 @@ audio_gui :: proc(
 
             imgui.PopID()
         }
-        
+
     }
     imgui.End()
 }

@@ -65,7 +65,7 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
-UniformsFlags :: bit_set[UniformFlag]
+UniformFlags :: bit_set[UniformFlag]
 UniformFlag :: enum u32 {
     ColorTriangles,
     Reflections,
@@ -80,7 +80,7 @@ UniformFlag :: enum u32 {
 // Manually aligned to 16 bytes
 UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
-    
+
     clip_from_skybox: hlsl.float4x4,
 
     clip_from_screen: hlsl.float4x4,
@@ -99,7 +99,7 @@ UniformBuffer :: struct {
 
     joint_mats_ptr: vk.DeviceAddress,
     decals_ptr: vk.DeviceAddress,
-    
+
     view_position: hlsl.float4,
 
     directional_lights: [MAX_DIRECTIONAL_LIGHTS]DirectionalLight,
@@ -110,12 +110,12 @@ UniformBuffer :: struct {
     time: f32,
     distortion_strength: f32,
 
-    flags: UniformsFlags,
+    flags: UniformFlags,
     skybox_idx: u32,
     cloud_speed: f32,
     cloud_scale: f32,
 
-    
+
 
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
@@ -157,7 +157,16 @@ Animation :: struct {
     channels: [dynamic]AnimationChannel,
     name: string,
 }
-get_animation_endtime :: proc(anim: ^Animation) -> f32 {
+
+get_animation_duration :: proc {
+    get_animation_duration_idx,
+    get_animation_duration_ptr,
+}
+get_animation_duration_idx :: proc(renderer: Renderer, idx: u32) -> f32 {
+    anim := &renderer.animations[idx]
+    return get_animation_duration_ptr(anim)
+}
+get_animation_duration_ptr :: proc(anim: ^Animation) -> f32 {
     idx := len(anim.channels[0].keyframes) - 1
     return anim.channels[0].keyframes[idx].time
 }
@@ -184,7 +193,7 @@ CPUStaticMesh :: struct {
 }
 
 MeshRaytracingData :: struct {
-    
+
 }
 
 GPUStaticMesh :: struct {
@@ -326,7 +335,7 @@ Renderer :: struct {
 
 
     // Per-frame shader uniforms
-    cpu_uniforms: UniformBuffer,
+    uniforms: UniformBuffer,
     uniform_buffer: vkw.Buffer_Handle,
 
     dirty_flags: GPUBufferDirtyFlags,               // Represents which GPU buffers need synced this frame
@@ -340,7 +349,7 @@ Renderer :: struct {
 
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
-    
+
     loaded_static_models: hm.Handle_Map(StaticModel),
     loaded_skinned_models: hm.Handle_Map(SkinnedModel),
 
@@ -385,7 +394,7 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
 
     // Default values for shader uniforms
     {
-        unis := &renderer.cpu_uniforms
+        unis := &renderer.uniforms
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
@@ -564,16 +573,16 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
         log.debugf("joint_ids_buffer base pointer == 0x%X", joint_ids_buffer.address)
         log.debugf("joint_weights_buffer base pointer == 0x%X", joint_weights_buffer.address)
         log.debugf("joint_matrices_buffer base pointer == 0x%X", joint_matrices_buffer.address)
-    
-        renderer.cpu_uniforms.mesh_ptr = mesh_buffer.address
-        renderer.cpu_uniforms.material_ptr = material_buffer.address
-        renderer.cpu_uniforms.instance_ptr = instance_buffer.address
-        renderer.cpu_uniforms.position_ptr = position_buffer.address
-        renderer.cpu_uniforms.uv_ptr = uv_buffer.address
-        renderer.cpu_uniforms.color_ptr = color_buffer.address
-        renderer.cpu_uniforms.joint_id_ptr = joint_ids_buffer.address
-        renderer.cpu_uniforms.joint_weight_ptr = joint_weights_buffer.address
-        renderer.cpu_uniforms.joint_mats_ptr = joint_matrices_buffer.address
+
+        renderer.uniforms.mesh_ptr = mesh_buffer.address
+        renderer.uniforms.material_ptr = material_buffer.address
+        renderer.uniforms.instance_ptr = instance_buffer.address
+        renderer.uniforms.position_ptr = position_buffer.address
+        renderer.uniforms.uv_ptr = uv_buffer.address
+        renderer.uniforms.color_ptr = color_buffer.address
+        renderer.uniforms.joint_id_ptr = joint_ids_buffer.address
+        renderer.uniforms.joint_weight_ptr = joint_weights_buffer.address
+        renderer.uniforms.joint_mats_ptr = joint_matrices_buffer.address
 
         renderer.indices_ptr = indices_buffer.address
     }
@@ -839,7 +848,7 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
 resize_framebuffers :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, renderer.main_framebuffer.color_images[0])
     vkw.delete_image(gd, renderer.main_framebuffer.depth_image)
-    
+
     old_clearcolor := renderer.main_framebuffer.clear_color
 
     // Create main rendertarget
@@ -914,7 +923,7 @@ queue_blas_build :: proc(
     mesh: ^CPUStaticMesh,
     update: bool
 ) {
-    pos_addr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
+    pos_addr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
 
     if mesh.current_blas_head == u32(len(mesh.blases)) {
         append(&mesh.blases, vkw.Acceleration_Structure_Handle {})
@@ -983,10 +992,10 @@ create_static_mesh :: proc(
     {
         assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
-    
+
         position_start = renderer.positions_head
         renderer.positions_head += positions_len
-    
+
         vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
     }
 
@@ -1042,12 +1051,13 @@ create_skinned_mesh :: proc(
     {
         assert(renderer.positions_head + positions_len < MAX_GLOBAL_VERTICES)
         assert(positions_len > 0)
-    
+
         position_start = renderer.positions_head
         renderer.positions_head += positions_len
-    
+
         vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
     }
+    assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
     indices_start: u32
     indices_len: u32
@@ -1089,8 +1099,6 @@ create_skinned_mesh :: proc(
         blases = make([dynamic]vkw.Acceleration_Structure_Handle, 0, 4, context.allocator)
     }
     static_handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, new_cpu_static_mesh))
-
-    //assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
     mesh := CPUSkinnedMesh {
         vertices_len = u32(len(positions)),
@@ -1171,10 +1179,12 @@ add_material :: proc(r: ^Renderer, new_mat: ^Material) -> Material_Handle {
 }
 
 do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
-    id := renderer.cpu_uniforms.point_light_count
+    id := renderer.uniforms.point_light_count
     if id < MAX_POINT_LIGHTS {
-        renderer.cpu_uniforms.point_light_count += 1
-        renderer.cpu_uniforms.point_lights[id] = light
+        renderer.uniforms.point_light_count += 1
+        renderer.uniforms.point_lights[id] = light
+    } else {
+        log.error("Tried to add too many point lights.")
     }
 }
 
@@ -1348,7 +1358,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
 
     // Loop over each skinned instance in order to produce 
     push_constant_batches := make([dynamic]ComputeSkinningPushConstants, 0, len(renderer.cpu_skinned_instances), context.temp_allocator)
-    
+
     in_flight_frame := u32(gd.frame_count) % gd.frames_in_flight
     instance_mats_offset : u32 = in_flight_frame * MAX_GLOBAL_JOINTS
     pos_space_left := MAX_GLOBAL_VERTICES - renderer.positions_head
@@ -1452,7 +1462,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
                                     next_quat := quaternion(x = next.value[0], y = next.value[1], z = next.value[2], w = next.value[3])
                                     rotation_quat := linalg.quaternion_slerp_f32(now_quat, next_quat, interpolation_amount)
                                     transform := linalg.to_matrix4(rotation_quat)
-    
+
                                     joint_transform^ *= transform            // Rotation is postmultiplied
                                 }
                                 case .Scale: {
@@ -1485,14 +1495,14 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
             }
 
             // Insert another compute shader dispatch
-            
+
             // @TODO: use a different buffer for vertex stream-out
-            out_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
-            
-            in_pos_ptr := renderer.cpu_uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
-            joint_ids_ptr := renderer.cpu_uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
-            joint_weights_ptr := renderer.cpu_uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
-            joint_mats_ptr := renderer.cpu_uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
+            out_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
+
+            in_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
+            joint_ids_ptr := renderer.uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
+            joint_weights_ptr := renderer.uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
+            joint_mats_ptr := renderer.uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
             pcs := ComputeSkinningPushConstants {
                 in_positions = in_pos_ptr,
                 out_positions = out_pos_ptr,
@@ -1578,7 +1588,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
 
     // Have graphics queue wait on compute skinning timeline semaphore
     vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
-    
+
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
 }
 
@@ -1590,7 +1600,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
         for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
-            
+
             tform: vk.TransformMatrixKHR
             for row in 0..<3 {
                 for column in 0..<4 {
@@ -1606,7 +1616,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
                 instanceCustomIndex = u32(i),
-                
+
                 // @TODO: Use these fields
                 mask = 0x01,
                 instanceShaderBindingTableRecordOffset = 0,
@@ -1681,7 +1691,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
         }
 
         // Put new TLAS address in uniform buffer
-        //renderer.cpu_uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
+        //renderer.uniforms.acceleration_structures_ptr = vkw.get_acceleration_structure_address(gd, renderer.scene_TLAS)
     }
 }
 
@@ -1691,7 +1701,6 @@ render_scene :: proc(
     gd: ^vkw.GraphicsDevice,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     renderer: ^Renderer,
-    viewport_camera: ^Camera,
     framebuffer: ^vkw.Framebuffer,
 ) {
     scoped_event(&profiler, "render_scene")
@@ -1777,12 +1786,12 @@ render_scene :: proc(
         do_it := (.Draw in renderer.dirty_flags || .Instance in renderer.dirty_flags) && len(instances) > 0
         if do_it {
             gpu_draws := make([dynamic]vk.DrawIndexedIndirectCommand, 0, len(instances), context.temp_allocator)
-        
+
             // Sort instances by mesh handle
             slice.sort_by(instances, proc(i, j: T) -> bool {
                 return i.mesh_handle.index < j.mesh_handle.index
             })
-            
+
             // With the understanding that these instances are already sorted by
             // mesh_idx, construct the draw stream with appropriate instancing
 
@@ -1804,7 +1813,7 @@ render_scene :: proc(
                     vertexOffset = 0,
                     firstInstance = u32(current_instance + first_instance + instance_offset)
                 }
-                
+
                 inst := &instances[current_instance]
                 for inst.mesh_handle == current_mesh_handle {
                     // Simply add an instance to the current draw call in
@@ -1848,7 +1857,7 @@ render_scene :: proc(
     }
 
     draws_offset : u32 = uniforms_offset * MAX_GLOBAL_DRAW_CMDS
-    
+
     ps1_draws_count := add_draw_instances(
         gd,
         renderer,
@@ -1857,7 +1866,7 @@ render_scene :: proc(
         draws_offset
     )
     draws_offset += ps1_draws_count
-    
+
     debug_draws_count := add_draw_instances(
         gd,
         renderer,
@@ -1868,7 +1877,7 @@ render_scene :: proc(
 
     // After all imgui work, update clip_from_screen matrix
     io := imgui.GetIO()
-    renderer.cpu_uniforms.clip_from_screen = {
+    renderer.uniforms.clip_from_screen = {
         2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
         0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
         0.0, 0.0, 1.0, 0.0,
@@ -1885,7 +1894,7 @@ render_scene :: proc(
     // Update uniforms buffer
     {
         scoped_event(&profiler, "Uniform buffer upload")
-        in_slice := slice.from_ptr(&renderer.cpu_uniforms, 1)
+        in_slice := slice.from_ptr(&renderer.uniforms, 1)
         if !vkw.sync_write_buffer(gd, renderer.uniform_buffer, in_slice, uniforms_offset) {
             log.error("Failed to write uniform buffer data")
         }
@@ -1895,11 +1904,11 @@ render_scene :: proc(
         scoped_event(&profiler, "Vulkan command recording")
         // Clear dirty flags after checking them
         renderer.dirty_flags = {}
-        
+
         // Bind global index buffer and descriptor set
         vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
         vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
-    
+
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
         vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
@@ -1922,10 +1931,10 @@ render_scene :: proc(
                 }
             }
         })
-    
+
         // Begin renderpass into main internal rendertarget
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
-    
+
         framebuffer_resolution := renderer.main_framebuffer.resolution
         vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
             x = cast(f32)renderer.viewport_dimensions.offset.x,
@@ -1954,11 +1963,11 @@ render_scene :: proc(
             sampler_idx = u32(vkw.Immutable_Sampler_Index.Point),
             tlas_idx = uniforms_offset
         })
-    
+
         // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-    
+
         // Opaque drawing pipeline(s)
-    
+
         draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
         // Main opaque 3D shaded pipeline
         if len(renderer.ps1_static_instances) > 0 {
@@ -1972,15 +1981,15 @@ render_scene :: proc(
             )
         }
         draw_buffer_offset += u64(ps1_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
-    
+
         // Opaque drawing finished
-    
+
         // Sky
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
         vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
-    
+
         // Start transparent drawing
-    
+
         // Debug draw pipeline
         if len(renderer.debug_static_instances) > 0 {
             vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
@@ -1993,12 +2002,12 @@ render_scene :: proc(
             )
         }
         draw_buffer_offset += u64(debug_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
-    
+
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
-    
+
         // Postprocessing step to write final output
         framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
-    
+
         // Transition internal framebuffer to be sampled from
         depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
@@ -2050,22 +2059,22 @@ render_scene :: proc(
             minDepth = 0.0,
             maxDepth = 1.0
         }})
-        
+
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
-    
+
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
             color_target = renderer.main_framebuffer.color_images[0].index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
             uniforms_address = uniform_buf.address
         })
-    
+
         // Draw screen-filling triangle
         vkw.cmd_draw(gd, gfx_cb_idx, 3, 1, 0, 0)
-    
+
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
-    
-        renderer.cpu_uniforms.point_light_count = 0
+
+        renderer.uniforms.point_light_count = 0
     }
 }
 
@@ -2185,7 +2194,7 @@ load_gltf_static_model :: proc(
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
     }
     defer cgltf.free(gltf_data)
-    
+
     // Load buffers
     res = cgltf.load_buffers({}, gltf_data, path)
     if res != .success {
@@ -2245,7 +2254,7 @@ load_gltf_static_model :: proc(
             // Now get material data
             glb_material := primitive.material
             has_material := glb_material != nil
-    
+
             bindless_image_idx := vkw.Texture_Handle {
                 index = NULL_OFFSET
             }
@@ -2254,7 +2263,7 @@ load_gltf_static_model :: proc(
                 color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
                 bindless_image_idx = loaded_glb_images[color_tex_idx]
             }
-            
+
             base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
             if has_material {
                 base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
@@ -2265,7 +2274,7 @@ load_gltf_static_model :: proc(
                 base_color = base_color
             }
             material_handle := add_material(renderer, &material)
-    
+
             append(&draw_primitives, StaticDrawPrimitive {
                 mesh = mesh_handle,
                 material = material_handle
@@ -2316,13 +2325,13 @@ load_gltf_skinned_model :: proc(
         log.errorf("Failed to load glTF \"%v\"\nerror: %v", path, res)
     }
     defer cgltf.free(gltf_data)
-    
+
     // Load buffers
     res = cgltf.load_buffers({}, gltf_data, path)
     if res != .success {
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
-    
+
     loaded_glb_images := load_gltf_textures(gd, gltf_data)
 
     // Load inverse bind matrices
@@ -2338,7 +2347,7 @@ load_gltf_skinned_model :: proc(
         // Get the index that will point to this model's first animation
         // in the global animations list after the animations are pushed
         first_anim_idx = u32(len(renderer.animations))
-        
+
         // Load inverse bind matrices
         inv_bind_count := glb_skin.inverse_bind_matrices.count
         resize(&renderer.inverse_bind_matrices, uint(first_joint_idx) + inv_bind_count)
@@ -2407,7 +2416,7 @@ load_gltf_skinned_model :: proc(
                         mem.copy(&keyframe_values[0], ptr, int(size_of(hlsl.float4) * keyframe_count))
                     }
                     case: {
-                        log.error("Invalid animation sampler output type.")
+                        log.errorf("Invalid animation sampler output type: %v", channel.sampler.output.type)
                     }
                 }
 
@@ -2473,13 +2482,13 @@ load_gltf_skinned_model :: proc(
             if len(uv_data) > 0 {
                 add_vertex_uvs(gd, renderer, mesh_handle, uv_data[:])
             }
-    
-    
+
+
             // Now get material data
             loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
             glb_material := primitive.material
             has_material := glb_material != nil
-    
+
             bindless_image_idx := vkw.Texture_Handle {
                 index = NULL_OFFSET
             }
@@ -2488,7 +2497,7 @@ load_gltf_skinned_model :: proc(
                 color_tex_idx := u32(uintptr(tex) - uintptr(&gltf_data.textures[0])) / size_of(cgltf.texture)
                 bindless_image_idx = loaded_glb_images[color_tex_idx]
             }
-            
+
             base_color := hlsl.float4 {1.0, 1.0, 1.0, 1.0}
             if has_material {
                 base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
@@ -2499,7 +2508,7 @@ load_gltf_skinned_model :: proc(
                 base_color = base_color
             }
             material_handle := add_material(renderer, &material)
-    
+
             draw_primitives[i] = SkinnedDrawPrimitive {
                 mesh = mesh_handle,
                 material = material_handle
@@ -2525,19 +2534,19 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
         strings.builder_init(&sb, context.temp_allocator)
         if imgui.Begin("Graphics settings", do_window) {
             if imgui.CollapsingHeader("Fake cloud settings") {
-                imgui.SliderFloat("Speed", &renderer.cpu_uniforms.cloud_speed, 0.0, 0.5)
-                imgui.SliderFloat("Scale", &renderer.cpu_uniforms.cloud_scale, 0.0, 2.0)
+                imgui.SliderFloat("Speed", &renderer.uniforms.cloud_speed, 0.0, 0.5)
+                imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
             }
 
             if imgui.CollapsingHeader("Directional lights") {
-                for i in 0..<renderer.cpu_uniforms.directional_light_count {
-                    light := &renderer.cpu_uniforms.directional_lights[i]
+                for i in 0..<renderer.uniforms.directional_light_count {
+                    light := &renderer.uniforms.directional_lights[i]
                     imgui.PushIDInt(c.int(i))
                     imgui.ColorPicker3("Color", &light.color)
                     imgui.PopID()
                 }
-    
-                light_count := &renderer.cpu_uniforms.directional_light_count
+
+                light_count := &renderer.uniforms.directional_light_count
                 can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
                 imgui.BeginDisabled(can_add)
                 if imgui.Button("Add") {
@@ -2545,7 +2554,7 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                         direction = {0.0, 0.0, 1.0},
                         color = {1.0, 1.0, 1.0},
                     }
-                    renderer.cpu_uniforms.directional_lights[light_count^] = l
+                    renderer.uniforms.directional_lights[light_count^] = l
                     light_count^ += 1
                 }
                 imgui.EndDisabled()
@@ -2571,14 +2580,14 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                     return false
                 }
 
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.ColorTriangles)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.CRTShader)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeFaceNormals)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeVertexColors)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.VisualizeDirectSpecular)
-                flag_checkbox(&renderer.cpu_uniforms.flags, UniformFlag.Unlit)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.ColorTriangles)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.CRTShader)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeFaceNormals)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeVertexColors)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
+                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
             }
             imgui.Separator()
 

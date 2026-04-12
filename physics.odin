@@ -1,18 +1,14 @@
 package main
 
-import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
-import "core:mem"
-
-import "vendor:cgltf"
 
 Sphere :: struct {
     position: hlsl.float3,
     radius: f32,
 }
 
-are_spheres_overlapping :: proc(s1: Sphere, s2: Sphere) -> bool {
+are_spheres_overlapping :: #force_inline proc(s1: Sphere, s2: Sphere) -> bool {
     dist := hlsl.distance(s1.position, s2.position)
     return dist <= (s1.radius + s2.radius)
 }
@@ -22,9 +18,13 @@ Ray :: struct {
     direction: hlsl.float3,
 }
 
-Segment :: struct {
+LineSegment :: struct {
     start: hlsl.float3,
     end: hlsl.float3,
+}
+
+sample_segment :: #force_inline proc(segment: LineSegment, t: f32) -> hlsl.float3 {
+    return segment.start + t * (segment.end - segment.start)
 }
 
 // Point-normal form of plane
@@ -37,13 +37,15 @@ Triangle :: struct {
     a, b, c: hlsl.float3,
 }
 
-StaticTriangleCollision :: struct {
+TriangleMesh :: struct {
     local_positions: []f32,
     triangles: [dynamic]Triangle,
+    model_matrix: hlsl.float4x4,
+    name: string
 }
 
-delete_static_triangles :: proc(using s: ^StaticTriangleCollision) {
-    delete(triangles)
+delete_static_triangles :: proc(s: ^TriangleMesh) {
+    delete(s.triangles)
 }
 
 positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Triangle {
@@ -74,13 +76,14 @@ positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Tri
     }
 }
 
-new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> StaticTriangleCollision {
+new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
     FLOATS_PER_TRIANGLE :: 9
 
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
 
-    static_mesh: StaticTriangleCollision
+    static_mesh: TriangleMesh
     static_mesh.triangles = make([dynamic]Triangle, 0, len(positions) / FLOATS_PER_TRIANGLE, allocator)
+    static_mesh.model_matrix = model_matrix
 
     // For each implicit triangle
     for i := 0; i < len(positions); i += FLOATS_PER_TRIANGLE {
@@ -93,9 +96,9 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
     return static_mesh
 }
 
-rebuild_static_triangle_mesh :: proc(collision: ^StaticTriangleCollision, model_matrix: hlsl.float4x4) {
+rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
     FLOATS_PER_TRIANGLE :: 9
-    
+
     // For each implicit triangle
     tri_count := len(collision.local_positions) / FLOATS_PER_TRIANGLE
     for i := 0; i < tri_count; i += 1 {
@@ -106,22 +109,26 @@ rebuild_static_triangle_mesh :: proc(collision: ^StaticTriangleCollision, model_
     }
 }
 
-copy_static_triangle_mesh :: proc(collision: StaticTriangleCollision, allocator := context.allocator) -> StaticTriangleCollision {
+copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.allocator) -> TriangleMesh {
     new_positions := make([]f32, len(collision.local_positions), allocator)
     new_triangles := make([dynamic]Triangle, len(collision.triangles), allocator)
     copy(new_positions, collision.local_positions)
     copy(new_triangles[:], collision.triangles[:])
-    
-    return StaticTriangleCollision {
+
+    return TriangleMesh {
         local_positions = new_positions,
         triangles = new_triangles
     }
 }
 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
-closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hlsl.float3 {
+closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
     dot :: hlsl.dot
     //scoped_event(&profiler, "closest_pt_triangle")
+
+    a := tri.a
+    b := tri.b
+    c := tri.c
 
     // Check if point is in vertex region outside A
     ab := b - a
@@ -180,9 +187,13 @@ closest_pt_triangle :: proc(point: hlsl.float3, using triangle: ^Triangle) -> hl
     candidate := a + ab * v + ac * w
     return candidate
 }
-closest_pt_triangle_with_normal :: proc(point: hlsl.float3, using triangle: ^Triangle) -> (hlsl.float3, hlsl.float3) {
+closest_pt_triangle_with_normal :: proc(point: hlsl.float3, tri: Triangle) -> (hlsl.float3, hlsl.float3) {
     dot :: hlsl.dot
     //scoped_event(&profiler, "closest_pt_triangle_with_normal")
+
+    a := tri.a
+    b := tri.b
+    c := tri.c
 
     // Check if point is in vertex region outside A
     ab := b - a
@@ -250,7 +261,7 @@ closest_pt_triangle_with_normal :: proc(point: hlsl.float3, using triangle: ^Tri
 }
 
 // This proc returns the first collision detected
-closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> hlsl.float3 {
+closest_pt_triangles :: proc(point: hlsl.float3, tris: ^TriangleMesh) -> hlsl.float3 {
     scoped_event(&profiler, "closest_pt_triangles")
 
     // Helper proc to check if a closest point is
@@ -271,14 +282,14 @@ closest_pt_triangles :: proc(point: hlsl.float3, using tris: ^StaticTriangleColl
     // Test each triangle until the closest point
     closest_point: hlsl.float3
     shortest_distance := math.INF_F32
-    for &triangle in triangles {
-        candidate := closest_pt_triangle(point, &triangle)
+    for triangle in tris.triangles {
+        candidate := closest_pt_triangle(point, triangle)
         check_closest_candidate(point, candidate, &closest_point, &shortest_distance)
     }
 
     return closest_point
 }
-closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^StaticTriangleCollision) -> (hlsl.float3, hlsl.float3) {
+closest_pt_triangles_with_normal :: proc(point: hlsl.float3, tris: TriangleMesh) -> (hlsl.float3, hlsl.float3) {
     scoped_event(&profiler, "closest_pt_triangles_with_normal")
 
     // Helper proc to check if a closest point is
@@ -300,8 +311,8 @@ closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^Static
     closest_point: hlsl.float3
     cn: hlsl.float3
     shortest_distance := math.INF_F32
-    for &triangle in triangles {
-        candidate, n := closest_pt_triangle_with_normal(point, &triangle)
+    for triangle in tris.triangles {
+        candidate, n := closest_pt_triangle_with_normal(point, triangle)
         dist := hlsl.distance(point, candidate)
         if dist < shortest_distance {
             closest_point = candidate
@@ -316,7 +327,7 @@ closest_pt_triangles_with_normal :: proc(point: hlsl.float3, using tris: ^Static
 // Implementation adapted from section 3.4 of Real-Time Collision Detection
 // Returns v and w of point's barycentril coords with regards to tri.
 // Implictly, u = 1.0 - v - w
-pt_barycentric :: proc(point: hlsl.float3, tri: ^Triangle) -> (f32, f32) {
+pt_barycentric :: proc(point: hlsl.float3, tri: Triangle) -> (f32, f32) {
     v0 := tri.b - tri.a
     v1 := tri.c - tri.a
     v2 := point - tri.a
@@ -334,13 +345,17 @@ pt_barycentric :: proc(point: hlsl.float3, tri: ^Triangle) -> (f32, f32) {
 }
 
 // Returns true if p is in tri
-pt_in_triangle :: proc(p: hlsl.float3, tri: ^Triangle) -> bool {
+pt_in_triangle :: proc(p: hlsl.float3, tri: Triangle) -> bool {
     v, w := pt_barycentric(p, tri)
     return 0.0 <= v && v <= 1.0 && 0.0 <= w && w <= 1.0 && v + w <= 1.0
 }
 
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
-intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3, bool) {
+intersect_ray_triangle :: proc(ray: Ray, tri: Triangle) -> (hlsl.float3, bool) {
+    a := tri.a
+    b := tri.b
+    c := tri.c
+
     ab := b - a
     ac := c - a
     //qp := p - q
@@ -384,9 +399,9 @@ intersect_ray_triangle :: proc(ray: ^Ray, using tri: ^Triangle) -> (hlsl.float3,
     return world_space_collision, true
 }
 
-intersect_segment_triplane_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, bool) {
-    ab := b - a
-    ac := c - a
+intersect_segment_triplane_t :: proc(segment: LineSegment, tri: Triangle) -> (f32, bool) {
+    ab := tri.b - tri.a
+    ac := tri.c - tri.a
     qp := segment.start - segment.end
 
     // Compute normal
@@ -399,13 +414,13 @@ intersect_segment_triplane_t :: proc(segment: ^Segment, using tri: ^Triangle) ->
         return {}, false
     }
 
-    ap := segment.start - a
+    ap := segment.start - tri.a
     t := hlsl.dot(ap, n) / denom
     return t, t >= 0.0 && t <= 1.0
 }
-intersect_segment_triplane_t_with_normal :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, hlsl.float3, bool) {
-    ab := b - a
-    ac := c - a
+intersect_segment_triplane_t_with_normal :: proc(segment: LineSegment, tri: Triangle) -> (f32, hlsl.float3, bool) {
+    ab := tri.b - tri.a
+    ac := tri.c - tri.a
     qp := segment.start - segment.end
 
     // Compute normal
@@ -418,13 +433,13 @@ intersect_segment_triplane_t_with_normal :: proc(segment: ^Segment, using tri: ^
         return {}, {}, false
     }
 
-    ap := segment.start - a
+    ap := segment.start - tri.a
     t := hlsl.dot(ap, n) / denom
     return t, hlsl.normalize(n), t >= 0.0 && t <= 1.0
 }
 
 // Implementation adapted from section 5.3.6 of Real-Time Collision Detection
-intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) -> (f32, bool) {
+intersect_segment_triangle_t :: proc(segment: LineSegment, tri: Triangle) -> (f32, bool) {
 
     // @TODO: Figure out why this method is broken
 
@@ -467,7 +482,7 @@ intersect_segment_triangle_t :: proc(segment: ^Segment, using tri: ^Triangle) ->
 
     return t, ok
 }
-intersect_segment_triangle_t_with_normal :: proc (segment: ^Segment, tri: ^Triangle) -> (f32, hlsl.float3, bool) {
+intersect_segment_triangle_t_with_normal :: proc (segment: LineSegment, tri: Triangle) -> (f32, hlsl.float3, bool) {
     t, n, ok := intersect_segment_triplane_t_with_normal(segment, tri)
     if ok {
         candidate_pt := segment.start + t * (segment.end - segment.start)
@@ -476,18 +491,18 @@ intersect_segment_triangle_t_with_normal :: proc (segment: ^Segment, tri: ^Trian
 
     return t, n, ok
 }
-intersect_segment_triangle :: proc(segment: ^Segment, using tri: ^Triangle) -> (hlsl.float3, bool) {
+intersect_segment_triangle :: proc(segment: LineSegment, tri: Triangle) -> (hlsl.float3, bool) {
     t, ok := intersect_segment_triangle_t(segment, tri)
     world_space_collision := t * (segment.end - segment.start)
     return world_space_collision, ok
 }
 
 // Implementation adapted from section 5.3.2 of Real-Time Collision Detection
-intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
+intersect_ray_sphere_t :: proc(r: Ray, s: Sphere) -> (f32, bool) {
     m := r.start - s.position
     b := hlsl.dot(m, r.direction)
     c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
-    
+
     // Exit if r's origin is outside s (c > 0) and r is pointing away from s (b > 0.0)
     if c > 0.0 && b > 0.0 {
         return {}, false
@@ -517,30 +532,30 @@ intersect_ray_sphere_t :: proc(r: ^Ray, s: ^Sphere) -> (f32, bool) {
 
     return t, true
 }
-intersect_segment_sphere_t :: proc(seg: ^Segment, s: ^Sphere) -> (f32, bool) {
+intersect_segment_sphere_t :: proc(seg: LineSegment, s: Sphere) -> (f32, bool) {
     seg_vec := seg.end - seg.start
     seg_len := hlsl.length(seg_vec)
     r := Ray {
         start = seg.start,
         direction = seg_vec / seg_len
     }
-    t, ok := intersect_ray_sphere_t(&r, s)
+    t, ok := intersect_ray_sphere_t(r, s)
     return t / seg_len, ok
 }
-intersect_ray_sphere :: proc(r: ^Ray, s: ^Sphere) -> (hlsl.float3, bool) {
+intersect_ray_sphere :: proc(r: Ray, s: Sphere) -> (hlsl.float3, bool) {
     t, ok := intersect_ray_sphere_t(r, s)
     return r.start + t * r.direction, ok
 }
 
 // Returns closest intersection
-intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+intersect_ray_triangles :: proc(ray: Ray, tris: TriangleMesh) -> (hlsl.float3, bool) {
     candidate_point: hlsl.float3
     candidate_distance := math.INF_F32
     found := false
-    for &tri in tris.triangles {
+    for tri in tris.triangles {
         point: hlsl.float3
         ok: bool
-        point, ok = intersect_ray_triangle(ray, &tri)
+        point, ok = intersect_ray_triangle(ray, tri)
         if ok {
             d := hlsl.distance(ray.start, point)
             if d < candidate_distance {
@@ -554,10 +569,10 @@ intersect_ray_triangles :: proc(ray: ^Ray, tris: ^StaticTriangleCollision) -> (h
     return candidate_point, found
 }
 
-intersect_segment_triangles_t :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (f32, bool) {
+intersect_segment_triangles_t :: proc(segment: LineSegment, tris: TriangleMesh) -> (f32, bool) {
     candidate_t := math.INF_F32
-    for &tri in tris.triangles {
-        t, ok := intersect_segment_triangle_t(segment, &tri)
+    for tri in tris.triangles {
+        t, ok := intersect_segment_triangle_t(segment, tri)
         if ok {
             if t < candidate_t {
                 candidate_t = t
@@ -568,11 +583,11 @@ intersect_segment_triangles_t :: proc(segment: ^Segment, tris: ^StaticTriangleCo
     return candidate_t, candidate_t < math.INF_F32
 }
 
-intersect_segment_triangles_t_with_normal :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (f32, hlsl.float3, bool) {
+intersect_segment_triangles_t_with_normal :: proc(segment: LineSegment, tris: TriangleMesh) -> (f32, hlsl.float3, bool) {
     candidate_t := math.INF_F32
     normal: hlsl.float3
-    for &tri in tris.triangles {
-        t, n, ok := intersect_segment_triangle_t_with_normal(segment, &tri)
+    for tri in tris.triangles {
+        t, n, ok := intersect_segment_triangle_t_with_normal(segment, tri)
         if ok {
             if t < candidate_t {
                 candidate_t = t
@@ -584,20 +599,19 @@ intersect_segment_triangles_t_with_normal :: proc(segment: ^Segment, tris: ^Stat
     return candidate_t, normal, candidate_t < math.INF_F32
 }
 
-intersect_segment_triangles :: proc(segment: ^Segment, tris: ^StaticTriangleCollision) -> (hlsl.float3, bool) {
+intersect_segment_triangles :: proc(segment: LineSegment, tris: TriangleMesh) -> (hlsl.float3, bool) {
     t, found := intersect_segment_triangles_t(segment, tris)
-
     return (segment.start + t * (segment.end - segment.start)), found
 }
 
 // Returns the point on the sphere that is closest to the triangle
 // assuming the sphere is in front of the triangle
-closest_pt_sphere_triplane :: proc(s: ^Sphere, tri: ^Triangle) -> hlsl.float3 {
+closest_pt_sphere_triplane :: proc(s: Sphere, tri: Triangle) -> hlsl.float3 {
     return s.position + s.radius * -hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
 }
 
 // Implementation adapted from section 5.5.6 of Real-Time Collision Detection
-dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_triangle_t :: proc(s: Sphere, tri: Triangle, motion_interval: LineSegment) -> (f32, bool) {
 
     // The point on the sphere that will first intersect
     // the triangle's plane is D
@@ -605,11 +619,11 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
 
     // Compute P, the point where D will touch tri's supporting plane
     //t, ok := intersect_segment_triangle_t(motion_interval, tri)
-    d_segment := Segment {
+    d_segment := LineSegment {
         start = d,
         end = d + (motion_interval.end - motion_interval.start)
     }
-    t, ok := intersect_segment_triplane_t(&d_segment, tri)
+    t, ok := intersect_segment_triplane_t(d_segment, tri)
     // If motion interval wasn't long enough
     if !ok {
         return {}, false
@@ -629,14 +643,14 @@ dynamic_sphere_vs_triangle_t :: proc(s: ^Sphere, tri: ^Triangle, motion_interval
     // snap down to the triangle when q_t > t
 
     // Cast a ray from Q to the sphere to determine possible intersection
-    q_segment := Segment {
+    q_segment := LineSegment {
         start = q,
         end = q + (motion_interval.start - motion_interval.end)
     }
-    q_t, ok2 := intersect_segment_sphere_t(&q_segment, s)
+    q_t, ok2 := intersect_segment_sphere_t(q_segment, s)
     return q_t, ok2 && q_t <= t
 }
-dynamic_sphere_vs_triangle_t_with_normal :: proc(s: ^Sphere, tri: ^Triangle, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
+dynamic_sphere_vs_triangle_t_with_normal :: proc(s: Sphere, tri: Triangle, motion_interval: LineSegment) -> (f32, hlsl.float3, bool) {
 
     // The point on the sphere that will first intersect
     // the triangle's plane is D
@@ -644,11 +658,11 @@ dynamic_sphere_vs_triangle_t_with_normal :: proc(s: ^Sphere, tri: ^Triangle, mot
 
     // Compute P, the point where D will touch tri's supporting plane
     //t, ok := intersect_segment_triangle_t(motion_interval, tri)
-    d_segment := Segment {
+    d_segment := LineSegment {
         start = d,
         end = d + (motion_interval.end - motion_interval.start)
     }
-    t, ok := intersect_segment_triplane_t(&d_segment, tri)
+    t, ok := intersect_segment_triplane_t(d_segment, tri)
     // If motion interval wasn't long enough
     if !ok {
         return {}, {}, false
@@ -669,18 +683,18 @@ dynamic_sphere_vs_triangle_t_with_normal :: proc(s: ^Sphere, tri: ^Triangle, mot
     // snap down to the triangle when q_t > t
 
     // Cast a ray from Q to the sphere to determine possible intersection
-    q_segment := Segment {
+    q_segment := LineSegment {
         start = q,
         end = q + (motion_interval.start - motion_interval.end)
     }
-    q_t, ok2 := intersect_segment_sphere_t(&q_segment, s)
+    q_t, ok2 := intersect_segment_sphere_t(q_segment, s)
     n := hlsl.normalize(hlsl.cross(tri.b - tri.a, tri.c - tri.a))
     return q_t, n, ok2 && q_t <= t
 }
-dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_triangles_t :: proc(s: Sphere, tris: TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
     candidate_t := math.INF_F32
     for &tri in tris.triangles {
-        t, ok := dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
+        t, ok := dynamic_sphere_vs_triangle_t(s, tri, motion_interval)
         if ok {
             if t < candidate_t {
                 candidate_t = t
@@ -690,14 +704,14 @@ dynamic_sphere_vs_triangles_t :: proc(s: ^Sphere, tris: ^StaticTriangleCollision
     return candidate_t, candidate_t < math.INF_F32
 }
 dynamic_sphere_vs_triangles_t_with_normal :: proc(
-    s: ^Sphere,
-    tris: ^StaticTriangleCollision,
-    motion_interval: ^Segment
+    s: Sphere,
+    tris: TriangleMesh,
+    motion_interval: LineSegment
 ) -> (f32, hlsl.float3, bool) {
     candidate_t := math.INF_F32
     current_n := hlsl.float3 {}
     for &tri in tris.triangles {
-        t, n, ok := dynamic_sphere_vs_triangle_t_with_normal(s, &tri, motion_interval)
+        t, n, ok := dynamic_sphere_vs_triangle_t_with_normal(s, tri, motion_interval)
         if ok {
             if t < candidate_t {
                 candidate_t = t
@@ -708,14 +722,14 @@ dynamic_sphere_vs_triangles_t_with_normal :: proc(
     return candidate_t, current_n, candidate_t < math.INF_F32
 }
 
-dynamic_sphere_vs_triangles :: proc(s: ^Sphere, tris: ^StaticTriangleCollision, motion_interval: ^Segment) -> (hlsl.float3, bool) {
+dynamic_sphere_vs_triangles :: proc(s: Sphere, tris: TriangleMesh, motion_interval: LineSegment) -> (hlsl.float3, bool) {
     candidate_t := math.INF_F32
     d: hlsl.float3
     t: f32
     found := false
-    for &tri in tris.triangles {
+    for tri in tris.triangles {
         ok: bool
-        t, ok = dynamic_sphere_vs_triangle_t(s, &tri, motion_interval)
+        t, ok = dynamic_sphere_vs_triangle_t(s, tri, motion_interval)
         if ok {
             if t < candidate_t {
                 candidate_t = t

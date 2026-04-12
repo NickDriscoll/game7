@@ -12,6 +12,7 @@ import "core:mem"
 import "core:os"
 import "core:os/os2"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -21,27 +22,18 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
+DEFAULT_COMPONENT_MAP_CAPACITY :: 64
+
 GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
+DEFAULT_FACING_DIRECTION :: hlsl.float3 {1.0, 0.0, 0.0}
 
-TerrainPiece :: struct {
-    collision: StaticTriangleCollision,
-    position: hlsl.float3,
-    rotation: quaternion128,
-    scale: f32,
-    model: StaticModelHandle,
-}
-
-delete_terrain_piece :: proc(using t: ^TerrainPiece) {
-    delete_static_triangles(&collision)
-}
-
-closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.float3 {
+closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
     candidate: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain {
-        p := closest_pt_triangles(point, &piece.collision)
+    for _, &piece in terrain {
+        p := closest_pt_triangles(point, &piece)
         d := hlsl.distance(point, p)
         if d < closest_dist {
             candidate = p
@@ -50,13 +42,13 @@ closest_pt_terrain :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> hlsl.
     }
     return candidate
 }
-closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPiece) -> (hlsl.float3, hlsl.float3) {
+closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
     scoped_event(&profiler, "closest_pt_terrain_with_normal")
     candidate: hlsl.float3
     cn: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain {
-        p, n := closest_pt_triangles_with_normal(point, &piece.collision)
+    for _, piece in terrain {
+        p, n := closest_pt_triangles_with_normal(point, piece)
         d := hlsl.distance(point, p)
         if d < closest_dist {
             candidate = p
@@ -67,10 +59,11 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: []TerrainPie
     return candidate, cn
 }
 
-intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (hlsl.float3, bool) {
+intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain")
     cand_t := math.INF_F32
-    for &piece in terrain {
-        t, ok := intersect_segment_triangles_t(segment, &piece.collision)
+    for _, &piece in terrain {
+        t, ok := intersect_segment_triangles_t(segment, piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -81,11 +74,12 @@ intersect_segment_terrain :: proc(segment: ^Segment, terrain: []TerrainPiece) ->
     return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
 }
 
-intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: []TerrainPiece) -> (f32, hlsl.float3, bool) {
+intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain_with_normal")
     cand_t := math.INF_F32
     normal: hlsl.float3
-    for &piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, &piece.collision)
+    for _, piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
         if ok {
             if t < cand_t {
                 cand_t = t
@@ -97,10 +91,10 @@ intersect_segment_terrain_with_normal :: proc(segment: ^Segment, terrain: []Terr
     return cand_t, normal, cand_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, bool) {
+dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
     closest_t := math.INF_F32
-    for &piece in terrain {
-        t, ok3 := dynamic_sphere_vs_triangles_t(s, &piece.collision, motion_interval)
+    for _, piece in terrain {
+        t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
         if ok3 {
             if t < closest_t {
                 closest_t = t
@@ -110,42 +104,37 @@ dynamic_sphere_vs_terrain_t :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_
     return closest_t, closest_t < math.INF_F32
 }
 
-dynamic_sphere_vs_terrain_t_with_normal :: proc(s: ^Sphere, terrain: []TerrainPiece, motion_interval: ^Segment) -> (f32, hlsl.float3, bool) {
-    closest_t := math.INF_F32
-    current_n := hlsl.float3 {}
-    for &piece in terrain {
-        t, n, ok3 := dynamic_sphere_vs_triangles_t_with_normal(s, &piece.collision, motion_interval)
-        if ok3 {
-            if t < closest_t {
-                closest_t = t
-                current_n = n
-            }
-        }
-    }
-    return closest_t, current_n, closest_t < math.INF_F32
-}
 do_mouse_raycast :: proc(
-    viewport_camera: Camera,
-    terrain_pieces: []TerrainPiece,
+    game_state: GameState,
+    viewport_camera_id: EntityID,
+    triangle_meshes: map[EntityID]TriangleMesh,
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
-    viewport_coords := hlsl.uint2 {
+    click_coords := hlsl.uint2 {
         u32(mouse_location.x) - u32(viewport_dimensions[0]),
         u32(mouse_location.y) - u32(viewport_dimensions[1]),
     }
-    ray := get_view_ray(
-        viewport_camera,
-        viewport_coords,
-        {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
-    )
+
+    tform := &game_state.transforms[viewport_camera_id]
+    camera := &game_state.cameras[viewport_camera_id]
+    lookat_controller, is_lookat := &game_state.lookat_controllers[viewport_camera_id]
+
+    resolution := hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+    ray: Ray
+    if is_lookat {
+        target := &game_state.transforms[lookat_controller.target]
+        ray = lookat_view_ray(tform^, camera^, target.position, click_coords, resolution)
+    } else {
+        ray = freecam_view_ray(tform^, camera^, click_coords, resolution)
+    }
 
     collision_pt: hlsl.float3
     closest_dist := math.INF_F32
-    for &piece in terrain_pieces {
-        candidate, ok := intersect_ray_triangles(&ray, &piece.collision)
+    for _, &piece in triangle_meshes {
+        candidate, ok := intersect_ray_triangles(ray, piece)
         if ok {
-            candidate_dist := hlsl.distance(candidate, viewport_camera.position)
+            candidate_dist := hlsl.distance(candidate, tform.position)
             if candidate_dist < closest_dist {
                 collision_pt = candidate
                 closest_dist = candidate_dist
@@ -156,39 +145,542 @@ do_mouse_raycast :: proc(
     return collision_pt, closest_dist < math.INF_F32
 }
 
-// PositionVelocity :: struct {
-//     position: hlsl.float3,
-//     velocity: hlsl.float3,
-// }
-
-StaticScenery :: struct {
-    model: StaticModelHandle,
+Transform :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
     scale: f32,
 }
+get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
+    scale_mat := scaling_matrix(tform.scale)
+    rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
+    mat := rot * scale_mat * scaling_matrix(scale)
+    mat[3][0] = tform.position.x
+    mat[3][1] = tform.position.y
+    mat[3][2] = tform.position.z
 
-AnimatedScenery :: struct {
-    model: SkinnedModelHandle,
-    position: hlsl.float3,
-    rotation: quaternion128,
-    scale: f32,
-    anim_idx: u32,
-    anim_t: f32,
-    anim_speed: f32,
+    return mat
 }
 
-CollisionState :: enum {
-    Grounded,
-    Falling
-}
-
-PhysicsSphere :: struct {
-    using s: Sphere,
+TransformDelta :: struct {
     velocity: hlsl.float3,
+    rotational_velocity: quaternion128,
+}
+
+tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
+    for id, &delta in game_state.transform_deltas {
+        tform := &game_state.transforms[id]
+        tform.position += dt * delta.velocity
+    }
+}
+
+tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: f32) {
+    for id in game_state.looping_animations {
+        instance := &game_state.skinned_models[id]
+        instance.anim_t = instance.anim_t + dt
+        duration := get_animation_duration(renderer, instance.anim_idx)
+        for instance.anim_t > duration {
+            instance.anim_t -= duration
+        }
+    }
+}
+
+tick_coins :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
+    rot := z_rotate_quaternion(game_state.time)
+    z_offset := 0.25 * math.sin(game_state.time)
+
+    for id in game_state.coins {
+        model := &game_state.static_models[id]
+        model.pos_offset.z = z_offset
+
+        tform := &game_state.transforms[id]
+        tform.rotation = rot
+    }
+}
+
+EnemyAI :: struct {
+    home_position: hlsl.float3,
+    facing: hlsl.float3,
+    visualize_home: bool,
+    state: EnemyState,
+    init_state: EnemyState,
+    init_pos: hlsl.float3,
+    timer_start: time.Time
+}
+default_enemyai :: proc(game_state: GameState) -> EnemyAI {
+    return {
+        home_position = {},
+        init_pos = {},
+        facing = {0.0, 1.0, 0.0},
+        visualize_home = false,
+        state = .Wandering,
+        timer_start = time.now()
+    }
+}
+
+new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, state: EnemyState) -> EntityID {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = position,
+        rotation = linalg.QUATERNIONF32_IDENTITY,
+        scale = scale
+    }
+    ai := default_enemyai(game_state^)
+    ai.state = state
+    ai.init_state = state
+    ai.home_position = position
+    ai.init_pos = position
+    game_state.enemy_ais[id] = ai
+
+    game_state.spherical_bodies[id] = SphericalBody {
+        radius = 0.5,
+        gravity_scale = 1.0,
+        state = .Falling
+    }
+
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.enemy_mesh,
+        flags = {}
+    }
+
+    return id
+}
+
+delete_enemy :: proc(game_state: ^GameState, id: EntityID) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.spherical_bodies, id)
+    delete_key(&game_state.enemy_ais, id)
+    delete_key(&game_state.static_models, id)
+}
+
+check_characters_grabbing :: proc(
+    game_state: ^GameState,
+    enemy_id: EntityID,
+    respawn_pos: hlsl.float3,
+    enemy_sphere: Sphere,
+    e_type: EnemyType
+) -> bool {
+    // Check if overlapping player grab
+    for pid, &char in game_state.character_controllers {
+        enemy_to_remove: Maybe(EntityID)
+        if char.vortex_t < char.bullet_travel_time {
+            // char is currently using move
+            ptform := game_state.transforms[pid]
+            vsphere := Sphere {
+                position = ptform.position,
+                radius = VORTEX_MAX_RADIUS
+            }
+            if are_spheres_overlapping(vsphere, enemy_sphere) {
+                // Got grabbed
+                char.enemy_respawn_pos = respawn_pos
+                enemy_to_remove = enemy_id
+            }
+        }
+
+        enemy_remove_id, ok := enemy_to_remove.?
+        if ok {
+            char.vortex_t = char.bullet_travel_time
+            char.flags += {.HoldingEnemy}
+            char.enemy_type = e_type
+            return true
+        }
+    }
+    return false
+}
+
+ENEMY_HOME_RADIUS :: 4.0
+ENEMY_LUNGE_SPEED :: 20.0
+ENEMY_JUMP_SPEED :: 6.0                 // m/s
+ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
+tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
+    char_tform := &game_state.transforms[game_state.player_id]
+
+    for id, &enemy in game_state.enemy_ais {
+        transform := &game_state.transforms[id]
+
+        dist_to_player := hlsl.distance(char_tform.position, transform.position)
+        body := &game_state.spherical_bodies[id]
+        is_affected_by_gravity := false
+        switch enemy.state {
+            case .BrainDead: {
+                body.velocity.xy = {}
+            }
+            case .Wandering: {
+                sample_point := [2]f64 {f64(game_state.time), f64(id)}
+                t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
+                rotq := z_rotate_quaternion(t)
+                enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
+
+                body.velocity.xy = hlsl.normalize(enemy.facing.xy)
+
+                if dist_to_player < ENEMY_HOME_RADIUS {
+                    enemy.facing = char_tform.position - transform.position
+                    enemy.facing.z = 0.0
+                    enemy.facing = hlsl.normalize(enemy.facing)
+                    body.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
+                    enemy.state = .AlertedBounce
+                    body.state = .Falling
+                    enemy.timer_start = time.now()
+                    enemy.home_position = transform.position
+                    play_sound_effect(audio_system, game_state.jump_sound)
+                }
+
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
+                    // Start resting
+                    enemy.timer_start = time.now()
+                    enemy.state = .Resting
+                    body.velocity = {}
+                }
+            }
+            case .Hovering: {
+                assert(false)
+            }
+            case .AlertedBounce: {
+                if body.state == .Grounded {
+                    enemy.state = .AlertedCharge
+                    body.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
+                    body.velocity.z = ENEMY_JUMP_SPEED / 2.0
+                    body.state = .Falling
+                    play_sound_effect(audio_system, game_state.jump_sound)
+                }
+            }
+            case .AlertedCharge: {
+                enemy.home_position = transform.position
+                if body.state == .Grounded {
+                    body := game_state.spherical_bodies[id]
+                    enemy.state = .Resting
+                    enemy.timer_start = time.now()
+                    body.velocity = {}
+                }
+            }
+            case .Resting: {
+                if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
+                    // Start wandering
+                    enemy.timer_start = time.now()
+                    enemy.state = .Wandering
+                }
+            }
+        }
+
+        // Restrict enemy movement based on home position
+        {
+            disp := transform.position - enemy.home_position
+            l := hlsl.length(disp.xy)
+            if l > ENEMY_HOME_RADIUS {
+                transform.position.xy += (l - ENEMY_HOME_RADIUS) * hlsl.normalize((enemy.home_position - transform.position).xy)
+            }
+        }
+
+        // Check for collision with player
+        {
+            player_tform := &game_state.transforms[game_state.player_id]
+            player_collision := &game_state.spherical_bodies[game_state.player_id]
+
+            ps := Sphere {
+                position = player_tform.position,
+                radius = player_collision.radius
+            }
+            es := Sphere {
+                position = transform.position,
+                radius = body.radius
+            }
+            if are_spheres_overlapping(ps, es) {
+                append(&game_state.character_damage_events, DamageEvent {})
+            }
+        }
+
+        esphere := Sphere {
+            position = transform.position,
+            radius = body.radius
+        }
+        if check_characters_grabbing(game_state, id, enemy.init_pos, esphere, .Regular) {
+            delete_enemy(game_state, id)
+        }
+
+        // Get transform rotation quaternion from facing direction
+        {
+            transform.rotation = linalg.quaternion_between_two_vector3_f32(hlsl.float3{0.0, 1.0, 0.0}, enemy.facing)
+        }
+    }
+}
+
+HoveringEnemy :: struct {
+    home_position: hlsl.float3,
+    radius: f32,
+}
+
+new_hovering_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32) -> EntityID {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = position,
+        rotation = linalg.QUATERNIONF32_IDENTITY,
+        scale = scale
+    }
+    game_state.hovering_enemies[id] = HoveringEnemy {
+        home_position = position,
+        radius = 0.5,
+    }
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.enemy_mesh,
+        flags = {}
+    }
+
+    return id
+}
+
+delete_hovering_enemy :: proc(game_state: ^GameState, id: EntityID) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.hovering_enemies, id)
+    delete_key(&game_state.static_models, id)
+}
+
+tick_hovering_enemies :: proc(game_state: ^GameState, dt: f32) {
+    for id, enemy in game_state.hovering_enemies {
+        transform := &game_state.transforms[id]
+        offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
+        transform.position = enemy.home_position + offset
+
+        esphere := Sphere {
+            position = transform.position,
+            radius = enemy.radius
+        }
+        if check_characters_grabbing(game_state, id, enemy.home_position, esphere, .Hovering) {
+            delete_hovering_enemy(game_state, id)
+            continue
+        }
+
+        // Check for collision with player
+        {
+            player_tform := &game_state.transforms[game_state.player_id]
+            player_collision := &game_state.spherical_bodies[game_state.player_id]
+
+            ps := Sphere {
+                position = player_tform.position,
+                radius = player_collision.radius
+            }
+            es := Sphere {
+                position = transform.position,
+                radius = enemy.radius
+            }
+            if are_spheres_overlapping(ps, es) {
+                append(&game_state.character_damage_events, DamageEvent {})
+            }
+        }
+    }
+}
+
+ThrownEnemyAI :: struct {
+    respawn_position: hlsl.float3,
+    radius: f32,
+    state: EnemyState,
+    e_type: EnemyType,
+}
+
+tick_thrown_enemies :: proc(game_state: ^GameState) {
+    to_remove: Maybe(EntityID)
+    for id, enemy in game_state.thrown_enemy_ais {
+        transform := &game_state.transforms[id]
+        closest_pt := closest_pt_terrain(transform.position, game_state.triangle_meshes)
+
+        if hlsl.distance(closest_pt, transform.position) < enemy.radius {
+            to_remove = id
+
+            // Respawn enemy
+            switch enemy.e_type {
+                case .Regular: {
+                    new_enemy(game_state, enemy.respawn_position, transform.scale * 5/4, enemy.state)
+                }
+                case .Hovering: {
+                    new_hovering_enemy(game_state, enemy.respawn_position, transform.scale * 5/4)
+                }
+            }
+        }
+    }
+
+    remove_id, remove := to_remove.?
+    if remove {
+        delete_thrown_enemy(game_state, remove_id)
+    }
+}
+
+new_thrown_enemy :: proc(
+    game_state: ^GameState,
+    position: hlsl.float3,
+    velocity: hlsl.float3,
+    state: EnemyState,
+    respawn_position: hlsl.float3,
+    e_type: EnemyType,
+) -> EntityID {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = position,
+        scale = 0.5 * 0.8
+    }
+    game_state.transform_deltas[id] = TransformDelta {
+        velocity = velocity
+    }
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.enemy_mesh,
+        flags = {.Glowing}
+    }
+    game_state.thrown_enemy_ais[id] = ThrownEnemyAI {
+        respawn_position = respawn_position,
+        radius = 0.5 * 0.8,
+        state = state,
+        e_type = e_type
+    }
+
+    return id
+}
+
+delete_thrown_enemy :: proc(game_state: ^GameState, id: EntityID) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.transform_deltas, id)
+    delete_key(&game_state.static_models, id)
+    delete_key(&game_state.thrown_enemy_ais, id)
+}
+
+SphericalBody :: struct {
+    velocity: hlsl.float3,
+    radius: f32,
+    gravity_scale: f32,
     state: CollisionState,
 }
 
+tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
+    scoped_event(&profiler, "tick_spherical_bodies")
+    for id, &body in game_state.spherical_bodies {
+        scoped_event(&profiler, "tick_spherical_bodies iteration")
+        transform := &game_state.transforms[id]
+
+        simple_continuous_collision_detection :: proc(
+            motion_interval: LineSegment,
+            transform: ^Transform,
+            radius: f32,
+            terrain: map[EntityID]TriangleMesh
+        ) -> (collision_normal: hlsl.float3, ok: bool) {
+            segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, terrain)
+            if segment_intersected {
+                segment_collision := sample_segment(motion_interval, segment_collision_t)
+                transform.position = segment_collision + segment_collision_normal * radius
+                collision_normal = segment_collision_normal
+                ok = true
+            } else {
+                closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(motion_interval.end, terrain)
+                d := hlsl.distance(motion_interval.end, closest_pt)
+                if d < radius {
+                    // Hit terrain
+                    remaining_d := radius - d
+                    transform.position = motion_interval.end + remaining_d * closest_pt_normal
+                    collision_normal = closest_pt_normal
+                    ok = true
+                }
+            }
+            return
+        }
+
+        // Body's desired motion interval
+        motion_interval := LineSegment {
+            start = transform.position,
+            end = transform.position + dt * body.velocity
+        }
+
+        collided_this_frame := false
+        switch body.state {
+            case .Grounded: {
+                closest_pt, closest_pt_normal: hlsl.float3
+
+                // Compute closest_pt and closest_pt_normal and do preliminary transform update
+                segment_collision_t, segment_collision_normal, segment_intersected :=
+                    intersect_segment_terrain_with_normal(motion_interval, game_state.triangle_meshes)
+
+                if segment_intersected {
+                    transform.position = sample_segment(motion_interval, segment_collision_t)
+                    closest_pt = transform.position
+                    closest_pt_normal = segment_collision_normal
+                } else {
+                    transform.position = motion_interval.end
+                    closest_pt, closest_pt_normal = closest_pt_terrain_with_normal(transform.position, game_state.triangle_meshes)
+                }
+
+                // Check for walking into walls
+                if hlsl.distance(closest_pt, transform.position) < body.radius {
+                    collided_this_frame = true
+                    if hlsl.dot(closest_pt_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
+                        direction: hlsl.float3
+                        direction.xy = hlsl.normalize(closest_pt_normal.xy)
+
+                        // Solve "dot(((r_start + r_dir * t) - closest_pt), closest_pt_normal) = r"
+                        // for t and compute it
+                        t := (body.radius + hlsl.dot(closest_pt, closest_pt_normal) - hlsl.dot(transform.position, closest_pt_normal)) /
+                        //   ---------------------------------------------------------------------------------------------------------
+                                                              hlsl.dot(direction, closest_pt_normal)
+
+                        // Use computed t value to move position along direction by the appropriate amount
+                        if t > 0.0 {
+                            transform.position += direction * t
+                        }
+                    }
+                }
+
+                // Check if we need to bump ourselves up or down
+                {
+                    tolerance_segment := LineSegment {
+                        start = transform.position + {0.0, 0.0, 0.0},
+                        end = transform.position + {0.0, 0.0, -body.radius - 0.1}
+                    }
+                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
+                    if okt {
+                        // The test line segment intersected with the ground
+
+                        if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
+                            tolerance_point := sample_segment(tolerance_segment, tolerance_t)
+                            transform.position = tolerance_point + {0.0, 0.0, body.radius}
+                            body.velocity.z = 0.0
+                            body.state = .Grounded
+                        } else {
+                            // Floor too steep
+                            body.state = .Falling
+                        }
+                    } else {
+                        body.state = .Falling
+                    }
+                }
+            }
+            case .Falling: {
+                // Update velocity
+                body.velocity += dt * body.gravity_scale * GRAVITY_ACCELERATION
+                if body.velocity.z < TERMINAL_VELOCITY {
+                    body.velocity.z = TERMINAL_VELOCITY
+                }
+
+                collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
+                if ok {
+                    collided_this_frame = true
+                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
+                    if n_dot >= 0.5 {
+                        // Floor
+                        body.velocity.z = 0.0
+                        body.state = .Grounded
+                    } else if n_dot < -0.1 {
+                        // Ceiling
+                        body.velocity.z = 0.0
+                    } else {
+                        // Wall
+
+                    }
+                } else {
+                    // Free fallin'
+                    transform.position += dt * body.velocity
+                }
+            }
+        }
+    }
+}
+
+EnemyType :: enum {
+    Regular,
+    Hovering,
+}
 CharacterFlag :: enum {
     MovingLeft,
     MovingRight,
@@ -196,30 +688,324 @@ CharacterFlag :: enum {
     MovingForward,
     AlreadyJumped,
     Sprinting,
+    HoldingEnemy
 }
 CharacterFlags :: bit_set[CharacterFlag]
 CHARACTER_MAX_HEALTH :: 3
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
-BULLET_MAX_RADIUS :: 0.8
-Character :: struct {
-    collision: PhysicsSphere,
-    gravity_factor: f32,
+VORTEX_MAX_RADIUS :: 1.0
+CHARACTER_NORMAL_GRAVITY :: 1.0
+CHARACTER_HEAVY_GRAVITY :: 2.2
+CharacterController :: struct {
     acceleration: hlsl.float3,
     deceleration_speed: f32,
-    facing: hlsl.float3,
     move_speed: f32,
     sprint_speed: f32,
     jump_speed: f32,
-    anim_t: f32,
-    anim_speed: f32,
-    health: u32,
-    control_flags: CharacterFlags,
-    damage_timer: time.Time,
-    model: SkinnedModelHandle,
-
-    air_vortex: Maybe(AirVortex),
     bullet_travel_time: f32,
-    held_enemy: Maybe(Enemy),
+    health: u32,
+    vortex_t: f32,
+    anim_speed: f32,
+    time_last_damaged: time.Time,
+    flags: CharacterFlags,
+    enemy_respawn_pos: hlsl.float3,
+    enemy_type: EnemyType,
+}
+
+tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    camera := &game_state.cameras[game_state.viewport_camera_id]
+    for id, &char in game_state.character_controllers {
+        tform := &game_state.transforms[id]
+        collision := &game_state.spherical_bodies[id]
+        model := &game_state.skinned_models[id]
+
+        // Set current xy velocity (and character facing) to whatever user input is
+        {
+            // X and Z bc view space is x-right, y-up, z-back
+            translate_vector := output_verbs.float2s[.PlayerTranslate]
+            translate_vector_x := translate_vector.x
+            translate_vector_z := translate_vector.y
+
+            // Boolean (keyboard) input handling
+            {
+                set_character_flags_from_verb :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
+                    r, ok := d[verb]
+                    if ok {
+                        if r {
+                            flags^ += {action}
+                        } else {
+                            flags^ -= {action}
+                        }
+                    }
+                }
+
+                flags := &char.flags
+                set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
+                set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
+                set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
+                set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
+
+                if .MovingLeft in flags^ {
+                    translate_vector_x += -1.0
+                }
+                if .MovingRight in flags^ {
+                    translate_vector_x += 1.0
+                }
+                if .MovingBack in flags^ {
+                    translate_vector_z += -1.0
+                }
+                if .MovingForward in flags^ {
+                    translate_vector_z += 1.0
+                }
+            }
+
+            // Input vector is in view space, so we transform to world space
+            world_invector := hlsl.float4 {-translate_vector_z, translate_vector_x, 0.0, 0.0}
+            world_invector = yaw_rotation_matrix(-camera.yaw) * world_invector
+            if hlsl.length(world_invector) > 1.0 {
+                world_invector = hlsl.normalize(world_invector)
+            }
+
+            // Now we have a representation of the player's input vector in world space
+
+            // Handle sprint
+            this_frame_move_speed := char.move_speed
+            {
+                flags := &char.flags
+                amount, ok := output_verbs.floats[.Sprint]
+                if ok {
+                    this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
+                }
+                if .Sprint in output_verbs.bools {
+                    if output_verbs.bools[.Sprint] {
+                        flags^ += {.Sprinting}
+                    } else {
+                        flags^ -= {.Sprinting}
+                    }
+                }
+                if .Sprinting in flags {
+                    this_frame_move_speed = char.sprint_speed
+                }
+            }
+
+            {
+                char.acceleration = {world_invector.x, world_invector.y, 0.0}
+                accel_len := hlsl.length(char.acceleration)
+                this_frame_move_speed *= accel_len
+                if accel_len == 0 && collision.state == .Grounded {
+                    to_zero := hlsl.float2 {0.0, 0.0} - collision.velocity.xy
+                    collision.velocity.xy += char.deceleration_speed * to_zero
+                }
+                collision.velocity.xy += char.acceleration.xy
+                if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
+                    collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
+                }
+                movement_dist := hlsl.length(collision.velocity.xy)
+
+                duration := get_animation_duration(renderer^, model.anim_idx)
+                model.anim_t += char.anim_speed * dt * movement_dist
+                for model.anim_t >= duration {
+                    model.anim_t -= duration
+                }
+            }
+
+            if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
+                tform.rotation = linalg.quaternion_between_two_vector3_f32(DEFAULT_FACING_DIRECTION, hlsl.normalize(world_invector).xyz)
+            }
+        }
+
+        // Handle jump command
+        {
+            flags := &char.flags
+            if collision.state == .Grounded {
+                flags^ -= {.AlreadyJumped}
+            }
+
+            jumped, jump_ok := output_verbs.bools[.PlayerJump]
+            if jump_ok {
+                // If jump input state changed...
+                if jumped {
+                    // To jumping...
+                    if .AlreadyJumped in flags {
+                        // And we were already jumping:
+                        if .HoldingEnemy in char.flags {
+                            // And we're holding an enemy
+                            // Do thrown-enemy double-jump
+
+                            pos := tform.position - {0.0, 0.0, 0.5}
+                            new_thrown_enemy(game_state, pos, hlsl.float3 {0.0, 0.0, -ENEMY_THROW_SPEED}, .Wandering, char.enemy_respawn_pos, char.enemy_type)
+                            char.flags -= {.HoldingEnemy}
+                            collision.velocity.z = 1.3 * char.jump_speed
+                            play_sound_effect(audio_system, game_state.jump_sound)
+                        }
+                    } else {
+                        // Do first jump
+                        collision.velocity.z = char.jump_speed
+                        collision.state = .Falling
+                        flags^ += {.AlreadyJumped}
+
+                        play_sound_effect(audio_system, game_state.jump_sound)
+                    }
+
+                    collision.gravity_scale = CHARACTER_NORMAL_GRAVITY
+                    collision.state = .Falling
+                } else {
+                    // To not jumping...
+                    collision.gravity_scale = CHARACTER_HEAVY_GRAVITY
+                }
+            }
+        }
+
+        // Teleport player back to spawn if hit death plane
+        respawn := output_verbs.bools[.PlayerReset]
+        respawn |= tform.position.z < -50.0
+        respawn |= char.health == 0
+        if respawn {
+            tform.position = game_state.level_start
+            collision.velocity = {}
+            char.acceleration = {}
+            char.health = CHARACTER_MAX_HEALTH
+            char.flags = {}
+        }
+
+        // Shoot command
+        {
+            res, have_shoot := output_verbs.bools[.PlayerShoot]
+            if have_shoot && res {
+                if .HoldingEnemy in char.flags {
+                    char.flags -= {.HoldingEnemy}
+                    throw_dir := ENEMY_THROW_SPEED * linalg.quaternion128_mul_vector3(tform.rotation, DEFAULT_FACING_DIRECTION)
+                    new_thrown_enemy(game_state, tform.position, throw_dir, .Wandering, char.enemy_respawn_pos, char.enemy_type)
+                    play_sound_effect(audio_system, game_state.shoot_sound)
+                } else {
+                    char.vortex_t = 0.0
+                }
+            }
+        }
+
+        player_sphere := Sphere {
+            position = tform.position,
+            radius = collision.radius
+        }
+
+        {
+            to_remove: Maybe(u32)
+            for coin_id, idx in game_state.coins {
+                coin_tform := &game_state.transforms[coin_id]
+                {
+                    // Are we being collected?
+                    s := Sphere {
+                        position = coin_tform.position,
+                        radius = coin_tform.scale
+                    }
+                    if are_spheres_overlapping(player_sphere, s) {
+                        play_sound_effect(audio_system, game_state.coin_sound)
+                        to_remove = u32(idx)
+                        continue
+                    }
+                }
+            }
+
+            // Remove coin
+            remove_idx, ok := to_remove.?
+            if ok {
+                remove_id := game_state.coins[remove_idx]
+                delete_key(&game_state.transforms, remove_id)
+                delete_key(&game_state.static_models, remove_id)
+                unordered_remove(&game_state.coins, remove_idx)
+            }
+        }
+
+        // Do logic for vortex move
+        if char.vortex_t < char.bullet_travel_time {
+            char.vortex_t += dt
+            radius := VORTEX_MAX_RADIUS * char.vortex_t / char.bullet_travel_time
+
+            // Update graphics
+            mat := scaling_matrix(radius)
+            mat[3][0] = tform.position.x
+            mat[3][1] = tform.position.y
+            mat[3][2] = tform.position.z
+            draw := DebugDraw {
+                world_from_model = mat,
+                color = {0.0, 0.4, 0.0, 0.3}
+            }
+            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
+
+            do_point_light(renderer, PointLight {
+                world_position = tform.position,
+                intensity = radius,
+                color = {0.0, 1.0, 0.0}
+            })
+        }
+
+        if .HoldingEnemy in char.flags {
+            bob := 0.2 * math.sin(game_state.time * 1.7)
+            pos := tform.position + {0.0, 0.0, 1.75 + bob}
+            m := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.5)
+            m[3][0] = pos.x
+            m[3][1] = pos.y
+            m[3][2] = pos.z
+            d := StaticDraw {
+                world_from_model = m,
+                flags = {.Glowing}
+            }
+            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, d)
+
+            // Light source
+            l := default_point_light()
+            l.color = {0.0, 1.0, 0.0}
+            l.world_position = pos
+            l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+            do_point_light(renderer, l)
+        }
+    }
+}
+
+StaticModelInstance :: struct {
+    handle: StaticModelHandle,
+    pos_offset: hlsl.float3,
+    flags: InstanceFlags,
+}
+
+SkinnedModelInstance :: struct {
+    handle: SkinnedModelHandle,
+    pos_offset: hlsl.float3,
+    anim_idx: u32,
+    anim_t: f32,
+    flags: InstanceFlags,
+}
+
+DebugModelInstance :: struct {
+    handle: StaticModelHandle,
+    pos_offset: hlsl.float3,
+    color: hlsl.float4,
+    scale: f32,
+}
+
+DamageEvent :: struct {
+
+}
+
+tick_damage_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
+    collision := &game_state.spherical_bodies[game_state.player_id]
+    char := &game_state.character_controllers[game_state.player_id]
+    invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
+    if invulnerable {
+        return
+    }
+    for event in game_state.character_damage_events {
+        collision.velocity.z = 3.0
+        collision.state = .Falling
+        char.time_last_damaged = time.now()
+        char.health -= 1
+        play_sound_effect(audio_system, game_state.ow_sound)
+    }
+}
+
+CollisionState :: enum {
+    Grounded,
+    Falling
 }
 
 EnemyState :: enum {
@@ -241,62 +1027,14 @@ ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
     .AlertedBounce = "Alerted Bounce",
     .AlertedCharge = "Alerted Charge"
 }
-Enemy :: struct {
-    position: hlsl.float3,
-    velocity: hlsl.float3,
-    collision_radius: f32,
-    facing: hlsl.float3,
-    home_position: hlsl.float3,
-    visualize_home: bool,
 
-    init_ai_state: EnemyState,
-    ai_state: EnemyState,
-    collision_state: CollisionState,
-    timer_start: time.Time,
-
-    model: StaticModelHandle,
-}
-
-default_enemy :: proc(game_state: GameState) -> Enemy {
-    return {
-        position = {},
-        velocity = {},
-        collision_radius = 0.5,
-        facing = {0.0, 1.0, 0.0},
-        home_position = {},
-        visualize_home = false,
-        init_ai_state = .Wandering,
-        ai_state = .Wandering,
-        collision_state = .Grounded,
-        timer_start = time.now(),
-        model = game_state.enemy_mesh
-    }
-}
-
-ThrownEnemy :: struct {
-    position: hlsl.float3,
-    velocity: hlsl.float3,
-    collision_radius: f32,
-    respawn_position: hlsl.float3,
-    respawn_home: hlsl.float3,
-    respawn_ai_state: EnemyState,
-}
-
-Coin :: struct {
-    position: hlsl.float3,
-}
-
-DebugVisualizationFlags :: bit_set[enum {
+DebugVisualizationFlag :: enum {
     ShowPlayerSpawn,
     ShowPlayerHitSphere,
     ShowPlayerActivityRadius,
     ShowCoinRadius,
-}]
-
-AirVortex :: struct {
-    collision: Sphere,
-    t: f32,
 }
+DebugVisualizationFlags :: bit_set[DebugVisualizationFlag]
 
 LevelBlock :: enum u8 {
     Terrain = 0,
@@ -308,127 +1046,53 @@ LevelBlock :: enum u8 {
     Coins = 6,
 }
 
-CollisionResponse :: enum {
-    None,
-    HitFloor,
-    HitCeiling,
-    PassedThroughGround,
-    Bump,
-}
-gravity_affected_sphere :: proc(
-    game_state: GameState,
-    sphere: ^PhysicsSphere,
-    closest_pt: hlsl.float3,
-    collision_normal: hlsl.float3,
-    triangle_normal: hlsl.float3,
-    motion_interval: Segment
-) -> CollisionResponse {
-    scoped_event(&profiler, "gravity_affected_sphere")
-    resp: CollisionResponse
-    switch sphere.state {
-        case .Grounded: {
-            // Push out of ground
-            dist := hlsl.distance(closest_pt, sphere.position)
-            if dist < sphere.radius {
-                remaining_dist := sphere.radius - dist
-                if hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0}) < 0.5 {
-                    sphere.position = motion_interval.end + remaining_dist * collision_normal
-                } else {
-                    sphere.position = motion_interval.end
-                }
-                sphere.state = .Grounded
-            } else {
-                sphere.position = motion_interval.end
-            }
-
-            // Check if we need to bump ourselves up or down
-            {
-                tolerance_segment := Segment {
-                    start = sphere.position + {0.0, 0.0, 0.0},
-                    end = sphere.position + {0.0, 0.0, -sphere.radius - 0.1}
-                }
-                tolerance_t, normal, okt := intersect_segment_terrain_with_normal(&tolerance_segment, game_state.terrain_pieces[:])
-                if okt {
-                    tolerance_point := tolerance_segment.start + tolerance_t * (tolerance_segment.end - tolerance_segment.start)
-                    sphere.position = tolerance_point + {0.0, 0.0, sphere.radius}
-                    if hlsl.dot(normal, hlsl.float3{0.0, 0.0, 1.0}) >= 0.5 {
-                        sphere.velocity.z = 0.0
-                        sphere.state = .Grounded
-                        resp = .Bump
-                    }
-                } else {
-                    sphere.state = .Falling
-                }
-            }
-        }
-        case .Falling: {
-            // Then do collision test against triangles
-
-            collided := false
-            inv := motion_interval
-            segment_pt, segment_ok := intersect_segment_terrain(&inv, game_state.terrain_pieces[:])
-            if segment_ok {
-                log.info("Player center passed through ground")
-                sphere.position = segment_pt
-                sphere.position += triangle_normal * sphere.radius
-                sphere.velocity.z = 0
-                sphere.state = .Grounded
-            } else {
-
-                d := hlsl.distance(sphere.position, closest_pt)
-                collided = d < sphere.radius
-    
-                if collided {
-                    // Hit terrain
-                    remaining_d := sphere.radius - d
-                    sphere.position = motion_interval.end + remaining_d * collision_normal
-                    
-                    n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
-                    if n_dot >= 0.5 && sphere.velocity.z < 0.0 {
-                        // Floor
-                        sphere.velocity.z = 0
-                        sphere.state = .Grounded
-                        resp = .HitFloor
-                    } else if n_dot < -0.1 && sphere.velocity.z > 0.0 {
-                        // Ceiling
-                        sphere.velocity.z = 0.0
-                        resp = .HitCeiling
-                    }
-                } else {
-                    // Didn't hit anything, still falling.
-                    sphere.position = motion_interval.end
-                }
-            }
-
-        }
-    }
-    return resp
-}
+EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    character: Character,
-    viewport_camera: Camera,
+    player_id: EntityID,
+    viewport_camera_id: EntityID,
 
     // Scene/Level data
-    terrain_pieces: [dynamic]TerrainPiece,
-    static_scenery: [dynamic]StaticScenery,
-    animated_scenery: [dynamic]AnimatedScenery,
-    enemies: [dynamic]Enemy,
-    thrown_enemies: [dynamic]ThrownEnemy,
-    coins: [dynamic]Coin,
-    character_start: hlsl.float3,
+    level_start: hlsl.float3,
     skybox_texture: vkw.Texture_Handle,
+
+    // Data-oriented tables
+    _next_id: u32,                   // Components with the same id are associated with one another
+    transforms: map[EntityID]Transform,
+    transform_deltas: map[EntityID]TransformDelta,
+    cameras: map[EntityID]FreecamController,
+    lookat_controllers: map[EntityID]LookatController,
+    character_controllers: map[EntityID]CharacterController,
+    enemy_ais: map[EntityID]EnemyAI,
+    hovering_enemies: map[EntityID]HoveringEnemy,
+    thrown_enemy_ais: map[EntityID]ThrownEnemyAI,
+    spherical_bodies: map[EntityID]SphericalBody,
+    triangle_meshes: map[EntityID]TriangleMesh,
+    static_models: map[EntityID]StaticModelInstance,
+    skinned_models: map[EntityID]SkinnedModelInstance,
+    debug_models: map[EntityID]DebugModelInstance,
+
+    // Sometimes we need behavior associated with a group of ids
+    // without actually needing to store additional state
+    looping_animations: [dynamic]EntityID,
+    coins: [dynamic]EntityID,
+
+    character_damage_events: [dynamic]DamageEvent,
+
+    // User input mapping structs
+    freecam_key_mappings : map[sdl2.Scancode]VerbType,
+    character_key_mappings: map[sdl2.Scancode]VerbType,
+    mouse_mappings: map[u8]VerbType,
+    button_mappings: map[sdl2.GameControllerButton]VerbType,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
-    
+
     coin_mesh: StaticModelHandle,
     coin_collision_radius: f32,
 
     enemy_mesh: StaticModelHandle,
-    selected_enemy: Maybe(int),
-
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -457,7 +1121,6 @@ GameState :: struct {
     borderless_fullscreen: bool,
     exclusive_fullscreen: bool,
 
-    do_this_frame: bool,
     paused: bool,
 }
 
@@ -473,36 +1136,56 @@ init_gamestate :: proc(
     game_state.freecam_collision = user_config.flags[.FreecamCollision]
     game_state.borderless_fullscreen = user_config.flags[.BorderlessFullscreen]
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
-    game_state.do_this_frame = true
     game_state.paused = false
     game_state.timescale = 1.0
     game_state.coin_collision_radius = 0.1
 
-    // Initialize main viewport camera
-    game_state.viewport_camera = Camera {
-        position = {
-            f32(user_config.floats[.FreecamX]),
-            f32(user_config.floats[.FreecamY]),
-            f32(user_config.floats[.FreecamZ])
-        },
-        yaw = f32(user_config.floats[.FreecamYaw]),
-        pitch = f32(user_config.floats[.FreecamPitch]),
-        fov_radians = f32(user_config.floats[.CameraFOV]),
-        nearplane = 0.1 / math.sqrt_f32(2.0),
-        farplane = 1_000_000.0,
-        collision_radius = 0.1,
-        target = {
-            distance = 5.0
-        },
-    }
-    game_state.freecam_speed_multiplier = 5.0
-    game_state.freecam_slow_multiplier = 1.0 / 5.0
-    if user_config.flags[.FollowCam] {
-        game_state.viewport_camera.control_flags += {.Follow}
-    }
+    game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
+    game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
-    game_state.camera_follow_point = game_state.character.collision.position
-    game_state.camera_follow_speed = 6.0
+    {
+        game_state.freecam_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.freecam_key_mappings[.W] = .TranslateFreecamForward
+        game_state.freecam_key_mappings[.S] = .TranslateFreecamBack
+        game_state.freecam_key_mappings[.A] = .TranslateFreecamLeft
+        game_state.freecam_key_mappings[.D] = .TranslateFreecamRight
+        game_state.freecam_key_mappings[.Q] = .TranslateFreecamDown
+        game_state.freecam_key_mappings[.E] = .TranslateFreecamUp
+        game_state.freecam_key_mappings[.LSHIFT] = .Sprint
+        game_state.freecam_key_mappings[.LCTRL] = .Crawl
+        game_state.freecam_key_mappings[.SPACE] = .PlayerJump
+        game_state.freecam_key_mappings[.BACKSLASH] = .FrameAdvance
+        game_state.freecam_key_mappings[.PAUSE] = .Resume
+        game_state.freecam_key_mappings[.F] = .FullscreenHotkey
+
+        game_state.character_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.character_key_mappings[.W] = .PlayerTranslateForward
+        game_state.character_key_mappings[.S] = .PlayerTranslateBack
+        game_state.character_key_mappings[.A] = .PlayerTranslateLeft
+        game_state.character_key_mappings[.D] = .PlayerTranslateRight
+        game_state.character_key_mappings[.LSHIFT] = .Sprint
+        game_state.character_key_mappings[.LCTRL] = .Crawl
+        game_state.character_key_mappings[.SPACE] = .PlayerJump
+        game_state.character_key_mappings[.BACKSLASH] = .FrameAdvance
+        game_state.character_key_mappings[.PAUSE] = .Resume
+        game_state.character_key_mappings[.F] = .FullscreenHotkey
+        game_state.character_key_mappings[.R] = .PlayerReset
+        game_state.character_key_mappings[.E] = .PlayerShoot
+
+        game_state.button_mappings[.A] = .PlayerJump
+        game_state.button_mappings[.X] = .PlayerShoot
+        game_state.button_mappings[.Y] = .PlayerReset
+        game_state.button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
+        game_state.button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+
+
+
+        // Hardcoded default mouse mappings
+        //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
+        game_state.mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
+    }
 
     game_state.rng_seed = time.now()._nsec
 
@@ -548,7 +1231,7 @@ init_gamestate :: proc(
             if !ok {
                 log.error("Unable to read DDS header")
             }
-    
+
             is_cubemap := .D3D11_RESOURCE_MISC_TEXTURECUBE in dds_header.misc_flag
             image_flags : vk.ImageCreateFlags = {.CUBE_COMPATIBLE} if is_cubemap else {}
             image_format := dxgi_to_vulkan_format(dds_header.dxgi_format)
@@ -574,7 +1257,7 @@ init_gamestate :: proc(
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
 
             if create_ok {
-                renderer.cpu_uniforms.skybox_idx = image_handle.index
+                renderer.uniforms.skybox_idx = image_handle.index
             }
         }
     }
@@ -586,49 +1269,204 @@ gamestate_new_scene :: proc(
     game_state: ^GameState,
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
+    user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
-    game_state.terrain_pieces = make([dynamic]TerrainPiece, scene_allocator)
-    game_state.static_scenery = make([dynamic]StaticScenery, scene_allocator)
-    game_state.animated_scenery = make([dynamic]AnimatedScenery, scene_allocator)
-    game_state.enemies = make([dynamic]Enemy, scene_allocator)
-    game_state.thrown_enemies = make([dynamic]ThrownEnemy, scene_allocator)
-    game_state.coins = make([dynamic]Coin, scene_allocator)
-    
+    // Initialize data-oriented tables
+    game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
+    game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.transform_deltas = make(map[EntityID]TransformDelta, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.cameras = make(map[EntityID]FreecamController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.lookat_controllers = make(map[EntityID]LookatController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.character_controllers = make(map[EntityID]CharacterController, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.enemy_ais = make(map[EntityID]EnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.hovering_enemies = make(map[EntityID]HoveringEnemy, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.thrown_enemy_ais = make(map[EntityID]ThrownEnemyAI, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.spherical_bodies = make(map[EntityID]SphericalBody, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.triangle_meshes = make(map[EntityID]TriangleMesh, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.static_models = make(map[EntityID]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.skinned_models = make(map[EntityID]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.debug_models = make(map[EntityID]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+
+    game_state.looping_animations = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.coins = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+
+    // Initialize player character
+    {
+        id := gamestate_next_id(game_state)
+        game_state.player_id = id
+
+        game_state.transforms[id] = Transform {
+            scale = 1.0,
+        }
+        game_state.spherical_bodies[id] = SphericalBody {
+            velocity = {},
+            radius = 0.6,
+            gravity_scale = CHARACTER_HEAVY_GRAVITY,
+            state = .Falling
+        }
+        game_state.character_controllers[id] = CharacterController {
+            acceleration = {},
+            deceleration_speed = 0.1,
+            move_speed = 7.0,
+            sprint_speed = 14.0,
+            jump_speed = 10.0,
+            bullet_travel_time = 0.144,
+            health = CHARACTER_MAX_HEALTH,
+            vortex_t = 0.144 + 1.0,
+            anim_speed = 0.856,
+            time_last_damaged = {},
+            flags = {}
+        }
+
+        // Load animated test glTF model
+        skinned_model: SkinnedModelHandle
+        {
+            path : cstring = "data/models/CesiumMan.glb"
+            skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
+        }
+        game_state.skinned_models[id] = SkinnedModelInstance {
+            handle = skinned_model,
+            pos_offset = {0.0, 0.0, -0.6},
+            flags = {}
+        }
+
+    }
+
+    // Initialize viewport camera
+    {
+        id := gamestate_next_id(game_state)
+        game_state.viewport_camera_id = id
+
+        game_state.transforms[id] = Transform {
+            position = {
+                f32(user_config.floats[.FreecamX]),
+                f32(user_config.floats[.FreecamY]),
+                f32(user_config.floats[.FreecamZ])
+            }
+        }
+        game_state.cameras[id] = FreecamController {
+            fov_radians = f32(user_config.floats[.CameraFOV]),
+            nearplane = 0.1 / math.sqrt_f32(2.0),
+            farplane = 1_000_000.0,
+            yaw = f32(user_config.floats[.FreecamYaw]),
+            pitch = f32(user_config.floats[.FreecamPitch]),
+        }
+        if user_config.flags[.FollowCam] {
+            game_state.lookat_controllers[id] = LookatController {
+                target = game_state.player_id,
+                distance = 5.0
+            }
+        }
+    }
+
+    game_state.freecam_speed_multiplier = 5.0
+    game_state.freecam_slow_multiplier = 1.0 / 5.0
+
+    //game_state.camera_follow_point = game_state.character.collision.position
+    game_state.camera_follow_speed = 6.0
+
     // Load icosphere mesh for debug visualization
     game_state.sphere_mesh = load_gltf_static_model(gd, renderer, "data/models/icosphere.glb", scene_allocator)
 
     // Load enemy mesh
     game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb", scene_allocator)
-    
+
     game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb", scene_allocator)
-    
-    // Load animated test glTF model
-    skinned_model: SkinnedModelHandle
-    {
-        path : cstring = "data/models/CesiumMan.glb"
-        skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
+}
+
+gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
+    assert(gamestate._next_id < max(u32), "Overflowed entity id!")
+    r := gamestate._next_id
+    gamestate._next_id += 1
+    return EntityID(r)
+}
+
+game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    // Determine if we're simulating a tick of game logic this frame
+    do_this_frame := !game_state.paused
+    if output_verbs.bools[.FrameAdvance] {
+        do_this_frame = true
+        game_state.paused = true
+    }
+    if output_verbs.bools[.Resume] {
+        game_state.paused = !game_state.paused
     }
 
-    game_state.character = Character {
-        collision = {
-            position = game_state.character_start,
-            radius = 0.8
-        },
-        gravity_factor = 1.0,
-        deceleration_speed = 0.1,
-        facing = {0.0, 1.0, 0.0},
-        move_speed = 7.0,
-        sprint_speed = 14.0,
-        jump_speed = 10.0,
-        anim_speed = 0.856,
-        model = skinned_model,
+    if do_this_frame {
+        // Recreate per-frame dynamic allocations
+        game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
 
-        bullet_travel_time = 0.144,
+        // Advance game_state by dt seconds
+        tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
+        tick_coins(game_state, audio_system)
+        tick_looping_animations(game_state, renderer^, dt)
+        tick_transform_deltas(game_state, dt)
+        tick_thrown_enemies(game_state)
+        tick_spherical_bodies(game_state, dt)
+        tick_enemy_ai(game_state, audio_system, dt)
+        tick_hovering_enemies(game_state, dt)
+        tick_damage_events(game_state, audio_system)
     }
 }
 
-load_level_file :: proc(
+// Returns the size in bytes of component when serialized
+get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
+    lil_helper :: proc(string_table: ^StringTable, str: string) -> int {
+        // This proc returns the size in bytes of _this_
+        // instance of the string in the level file
+        size := 2 * size_of(u32)
+        seen_it := str in string_table.string_map
+        if !seen_it {
+            // Only if this is the first time seeing this string
+            // do we want to add it's length to the total size
+            size += len(str)
+            string_table_append(string_table, str)
+        }
+
+        return size
+    }
+
+    size := size_of(EntityID)
+
+    when ComponentType == TriangleMesh {
+        size += size_of(hlsl.float4x4)
+        size += lil_helper(string_table, component.name)
+    } else when ComponentType == StaticModelInstance {
+        size += size_of(component.pos_offset)
+        size += size_of(component.flags)
+
+        // Size of string instance
+        model := get_static_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
+    } else when ComponentType == SkinnedModelInstance {
+        size += size_of(component.pos_offset)
+        size += size_of(component.flags)
+        size += size_of(component.anim_idx)
+
+        // Size of string instance
+        model := get_skinned_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
+    } else when ComponentType == DebugModelInstance {
+        size += size_of(component.pos_offset)
+        size += size_of(component.color)
+        size += size_of(component.scale)
+
+        // Size of string instance
+        model := get_static_model(renderer, component.handle)
+        size += lil_helper(string_table, model.name)
+    } else {
+        // Type doesn't need special handling
+        size += size_of(ComponentType)
+    }
+
+    return size
+}
+
+LEVEL_FILE_MAGIC_STRING :: "katawari"
+load_level_file :: new_load_level_file
+
+new_load_level_file :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     audio_system: ^AudioSystem,
@@ -637,23 +1475,35 @@ load_level_file :: proc(
     path: string,
     scene_allocator := context.allocator
 ) -> bool {
-    scoped_event(&profiler, "Load level file")
     // Audio lock while loading level data
     sdl2.LockAudioDevice(audio_system.device_id)
     defer sdl2.UnlockAudioDevice(audio_system.device_id)
 
     vkw.device_wait_idle(gd)
 
-    free_all(scene_allocator)
-    audio_new_scene(audio_system, scene_allocator)
-    new_scene(renderer)
-    gamestate_new_scene(game_state, gd, renderer)
+    read_head : u32 = 0
 
-    lvl_bytes, lvl_err := os2.read_entire_file(path, context.temp_allocator)
-    if lvl_err != nil {
-        log.errorf("Error reading entire level file \"%v\": %v", path, lvl_err)
+    lvl_data: []byte
+    {
+        err: os2.Error
+        lvl_data, err = os2.read_entire_file(path, context.temp_allocator)
+        if err != nil {
+            log.errorf("Error reading entire level file \"%v\": %v", path, err)
+            return false
+        }
+    }
+
+    // Read magic string
+    magic := read_string_from_buffer(lvl_data, &read_head)
+    if magic != LEVEL_FILE_MAGIC_STRING {
+        log.errorf("%v has wrong magic string.", path)
         return false
     }
+
+    free_all(scene_allocator)
+    audio_new_scene(audio_system)
+    new_scene(renderer, scene_allocator)
+    gamestate_new_scene(game_state, gd, renderer, user_config)
 
     read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
         thing: type
@@ -670,234 +1520,274 @@ load_level_file :: proc(
         return s
     }
 
-    file_size := u32(len(lvl_bytes))
-    read_head : u32 = 0
+    read_naked_string_from_buffer :: proc(buffer: []byte, offset: u32, length: u32) -> string {
+        // Precondition: buffer should start at the first byte of the string table
 
-    // Character start
-    game_state.character_start = read_thing_from_buffer(lvl_bytes, type_of(game_state.character_start), &read_head)
-    game_state.character.collision.position = game_state.character_start
-    game_state.camera_follow_point = game_state.character.collision.position
-    
-    path_builder: strings.Builder
-    strings.builder_init(&path_builder, context.temp_allocator)
+        start_ptr := slice.ptr_add(&buffer[0], int(offset))
+        return strings.string_from_ptr(start_ptr, int(length))
+    }
 
-    // Repeatedly parse level blocks
-    for read_head < file_size {
-        block := read_thing_from_buffer(lvl_bytes, LevelBlock, &read_head)
-        switch block {
-            case .BgmFile: {
-                bgm_name := read_string_from_buffer(lvl_bytes, &read_head)
-                fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
-                path, _ := strings.to_cstring(&path_builder)
-                game_state.bgm_id, _ = open_music_file(audio_system, path)
-                strings.builder_reset(&path_builder)
-            }
-            case .DirectionalLights: {
-                count := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                renderer.cpu_uniforms.directional_light_count = count
-                for i in 0..<count {
-                    light: DirectionalLight
-                    light.direction = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    light.color = read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    renderer.cpu_uniforms.directional_lights[i] = light
-                }
-            }
-            case .Terrain: {
-                // Terrain pieces
-                ter_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                for _ in 0..<ter_len {
-                    name := read_string_from_buffer(lvl_bytes, &read_head)
-                    fmt.sbprintf(&path_builder, "data/models/%v", name)
-                    path, _ := strings.to_cstring(&path_builder)
-                    model := load_gltf_static_model(gd, renderer, path)
-            
-                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-                    mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-                    
-                    positions := get_glb_positions(path)
-                    collision := new_static_triangle_mesh(positions[:], mmat)
-                    append(&game_state.terrain_pieces, TerrainPiece {
-                        collision = collision,
-                        position = position,
-                        rotation = rotation,
-                        scale = scale,
-                        model = model,
-                    })
-                    strings.builder_reset(&path_builder)
-                }
-            }
-            case .StaticScenery: {
-                // Static scenery
-                stat_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                for _ in 0..<stat_len {
-                    name := read_string_from_buffer(lvl_bytes, &read_head)
-                    fmt.sbprintf(&path_builder, "data/models/%v", name)
-                    path, _ := strings.to_cstring(&path_builder)
-                    model := load_gltf_static_model(gd, renderer, path)
-            
-                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-            
-                    append(&game_state.static_scenery, StaticScenery {
-                        model = model,
-                        position = position,
-                        rotation = rotation,
-                        scale = scale
-                    })
-                    strings.builder_reset(&path_builder)
-                }
-            }
-            case .AnimatedScenery: {
-                // Animated scenery
-                anim_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                for _ in 0..<anim_len {
-                    name := read_string_from_buffer(lvl_bytes, &read_head)
-                    fmt.sbprintf(&path_builder, "data/models/%v", name)
-                    path, _ := strings.to_cstring(&path_builder)
-                    model := load_gltf_skinned_model(gd, renderer, path, scene_allocator)
-            
-                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    rotation := read_thing_from_buffer(lvl_bytes, quaternion128, &read_head)
-                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-                    
-                    append(&game_state.animated_scenery, AnimatedScenery {
-                        model = model,
-                        position = position,
-                        rotation = rotation,
-                        scale = scale,
-                        anim_idx = 0,
-                        anim_t = 0.0,
-                        anim_speed = 1.0,
-                    })
-                    strings.builder_reset(&path_builder)
-                }
-            }
-            case .Enemies: {
-                // Enemies
-                enemy_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                for _ in 0..<enemy_len {
-                    position := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    scale := read_thing_from_buffer(lvl_bytes, f32, &read_head)
-                    ai_state := read_thing_from_buffer(lvl_bytes, EnemyState, &read_head)
+    read_component_map :: proc(
+        gd: ^vkw.GraphicsDevice,
+        renderer: ^Renderer,
+        buffer: []byte,
+        components: ^map[EntityID]$T,
+        head: ^u32,
+        string_table_offset: u32,
+        largest_seen_id: ^u32,
+        scene_allocator: runtime.Allocator
+    ) {
+        // Read component count
+        count := read_thing_from_buffer(buffer, u32, head)
 
-                    new_enemy := default_enemy(game_state^)
-                    new_enemy.position = position
-                    new_enemy.home_position = position
-                    new_enemy.ai_state = ai_state
-                    new_enemy.init_ai_state = ai_state
-                    append(&game_state.enemies, new_enemy)
-                }
+        get_model_path :: proc(
+            buffer: []byte,
+            head: ^u32,
+            string_table_offset: u32,
+        ) -> cstring {
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
 
+            // Read offset and length of model string and then load it
+            offset := read_thing_from_buffer(buffer, u32, head)
+            length := read_thing_from_buffer(buffer, u32, head)
+            model_string := read_naked_string_from_buffer(buffer[string_table_offset:], offset, length)
+            fmt.sbprintf(&sb, "data/models/%v", model_string)
+            return strings.to_cstring(&sb)
+        }
+
+        for i in 0..<count {
+            id := read_thing_from_buffer(buffer, EntityID, head)
+
+            comp: T
+            when T == TriangleMesh {
+                mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                positions := get_glb_positions(model_path, scene_allocator)
+
+                comp = new_static_triangle_mesh(positions[:], mmat)
+                comp.model_matrix = mmat
+                comp.name = filepath.base(string(model_path))
+
+            } else when T == StaticModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+            } else when T == SkinnedModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
+                comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_skinned_model(gd, renderer, model_path, scene_allocator)
+            } else when T == DebugModelInstance {
+                comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
+                comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
+                comp.scale = read_thing_from_buffer(buffer, f32, head)
+                model_path := get_model_path(buffer, head, string_table_offset)
+                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+            } else {
+                comp = read_thing_from_buffer(buffer, T, head)
             }
-            case .Coins: {
-                coin_len := read_thing_from_buffer(lvl_bytes, u32, &read_head)
-                for _ in 0..<coin_len {
-                    p := read_thing_from_buffer(lvl_bytes, hlsl.float3, &read_head)
-                    append(&game_state.coins, Coin {
-                        position = p
-                    })
-                }
+
+            components[id] = comp
+
+            if u32(id) > largest_seen_id^ {
+                largest_seen_id^ = u32(id)
             }
         }
     }
 
+    read_stateless_entities :: proc(buffer: []byte, head: ^u32) -> [dynamic]EntityID {
+        ids: [dynamic]EntityID
+
+        size := read_thing_from_buffer(buffer, u32, head)
+        if size == 0 {
+            return ids
+        }
+        resize(&ids, size)
+
+        len_bytes := size * size_of(EntityID)
+        mem.copy_non_overlapping(&ids[0], &buffer[head^], int(len_bytes))
+        head^ += len_bytes
+
+        return ids
+    }
+
+    path_builder: strings.Builder
+    strings.builder_init(&path_builder, context.temp_allocator)
+
+    largest_saved_entity_id: u32 = 0
+
+    // Read string table global offset
+    string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
+
+    // Read player spawn position
+    game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
+
+    // Read bgm name
+    {
+        bgm_name := read_string_from_buffer(lvl_data, &read_head)
+        fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
+        path := strings.to_cstring(&path_builder)
+        game_state.bgm_id, _ = open_music_file(audio_system, path)
+        strings.builder_reset(&path_builder)
+    }
+
+    // Read directional light data
+    {
+        count := read_thing_from_buffer(lvl_data, u32, &read_head)
+        renderer.uniforms.directional_light_count = count
+        for i in 0..<count {
+            light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
+            renderer.uniforms.directional_lights[i] = light
+        }
+    }
+
+    // Read components in order
+    read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+
+    // Read stateless entities
+    game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
+    game_state.coins = read_stateless_entities(lvl_data, &read_head)
+
+    // Should have read entire buffer
+    assert(read_head == string_table_offset)
+
+    game_state._next_id = largest_saved_entity_id + 1
+
     path_base := filepath.stem(path)
-    path_clone, err := strings.clone(path_base)
+    path_clone, err := strings.clone(path_base, scene_allocator)
     if err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
     game_state.current_level = path_clone
+
     return true
 }
 
-write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_system: AudioSystem, path: string) {
-    mesh_data_size :: proc(renderer: ^Renderer, mesh: $T) -> int {
-        model := get_static_model(renderer, mesh.model)
-        s := 0
-        s += size_of(u32)
-        s += len(model.name)
-        s += size_of(mesh.position)
-        s += size_of(mesh.rotation)
-        s += size_of(mesh.scale)
-        return s
-    }
+save_level_file :: new_save_level_file
 
-    bgm := &audio_system.music_files[gamestate.bgm_id]
+// Strings in the StringTable are written back-to-back when serialized
+// Components can have a pair of u32 (offset, size) to address into it
+StringTable :: struct {
+    data: [dynamic]StringTableEntry,
+    string_map: map[string]int,
+    total_len: int
+}
+StringTableEntry :: struct {
+    str: string,
+    offset: u32,
+}
+string_table_init :: proc(capacity: int, allocator := context.allocator) -> StringTable {
+    table: StringTable
+    table.data = make([dynamic]StringTableEntry, 0, capacity, allocator)
+    table.string_map = make(map[string]int, capacity, allocator)
+    return table
+}
+string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEntry {
+    idx, ok := table.string_map[elem]
+    if ok {
+        return table.data[idx]
+    } else {
+        entry: StringTableEntry
+        l := len(elem)
+        entry.str = elem
+        entry.offset = u32(table.total_len)
+        table.total_len += l
+        table.string_map[elem] = len(table.data)
+        append(&table.data, entry)
+        return entry
+    }
+}
+write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^u32) {
+    // Because each component stores the offset and length of the strings in the table,
+    // we just have to write out each string back-to-back
+    for entry in table.data {
+        str_len := len(entry.str)
+        mem.copy_non_overlapping(&buffer[head^], raw_data(entry.str), str_len)
+        head^ += u32(str_len)
+    }
+}
 
-    output_size := 0
+new_save_level_file :: proc(
+    game_state: ^GameState,
+    renderer: ^Renderer,
+    audio_system: AudioSystem,
+    path: string,
+    temp_allocator := context.temp_allocator
+) {
 
-    // Character spawn
-    output_size += size_of(gamestate.character_start)
-    
-    // BGM music file name
-    output_size += size_of(u8)      //block
-    output_size += size_of(u32)
-    output_size += len(bgm.name)
+    // Idea: For each entity, store id followed by component mask followed by component data
+    // Better idea: Just store components along with their ids
 
-    // Directional lights
-    output_size += size_of(u8)      //block
-    output_size += size_of(u32)     // Directional light count
-    output_size += 2 * size_of(hlsl.float3) * int(renderer.cpu_uniforms.directional_light_count)
 
-    // Terrain pieces
-    if len(gamestate.terrain_pieces) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for piece in gamestate.terrain_pieces {
-        output_size += mesh_data_size(renderer, piece)
-    }
+    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, audio_system: AudioSystem, string_table: ^StringTable) -> u32 {
+        calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
+            size := size_of(u32)
+            for _, comp in component_map {
+                size += get_serialized_size(renderer, string_table, comp)
+            }
+            return size
+        }
 
-    // Static scenery
-    if len(gamestate.static_scenery) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for scenery in gamestate.static_scenery {
-        output_size += mesh_data_size(renderer, scenery)
-    }
+        final_size := 0
 
-    // Animated scenery
-    if len(gamestate.animated_scenery) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for scenery in gamestate.animated_scenery {
-        model := get_skinned_model(renderer, scenery.model)
-        s := 0
-        s += size_of(u32)
-        s += len(model.name)
-        s += size_of(scenery.position)
-        s += size_of(scenery.rotation)
-        s += size_of(scenery.scale)
-        output_size += s
-    }
+        // Magic string
+        final_size += size_of(u32)
+        final_size += len(LEVEL_FILE_MAGIC_STRING)
 
-    // Enemies
-    if len(gamestate.enemies) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
-    }
-    for enemy in gamestate.enemies {
-        output_size += size_of(enemy.position)
-        output_size += size_of(enemy.collision_radius)
-        output_size += size_of(enemy.ai_state)
-    }
+        // Global offset of string table
+        final_size += size_of(u32)
 
-    // Coins
-    if len(gamestate.coins) > 0 {
-        output_size += size_of(u8)
-        output_size += size_of(u32)
+        // Size of player spawn position
+        final_size += size_of(hlsl.float3)
+
+        // Size of bgm pascal string
+        bgm := audio_system.music_files[game_state.bgm_id]
+        final_size += size_of(u32)
+        final_size += size_of(byte) * len(bgm.name)
+
+        // Directional lights count + data
+        final_size += size_of(u32)
+        final_size += size_of(DirectionalLight) * int(renderer.uniforms.directional_light_count)
+
+        // Component data + counts
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.cameras)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.lookat_controllers)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.spherical_bodies)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.triangle_meshes)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.static_models)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.skinned_models)
+        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.debug_models)
+
+        // Special entities that don't need extra state
+        final_size += size_of(u32)
+        final_size += len(game_state.looping_animations) * size_of(EntityID)
+        final_size += size_of(u32)
+        final_size += len(game_state.coins) * size_of(EntityID)
+
+        // Don't need to compute string table size explicitly bc
+        // string sizes are accounted for in get_serialized_size()
+
+        return u32(final_size)
     }
-    for coin in gamestate.coins {
-        output_size += size_of(coin.position)
-    }
-    
-    write_head : u32 = 0
-    raw_output_buffer := make([dynamic]byte, output_size, context.temp_allocator)
 
     write_thing_to_buffer :: proc(buffer: []byte, ptr: ^$T, head: ^u32) {
         amount := size_of(T)
@@ -912,104 +1802,129 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
         head^ += amount
     }
 
-    write_mesh_to_buffer :: proc(renderer: ^Renderer, buffer: []byte, mesh: ^$T, head: ^u32) {
-        when T == AnimatedScenery {
-            model := get_skinned_model(renderer, mesh.model)
-            write_string_to_buffer(buffer, model.name, head)
-        } else {
-            model := get_static_model(renderer, mesh.model)
-            write_string_to_buffer(buffer, model.name, head)
+    write_component_map :: proc(renderer: ^Renderer, string_table: ^StringTable, buffer: []byte, components: map[EntityID]$T, head: ^u32) {
+        write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^u32) {
+            table_entry := string_table_append(string_table, str)
+            l := u32(len(table_entry.str))
+            write_thing_to_buffer(buffer, &table_entry.offset, head)
+            write_thing_to_buffer(buffer, &l, head)
         }
 
-        write_thing_to_buffer(buffer, &mesh.position, head)
-        write_thing_to_buffer(buffer, &mesh.rotation, head)
-        write_thing_to_buffer(buffer, &mesh.scale, head)
-    }
+        component_count := u32(len(components))
+        write_thing_to_buffer(buffer, &component_count, head)
 
-    write_thing_to_buffer(raw_output_buffer[:], &gamestate.character_start, &write_head)
+        for id, &comp in components {
+            id := id
+            write_thing_to_buffer(buffer, &id, head)
+            when T == TriangleMesh {
+                write_thing_to_buffer(buffer, &comp.model_matrix, head)
+                write_component_string_to_table(buffer, string_table, comp.name, head)
+            } else when T == StaticModelInstance {
+                write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                write_thing_to_buffer(buffer, &comp.flags, head)
 
-    block: LevelBlock
+                model := get_static_model(renderer, comp.handle)
+                write_component_string_to_table(buffer, string_table, model.name, head)
 
-    {
-        block = .BgmFile
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        write_string_to_buffer(raw_output_buffer[:], bgm.name, &write_head)
-    }
+            } else when T == SkinnedModelInstance {
+                write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                write_thing_to_buffer(buffer, &comp.flags, head)
+                write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
-    {
-        block = .DirectionalLights
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &renderer.cpu_uniforms.directional_light_count, &write_head)
-        for i in 0..<renderer.cpu_uniforms.directional_light_count {
-            light := &renderer.cpu_uniforms.directional_lights[i]
-            write_thing_to_buffer(raw_output_buffer[:], &light.direction, &write_head)
-            write_thing_to_buffer(raw_output_buffer[:], &light.color, &write_head)
+                model := get_skinned_model(renderer, comp.handle)
+                write_component_string_to_table(buffer, string_table, model.name, head)
+
+            } else when T == DebugModelInstance {
+                write_thing_to_buffer(buffer, &comp.pos_offset, head)
+                write_thing_to_buffer(buffer, &comp.color, head)
+                write_thing_to_buffer(buffer, &comp.scale, head)
+
+                model := get_static_model(renderer, comp.handle)
+                write_component_string_to_table(buffer, string_table, model.name, head)
+            } else {
+                // Directly serialize the component struct
+                write_thing_to_buffer(buffer, &comp, head)
+            }
         }
     }
 
-    if len(gamestate.terrain_pieces) > 0 {
-        block = .Terrain
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        ter_len := u32(len(gamestate.terrain_pieces))
-        write_thing_to_buffer(raw_output_buffer[:], &ter_len, &write_head)
-    }
-    for &piece in gamestate.terrain_pieces {
-        write_mesh_to_buffer(renderer, raw_output_buffer[:], &piece, &write_head)
+    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
+        size := u32(len(ids))
+        write_thing_to_buffer(buffer, &size, head)
+        if size == 0 {
+            return
+        }
+
+        len_bytes := size * size_of(EntityID)
+        mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
+        head^ += len_bytes
     }
 
-    if len(gamestate.static_scenery) > 0 {
-        block = .StaticScenery
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        static_len := u32(len(gamestate.static_scenery))
-        write_thing_to_buffer(raw_output_buffer[:], &static_len, &write_head)
-    }
-    for &scenery in gamestate.static_scenery {
-        write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
+    // Set up intermediate buffer for gathering file data
+    string_table := string_table_init(64, temp_allocator)
+    total_size := calc_level_file_size(game_state^, renderer, audio_system, &string_table)
+    write_head : u32 = 0
+    output_buffer := make([dynamic]byte, total_size, temp_allocator)
+
+    // Write magic string
+    write_string_to_buffer(output_buffer[:], LEVEL_FILE_MAGIC_STRING, &write_head)
+
+    // Write global offset of string table
+    {
+        global_offset := total_size - u32(string_table.total_len)
+        write_thing_to_buffer(output_buffer[:], &global_offset, &write_head)
     }
 
-    if len(gamestate.animated_scenery) > 0 {
-        block = .AnimatedScenery
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        anim_len := u32(len(gamestate.animated_scenery))
-        write_thing_to_buffer(raw_output_buffer[:], &anim_len, &write_head)
-    }
-    for &scenery in gamestate.animated_scenery {
-        write_mesh_to_buffer(renderer, raw_output_buffer[:], &scenery, &write_head)
+    // Write player spawn position
+    write_thing_to_buffer(output_buffer[:], &game_state.level_start, &write_head)
+
+    // Write bgm filename
+    {
+        bgm := &audio_system.music_files[game_state.bgm_id]
+        write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
     }
 
-    if len(gamestate.enemies) > 0 {
-        block = .Enemies
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        enemy_len := u32(len(gamestate.enemies))
-        write_thing_to_buffer(raw_output_buffer[:], &enemy_len, &write_head)
-    }
-    for &enemy in gamestate.enemies {
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.position, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.collision_radius, &write_head)
-        write_thing_to_buffer(raw_output_buffer[:], &enemy.ai_state, &write_head)
+    // Write directional lights data
+    {
+        count := renderer.uniforms.directional_light_count
+        write_thing_to_buffer(output_buffer[:], &count, &write_head)
+        for i in 0..<count {
+            light := &renderer.uniforms.directional_lights[i]
+            write_thing_to_buffer(output_buffer[:], light, &write_head)
+        }
     }
 
-    if len(gamestate.coins) > 0 {
-        block = .Coins
-        write_thing_to_buffer(raw_output_buffer[:], &block, &write_head)
-        l := u32(len(gamestate.coins))
-        write_thing_to_buffer(raw_output_buffer[:], &l, &write_head)
-    }
-    for &coin in gamestate.coins {
-        write_thing_to_buffer(raw_output_buffer[:], &coin.position, &write_head)
-    }
+    // Write components to file
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.transforms, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.transform_deltas, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.cameras, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.lookat_controllers, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.enemy_ais, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.hovering_enemies, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.thrown_enemy_ais, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.spherical_bodies, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.triangle_meshes, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.static_models, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
+    write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
 
-    if write_head != u32(output_size) {
-        log.warnf("write_head (%v) not equal to output_size (%v)", write_head, output_size)
-    }
+    // Write the looping animations and coins lists
+    write_stateless_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
+    write_stateless_entities(output_buffer[:], game_state.coins[:], &write_head)
 
+    write_string_table_to_buffer(output_buffer[:], string_table, &write_head)
+
+    // Should have written exactly as many bytes as were allocated
+    assert(write_head == total_size)
+
+    // Actually write the buffer to the file
     lvl_file, lvl_err := create_write_file(path)
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
     }
     defer os.close(lvl_file)
 
-    _, err := os.write(lvl_file, raw_output_buffer[:])
+    _, err := os.write(lvl_file, output_buffer[:])
     if err != nil {
         log.errorf("Error writing level data: %v", err)
     }
@@ -1019,7 +1934,7 @@ write_level_file :: proc(gamestate: ^GameState, renderer: ^Renderer, audio_syste
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
-    gamestate.current_level = path_clone
+    //game_state.current_level = path_clone
 
     log.infof("Finished saving level to \"%v\"", path)
 }
@@ -1058,12 +1973,24 @@ scene_editor :: proc(
     if show_editor && imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
         // Spawn point editor
         {
-            imgui.DragFloat3("Player spawn", &game_state.character_start, 0.1)
+            imgui.DragFloat3("Player spawn", &game_state.level_start, 0.1)
             flag := .ShowPlayerSpawn in game_state.debug_vis_flags
             if imgui.Checkbox("Show player spawn", &flag) {
                 game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+
+
+                // game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                // if flag {
+                //     game_state.debug_models[game_state.player_id] = DebugModelInstance {
+                //         handle = game_state.sphere_mesh,
+                //         scale = collision.radius,
+                //         color = {0.2, 0.0, 1.0, 0.5}
+                //     }
+                // } else {
+                //     delete_key(&game_state.debug_models, game_state.player_id)
+                // }
             }
-            
+
             resp, ok := game_state.editor_response.(EditorResponse)
             disable := false
             move_text : cstring = "Move player spawn"
@@ -1085,1319 +2012,689 @@ scene_editor :: proc(
             imgui.Separator()
         }
 
-        terrain_piece_clone_idx: Maybe(int)
-        {
-            objects := &game_state.terrain_pieces
-            label : cstring = "Terrain pieces"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveTerrainPiece
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    editor_response^ = EditorResponse {
-                        type = .AddTerrainPiece,
-                        index = 0
-                    }
-                }
-                imgui.Separator()
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
+        // terrain_piece_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.terrain_pieces
+        //     label : cstring = "Terrain pieces"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveTerrainPiece
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             editor_response^ = EditorResponse {
+        //                 type = .AddTerrainPiece,
+        //                 index = 0
+        //             }
+        //         }
+        //         imgui.Separator()
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
 
-                    model := get_static_model(renderer, mesh.model)
-                    gui_print_value(&builder, "Name", model.name)
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
-    
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-        
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
-        
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        terrain_piece_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        game_state.editor_response = nil
-                    }
-                    if imgui.Button("Rebuild collision mesh") {
-                        rot := linalg.to_matrix4(mesh.rotation)
-                        mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
-                        rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
-        
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             model := get_static_model(renderer, mesh.model)
+        //             gui_print_value(&builder, "Name", model.name)
+        //             gui_print_value(&builder, "Rotation", mesh.rotation)
 
-        static_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.static_scenery
-            label : cstring = "Static scenery"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveStaticScenery
-            add_response_type := EditorResponseType.AddStaticScenery
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    editor_response^ = EditorResponse {
-                        type = add_response_type,
-                        index = 0
-                    }
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
-        
-                    model := get_static_model(renderer, mesh.model)
-                    gui_print_value(&builder, "Name", model.name)
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
-    
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-        
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
-        
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        static_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
-        
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
 
-        anim_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.animated_scenery
-            label : cstring = "Animated scenery"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveAnimatedScenery
-            add_response_type := EditorResponseType.AddAnimatedScenery
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    editor_response^ = EditorResponse {
-                        type = add_response_type,
-                        index = 0
-                    }
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
-        
-                    model := get_skinned_model(renderer, mesh.model)
-                    gui_print_value(&builder, "Name", model.name)
-                    gui_print_value(&builder, "Rotation", mesh.rotation)
-    
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-    
-                    anim := &renderer.animations[model.first_animation_idx]
-                    imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_endtime(anim))
-                    imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
-        
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
 
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        anim_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
-        
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 terrain_piece_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 game_state.editor_response = nil
+        //             }
+        //             if imgui.Button("Rebuild collision mesh") {
+        //                 rot := linalg.to_matrix4(mesh.rotation)
+        //                 mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
+        //                 rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
 
-        enemy_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.enemies
-            label : cstring = "Enemies"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveEnemy
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    new_enemy := default_enemy(game_state^)
-                    append(&game_state.enemies, new_enemy)
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
-                    
-                    gui_print_value(&builder, "Collision state", mesh.collision_state)
-                    
-                    // AI state dropdown box
-                    {
-                        cstrs := ENEMY_STATE_CSTRINGS
-                        selected := mesh.ai_state
-                        if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
-                            for item, i in cstrs {
-                                if imgui.Selectable(item) {
-                                    mesh.ai_state = EnemyState(i)
-                                    mesh.init_ai_state = mesh.ai_state
-                                    mesh.velocity = {}
-                                    mesh.home_position = mesh.position
-                                }
-                            }
-                            imgui.EndCombo()
-                        }
-                    }
-    
-                    if imgui.DragFloat3("Position", &mesh.position, 0.1) {
-                        mesh.velocity = {}
-                    }
-                    imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
-                    imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
-                    {
-                        imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
-                    }
-        
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
-        
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        enemy_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    {
-                        imgui.SameLine()
-                        idx, ok := game_state.selected_enemy.?
-                        h := ok && i == idx
-                        if imgui.Checkbox("Highlighted", &h) {
-                            if ok && i == idx {
-                                game_state.selected_enemy = nil
-                            } else {
-                                game_state.selected_enemy = i
-                            }
-                        }
-                    }
-                    imgui.Separator()
-        
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
 
-        coin_to_clone_idx: Maybe(int)
-        {
-            objects := &game_state.coins
-            label : cstring = "Coins"
-            editor_response := &game_state.editor_response
-            response_type := EditorResponseType.MoveCoin
-            if imgui.CollapsingHeader(label) {
-                imgui.PushID(label)
-                if len(objects) == 0 {
-                    imgui.Text("Nothing to see here!")
-                }
-                if imgui.Button("Add") {
-                    append(&game_state.coins, Coin {})
-                }
-                for &mesh, i in objects {
-                    imgui.PushIDInt(c.int(i))
-    
-                    imgui.DragFloat3("Position", &mesh.position, 0.1)
-        
-                    disable_button := false
-                    move_text : cstring = "Move"
-                    obj, obj_ok := editor_response.(EditorResponse)
-                    if obj_ok {
-                        if obj.type == response_type && obj.index == u32(i) {
-                            disable_button = true
-                            move_text = "Moving..."
-                        }
-                    }
-        
-                    imgui.BeginDisabled(disable_button)
-                    if imgui.Button(move_text) {
-                        editor_response^ = EditorResponse {
-                            type = response_type,
-                            index = u32(i)
-                        }
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Clone") {
-                        coin_to_clone_idx = i
-                    }
-                    imgui.SameLine()
-                    if imgui.Button("Delete") {
-                        unordered_remove(objects, i)
-                        editor_response^ = nil
-                    }
-                    imgui.EndDisabled()
-                    imgui.Separator()
-        
-                    imgui.PopID()
-                }
-                imgui.PopID()
-            }
-        }
+        // static_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.static_scenery
+        //     label : cstring = "Static scenery"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveStaticScenery
+        //     add_response_type := EditorResponseType.AddStaticScenery
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             editor_response^ = EditorResponse {
+        //                 type = add_response_type,
+        //                 index = 0
+        //             }
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
+
+        //             model := get_static_model(renderer, mesh.model)
+        //             gui_print_value(&builder, "Name", model.name)
+        //             gui_print_value(&builder, "Rotation", mesh.rotation)
+
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
+
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 static_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
+
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
+
+        // anim_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.animated_scenery
+        //     label : cstring = "Animated scenery"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveAnimatedScenery
+        //     add_response_type := EditorResponseType.AddAnimatedScenery
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             editor_response^ = EditorResponse {
+        //                 type = add_response_type,
+        //                 index = 0
+        //             }
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
+
+        //             model := get_skinned_model(renderer, mesh.model)
+        //             gui_print_value(&builder, "Name", model.name)
+        //             gui_print_value(&builder, "Rotation", mesh.rotation)
+
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+
+        //             anim := &renderer.animations[model.first_animation_idx]
+        //             imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_duration(anim))
+        //             imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
+
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
+
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 anim_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
+
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
+
+        // enemy_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.enemies
+        //     label : cstring = "Enemies"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveEnemy
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             new_enemy := default_enemy(game_state^)
+        //             append(&game_state.enemies, new_enemy)
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
+
+        //             gui_print_value(&builder, "Collision state", mesh.collision_state)
+
+        //             // AI state dropdown box
+        //             {
+        //                 cstrs := ENEMY_STATE_CSTRINGS
+        //                 selected := mesh.ai_state
+        //                 if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
+        //                     for item, i in cstrs {
+        //                         if imgui.Selectable(item) {
+        //                             mesh.ai_state = EnemyState(i)
+        //                             mesh.velocity = {}
+        //                             mesh.home_position = mesh.position
+        //                         }
+        //                     }
+        //                     imgui.EndCombo()
+        //                 }
+        //             }
+
+        //             if imgui.DragFloat3("Position", &mesh.position, 0.1) {
+        //                 mesh.velocity = {}
+        //             }
+        //             imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
+        //             imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
+        //             {
+        //                 imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
+        //             }
+
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
+
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 enemy_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             {
+        //                 imgui.SameLine()
+        //                 idx, ok := game_state.selected_enemy.?
+        //                 h := ok && i == idx
+        //                 if imgui.Checkbox("Highlighted", &h) {
+        //                     if ok && i == idx {
+        //                         game_state.selected_enemy = nil
+        //                     } else {
+        //                         game_state.selected_enemy = i
+        //                     }
+        //                 }
+        //             }
+        //             imgui.Separator()
+
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
+
+        // coin_to_clone_idx: Maybe(int)
+        // {
+        //     objects := &game_state.coins
+        //     label : cstring = "Coins"
+        //     editor_response := &game_state.editor_response
+        //     response_type := EditorResponseType.MoveCoin
+        //     if imgui.CollapsingHeader(label) {
+        //         imgui.PushID(label)
+        //         if len(objects) == 0 {
+        //             imgui.Text("Nothing to see here!")
+        //         }
+        //         if imgui.Button("Add") {
+        //             append(&game_state.coins, Coin {})
+        //         }
+        //         for &mesh, i in objects {
+        //             imgui.PushIDInt(c.int(i))
+
+        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+
+        //             disable_button := false
+        //             move_text : cstring = "Move"
+        //             obj, obj_ok := editor_response.(EditorResponse)
+        //             if obj_ok {
+        //                 if obj.type == response_type && obj.index == u32(i) {
+        //                     disable_button = true
+        //                     move_text = "Moving..."
+        //                 }
+        //             }
+
+        //             imgui.BeginDisabled(disable_button)
+        //             if imgui.Button(move_text) {
+        //                 editor_response^ = EditorResponse {
+        //                     type = response_type,
+        //                     index = u32(i)
+        //                 }
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Clone") {
+        //                 coin_to_clone_idx = i
+        //             }
+        //             imgui.SameLine()
+        //             if imgui.Button("Delete") {
+        //                 unordered_remove(objects, i)
+        //                 editor_response^ = nil
+        //             }
+        //             imgui.EndDisabled()
+        //             imgui.Separator()
+
+        //             imgui.PopID()
+        //         }
+        //         imgui.PopID()
+        //     }
+        // }
 
         // Do object clone
-        {
-            things := &game_state.terrain_pieces
-            clone_idx, clone_ok := terrain_piece_clone_idx.?
-            if clone_ok {
-                new_terrain_piece := things[clone_idx]
-                new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
+        // {
+        //     things := &game_state.terrain_pieces
+        //     clone_idx, clone_ok := terrain_piece_clone_idx.?
+        //     if clone_ok {
+        //         new_terrain_piece := things[clone_idx]
+        //         new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
 
-                append(things, new_terrain_piece)
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveTerrainPiece,
-                    index = u32(new_idx)
-                }
-            }
-        }
-        {
-            things := &game_state.static_scenery
-            clone_idx, clone_ok := static_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveStaticScenery,
-                    index = u32(new_idx)
-                }
-            }
-        }
-        {
-            things := &game_state.animated_scenery
-            clone_idx, clone_ok := anim_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveAnimatedScenery,
-                    index = u32(new_idx)
-                }
-            }
-        }
-        {
-            things := &game_state.enemies
-            clone_idx, clone_ok := enemy_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveEnemy,
-                    index = u32(new_idx)
-                }
-            }
-        }
-        {
-            things := &game_state.coins
-            clone_idx, clone_ok := coin_to_clone_idx.?
-            if clone_ok {
-                append(things, things[clone_idx])
-                new_idx := len(things) - 1
-                game_state.editor_response = EditorResponse {
-                    type = .MoveCoin,
-                    index = u32(new_idx)
-                }
-            }
-        }
+        //         append(things, new_terrain_piece)
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveTerrainPiece,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
+        // {
+        //     things := &game_state.static_scenery
+        //     clone_idx, clone_ok := static_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveStaticScenery,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
+        // {
+        //     things := &game_state.animated_scenery
+        //     clone_idx, clone_ok := anim_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveAnimatedScenery,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
+        // {
+        //     things := &game_state.enemies
+        //     clone_idx, clone_ok := enemy_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveEnemy,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
+        // {
+        //     things := &game_state.coins
+        //     clone_idx, clone_ok := coin_to_clone_idx.?
+        //     if clone_ok {
+        //         append(things, things[clone_idx])
+        //         new_idx := len(things) - 1
+        //         game_state.editor_response = EditorResponse {
+        //             type = .MoveCoin,
+        //             index = u32(new_idx)
+        //         }
+        //     }
+        // }
     }
     if show_editor {
         imgui.End()
     }
 }
 
-player_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, output_verbs: ^OutputVerbs, dt: f32) {
-    scoped_event(&profiler, "Player update")
+lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
+    HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
-    char := &game_state.character
+    tform := &game_state.transforms[id]
+    camera := &game_state.cameras[id]
+    lookat_controller := &game_state.lookat_controllers[id]
 
-    // Is character taking damage
-    taking_damage := !timer_expired(char.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
+    // Make sure we have a valid target
+    target, ok := &game_state.transforms[lookat_controller.target]
+    for !ok {
+        lookat_controller.target = EntityID((u32(lookat_controller.target) + 1) % game_state._next_id)
+        target, ok = &game_state.transforms[lookat_controller.target]
+    }
 
-    // Set current xy velocity (and character facing) to whatever user input is
-    {
-        // X and Z bc view space is x-right, y-up, z-back
-        translate_vector := output_verbs.float2s[.PlayerTranslate]
-        translate_vector_x := translate_vector.x
-        translate_vector_z := translate_vector.y
+    lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
+    lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
-        // Boolean (keyboard) input handling
-        {
-            flags := &char.control_flags
+    camera_rotation := output_verbs.float2s[.RotateCamera] * dt
 
-            set_character_flags_from_verb :: proc(flags: ^CharacterFlags, d: map[VerbType]bool, verb: VerbType, action: CharacterFlag) {
-                r, ok := d[verb]
-                if ok {
-                    if r {
-                        flags^ += {action}
-                    } else {
-                        flags^ -= {action}
-                    }
-                }
-            }
+    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    if ok3 {
+        MOUSE_SENSITIVITY :: 0.001
 
-            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateLeft, .MovingLeft)
-            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateRight, .MovingRight)
-            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateBack, .MovingBack)
-            set_character_flags_from_verb(flags, output_verbs.bools, .PlayerTranslateForward, .MovingForward)
-            
-            if .MovingLeft in flags^ {
-                translate_vector_x += -1.0
-            }
-            if .MovingRight in flags^ {
-                translate_vector_x += 1.0
-            }
-            if .MovingBack in flags^ {
-                translate_vector_z += -1.0
-            }
-            if .MovingForward in flags^ {
-                translate_vector_z += 1.0
-            }
-        }
-
-        // Input vector is in view space, so we transform to world space
-        world_invector := hlsl.float4 {-translate_vector_z, translate_vector_x, 0.0, 0.0}
-        world_invector = yaw_rotation_matrix(-game_state.viewport_camera.yaw) * world_invector
-        if hlsl.length(world_invector) > 1.0 {
-            world_invector = hlsl.normalize(world_invector)
-        }
-
-        // Handle sprint
-        this_frame_move_speed := char.move_speed
-        {
-            amount, ok := output_verbs.floats[.Sprint]
-            if ok {
-                this_frame_move_speed = linalg.lerp(char.move_speed, char.sprint_speed, amount)
-            }
-            if .Sprint in output_verbs.bools {
-                if output_verbs.bools[.Sprint] {
-                    char.control_flags += {.Sprinting}
-                } else {
-                    char.control_flags -= {.Sprinting}
-                }
-            }
-            if .Sprinting in char.control_flags {
-                this_frame_move_speed = char.sprint_speed
-            }
-        }
-
-        // Now we have a representation of the player's input vector in world space
-
-        if !taking_damage {
-            char.acceleration = {world_invector.x, world_invector.y, 0.0}
-            accel_len := hlsl.length(char.acceleration)
-            this_frame_move_speed *= accel_len
-            if accel_len == 0 && char.collision.state == .Grounded {
-                to_zero := hlsl.float2 {0.0, 0.0} - char.collision.velocity.xy
-                char.collision.velocity.xy += char.deceleration_speed * to_zero
-            }
-            char.collision.velocity.xy += char.acceleration.xy
-            if math.abs(hlsl.length(char.collision.velocity.xy)) > this_frame_move_speed {
-                char.collision.velocity.xy = this_frame_move_speed * hlsl.normalize(char.collision.velocity.xy)
-            }
-            movement_dist := hlsl.length(char.collision.velocity.xy)
-            char.anim_t += char.anim_speed * dt * movement_dist
-        }
-
-        if translate_vector_x != 0.0 || translate_vector_z != 0.0 {
-            char.facing = hlsl.normalize(world_invector).xyz
+        if .MouseLook in camera.flags {
+            camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
         }
     }
 
-    // Handle jump command
-    {
-        jumped, jump_ok := output_verbs.bools[.PlayerJump]
-        if jump_ok {
-            // If jump state changed...
-            if jumped {
-                // To jumping...
-                if .AlreadyJumped in char.control_flags {
-                    // Do thrown-enemy double-jump
-                    held_enemy, is_holding_enemy := char.held_enemy.?
-                    if is_holding_enemy {
-                        char.held_enemy = nil
-
-                        // Throw enemy downwards
-                        append(&game_state.thrown_enemies, ThrownEnemy {
-                            position = char.collision.position - {0.0, 0.0, 0.5},
-                            velocity = {0.0, 0.0, -ENEMY_THROW_SPEED},
-                            respawn_position = held_enemy.position,
-                            respawn_home = held_enemy.home_position,
-                            respawn_ai_state = held_enemy.init_ai_state,
-                            collision_radius = 0.5,
-                        })
-                        char.collision.velocity.z = 1.3 * char.jump_speed
-
-                        play_sound_effect(audio_system, game_state.jump_sound)
-                    }
-                } else {
-                    // Do first jump
-                    char.collision.velocity.z = char.jump_speed
-                    char.control_flags += {.AlreadyJumped}
-
-                    play_sound_effect(audio_system, game_state.jump_sound)
-                }
-
-                char.gravity_factor = 1.0
-                char.collision.state = .Falling
-            } else {
-                // To not jumping...
-                char.gravity_factor = 2.2
-            }
-        }
+    camera.yaw += camera_rotation.x
+    camera.pitch += camera_rotation.y
+    for camera.yaw < -2.0 * math.PI {
+        camera.yaw += 2.0 * math.PI
     }
-
-    // Apply gravity to velocity, clamping downward speed if necessary
-    char.collision.velocity += dt * char.gravity_factor * GRAVITY_ACCELERATION
-    if char.collision.velocity.z < TERMINAL_VELOCITY {
-        char.collision.velocity.z = TERMINAL_VELOCITY
+    for camera.yaw > 2.0 * math.PI {
+        camera.yaw -= 2.0 * math.PI
     }
+    camera.pitch = clamp(camera.pitch, -math.PI / 2.0 + 0.0001, math.PI / 2.0 - 0.0001)
 
-    // Compute motion interval
-    motion_endpoint := char.collision.position + dt * char.collision.velocity
-    motion_interval := Segment {
-        start = char.collision.position,
-        end = motion_endpoint
-    }
-
-    // Compute closest point to terrain along with
-    // vector opposing player motion
-    //collision_t, collision_normal, collided := dynamic_sphere_vs_terrain_t_with_normal(&char.collision, game_state.terrain_pieces[:], &motion_interval)
-
-    closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
-    collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-
-    // Main player character state machine
-    switch gravity_affected_sphere(
-        game_state^,
-        &char.collision,
-        closest_pt,
-        collision_normal,
-        triangle_normal,
-        motion_interval
-    ) {
-        case .None: {}
-        case .Bump: {
-            char.control_flags -= {.AlreadyJumped}
-        }
-        case .HitCeiling: {
-        }
-        case .HitFloor: {
-        }
-        case .PassedThroughGround: {
-        }
-    }
-
-    // Teleport player back to spawn if hit death plane
-    respawn := output_verbs.bools[.PlayerReset]
-    respawn |= char.collision.position.z < -50.0
-    respawn |= char.health == 0
-    if respawn {
-        char.collision.position = game_state.character_start
-        char.collision.velocity = {}
-        char.acceleration = {}
-        char.health = CHARACTER_MAX_HEALTH
-    }
-
-    // Shoot command
-    {
-        res, have_shoot := output_verbs.bools[.PlayerShoot]
-        if have_shoot {
-            if res && char.air_vortex == nil {
-                held_enemy, is_holding_enemy := char.held_enemy.?
-                if is_holding_enemy {
-                    // Insert into thrown enemies array
-                    append(&game_state.thrown_enemies, ThrownEnemy {
-                        position = char.collision.position + char.facing,
-                        velocity = ENEMY_THROW_SPEED * char.facing,
-                        respawn_position = held_enemy.position,
-                        respawn_home = held_enemy.home_position,
-                        respawn_ai_state = held_enemy.init_ai_state,
-                        collision_radius = 0.5,
-                    })
-        
-                    char.held_enemy = nil
-                } else {
-                    start_pos := char.collision.position
-                    char.air_vortex = AirVortex {
-                        collision = Sphere {
-                            position = start_pos,
-                            radius = 0.1
-                        },
-    
-                        t = 0.0,
-                    }
-                }
-                play_sound_effect(audio_system, game_state.shoot_sound)
-            }
-        }
-    }
-
-    // Check if we collected any coins
-    {
-        scoped_event(&profiler, "Test player against coins")
-        coin_to_remove: Maybe(int)
-        for coin, i in game_state.coins {
-            s := Sphere {
-                position = coin.position,
-                radius = game_state.coin_collision_radius
-            }
-            if are_spheres_overlapping(s, char.collision) {
-                play_sound_effect(audio_system, game_state.coin_sound)
-                coin_to_remove = i
-            }
-        }
-        cr, crok := coin_to_remove.?
-        if crok {
-            unordered_remove(&game_state.coins, cr)
-        }
-    }
-
-    // Check if we're being hit by an enemy
-    if !taking_damage {
-        for enemy in game_state.enemies {
-            s := Sphere {
-                position = enemy.position,
-                radius = enemy.collision_radius
-            }
-            if are_spheres_overlapping(s, char.collision) {
-                char.collision.velocity.z = 3.0
-                char.collision.state = .Falling
-                char.damage_timer = time.now()
-                char.health -= 1
-                play_sound_effect(audio_system, game_state.ow_sound)
-            }
-        }
-    }
-
-    // @TODO: Maybe move this out of the player update proc? Maybe we don't need to...
-    bullet, bok := &char.air_vortex.?
-    if bok {
-        // Bullet update
-        col := char.collision
-        bullet.t += dt
-        bullet.collision.position = char.collision.position
-        bullet.collision.radius = linalg.lerp(f32(0.0), BULLET_MAX_RADIUS, min(bullet.t / char.bullet_travel_time, 1.0))
-        if bullet.collision.radius == BULLET_MAX_RADIUS {
-            char.air_vortex = nil
-        }
-    }
+    // @TODO: Quaternions
+    pitchmat := roll_rotation_matrix(-camera.pitch)
+    yawmat := yaw_rotation_matrix(-camera.yaw)
+    pos_offset := lookat_controller.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
     // Camera follow point chases player
-    target_pt := char.collision.position
-    game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
+    // target_pt := char.collision.position
+    // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
+    lookat_controller.current_focal_point = exponential_smoothing(
+        lookat_controller.current_focal_point,
+        target.position,
+        game_state.camera_follow_speed,
+        dt
+    )
+
+    desired_position := lookat_controller.current_focal_point + pos_offset.xyz
+    interval := LineSegment {
+        start = lookat_controller.current_focal_point,
+        end = desired_position
+    }
+    s := Sphere {
+        position = lookat_controller.current_focal_point,
+        radius = 0.1
+    }
+    hit_t, hit := dynamic_sphere_vs_terrain_t(s, game_state.triangle_meshes, interval)
+    if hit {
+        desired_position = interval.start + hit_t * (interval.end - interval.start)
+    }
+
+    tform.position = desired_position
 }
 
-player_draw :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
-    scoped_event(&profiler, "Player draw")
-    character := &game_state.character
+freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
+    camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
+    camera_speed_mod : f32 = 1.0
 
-    y := -character.facing
-    z := hlsl.float3 {0.0, 0.0, 1.0}
-    x := hlsl.cross(y, z)
-    rotate_mat := basis_matrix(x, y, z)
+    tform := &game_state.transforms[id]
+    camera := &game_state.cameras[id]
 
-    // @TODO: Remove this matmul as this is just to correct an error with the model
-    rotate_mat *= yaw_rotation_matrix(-math.PI / 2.0)
-
-    model := get_skinned_model(renderer, game_state.character.model)
-    
-    end := get_animation_endtime(&renderer.animations[model.first_animation_idx])
-    for character.anim_t > end {
-        character.anim_t -= end
-    }
-    ddata := SkinnedDraw {
-        world_from_model = rotate_mat,
-        anim_idx = 0,
-        anim_t = character.anim_t,
-    }
-    col := &game_state.character.collision
-
-    // Blink if taking damage
-    do_draw := timer_expired(character.damage_timer, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS) ||
-             (gd.frame_count >> 4) % 2 == 0
-    if do_draw {
-        ddata.world_from_model[3][0] = col.position.x
-        ddata.world_from_model[3][1] = col.position.y
-        ddata.world_from_model[3][2] = col.position.z - col.radius
-        draw_ps1_skinned_mesh(gd, renderer, game_state.character.model, &ddata)
-    }
-
-    // Draw enemy above player head
-    held_enemy, is_holding_enemy := character.held_enemy.?
-    if is_holding_enemy {
-        bob := 0.2 * math.sin(game_state.time * 1.7)
-        pos := character.collision.position + {0.0, 0.0, 1.5 + bob}
-        mat := translation_matrix(pos)
-        mat *= yaw_rotation_matrix(game_state.time)
-        mat *= uniform_scaling_matrix(0.5)
-        dd := StaticDraw {
-            world_from_model = mat,
-            flags = {.Glowing}
-        }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
-
-        // Light source
-        l := default_point_light()
-        l.color = {0.0, 1.0, 0.0}
-        l.world_position = pos
-        l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-        do_point_light(renderer, l)
-    }
-        
-    // Air bullet draw
+    // Input handling part
     {
-        bullet, ok := game_state.character.air_vortex.?
-        if ok {
-            dd := DebugDraw {
-                world_from_model = translation_matrix(bullet.collision.position) * uniform_scaling_matrix(bullet.collision.radius),
-                color = {0.0, 1.0, 0.0, 0.2}
-            }
-            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-
-            // Make air bullet a point light source
-            l := default_point_light()
-            l.color = {0.0, 1.0, 0.0}
-            l.world_position = bullet.collision.position
-            do_point_light(renderer, l)
+        camera_verbs : []VerbType = {
+            .Sprint,
+            .Crawl,
+            .TranslateFreecamUp,
+            .TranslateFreecamDown,
+            .TranslateFreecamLeft,
+            .TranslateFreecamRight,
+            .TranslateFreecamForward,
+            .TranslateFreecamBack,
         }
-    }
+        response_flags : []CameraFlag = {
+            .Speed,
+            .Slow,
+            .MoveUp,
+            .MoveDown,
+            .MoveLeft,
+            .MoveRight,
+            .MoveForward,
+            .MoveBackward,
+        }
+        assert(len(camera_verbs) == len(response_flags))
 
-    // Debug draw logic
-    if .ShowPlayerHitSphere in game_state.debug_vis_flags {
-        dd: DebugDraw
-        dd.world_from_model = translation_matrix(col.position) * scaling_matrix(col.radius)
-        dd.color = {0.3, 0.4, 1.0, 0.5}
-        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-    }
-    if .ShowPlayerSpawn in game_state.debug_vis_flags {
-        dd: DebugDraw
-        dd.world_from_model = translation_matrix(game_state.character_start) * scaling_matrix(0.2)
-        dd.color = {0.0, 1.0, 0.0, 0.5}
-        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-    }
-    if .ShowPlayerActivityRadius in game_state.debug_vis_flags {
-        dd: DebugDraw
-        dd.world_from_model = translation_matrix(col.position) * scaling_matrix(ENEMY_PLAYER_MIN_DISTANCE)
-        dd.color = {0.0, 1.0, 0.5, 0.2}
-        draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-    }
-}
-
-ENEMY_HOME_RADIUS :: 4.0
-ENEMY_LUNGE_SPEED :: 20.0
-ENEMY_JUMP_SPEED :: 6.0                 // m/s
-ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
-enemies_update :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
-    scoped_event(&profiler, "Enemies update")
-    char := &game_state.character
-    enemy_to_remove: Maybe(int)
-    for &enemy, i in game_state.enemies {
-        scoped_event(&profiler, "Enemy loop iteration")
-        dist_to_player := hlsl.distance(char.collision.position, enemy.position)
-        // Early out if not close enough to player
-        // if dist_to_player > ENEMY_PLAYER_MIN_DISTANCE {
-        //     continue
-        // }
-
-        // Update
-
-        // AI state specific logic
-        can_react_to_player := false
-        is_affected_by_gravity := false
-        {
-            scoped_event(&profiler, "AI specific logic")
-            switch enemy.ai_state {
-                case .BrainDead: {
-                    enemy.velocity.xy = {}
-                }
-                case .Wandering: {
-                    can_react_to_player = true
-                    is_affected_by_gravity = true
-                    sample_point := [2]f64 {f64(game_state.time), f64(i)}
-                    t := 5.0 * dt * noise.noise_2d(game_state.rng_seed, sample_point)
-                    rotq := z_rotate_quaternion(t)
-                    enemy.facing = linalg.quaternion128_mul_vector3(rotq, enemy.facing)
-    
-                    enemy.velocity.xy = hlsl.normalize(enemy.facing.xy)
-    
-                    if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
-                        // Start resting
-                        enemy.timer_start = time.now()
-                        enemy.ai_state = .Resting
-                    }
-                }
-                case .Hovering: {
-                    offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
-                    enemy.position = enemy.home_position + offset
-                }
-                case .AlertedBounce: {
-                    is_affected_by_gravity = true
-                    if enemy.collision_state == .Grounded {
-                        enemy.ai_state = .AlertedCharge
-                        enemy.velocity.xy += enemy.facing.xy * ENEMY_LUNGE_SPEED
-                        enemy.velocity.z = ENEMY_JUMP_SPEED / 2.0
-                        enemy.collision_state = .Falling
-                        play_sound_effect(audio_system, game_state.jump_sound)
-                    }
-                }
-                case .AlertedCharge: {
-                    is_affected_by_gravity = true
-                    enemy.home_position = enemy.position
-                    if enemy.collision_state == .Grounded {
-                        enemy.ai_state = .Resting
-                        enemy.timer_start = time.now()
-                    }
-                }
-                case .Resting: {
-                    if time.diff(enemy.timer_start, time.now()) > time.Duration(0.75 * SECONDS_TO_NANOSECONDS) {
-                        // Start wandering
-                        enemy.timer_start = time.now()
-                        enemy.ai_state = .Wandering
-                    }
+        for verb, i in camera_verbs {
+            if verb in output_verbs.bools {
+                if output_verbs.bools[verb] {
+                    camera.flags += {response_flags[i]}
+                } else {
+                    camera.flags -= {response_flags[i]}
                 }
             }
         }
-
-        if can_react_to_player {
-            if dist_to_player < ENEMY_HOME_RADIUS {
-                enemy.facing = char.collision.position - enemy.position
-                enemy.facing.z = 0.0
-                enemy.facing = hlsl.normalize(enemy.facing)
-                enemy.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
-                enemy.ai_state = .AlertedBounce
-                enemy.collision_state = .Falling
-                enemy.timer_start = time.now()
-                enemy.home_position = enemy.position
-                play_sound_effect(audio_system, game_state.jump_sound)
-            }
-        }                               
-
-        // Apply gravity to velocity, clamping downward speed if necessary
-        if is_affected_by_gravity {
-            enemy.velocity += dt * GRAVITY_ACCELERATION
-            if enemy.velocity.z < TERMINAL_VELOCITY {
-                enemy.velocity.z = TERMINAL_VELOCITY
-            }
-        }
-
-        // Compute closest point to terrain along with
-        // vector opposing enemy motion
-        if is_affected_by_gravity {
-            scoped_event(&profiler, "Is affected by gravity")
-            phys_sphere := PhysicsSphere {
-                Sphere {
-                    position = enemy.position,
-                    radius = enemy.collision_radius
-                },
-                enemy.velocity,
-                .Falling
-            }
-
-            // Compute motion interval
-            motion_endpoint := phys_sphere.position + dt * enemy.velocity
-            motion_interval := Segment {
-                start = phys_sphere.position,
-                end = motion_endpoint
-            }
-
-            closest_pt, triangle_normal := closest_pt_terrain_with_normal(motion_endpoint, game_state.terrain_pieces[:])
-            collision_normal := hlsl.normalize(motion_endpoint - closest_pt)
-            dist := hlsl.distance(closest_pt, phys_sphere.position)
-
-            switch gravity_affected_sphere(
-                game_state^,
-                &phys_sphere,
-                closest_pt,
-                collision_normal,
-                triangle_normal,
-                motion_interval
-            ) {
-                case .None: {}
-                case .Bump: {}
-                case .HitCeiling: {}
-                case .HitFloor: {}
-                case .PassedThroughGround: {}
-            }
-
-            // Write updated position to enemy
-            enemy.position = phys_sphere.position
-            enemy.velocity = phys_sphere.velocity
-            enemy.collision_state = phys_sphere.state
-
-            // Restrict enemy movement based on home position
-            {
-                disp := enemy.position - enemy.home_position
-                l := hlsl.length(disp.xy)
-                if l > ENEMY_HOME_RADIUS {
-                    enemy.position += ENEMY_HOME_RADIUS * hlsl.normalize(enemy.home_position - enemy.position)
-                }
-            }
-        }
-
-        // Check if overlapping air bullet
-        bullet, ok := char.air_vortex.?
-        if ok {
-            col := Sphere {
-                position = enemy.position,
-                radius = enemy.collision_radius * 2.0
-            }
-            if are_spheres_overlapping(bullet.collision, col) {
-                char.held_enemy = game_state.enemies[i]
-                enemy_to_remove = i
-                char.air_vortex = nil
-            }
-        }
     }
-
-    // Remove enemy
-    {
-        idx, ok := enemy_to_remove.?
-        if ok {
-            unordered_remove(&game_state.enemies, idx)
-        }
-    }
-
-    // Simulate thrown enemies
-    thrown_enemy_to_remove: Maybe(int)
-    for &enemy, i in game_state.thrown_enemies {
-        // Check if hitting terrain
-        THROWN_ENEMY_COLLISION_WEIGHT :: 0.8
-        closest_pt := closest_pt_terrain(enemy.position, game_state.terrain_pieces[:])
-        if hlsl.distance(closest_pt, enemy.position) < enemy.collision_radius * THROWN_ENEMY_COLLISION_WEIGHT {
-            thrown_enemy_to_remove = i
-            
-            // Respawn enemy
-            e := default_enemy(game_state^)
-            e.position = enemy.respawn_position
-            e.home_position = enemy.respawn_home
-            e.ai_state = enemy.respawn_ai_state
-            e.init_ai_state = enemy.respawn_ai_state
-            e.collision_radius = enemy.collision_radius
-            append(&game_state.enemies, e)
-        }
-
-        enemy.position += dt * enemy.velocity
-    }
-
-    // Remove thrown enemy
-    {
-        idx, ok := thrown_enemy_to_remove.?
-        if ok {
-            unordered_remove(&game_state.thrown_enemies, idx)
-        }
-    }
-}
-
-enemies_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
-    scoped_event(&profiler, "Enemies draw")
-    // Live enemies
-    for enemy, i in game_state.enemies {
-        rot: hlsl.float4x4
-        {
-            y := -enemy.facing
-            z := hlsl.float3 {0.0, 0.0, 1.0}
-            x := hlsl.normalize(hlsl.cross(y, z))
-            z = hlsl.normalize(hlsl.cross(x, y))
-            rot = basis_matrix(x, y, z)
-        }
-        world_mat := translation_matrix(enemy.position) * rot * uniform_scaling_matrix(enemy.collision_radius)
-
-        {
-            flags: InstanceFlags
-            idx, ok := game_state.selected_enemy.?
-            highlighted := ok && i == idx
-            if highlighted {
-                flags += {.Highlighted}
-            }
-            dd := StaticDraw {
-                world_from_model = world_mat,
-                flags = flags
-            }
-            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
-        }
-
-        if enemy.visualize_home {
-            dd := DebugDraw {
-                world_from_model = translation_matrix(enemy.home_position) * uniform_scaling_matrix(ENEMY_HOME_RADIUS),
-                color = {0.5, 0.5, 0.0, 0.8}
-            }
-            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-        }
-    }
-
-    // Thrown enemies
-    for enemy in game_state.thrown_enemies {
-        mat := translation_matrix(enemy.position) * uniform_scaling_matrix(enemy.collision_radius)
-        dd := StaticDraw {
-            world_from_model = mat,
-            flags = {.Glowing}
-        }
-        draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, dd)
-
-        // Light source
-        l := default_point_light()
-        l.world_position = enemy.position
-        l.color = {0.0, 1.0, 0.0}
-        l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-        do_point_light(renderer, l)
-    }
-}
-
-coins_draw :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, game_state: GameState) {
-    sb: strings.Builder
-    strings.builder_init(&sb, context.temp_allocator)
-    p_string := fmt.sbprintf(&sb, "Draw %v coins", len(game_state.coins))
-    scoped_event(&profiler, p_string)
-
-    coin_count := len(game_state.coins)
-
-    post_mul := yaw_rotation_matrix(game_state.time) * uniform_scaling_matrix(0.6)
-    z_offset := 0.25 * math.sin(game_state.time)
-    draw_datas := make([dynamic]StaticDraw, coin_count, context.temp_allocator)
-    for i in 0..<coin_count {
-        scoped_event(&profiler, "Individual coin draw")
-        coin := &game_state.coins[i]
-        pos := coin.position
-        pos.z += z_offset
-        dd := &draw_datas[i]
-        dd.world_from_model = post_mul
-        dd.world_from_model[3][0] = pos.x
-        dd.world_from_model[3][1] = pos.y
-        dd.world_from_model[3][2] = pos.z
-
-        if .ShowCoinRadius in game_state.debug_vis_flags {
-            dd: DebugDraw
-            dd.world_from_model = translation_matrix(coin.position) * scaling_matrix(game_state.coin_collision_radius)
-            dd.color = {0.0, 0.0, 1.0, 0.4}
-            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &dd)
-        }
-    }
-    draw_ps1_static_meshes(gd, renderer, game_state.coin_mesh, draw_datas[:])
-}
-
-
-// @TODO: This should be two separate functions
-camera_update :: proc(
-    game_state: ^GameState,
-    output_verbs: ^OutputVerbs,
-    dt: f32,
-) -> hlsl.float4x4 {
-    using game_state.viewport_camera
 
     camera_rotation: [2]f32 = {0.0, 0.0}
-
-    if .Follow in control_flags {
-        HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
-
-        target.distance -= output_verbs.floats[.CameraFollowDistance]
-        target.distance = math.clamp(target.distance, 1.0, 100.0)
-
-        game_state.viewport_camera.target.position = game_state.camera_follow_point
-        game_state.viewport_camera.target.position.z += 1.0
-
-        camera_rotation += output_verbs.float2s[.RotateCamera] * dt
-
-        relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-        if ok3 {
-            MOUSE_SENSITIVITY :: 0.001
-            if .MouseLook in game_state.viewport_camera.control_flags {
-                camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-            }
+    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    if ok3 {
+        MOUSE_SENSITIVITY :: 0.001
+        if .MouseLook in camera.flags {
+            camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
         }
-
-        game_state.viewport_camera.yaw += camera_rotation.x
-        game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI {
-            game_state.viewport_camera.yaw += 2.0 * math.PI
-        }
-        for game_state.viewport_camera.yaw > 2.0 * math.PI {
-            game_state.viewport_camera.yaw -= 2.0 * math.PI
-        }
-        if game_state.viewport_camera.pitch <= -math.PI / 2.0 {
-            game_state.viewport_camera.pitch = -math.PI / 2.0 + 0.0001
-        }
-        if game_state.viewport_camera.pitch >= math.PI / 2.0 {
-            game_state.viewport_camera.pitch = math.PI / 2.0 - 0.0001
-        }
-        
-        pitchmat := roll_rotation_matrix(-game_state.viewport_camera.pitch)
-        yawmat := yaw_rotation_matrix(-game_state.viewport_camera.yaw)
-        pos_offset := game_state.viewport_camera.target.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
-
-        desired_position := game_state.camera_follow_point + pos_offset.xyz
-        dir := hlsl.normalize(game_state.camera_follow_point - desired_position)
-        interval := Segment {
-            start = game_state.camera_follow_point,
-            end = desired_position
-        }
-        s := Sphere {
-            position = game_state.camera_follow_point,
-            radius = collision_radius
-        }
-        hit_t, hit := dynamic_sphere_vs_terrain_t(&s, game_state.terrain_pieces[:], &interval)
-        if hit {
-            desired_position = interval.start + hit_t * (interval.end - interval.start)
-        }
-
-        game_state.viewport_camera.position = desired_position
-
-        return lookat_view_from_world(game_state.viewport_camera)
-    } else {
-        camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
-        camera_speed_mod : f32 = 1.0
-    
-        // Input handling part
-        if .Sprint in output_verbs.bools {
-            if output_verbs.bools[.Sprint] {
-                control_flags += {.Speed}
-            } else {
-                control_flags -= {.Speed}
-            }
-        }
-        if .Crawl in output_verbs.bools {
-            if output_verbs.bools[.Crawl] {
-                control_flags += {.Slow}
-            } else {
-                control_flags -= {.Slow}
-            }
-        }
-    
-        if .TranslateFreecamUp in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamUp] {
-                control_flags += {.MoveUp}
-            } else {
-                control_flags -= {.MoveUp}
-            }
-        }
-        if .TranslateFreecamDown in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamDown] {
-                control_flags += {.MoveDown}
-            } else {
-                control_flags -= {.MoveDown}
-            }
-        }
-        if .TranslateFreecamLeft in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamLeft] {
-                control_flags += {.MoveLeft}
-            } else {
-                control_flags -= {.MoveLeft}
-            }
-        }
-        if .TranslateFreecamRight in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamRight] {
-                control_flags += {.MoveRight}
-            } else {
-                control_flags -= {.MoveRight}
-            }
-        }
-        if .TranslateFreecamBack in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamBack] {
-                control_flags += {.MoveBackward}
-            } else {
-                control_flags -= {.MoveBackward}
-            }
-        }
-        if .TranslateFreecamForward in output_verbs.bools {
-            if output_verbs.bools[.TranslateFreecamForward] {
-                control_flags += {.MoveForward}
-            } else {
-                control_flags -= {.MoveForward}
-            }
-        }
-    
-        relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
-        if ok3 {
-            MOUSE_SENSITIVITY :: 0.001
-            if .MouseLook in game_state.viewport_camera.control_flags {
-                camera_rotation += MOUSE_SENSITIVITY * {f32(relmotion_coords.x), f32(relmotion_coords.y)}
-            }
-        }
-    
-        camera_rotation += output_verbs.float2s[.RotateCamera]
-        camera_direction.x += output_verbs.floats[.TranslateFreecamX]
-    
-        // Not a sign error. In view-space, -Z is forward
-        camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
-    
-        camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
-        //camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
-    
-    
-        CAMERA_SPEED :: 10
-        per_frame_speed := CAMERA_SPEED * dt
-    
-        if .Speed in control_flags {
-            camera_speed_mod *= game_state.freecam_speed_multiplier
-        }
-        if .Slow in control_flags {
-            camera_speed_mod *= game_state.freecam_slow_multiplier
-        }
-    
-        game_state.viewport_camera.yaw += camera_rotation.x
-        game_state.viewport_camera.pitch += camera_rotation.y
-        for game_state.viewport_camera.yaw < -2.0 * math.PI {
-            game_state.viewport_camera.yaw += 2.0 * math.PI
-        }
-        for game_state.viewport_camera.yaw > 2.0 * math.PI {
-            game_state.viewport_camera.yaw -= 2.0 * math.PI
-        }
-        if game_state.viewport_camera.pitch < -math.PI / 2.0 {
-            game_state.viewport_camera.pitch = -math.PI / 2.0
-        }
-        if game_state.viewport_camera.pitch > math.PI / 2.0 {
-            game_state.viewport_camera.pitch = math.PI / 2.0
-        }
-    
-        control_flags_dir: hlsl.float3
-        if .MoveUp in control_flags {
-            control_flags_dir += {0.0, 1.0, 0.0}
-        }
-        if .MoveDown in control_flags {
-            control_flags_dir += {0.0, -1.0, 0.0}
-        }
-        if .MoveLeft in control_flags {
-            control_flags_dir += {-1.0, 0.0, 0.0}
-        }
-        if .MoveRight in control_flags {
-            control_flags_dir += {1.0, 0.0, 0.0}   
-        }
-        if .MoveBackward in control_flags {
-            control_flags_dir += {0.0, 0.0, 1.0}
-        }
-        if .MoveForward in control_flags {
-            control_flags_dir += {0.0, 0.0, -1.0}
-        }
-        if control_flags_dir != {0.0, 0.0, 0.0} {
-            camera_direction += hlsl.normalize(control_flags_dir)
-        }
-    
-        if camera_direction != {0.0, 0.0, 0.0} {
-            camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
-        }
-    
-        // Compute temporary camera matrix for orienting player inputted direction vector
-        world_from_view := hlsl.inverse(camera_view_from_world(game_state.viewport_camera))
-        camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
-        game_state.viewport_camera.position += (world_from_view * camera_direction4).xyz
-    
-        // Collision test the camera's bounding sphere against the terrain
-        if game_state.freecam_collision {
-            scoped_event(&profiler, "Collision with terrain")
-            camera_collision_point: hlsl.float3
-            closest_dist := math.INF_F32
-            for &piece in game_state.terrain_pieces {
-                candidate := closest_pt_triangles(position, &piece.collision)
-                candidate_dist := hlsl.distance(candidate, position)
-                if candidate_dist < closest_dist {
-                    camera_collision_point = candidate
-                    closest_dist = candidate_dist
-                }
-            }
-    
-            if game_state.freecam_collision {
-                dist := hlsl.distance(camera_collision_point, position)
-                if dist < game_state.viewport_camera.collision_radius {
-                    diff := game_state.viewport_camera.collision_radius - dist
-                    position += diff * hlsl.normalize(position - camera_collision_point)
-                }
-            }
-        }
-
-        return camera_view_from_world(game_state.viewport_camera)
     }
+
+    camera_rotation += output_verbs.float2s[.RotateCamera]
+    camera_direction.x += output_verbs.floats[.TranslateFreecamX]
+
+    // Not a sign error. In view-space, -Z is forward
+    camera_direction.z -= output_verbs.floats[.TranslateFreecamY]
+
+    camera_speed_mod += game_state.freecam_speed_multiplier * output_verbs.floats[.Sprint]
+    camera_speed_mod += game_state.freecam_slow_multiplier * output_verbs.floats[.Crawl]
+
+
+    CAMERA_SPEED :: 10
+    per_frame_speed := CAMERA_SPEED * dt
+
+    if .Speed in camera.flags {
+        camera_speed_mod *= game_state.freecam_speed_multiplier
+    }
+    if .Slow in camera.flags {
+        camera_speed_mod *= game_state.freecam_slow_multiplier
+    }
+
+    camera.yaw += camera_rotation.x
+    camera.pitch += camera_rotation.y
+    for camera.yaw < -2.0 * math.PI {
+        camera.yaw += 2.0 * math.PI
+    }
+    for camera.yaw > 2.0 * math.PI {
+        camera.yaw -= 2.0 * math.PI
+    }
+
+    camera.pitch = clamp(camera.pitch, -math.PI / 2.0, math.PI / 2.0)
+
+    control_flags_dir: hlsl.float3
+    if .MoveUp in camera.flags {
+        control_flags_dir += {0.0, 1.0, 0.0}
+    }
+    if .MoveDown in camera.flags {
+        control_flags_dir += {0.0, -1.0, 0.0}
+    }
+    if .MoveLeft in camera.flags {
+        control_flags_dir += {-1.0, 0.0, 0.0}
+    }
+    if .MoveRight in camera.flags {
+        control_flags_dir += {1.0, 0.0, 0.0}   
+    }
+    if .MoveBackward in camera.flags {
+        control_flags_dir += {0.0, 0.0, 1.0}
+    }
+    if .MoveForward in camera.flags {
+        control_flags_dir += {0.0, 0.0, -1.0}
+    }
+
+    if control_flags_dir != {0.0, 0.0, 0.0} {
+        camera_direction += hlsl.normalize(control_flags_dir)
+    }
+
+    if camera_direction != {0.0, 0.0, 0.0} {
+        camera_direction = hlsl.float3(camera_speed_mod) * hlsl.float3(per_frame_speed) * camera_direction
+    }
+
+    // Compute temporary camera matrix for orienting player inputted direction vector
+    world_from_view := hlsl.inverse(freecam_view_from_world(tform^, camera^))
+    camera_direction4 := hlsl.float4{camera_direction.x, camera_direction.y, camera_direction.z, 0.0}
+    tform.position += (world_from_view * camera_direction4).xyz
+
+    // Collision test the camera's bounding sphere against the terrain
+    if game_state.freecam_collision {
+        scoped_event(&profiler, "Collision with terrain")
+        camera_collision_point: hlsl.float3
+        closest_dist := math.INF_F32
+        for _, &piece in game_state.triangle_meshes {
+            candidate := closest_pt_triangles(tform.position, &piece)
+            candidate_dist := hlsl.distance(candidate, tform.position)
+            if candidate_dist < closest_dist {
+                camera_collision_point = candidate
+                closest_dist = candidate_dist
+            }
+        }
+
+        if game_state.freecam_collision {
+            dist := hlsl.distance(camera_collision_point, tform.position)
+            if dist < CAMERA_COLLISION_RADIUS {
+                diff := CAMERA_COLLISION_RADIUS - dist
+                tform.position += diff * hlsl.normalize(tform.position - camera_collision_point)
+            }
+        }
+    }
+}
+
+camera_gui :: proc(
+    game_state: ^GameState,
+    camera_id: EntityID,
+    input_system: ^InputSystem,
+    user_config: ^UserConfiguration,
+    close: ^bool
+) {
+    tform := &game_state.transforms[camera_id]
+    camera := &game_state.cameras[camera_id]
+
+    lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
+
+    if imgui.Begin("Camera controls", close) {
+        imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
+        imgui.Text("Yaw: %f", camera.yaw)
+        imgui.Text("Pitch: %f", camera.pitch)
+
+        imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
+        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
+        imgui.SameLine()
+        if imgui.Button("Reset") {
+            game_state.camera_follow_speed = 6.0
+        }
+        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+            user_config.flags[.FreecamCollision] = game_state.freecam_collision
+        }
+
+        freecam := !is_lookat
+        if imgui.Checkbox("Freecam", &freecam) {
+            camera.pitch = 0.0
+            camera.yaw = 0.0
+
+            if !freecam {
+                replace_keybindings(input_system, &game_state.character_key_mappings)
+                game_state.lookat_controllers[camera_id] = LookatController {
+                    target = game_state.player_id,
+                    distance = 4.0
+                }
+            } else {
+                replace_keybindings(input_system, &game_state.freecam_key_mappings)
+                delete_key(&game_state.lookat_controllers, camera_id)
+            }
+        }
+
+        if is_lookat {
+            imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
+            tgt: c.int = c.int(lookat_controller.target)
+            if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
+                lookat_controller.target = EntityID(tgt)
+            }
+        }
+
+        imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
+        imgui.SameLine()
+        imgui.PushIDInt(1)
+        if imgui.Button("Reset") {
+            camera.fov_radians = math.PI / 2.0
+        }
+        imgui.PopID()
+    }
+    imgui.End()
 }

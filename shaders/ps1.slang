@@ -101,7 +101,7 @@ bool trace_shadow_ray(float3 origin, float3 direction, float length) {
         0xFF,
         ray
     );
-    
+
     query.Proceed();
 
     return query.CommittedStatus() != COMMITTED_NOTHING;
@@ -158,13 +158,13 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     if ((u_data.flags & UniformFlag.VisualizeFaceNormals) != 0) {
         return float4(face_normal * 0.5 + 0.5, 1.0);
     }
-    
+
     float4 vtx_color = input.color;
 
     if ((u_data.flags & UniformFlag.VisualizeVertexColors) != 0) {
         return vtx_color;
     }
-    
+
     float4 color_sample = float4(1.0, 1.0, 1.0, 1.0);
     if (material.color_texture != NULL_OFFSET) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
