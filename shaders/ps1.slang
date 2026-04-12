@@ -1,11 +1,7 @@
 import procs;
 import structs;
 import tex_bindings;
-
-#if defined(HardwareRT)
-[[vk_binding(2, 0)]]
-RaytracingAccelerationStructure tlases[];
-#endif
+import rt_bindings;
 
 [[vk::push_constant]]
 cbuffer push_constants {
@@ -28,8 +24,7 @@ static const float3 ID_COLORS[] = {
     float3(2.0, 2.0, 2.0),
 };
 float3 id_to_color(uint id) {
-    uint r = id % 8;
-    return ID_COLORS[r];
+    return ID_COLORS[id % 8];
 }
 
 float3 half_lambert(float3 normal, float3 light_dir, float3 light_color) {
@@ -84,30 +79,6 @@ float simplex2D(in float2 p)
     float3 h = max(0.5 - float3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
     float3 n = h * h * h * h * float3(dot(a, hash(i + 0.0)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
     return dot(n, float3(70.0));
-}
-
-bool trace_shadow_ray(float3 origin, float3 direction, float length) {
-#if defined(HardwareRT)
-    RayDesc ray;
-    ray.Direction = direction;
-    ray.Origin = origin;
-    ray.TMin = 0.0001;
-    ray.TMax = length;
-
-    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> query;
-    query.TraceRayInline(
-        tlases[tlas_idx],
-        0,
-        0xFF,
-        ray
-    );
-
-    query.Proceed();
-
-    return query.CommittedStatus() != COMMITTED_NOTHING;
-#else
-    return false;
-#endif
 }
 
 struct VertexOutput {
@@ -184,9 +155,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         DirectionalLight light = u_data.directional_lights[i];
         ambient_contribution += 0.1 * light.color;
 
-        if (trace_shadow_ray(input.world_pos, light.direction, 1000000.0)) {
+#if defined(HardwareRT)
+        Ray r;
+        r.direction = light.direction;
+        r.origin = input.world_pos;
+        if (trace_shadow_ray(tlases[tlas_idx], r, 1000000.0)) {
             continue;
         }
+#endif
 
         // Fake cloud shadows
         float cloud_shadow = 0.0;
@@ -219,9 +195,14 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         float d = length(direction);
         direction /= d;
 
-        if (trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
+#if defined(HardwareRT)
+        Ray r;
+        r.direction = direction;
+        r.origin = input.world_pos;
+        if (trace_shadow_ray(tlases[tlas_idx], r, d - 0.5)) {
             continue;
         }
+#endif
 
         float falloff = light.intensity / (d * d);
         diffuse_contribution += falloff * lambert(face_normal, direction, light.color);

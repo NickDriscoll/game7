@@ -65,7 +65,7 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
-UniformFlags :: bit_set[UniformFlag]
+UniformFlags :: bit_set[UniformFlag; u32]
 UniformFlag :: enum u32 {
     ColorTriangles,
     Reflections,
@@ -80,6 +80,16 @@ UniformFlag :: enum u32 {
 // Manually aligned to 16 bytes
 UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
+
+    world_from_clip: hlsl.float4x4,
+
+    clip_from_view: hlsl.float4x4,
+
+    view_from_world: hlsl.float4x4,
+
+    world_from_view: hlsl.float4x4,
+
+    view_from_clip: hlsl.float4x4,
 
     clip_from_skybox: hlsl.float4x4,
 
@@ -115,7 +125,8 @@ UniformBuffer :: struct {
     cloud_speed: f32,
     cloud_scale: f32,
 
-
+    fog_fudge: f32,
+    _pad: hlsl.float3,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
@@ -129,7 +140,9 @@ Ps1PushConstants :: struct {
 
 PostFxPushConstants :: struct {
     color_target: u32,
+    depth_target: u32,
     sampler_idx: u32,
+    tlas_idx: u32,
     uniforms_address: vk.DeviceAddress,
 }
 
@@ -398,7 +411,8 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
-        unis.flags += {.CRTShader}
+        unis.fog_fudge = 2000.0
+        //unis.flags += {.CRTShader}
     }
 }
 
@@ -740,8 +754,16 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
         // Postprocessing pass info
 
         swapchain_format := vk.Format.B8G8R8A8_SRGB
-        postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
-        postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
+
+        postfx_vert_spv: []u32
+        postfx_frag_spv: []u32
+        if renderer.do_raytracing {
+            postfx_vert_spv = #load("data/shaders/postprocessing_rt.vert.spv", []u32)
+            postfx_frag_spv = #load("data/shaders/postprocessing_rt.frag.spv", []u32)
+        } else {
+            postfx_vert_spv = #load("data/shaders/postprocessing.vert.spv", []u32)
+            postfx_frag_spv = #load("data/shaders/postprocessing.frag.spv", []u32)
+        }
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = postfx_vert_spv,
             fragment_shader_bytecode = postfx_frag_spv,
@@ -1911,6 +1933,7 @@ render_scene :: proc(
 
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
+        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
             vkw.Image_Barrier {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -1929,7 +1952,25 @@ render_scene :: proc(
                     baseArrayLayer = 0,
                     layerCount = 1
                 }
-            }
+            },
+            {
+                src_stage_mask = {.FRAGMENT_SHADER},
+                src_access_mask = {.SHADER_READ},
+                dst_stage_mask = {.ALL_GRAPHICS},
+                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                old_layout = .UNDEFINED,
+                new_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                src_queue_family = gd.gfx_queue_family,
+                dst_queue_family = gd.gfx_queue_family,
+                image = depth_target.image,
+                subresource_range = vk.ImageSubresourceRange {
+                    aspectMask = {.DEPTH},
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
+            },
         })
 
         // Begin renderpass into main internal rendertarget
@@ -2009,7 +2050,6 @@ render_scene :: proc(
         framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
 
         // Transition internal framebuffer to be sampled from
-        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
             {
                 {
@@ -2036,7 +2076,7 @@ render_scene :: proc(
                     dst_stage_mask = {.EARLY_FRAGMENT_TESTS},
                     dst_access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE,.DEPTH_STENCIL_ATTACHMENT_READ},
                     old_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    new_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    new_layout = .SHADER_READ_ONLY_OPTIMAL,
                     src_queue_family = gd.gfx_queue_family,
                     dst_queue_family = gd.gfx_queue_family,
                     image = depth_target.image,
@@ -2065,8 +2105,10 @@ render_scene :: proc(
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
             color_target = renderer.main_framebuffer.color_images[0].index,
+            depth_target = renderer.main_framebuffer.depth_image.index,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
-            uniforms_address = uniform_buf.address
+            tlas_idx = uniforms_offset,
+            uniforms_address = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
         })
 
         // Draw screen-filling triangle
@@ -2538,6 +2580,10 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                 imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
             }
 
+            // if imgui.CollapsingHeader("Fog settings") {
+            //     imgui.SliderFloat("Fudge", &renderer.uniforms.fog_fudge, 100.0, 3000.0)
+            // }
+
             if imgui.CollapsingHeader("Directional lights") {
                 for i in 0..<renderer.uniforms.directional_light_count {
                     light := &renderer.uniforms.directional_lights[i]
@@ -2560,7 +2606,7 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
                 imgui.EndDisabled()
             }
 
-            {
+            if imgui.CollapsingHeader("Debug flags") {
                 flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
                     b := flag in flags
                     sb: strings.Builder
