@@ -769,8 +769,6 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 world_invector = hlsl.normalize(world_invector)
             }
 
-            // Now we have a representation of the player's input vector in world space
-
             // Handle sprint
             this_frame_move_speed := char.move_speed
             {
@@ -791,6 +789,9 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevi
                 }
             }
 
+            // Now we have a representation of the player's input vector in world space
+
+            //if !taking_damage {
             {
                 char.acceleration = {world_invector.x, world_invector.y, 0.0}
                 accel_len := hlsl.length(char.acceleration)
@@ -1596,8 +1597,10 @@ new_load_level_file :: proc(
                 comp = read_thing_from_buffer(buffer, T, head)
             }
 
-            components[id] = comp
-
+            when T != FreecamController && T != LookatController {
+                components[id] = comp
+            }
+            
             if u32(id) > largest_seen_id^ {
                 largest_seen_id^ = u32(id)
             }

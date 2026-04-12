@@ -1,29 +1,8 @@
+import crt;
+import procs;
+import rt_bindings;
 import structs;
 import tex_bindings;
-
-// Hardcoding a screen-filling triangle in clip space
-static const float2 POSITIONS[] = {
-    -1.0, -3.0,         // Top Left
-    -1.0, 1.0,          // Botton Left
-    3.0, 1.0            // Bottom Right
-};
-static const float2 UVS[] = {
-    0.0, -1.0,
-    0.0, 1.0,
-    2.0, 1.0
-};
-
-struct VertexOutput {
-    float4 clip_pos : SV_Position;
-    float2 uv;
-}
-
-[[vk::push_constant]]
-cbuffer push_constants {
-    uint color_target;
-    uint sampler_idx;
-    UniformData *u_data;
-}
 
 float2 hash(float2 p) {
     p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
@@ -49,142 +28,193 @@ float my_noise(float2 p) {
 
 
 
-
-//
-// PUBLIC DOMAIN CRT STYLED SCAN-LINE SHADER
-//
-//   by Timothy Lottes
-//
-// This is more along the style of a really good CGA arcade monitor.
-// With RGB inputs instead of NTSC.
-// The shadow mask example has the mask rotated 90 degrees for less chromatic aberration.
-//
-// Left it unoptimized to show the theory behind the algorithm.
-//
-// It is an example what I personally would want as a display option for pixel art games.
-// Please take and use, change, or whatever.
-//
-
-// Emulated input resolution.
-#if 1
-  // Fix resolution to set amount.
-#define res (float2(640.0 / 1.0, 480.0 / 1.0))
-#else
-// Optimize for resize.
-float2 iResolution = { 320 / 160 };
-#define res (iResolution.xy / 6.0)
-#endif
-
-// Hardness of scanline.
-//  -8.0 = soft
-// -16.0 = medium
-static const float hardScan = -8.0;
-
-// Hardness of pixels in scanline.
-// -2.0 = soft
-// -4.0 = hard
-static const float hardPix = -3.0;
-
-// Display warp.
-// 0.0 = none
-// 1.0/8.0 = extreme
-static const float2 warp = float2(1.0 / 32.0, 1.0 / 24.0);
-
-// Amount of shadow mask.
-static const float maskDark = 0.5;
-static const float maskLight = 1.5;
-
-//------------------------------------------------------------------------
-
-// Nearest emulated sample given floating point position and texel offset.
-// Also zero's off screen.
-float3 Fetch(float2 pos, float2 off) {
-    pos = floor(pos * res + off) / res;
-    if (max(abs(pos.x - 0.5), abs(pos.y - 0.5)) > 0.5) return float3(0.0, 0.0, 0.0);
-    return textures[color_target].Sample(samplers[sampler_idx], pos.xy).rgb;
-    //return texture(iChannel0, pos.xy, -16.0).rgb;
+// mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
+float rayleigh_phase_func(float mu)
+{
+    return
+            3.0 * (1.0 + mu * mu)
+    / //------------------------
+           (16.0 * PI);
 }
 
-// Distance in emulated pixels to nearest texel.
-float2 Dist(float2 pos) { pos = pos * res; return -((pos - floor(pos)) - float2(0.5));}
-
-// 1D Gaussian.
-float Gaus(float pos, float scale) { return exp2(scale * pos * pos);}
-
-// 3-tap Gaussian filter along horz line.
-float3 Horz3(float2 pos, float off) {
-    float3 b = Fetch(pos, float2(-1.0, off));
-    float3 c = Fetch(pos, float2(0.0, off));
-    float3 d = Fetch(pos, float2(1.0, off));
-    float dst = Dist(pos).x;
-    // Convert distance to weight.
-    float scale = hardPix;
-    float wb = Gaus(dst - 1.0, scale);
-    float wc = Gaus(dst + 0.0, scale);
-    float wd = Gaus(dst + 1.0, scale);
-    // Return filtered sample.
-    return (b * wb + c * wc + d * wd) / (wb + wc + wd);
+// Henyey-Greenstein phase function factor [-1, 1]
+// represents the average cosine of the scattered directions
+// 0 is isotropic scattering
+// > 1 is forward scattering, < 1 is backwards
+// mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
+static const float g = 0.76;
+float henyey_greenstein_phase_func(float mu)
+{
+    return
+                        (1.0 - g * g)
+    / //---------------------------------------------
+           ((4.0 * PI) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
 }
 
-// 5-tap Gaussian filter along horz line.
-float3 Horz5(float2 pos, float off) {
-    float3 a = Fetch(pos, float2(-2.0, off));
-    float3 b = Fetch(pos, float2(-1.0, off));
-    float3 c = Fetch(pos, float2(0.0, off));
-    float3 d = Fetch(pos, float2(1.0, off));
-    float3 e = Fetch(pos, float2(2.0, off));
-    float dst = Dist(pos).x;
-    // Convert distance to weight.
-    float scale = hardPix;
-    float wa = Gaus(dst - 2.0, scale);
-    float wb = Gaus(dst - 1.0, scale);
-    float wc = Gaus(dst + 0.0, scale);
-    float wd = Gaus(dst + 1.0, scale);
-    float we = Gaus(dst + 2.0, scale);
-    // Return filtered sample.
-    return (a * wa + b * wb + c * wc + d * wd + e * we) / (wa + wb + wc + wd + we);
+// scattering coefficients at sea level (m)
+static const float3 betaR = float3(5.5e-6, 13.0e-6, 22.4e-6); // Rayleigh
+static const float3 betaM = float3(21e-6);                    // Mie
+
+// scale height (m)
+// thickness of the atmosphere if its density were uniform
+static const float hR = 7994.0; // Rayleigh
+static const float hM = 1200.0; // Mie
+
+float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u_data) {
+    static const int num_samples = 64;
+
+    DirectionalLight light = u_data.directional_lights[0];
+    float3 sun_direction = light.direction;
+    float3 sun_color = light.color;
+
+    // cosine of angle between view and light directions
+    float mu = dot(-ray.direction, -sun_direction);
+
+    // Rayleigh and Mie phase functions
+    // A black box indicating how light is interacting with the material
+    // Similar to BRDF except
+    // * it usually considers a single angle
+    //   (the phase angle between 2 directions)
+    // * integrates to 1 over the entire sphere of directions
+    float phaseR = rayleigh_phase_func(mu);
+    float phaseM = henyey_greenstein_phase_func(mu);
+
+    // optical depth (or "average density")
+    // represents the accumulated extinction coefficients
+    // along the path, multiplied by the length of that path
+    float optical_depthR = 0.0;
+    float optical_depthM = 0.0;
+
+    // What are we summing?
+    float3 sumR = float3(0.0);
+    float3 sumM = float3(0.0);
+
+    static const float MAX_DEPTH = 5000.0;
+    float pixel_depth = distance(u_data.view_position.xyz, frag_pos);
+    float march_step = min(pixel_depth, MAX_DEPTH) / float(num_samples);
+    //float march_step = pixel_depth / float(num_samples);
+
+    // static const float HEIGHT_OFFSET = 100.0;
+    static const float HEIGHT_OFFSET = 0.0;
+
+    int shadow_hits = 0;
+    for (int i = 0; i < num_samples; i++) {
+        float3 s = ray.origin + ray.direction * ((float(i) + 0.1) * march_step);
+        // float height = length(s) + HEIGHT_OFFSET;
+        // float height = s.z;
+        float height = distance(s, {});
+
+        // integrate the height scale
+        float hr = exp(-height / hR) * march_step;
+        float hm = exp(-height / hM) * march_step;
+        optical_depthR += hr;
+        optical_depthM += hm;
+
+        // Ray from sample point to light
+        Ray light_ray = {
+            s,
+            sun_direction
+        };
+
+    #if defined(HardwareRT)
+            // Skip integrating this sample if we're in shadow
+            if (trace_shadow_ray(tlases[tlas_idx], light_ray, 1000000.0)) {
+                continue;
+            }
+    #endif
+
+        // gather the sunlight
+        float optical_depth_lightR = 0.0;
+        float optical_depth_lightM = 0.0;
+        {
+            const int num_samples2 = 8;
+            // float t0, t1;
+            // isect_sphere(light_ray, atmosphere, t0, t1);
+    
+            float march_pos2 = 0.0;
+            // float march_step2 = t1 / float(num_samples);
+            float march_step2 = 0.8;
+
+            for (int j = 0; j < num_samples2; j++) {
+                float3 s2 = light_ray.origin + light_ray.direction * ((float(j) + 0.1) * march_step2);
+
+                float height2 = distance(s2, {});
+
+                optical_depth_lightR += exp(-height2 / hR) * march_step2;
+                optical_depth_lightM += exp(-height2 / hM) * march_step2;
+    
+                march_pos2 += march_step2;
+            }
+        }
+
+        {
+            float3 tau =
+                betaR * (optical_depthR + optical_depth_lightR) +
+                betaM * 1.1 * (optical_depthM + optical_depth_lightM);
+            float3 transmittance = exp(-tau);
+
+            sumR += hr * transmittance;
+            sumM += hm * transmittance;
+        }
+    }
+
+    // float fudge = 2000.0;  // This factor exists bc this proc was ripped out of a physically-based renderer
+    float3 rayleigh_contribution = sumR * phaseR * betaR;
+    //float3 rayleigh_contribution = {};
+    float3 mie_contribution = sumM * phaseM * betaM;
+    //float3 mie_contribution = {};
+    float3 fogged_color = u_data.fog_fudge * sun_color * (rayleigh_contribution + mie_contribution);
+    // return lerp(fogged_color, sun_direction, float(shadow_hits) / float(num_samples));
+    return fogged_color;
 }
 
-// Return scanline weight.
-float Scan(float2 pos, float off) {
-    float dst = Dist(pos).y;
-    return Gaus(dst + off, hardScan);
+// Returns the world space position of the fragment identified
+// by its depth value and position in UV space
+float3 perspective_frag_depth_to_world_pos(float depth_sample, float2 uv, UniformData *u_data) {
+    // Why does this break when depth_sample ~<= 0.0075???
+    //float z_ndc = max(depth_sample, 0.0075);
+    float z_ndc = depth_sample;
+    float4 p_ndc = float4(uv * 2.0 - 1.0, z_ndc, 1.0);
+    float3 world_pos = perspective_ndc_to_world(p_ndc, u_data);
+    return world_pos;
 }
 
-// Allow nearest three lines to effect pixel.
-float3 Tri(float2 pos) {
-    float3 a = Horz3(pos, -1.0);
-    float3 b = Horz5(pos, 0.0);
-    float3 c = Horz3(pos, 1.0);
-    float wa = Scan(pos, -1.0);
-    float wb = Scan(pos, 0.0);
-    float wc = Scan(pos, 1.0);
-    return a * wa + b * wb + c * wc;
+float3 perspective_ndc_to_world(float4 p_ndc, UniformData *u_data) {
+
+    // The following equation assumes that M[3][3] == 0 and M[3][2] == -1
+    float w_clip = u_data.clip_from_view[2][3] / (p_ndc.z + u_data.clip_from_view[2][2]);
+
+    float4 p_clip = p_ndc * w_clip;
+
+    float3 world = mul(u_data.world_from_clip, p_clip).xyz;
+    return world;
 }
 
-// Distortion of scanlines, and end of screen alpha.
-float2 Warp(float2 pos) {
-    pos = pos * 2.0 - 1.0;
-    pos *= float2(1.0 + (pos.y * pos.y) * warp.x, 1.0 + (pos.x * pos.x) * warp.y);
-    return pos * 0.5 + 0.5;
+// Hardcoding a screen-filling triangle in clip space
+static const float2 POSITIONS[] = {
+    -1.0, -3.0,         // Top Left
+    -1.0, 1.0,          // Botton Left
+    3.0, 1.0            // Bottom Right
+};
+static const float2 UVS[] = {
+    0.0, -1.0,
+    0.0, 1.0,
+    2.0, 1.0
+};
+
+struct VertexOutput {
+    float4 clip_pos : SV_Position;
+    float2 uv;
 }
 
-// Shadow mask.
-float3 Mask(float2 pos) {
-    pos.x += pos.y * 3.0;
-    float3 mask = float3(maskDark, maskDark, maskDark);
-    pos.x = fract(pos.x / 6.0);
-    if (pos.x < 0.333) mask.r = maskLight;
-    else if (pos.x < 0.666) mask.g = maskLight;
-    else mask.b = maskLight;
-    return mask;
+[[vk::push_constant]]
+cbuffer push_constants {
+    uint color_target;
+    uint depth_target;
+    uint sampler_idx;
+    uint tlas_idx;
+    UniformData *u_data;
 }
-
-
-
-
-
-
 
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID) {
@@ -206,19 +236,27 @@ float4 fragment_main(VertexOutput input) {
         );
 
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
-    if ((u_data.flags & UniformFlag.CRTShader) != 0) {
-        // Extract resolution from clip_from_screen matrix
-        float2 framebuffer_resolution;
-        framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
-        framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
 
-        float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
-        float2 pos = Warp(crt_sample_pos / framebuffer_resolution + float2(0.0, 0.0));
-        float3 tri = Tri(pos);
-        float3 mask = Mask(crt_sample_pos);
-        float3 final = tri * mask;
+    float depth_sample = textures[depth_target].Sample(samplers[sampler_idx], sample_pos).r;
+    float3 frag_world_pos = perspective_frag_depth_to_world_pos(depth_sample, sample_pos, u_data);
+    //return float4(frag_world_pos / 300.0, 1.0);
+
+    DirectionalLight light = u_data.directional_lights[0];
+    Ray view_ray;
+
+    view_ray.direction = normalize(frag_world_pos - u_data.view_position.xyz);
+    static const int num_samples = 64;
+    static const float MAX_DEPTH = 750.0;
+    float pixel_depth = distance(u_data.view_position.xyz, frag_world_pos);
+    float march_step = min(pixel_depth, MAX_DEPTH) / float(num_samples);
+    // view_ray.origin = u_data.view_position.xyz + (my_noise(sample_pos * 1000.0) * march_step);
+    view_ray.origin = u_data.view_position.xyz;
+    target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, u_data);
+
+    if ((u_data.flags & UniformFlag.CRTShader) != 0) {
+        float3 final = crt_filer(textures[color_target], samplers[sampler_idx], sample_pos, u_data.clip_from_screen);
         return float4(final.x, final.y, final.z, target_sample.a);
-    } else {
-        return target_sample;
     }
+
+    return target_sample;
 }
