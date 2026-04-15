@@ -5,6 +5,7 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:time"
 
 // angle is in radians
@@ -120,35 +121,45 @@ z_rotate_quaternion :: proc (angle: f32) -> quaternion128 {
 }
 
 list_files :: proc(directory: string, allocator := context.temp_allocator) -> [dynamic]os.File_Info {
-    filewalk_proc :: proc(
-        info: os.File_Info,
-        in_err: os.Error,
-        user_data: rawptr
-    ) -> (err: os.Error, skip_dir: bool) {
-        if !info.is_dir {
-            item_array := cast(^[dynamic]os.File_Info)user_data
-            append(item_array, info)
-        }
+    // filewalk_proc :: proc(
+    //     info: os.File_Info,
+    //     in_err: os.Error,
+    //     user_data: rawptr
+    // ) -> (err: os.Error, skip_dir: bool) {
+    //     if !info.is_dir {
+    //         item_array := cast(^[dynamic]os.File_Info)user_data
+    //         append(item_array, info)
+    //     }
 
-        err = nil
-        skip_dir = false
-        return
-    }
+    //     err = nil
+    //     skip_dir = false
+    //     return
+    // }
 
     infos := make([dynamic]os.File_Info, 0, 64, allocator)
 
-    // @TODO: Is this a bug in the filepath package?
-    // The File_Info structs are supposed to be allocated
-    // with context.temp_allocator, but it appears that it
-    // actually uses context.allocator
-    old_alloc := context.allocator
-    context.allocator = allocator
-    walk_error := filepath.walk(directory, filewalk_proc, &infos)
-    context.allocator = old_alloc
+    w: os.Walker
+    os.walker_init_path(&w, directory)
+	defer os.walker_destroy(&w)
 
-    if walk_error != nil {
-        log.errorf("Error walking models dir: %v", walk_error)
+    for info in os.walker_walk(&w) {
+        //if !info.is_dir {
+            append(&infos, info)
+        //}
     }
+
+    // // @TODO: Is this a bug in the filepath package?
+    // // The File_Info structs are supposed to be allocated
+    // // with context.temp_allocator, but it appears that it
+    // // actually uses context.allocator
+    // old_alloc := context.allocator
+    // context.allocator = allocator
+    // walk_error := filepath.walk(directory, filewalk_proc, &infos)
+    // context.allocator = old_alloc
+
+    // if walk_error != nil {
+    //     log.errorf("Error walking models dir: %v", walk_error)
+    // }
 
     return infos
 }

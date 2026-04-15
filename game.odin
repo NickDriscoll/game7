@@ -1222,9 +1222,9 @@ init_gamestate :: proc(
         scoped_event(&profiler, "Load skybox")
         // @TODO: Load this from level file
         path := "data/images/beach.dds"
-        file_bytes, image_ok := os.read_entire_file(path, context.allocator)
+        file_bytes, image_err := os.read_entire_file_from_path(path, context.allocator)
 
-        if image_ok {
+        if image_err == nil {
             // Read DDS header
             dds_header, ok := dds_load_header(file_bytes)
             if !ok {
@@ -1486,8 +1486,8 @@ new_load_level_file :: proc(
 
     lvl_data: []byte
     {
-        err: os2.Error
-        lvl_data, err = os2.read_entire_file(path, context.temp_allocator)
+        err: os.Error
+        lvl_data, err = os.read_entire_file_from_path(path, context.temp_allocator)
         if err != nil {
             log.errorf("Error reading entire level file \"%v\": %v", path, err)
             return false
@@ -1919,7 +1919,7 @@ new_save_level_file :: proc(
     assert(write_head == total_size)
 
     // Actually write the buffer to the file
-    lvl_file, lvl_err := create_write_file(path)
+    lvl_file, lvl_err := os.create(path)
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
     }

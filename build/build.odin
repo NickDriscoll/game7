@@ -2,7 +2,7 @@ package build
 
 import "core:fmt"
 import "core:log"
-import "core:os/os2"
+import "core:os"
 import "core:strings"
 
 // Shader naming convention:
@@ -68,12 +68,12 @@ main :: proc() {
     log_level := log.Level.Info
     context.logger = log.create_console_logger(log_level)
     {
-        argc := len(os2.args)
-        for arg, i in os2.args {
+        argc := len(os.args)
+        for arg, i in os.args {
             switch arg {
                 case "--log-level", "-l": {
                     if i + 1 < argc {
-                        switch os2.args[i + 1] {
+                        switch os.args[i + 1] {
                             case "DEBUG": log_level = .Debug
                             case "INFO": log_level = .Info
                             case "WARNING": log_level = .Warning
@@ -81,7 +81,7 @@ main :: proc() {
                             case "FATAL": log_level = .Fatal
                             case: log.warnf(
                                 "Unrecognized --log-level: %v. Using default (%v)",
-                                os2.args[i + 1],
+                                os.args[i + 1],
                                 log_level
                             )
                         }
@@ -107,7 +107,7 @@ main :: proc() {
     defer strings.builder_destroy(&out_sb)
 
     // Dynamic array for gathering process handles to wait on
-    processes: [dynamic]os2.Process
+    processes: [dynamic]os.Process
     defer delete(processes)
 
     shader_types : []string = {"vertex", "fragment", "compute"}
@@ -124,7 +124,7 @@ main :: proc() {
             out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
             in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
 
-            slangc_command := os2.Process_Desc {
+            slangc_command := os.Process_Desc {
                 command = {
                     "slangc",
                     "-stage",
@@ -139,7 +139,7 @@ main :: proc() {
                 }
             }
 
-            process, error := os2.process_start(slangc_command)
+            process, error := os.process_start(slangc_command)
             if error != nil {
                 log.errorf("Error launching slangc: %#v", error)
                 return
@@ -154,7 +154,7 @@ main :: proc() {
                 out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v%v.%v.spv", shader, extra[1], type[0:4])
                 in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
 
-                slangc_command := os2.Process_Desc {
+                slangc_command := os.Process_Desc {
                     command = {
                         "slangc",
                         "-stage",
@@ -171,7 +171,7 @@ main :: proc() {
                     }
                 }
 
-                process, error := os2.process_start(slangc_command)
+                process, error := os.process_start(slangc_command)
                 if error != nil {
                     log.errorf("Error launching slangc: %#v", error)
                     return
@@ -188,7 +188,7 @@ main :: proc() {
     // Wait on the shader compilers
     log.info("waiting on slangc...")
     for p in processes {
-        proc_state, _ := os2.process_wait(p)
+        proc_state, _ := os.process_wait(p)
 
         if proc_state.exit_code != 0 {
             log.errorf("slangc process with id %v exited with return code %v", proc_state.pid, proc_state.exit_code)
@@ -198,20 +198,20 @@ main :: proc() {
 
     // Start odin compilation
     log.info("starting odin compiler...")
-    odin_process: os2.Process
+    odin_process: os.Process
     {
-        odin_proc := os2.Process_Desc {
+        odin_proc := os.Process_Desc {
             command = ODIN_COMMAND
         }
         command_str := strings.join(odin_proc.command, " ")
         log.debugf("Launching:\n\"%v\"", command_str)
-        odin_process, _ = os2.process_start(odin_proc)
+        odin_process, _ = os.process_start(odin_proc)
     }
 
     // wait for the odin compiler
     log.info("waiting on odin compiler...")
     {
-        proc_state, _ := os2.process_wait(odin_process)
+        proc_state, _ := os.process_wait(odin_process)
 	    if proc_state.exit_code != 0 {
             log.errorf("main program failed to build.")
             return
