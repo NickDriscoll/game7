@@ -2091,8 +2091,8 @@ StaticModel :: struct {
     name: string,
 }
 
-gltf_static_delete :: proc(using d: ^StaticModel)  {
-    delete(primitives)
+gltf_static_delete :: proc(d: ^StaticModel)  {
+    delete(d.primitives)
 }
 
 gltf_skinned_delete :: proc(d: ^SkinnedModel)  {
