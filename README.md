@@ -20,7 +20,7 @@
 ## Build requirements
 
 Download the following and put them in your PATH
-- [Odin (ver. dev-2025-09)](https://github.com/odin-lang/Odin/releases/tag/dev-2025-09)
+- [Odin (ver. dev-2026-04)](https://github.com/odin-lang/Odin/releases/tag/dev-2026-04)
 - [Slang (ver. 2025.18.2)](https://github.com/shader-slang/slang/releases/tag/v2025.18.2)
 
 Clone the repo and init submodules
