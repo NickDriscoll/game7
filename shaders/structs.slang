@@ -118,7 +118,7 @@ struct UniformData {
     float fog_fudge;
     float fog_max_depth;
     int fog_step_multiple;
-    float _pad;
+    float henyey_greenstein_g;
 
     // RaytracingAccelerationStructure.Handle tlas;
     // float2 _pad1;
