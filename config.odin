@@ -104,12 +104,12 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
     return cfg
 }
 
-delete_user_config :: proc(using c: ^UserConfiguration, allocator := context.allocator) {
-    delete(flags)
-    delete(ints)
-    delete(floats)
-    delete(strs)
-    strings.intern_destroy(&_interner)
+delete_user_config :: proc(c: ^UserConfiguration, allocator := context.allocator) {
+    delete(c.flags)
+    delete(c.ints)
+    delete(c.floats)
+    delete(c.strs)
+    strings.intern_destroy(&c._interner)
 }
 
 save_user_config :: proc(config: ^UserConfiguration, filename: string) {
@@ -118,7 +118,7 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
     sb: strings.Builder
     strings.builder_init(&sb, allocator = context.temp_allocator)
 
-    save_file, err := create_write_file(filename)
+    save_file, err := os.create(filename)
     if err != nil {
         log.errorf("Error opening \"%v\" for saving: %v", filename, err)
     }
@@ -162,7 +162,7 @@ save_user_config :: proc(config: ^UserConfiguration, filename: string) {
 }
 
 save_default_user_config :: proc(filename: string) {
-    out_file, err := create_write_file(filename)
+    out_file, err := os.create(filename)
     if err != nil {
         log.errorf("Error opening default user config file: %v", err)
     }
@@ -188,25 +188,25 @@ save_default_user_config :: proc(filename: string) {
     os.write_string(out_file, "freecam_yaw = 0.0\n")
 }
 
-load_user_config :: proc(filename: string, allocator := context.allocator) -> (UserConfiguration, bool) {
+load_user_config :: proc(filename: string, allocator := context.allocator) -> (UserConfiguration, os.Error) {
     scoped_event(&profiler, "Load user config")
-    user_config, ok := raw_load_user_config(filename)
-    if !ok {
-        log.warn("Failed to load config file. Generating default config.")
+    user_config, err := raw_load_user_config(filename)
+    if err != nil {
+        log.warn("User config file not found. Generating default config...")
         save_default_user_config(filename)
 
-        user_config, ok = raw_load_user_config(filename, allocator)
+        user_config, err = raw_load_user_config(filename, allocator)
     }
 
-    return user_config, ok
+    return user_config, err
 }
 
-raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, ok: bool) {
+raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, err: os.Error) {
     scoped_event(&profiler, "raw_load_user_config")
     file_text: []u8
     {
         scoped_event(&profiler, "Read entire config file")
-        file_text = os.read_entire_file(filename, allocator = context.temp_allocator) or_return
+        file_text = os.read_entire_file_from_path(filename, allocator = context.temp_allocator) or_return
     }
 
     u := init_user_config(allocator)
@@ -273,16 +273,16 @@ raw_load_user_config :: proc(filename: string, allocator := context.allocator) -
         key_str = scanner.token_text(&sc)
     }
 
-    return u, true
+    return u, nil
 }
 
-update_user_cfg_camera :: proc(using s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: FreecamController) {
-    flags[.FollowCam] = following
-    floats[.FreecamX] = f64(position.x)
-    floats[.FreecamY] = f64(position.y)
-    floats[.FreecamZ] = f64(position.z)
-    floats[.CameraFOV] = f64(camera.fov_radians)
-    floats[.FreecamPitch] = f64(camera.pitch)
-    floats[.FreecamYaw] = f64(camera.yaw)
+update_user_cfg_camera :: proc(s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: FreecamController) {
+    s.flags[.FollowCam] = following
+    s.floats[.FreecamX] = f64(position.x)
+    s.floats[.FreecamY] = f64(position.y)
+    s.floats[.FreecamZ] = f64(position.z)
+    s.floats[.CameraFOV] = f64(camera.fov_radians)
+    s.floats[.FreecamPitch] = f64(camera.pitch)
+    s.floats[.FreecamYaw] = f64(camera.yaw)
 }
 

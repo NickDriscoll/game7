@@ -10,7 +10,6 @@ import "core:math/linalg/hlsl"
 import "core:math/noise"
 import "core:mem"
 import "core:os"
-import "core:os/os2"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -1383,6 +1382,8 @@ gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
 }
 
 game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    scoped_event(&profiler, "GameState tick")
+
     // Determine if we're simulating a tick of game logic this frame
     do_this_frame := !game_state.paused
     if output_verbs.bools[.FrameAdvance] {
