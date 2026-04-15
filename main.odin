@@ -1163,9 +1163,15 @@ main :: proc() {
         }
 
         {
-            imgui.SliderInt("Raymarching steps (multiple of 8)", &renderer.uniforms.fog_step_multiple, 1, 16)
-            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 0.0, 50.0)
+            imgui.SliderInt("Raymarching steps (multiple of 4)", &renderer.uniforms.fog_step_multiple, 1, 16)
+            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 1.0, 50.0)
             imgui.SliderFloat("Fog max depth", &renderer.uniforms.fog_max_depth, 10.0, 2000.0)
+
+            imgui.SliderFloat("g", &renderer.uniforms.henyey_greenstein_g, 0.000001, 1.0)
+            imgui.SameLine()
+            if imgui.Button("Reset") {
+                renderer.uniforms.henyey_greenstein_g = 0.76
+            }
         }
 
         // Render
