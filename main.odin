@@ -181,9 +181,9 @@ main :: proc() {
         context.temp_allocator = per_frame_allocator
 
         // Load user configuration
-        cfg, config_ok := load_user_config(USER_CONFIG_FILENAME)
-        if !config_ok {
-            log.error("Failed to load user config.")
+        cfg, config_err := load_user_config(USER_CONFIG_FILENAME)
+        if config_err != nil {
+            log.errorf("Failed to load user config: %v", config_err)
         }
         user_config = cfg
 

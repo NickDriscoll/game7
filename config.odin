@@ -253,7 +253,11 @@ raw_load_user_config :: proc(filename: string, allocator := context.allocator) -
         }
         else if strings.contains(val_tok, ".") {
             i : f64 = -1 if negative_number else 1
-            u.floats[key.?] = i * strconv.atof(val_tok)
+            f, ok := strconv.parse_f64(val_tok)
+            u.floats[key.?] = i * f
+            if !ok {
+                log.error("")
+            }
         }
         else {
             i, oki := strconv.parse_i64(val_tok)

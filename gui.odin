@@ -210,12 +210,12 @@ MainMenuBarVerb :: enum {
 }
 
 gui_main_menu_bar :: proc(
-    using state: ^ImguiState,
+    gui_state: ^ImguiState,
     game_state: ^GameState,
     user_config: ^UserConfiguration
 ) -> MainMenuBarVerb {
     retval := MainMenuBarVerb.None
-    if !show_gui {
+    if !gui_state.show_gui {
         return retval
     }
 
@@ -334,30 +334,40 @@ gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
     strings.builder_reset(builder)
 }
 
-gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
-    filewalk_proc :: proc(
-        info: os.File_Info,
-        in_err: os.Error,
-        user_data: rawptr
-    ) -> (err: os.Error, skip_dir: bool) {
-        if !info.is_dir {
-            item_array := cast(^[dynamic]cstring)user_data
-            append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
-        }
+gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring, allocator := context.temp_allocator) -> bool {
+    // filewalk_proc :: proc(
+    //     info: os.File_Info,
+    //     in_err: os.Error,
+    //     user_data: rawptr
+    // ) -> (err: os.Error, skip_dir: bool) {
+    //     if !info.is_dir {
+    //         item_array := cast(^[dynamic]cstring)user_data
+    //         append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
+    //     }
 
-        err = nil
-        skip_dir = false
-        return
+    //     err = nil
+    //     skip_dir = false
+    //     return
+    // }
+
+    w: os.Walker
+    os.walker_init_path(&w, path)
+	defer os.walker_destroy(&w)
+
+    for info in os.walker_walk(&w) {
+        //if !info.is_dir {
+            append(list_items, strings.clone_to_cstring(info.name, allocator))
+        //}
     }
 
-    // @TODO: Is this a bug in the filepath package?
-    // The File_Info structs are supposed to be allocated
-    // with context.temp_allocator, but it appears that it
-    // actually uses context.allocator
-    old_alloc := context.allocator
-    context.allocator = context.temp_allocator
-    walk_error := filepath.walk(path, filewalk_proc, list_items)
-    context.allocator = old_alloc
+    // // @TODO: Is this a bug in the filepath package?
+    // // The File_Info structs are supposed to be allocated
+    // // with context.temp_allocator, but it appears that it
+    // // actually uses context.allocator
+    // old_alloc := context.allocator
+    // context.allocator = context.temp_allocator
+    // walk_error := filepath.walk(path, filewalk_proc, list_items)
+    // context.allocator = old_alloc
 
     ok := false
     if imgui.BeginCombo(name, list_items[selected_item^], {.HeightLarge}) {
@@ -372,33 +382,43 @@ gui_dropdown_files :: proc(path: string, list_items: ^[dynamic]cstring, selected
     return ok
 }
 
-gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring) -> bool {
-    filewalk_proc :: proc(
-        info: os.File_Info,
-        in_err: os.Error,
-        user_data: rawptr
-    ) -> (err: os.Error, skip_dir: bool) {
-        if !info.is_dir {
-            item_array := cast(^[dynamic]cstring)user_data
-            append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
-        }
+gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_item: ^c.int, name: cstring, allocator := context.temp_allocator) -> bool {
+    // filewalk_proc :: proc(
+    //     info: os.File_Info,
+    //     in_err: os.Error,
+    //     user_data: rawptr
+    // ) -> (err: os.Error, skip_dir: bool) {
+    //     if !info.is_dir {
+    //         item_array := cast(^[dynamic]cstring)user_data
+    //         append(item_array, strings.clone_to_cstring(info.name, context.temp_allocator))
+    //     }
 
-        err = nil
-        skip_dir = false
-        return
-    }
+    //     err = nil
+    //     skip_dir = false
+    //     return
+    // }
 
-    // @TODO: Is this a bug in the filepath package?
-    // The File_Info structs are supposed to be allocated
-    // with context.temp_allocator, but it appears that it
-    // actually uses context.allocator
-    old_alloc := context.allocator
-    context.allocator = context.temp_allocator
-    walk_error := filepath.walk(path, filewalk_proc, list_items)
-    context.allocator = old_alloc
+    // // @TODO: Is this a bug in the filepath package?
+    // // The File_Info structs are supposed to be allocated
+    // // with context.temp_allocator, but it appears that it
+    // // actually uses context.allocator
+    // old_alloc := context.allocator
+    // context.allocator = context.temp_allocator
+    // walk_error := filepath.walk(path, filewalk_proc, list_items)
+    // context.allocator = old_alloc
 
-    if walk_error != nil {
-        log.errorf("Error walking models dir: %v", walk_error)
+    // if walk_error != nil {
+    //     log.errorf("Error walking models dir: %v", walk_error)
+    // }
+
+    w: os.Walker
+    os.walker_init_path(&w, path)
+	defer os.walker_destroy(&w)
+
+    for info in os.walker_walk(&w) {
+        //if !info.is_dir {
+            append(list_items, strings.clone_to_cstring(info.name, allocator))
+        //}
     }
 
     // Show listbox
@@ -598,8 +618,8 @@ gui_cancel_frame :: proc(imgui_state: ^ImguiState) {
     imgui.Render()
 }
 
-gui_cleanup :: proc(vgd: ^vkw.GraphicsDevice, using is: ^ImguiState) {
-    imgui.DestroyContext(ctxt)
+gui_cleanup :: proc(vgd: ^vkw.GraphicsDevice, is: ^ImguiState) {
+    imgui.DestroyContext(is.ctxt)
 }
 
 // Utility funcs

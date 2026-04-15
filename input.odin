@@ -135,17 +135,17 @@ init_input_system :: proc(
     }
 }
 
-destroy_input_system :: proc(using s: ^InputSystem) {
-    delete(wheel_mappings)
-    delete(axis_mappings)
-    delete(stick_mappings)
-    if controller_one != nil {
-        sdl2.GameControllerClose(controller_one)
+destroy_input_system :: proc(s: ^InputSystem) {
+    delete(s.wheel_mappings)
+    delete(s.axis_mappings)
+    delete(s.stick_mappings)
+    if s.controller_one != nil {
+        sdl2.GameControllerClose(s.controller_one)
     }
 }
 
-replace_keybindings :: proc(using s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
-    key_mappings = new_keybindings
+replace_keybindings :: proc(s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
+    s.key_mappings = new_keybindings
 }
 
 // Per-frame representation of what actions the
@@ -170,7 +170,6 @@ poll_sdl2_events :: proc(
     outputs.int2s = make(map[VerbType][2]i64, 16, allocator)
     outputs.floats = make(map[VerbType]f32, 16, allocator)
     outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
-    using outputs
 
     state.mouse_clicked = false
 
@@ -181,24 +180,24 @@ poll_sdl2_events :: proc(
     for sdl2.PollEvent(&event) {
         #partial switch event.type {
             case .QUIT: {
-                bools[.Quit] = true
+                outputs.bools[.Quit] = true
             }
             case .WINDOWEVENT: {
                 #partial switch (event.window.event) {
                     case .RESIZED: {
-                        int2s[.ResizeWindow] = { i64(event.window.data1), i64(event.window.data2) }
+                        outputs.int2s[.ResizeWindow] = { i64(event.window.data1), i64(event.window.data2) }
                     }
                     case .MOVED: {
-                        int2s[.MoveWindow] = {i64(event.window.data1), i64(event.window.data2)}
+                        outputs.int2s[.MoveWindow] = {i64(event.window.data1), i64(event.window.data2)}
                     }
                     case .FOCUS_GAINED: {
-                        bools[.FocusWindow] = true
+                        outputs.bools[.FocusWindow] = true
                     }
                     case .MINIMIZED: {
-                        bools[.MinimizeWindow] = true
+                        outputs.bools[.MinimizeWindow] = true
                     }
                     case .RESTORED: {
-                        bools[.MinimizeWindow] = false
+                        outputs.bools[.MinimizeWindow] = false
                     }
                 }
             }
@@ -247,7 +246,7 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := state.key_mappings[sc]
                 if found {
-                    bools[verbtype] = true
+                    outputs.bools[verbtype] = true
                 } else {
                     log.debugf("Unbound keypress: %v", event.key.keysym.scancode)
                 }
@@ -262,7 +261,7 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := state.key_mappings[event.key.keysym.scancode]
                 if found {
-                    bools[verbtype] = false
+                    outputs.bools[verbtype] = false
                 }
             }
             case .MOUSEBUTTONDOWN: {
@@ -272,8 +271,8 @@ poll_sdl2_events :: proc(
                 }
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
-                    bools[verbtype] = true
-                    int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
+                    outputs.bools[verbtype] = true
+                    outputs.int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
                 if event.button.button == sdl2.BUTTON_LEFT {
                     state.mouse_clicked = true
@@ -286,17 +285,17 @@ poll_sdl2_events :: proc(
                 }
                 verbtype, found := state.mouse_mappings[event.button.button]
                 if found {
-                    bools[verbtype] = false
-                    int2s[verbtype] = {0, 0}
+                    outputs.bools[verbtype] = false
+                    outputs.int2s[verbtype] = {0, 0}
                 }
             }
             case .MOUSEMOTION: {
-                old_motion := int2s[.MouseMotion]
-                old_relmotion := int2s[.MouseMotionRel]
+                old_motion := outputs.int2s[.MouseMotion]
+                old_relmotion := outputs.int2s[.MouseMotionRel]
                 state.mouse_location.x = event.motion.x
                 state.mouse_location.y = event.motion.y
-                int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
-                int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
+                outputs.int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
+                outputs.int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
@@ -305,8 +304,8 @@ poll_sdl2_events :: proc(
                 }
                 verbtype, found := state.wheel_mappings[event.wheel.which]
                 if found {
-                    old := floats[verbtype]
-                    floats[verbtype] = old + f32(event.wheel.y)
+                    old := outputs.floats[verbtype]
+                    outputs.floats[verbtype] = old + f32(event.wheel.y)
                 }
             }
             case .CONTROLLERDEVICEADDED: {
@@ -353,13 +352,13 @@ poll_sdl2_events :: proc(
 
                 verbtype, found := state.button_mappings[sdl2.GameControllerButton(button)]
                 if found {
-                    bools[verbtype] = true
+                    outputs.bools[verbtype] = true
                 }
             }
             case .CONTROLLERBUTTONUP: {
                 verbtype, found := state.button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
                 if found {
-                    bools[verbtype] = false
+                    outputs.bools[verbtype] = false
                 }
             }
         }
@@ -386,7 +385,7 @@ poll_sdl2_events :: proc(
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
                 sensitivity := state.stick_sensitivities[ControllerStickAxis.Left]
-                float2s[verbtype] = sensitivity * [2]f32{x, y}
+                outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
             }
         }
     }
@@ -404,8 +403,8 @@ poll_sdl2_events :: proc(
             }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
             if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
-                sensitivity:= state.stick_sensitivities[ControllerStickAxis.Right]
-                float2s[verbtype] = sensitivity * [2]f32{x, y}
+                sensitivity := state.stick_sensitivities[ControllerStickAxis.Right]
+                outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
             }   
         }
     }
@@ -429,7 +428,7 @@ poll_sdl2_events :: proc(
 
             sensitivity := state.axis_sensitivities[ax]
 
-            floats[verbtype] = val
+            outputs.floats[verbtype] = val
         }
     }
 
@@ -437,7 +436,7 @@ poll_sdl2_events :: proc(
 }
 
 // @TODO: Clean up proc
-input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_allocator) {
+input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb, allocator)
     defer strings.builder_destroy(&sb)
@@ -453,7 +452,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
     }
 
     display_sorted_table :: proc(
-        using s: ^InputSystem,
+        s: ^InputSystem,
         m: ^map[$K]$V,
         button_width: f32,
         remap_value: ^K,
@@ -485,16 +484,16 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
             imgui.Text(vs)
 
             imgui.TableNextColumn()
-            if currently_remapping && remap_value^ == key {
+            if s.currently_remapping && remap_value^ == key {
                 if imgui.Button(rebind_text) {
-                    input_being_remapped.key = nil
-                    currently_remapping = false
+                    s.input_being_remapped.key = nil
+                    s.currently_remapping = false
                 }
             } else {
                 ks := build_cstring(key, sb, allocator)
                 if imgui.Button(ks, {button_width, 0.0}) {
                     remap_value^ = key
-                    currently_remapping = true
+                    s.currently_remapping = true
                 }
             }
         }
@@ -503,7 +502,7 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
     // Get widest string
     largest_button_width : f32 = imgui.CalcTextSize(BUTTON_REBIND_TEXT).x
-    for k, _ in key_mappings {
+    for k, _ in s.key_mappings {
         keystr := fmt.sbprintf(&sb, "%v", k)
         ks := strings.clone_to_cstring(keystr, allocator)
         width := imgui.CalcTextSize(ks).x
@@ -525,9 +524,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
             display_sorted_table(
                 s,
-                key_mappings,
+                s.key_mappings,
                 largest_button_width,
-                &input_being_remapped.key,
+                &s.input_being_remapped.key,
                 KEY_REBIND_TEXT,
                 &sb,
                 allocator
@@ -541,9 +540,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
             display_sorted_table(
                 s,
-                button_mappings,
+                s.button_mappings,
                 largest_button_width,
-                &input_being_remapped.button,
+                &s.input_being_remapped.button,
                 BUTTON_REBIND_TEXT,
                 &sb,
                 allocator
@@ -557,9 +556,9 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
 
             display_sorted_table(
                 s,
-                &axis_mappings,
+                &s.axis_mappings,
                 largest_button_width,
-                &input_being_remapped.axis,
+                &s.input_being_remapped.axis,
                 AXIS_REBIND_TEXT,
                 &sb,
                 allocator
@@ -595,8 +594,8 @@ input_gui :: proc(using s: ^InputSystem, open: ^bool, allocator := context.temp_
         }
 
         i : u32 = 0
-        sensitivity_sliders("Axis sensitivities", axis_sensitivities[:], &sb, &i, allocator)
-        sensitivity_sliders("Stick sensitivities", stick_sensitivities[:], &sb, &i, allocator)
+        sensitivity_sliders("Axis sensitivities", s.axis_sensitivities[:], &sb, &i, allocator)
+        sensitivity_sliders("Stick sensitivities", s.stick_sensitivities[:], &sb, &i, allocator)
     }
     imgui.End()
 }

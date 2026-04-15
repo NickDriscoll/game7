@@ -8,15 +8,15 @@ import "core:slice"
 import "vendor:cgltf"
 import vk "vendor:vulkan"
 
-get_accessor_ptr :: proc(using a: ^cgltf.accessor, $T: typeid) -> [^]T {
-    base_ptr := buffer_view.buffer.data
-    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + buffer_view.offset)
+get_accessor_ptr :: proc(a: ^cgltf.accessor, $T: typeid) -> [^]T {
+    base_ptr := a.buffer_view.buffer.data
+    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, a.offset + a.buffer_view.offset)
     return cast([^]T)offset_ptr
 }
 
-get_bufferview_ptr :: proc(using b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
-    base_ptr := buffer.data
-    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, offset)
+get_bufferview_ptr :: proc(b: ^cgltf.buffer_view, $T: typeid) -> [^]T {
+    base_ptr := b.buffer.data
+    offset_ptr := mem.ptr_offset(cast(^byte)base_ptr, b.offset)
     return cast([^]T)offset_ptr
 }
 
