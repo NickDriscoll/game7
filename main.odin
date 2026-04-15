@@ -1163,8 +1163,9 @@ main :: proc() {
         }
 
         {
-            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 100.0, 5000.0)
-            
+            imgui.SliderInt("Raymarching steps (multiple of 8)", &renderer.uniforms.fog_step_multiple, 1, 16)
+            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 0.0, 50.0)
+            imgui.SliderFloat("Fog max depth", &renderer.uniforms.fog_max_depth, 10.0, 2000.0)
         }
 
         // Render
