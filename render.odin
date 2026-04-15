@@ -128,7 +128,7 @@ UniformBuffer :: struct {
     fog_fudge: f32,
     fog_max_depth: f32,
     fog_step_multiple: i32,
-    _pad: f32,
+    henyey_greenstein_g: f32,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
@@ -413,9 +413,10 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
-        unis.fog_step_multiple = 8
-        unis.fog_fudge = 2000.0
+        unis.fog_step_multiple = 4
+        unis.fog_fudge = 30.0
         unis.fog_max_depth = 250.0
+        unis.henyey_greenstein_g = 0.76
         //unis.flags += {.CRTShader}
     }
 }

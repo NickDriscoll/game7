@@ -42,8 +42,8 @@ float rayleigh_phase_func(float mu)
 // 0 is isotropic scattering
 // > 1 is forward scattering, < 1 is backwards
 // mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
-static const float g = 0.76;
-float henyey_greenstein_phase_func(float mu)
+//static const float g = 0.76;
+float henyey_greenstein_phase_func(float mu, float g)
 {
     return
                         (1.0 - g * g)
@@ -57,18 +57,18 @@ static const float3 betaM = float3(21e-6);                    // Mie
 
 // scale height (m)
 // thickness of the atmosphere if its density were uniform
-static const float hR = 7994.0; // Rayleigh
-static const float hM = 1200.0; // Mie
+// static const float hR = 7994.0; // Rayleigh
+// static const float hM = 1200.0; // Mie
 
 float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u_data) {
-    const int num_samples = 8 * u_data.fog_step_multiple;
+    const int num_samples = 4 * u_data.fog_step_multiple;
 
     DirectionalLight light = u_data.directional_lights[0];
     float3 sun_direction = light.direction;
     float3 sun_color = light.color;
 
     // cosine of angle between view and light directions
-    float mu = dot(-ray.direction, -sun_direction);
+    float mu = dot(ray.direction, sun_direction);
 
     // Rayleigh and Mie phase functions
     // A black box indicating how light is interacting with the material
@@ -77,7 +77,7 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
     //   (the phase angle between 2 directions)
     // * integrates to 1 over the entire sphere of directions
     float phaseR = rayleigh_phase_func(mu);
-    float phaseM = henyey_greenstein_phase_func(mu);
+    float phaseM = henyey_greenstein_phase_func(mu, u_data.henyey_greenstein_g);
 
     // optical depth (or "average density")
     // represents the accumulated extinction coefficients
@@ -85,18 +85,13 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
     float optical_depthR = 0.0;
     float optical_depthM = 0.0;
 
-    // What are we summing?
+    // What are we summing? Incoming radiance?
     float3 sumR = float3(0.0);
     float3 sumM = float3(0.0);
 
     float pixel_depth = distance(u_data.view_position.xyz, frag_pos);
     float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
-    //float march_step = pixel_depth / float(num_samples);
 
-    // static const float HEIGHT_OFFSET = 100.0;
-    static const float HEIGHT_OFFSET = 0.0;
-
-    int shadow_hits = 0;
     for (int i = 0; i < num_samples; i++) {
         float3 s = ray.origin + ray.direction * ((float(i) + 0.1) * march_step);
         // float height = length(s) + HEIGHT_OFFSET;
@@ -159,7 +154,6 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         }
     }
 
-    // float fudge = 2000.0;  // This factor exists bc this proc was ripped out of a physically-based renderer
     float3 rayleigh_contribution = sumR * phaseR * betaR;
     //float3 rayleigh_contribution = {};
     float3 mie_contribution = sumM * phaseM * betaM;
@@ -241,8 +235,8 @@ float4 fragment_main(VertexOutput input) {
 
     DirectionalLight light = u_data.directional_lights[0];
     Ray view_ray;
-    view_ray.direction = normalize(frag_world_pos - u_data.view_position.xyz);
     view_ray.origin = u_data.view_position.xyz;
+    view_ray.direction = normalize(frag_world_pos - view_ray.origin);
     target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, u_data);
 
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
