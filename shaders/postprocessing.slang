@@ -61,7 +61,7 @@ static const float hR = 7994.0; // Rayleigh
 static const float hM = 1200.0; // Mie
 
 float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u_data) {
-    static const int num_samples = 64;
+    const int num_samples = 8 * u_data.fog_step_multiple;
 
     DirectionalLight light = u_data.directional_lights[0];
     float3 sun_direction = light.direction;
@@ -89,9 +89,8 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
     float3 sumR = float3(0.0);
     float3 sumM = float3(0.0);
 
-    static const float MAX_DEPTH = 5000.0;
     float pixel_depth = distance(u_data.view_position.xyz, frag_pos);
-    float march_step = min(pixel_depth, MAX_DEPTH) / float(num_samples);
+    float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
     //float march_step = pixel_depth / float(num_samples);
 
     // static const float HEIGHT_OFFSET = 100.0;
@@ -105,8 +104,11 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         float height = distance(s, {});
 
         // integrate the height scale
-        float hr = exp(-height / hR) * march_step;
-        float hm = exp(-height / hM) * march_step;
+        // float hr = exp(-height / hR) * march_step;
+        // float hm = exp(-height / hM) * march_step;
+        float d = distance(s, ray.origin);
+        float hr = d * march_step;
+        float hm = d * march_step;
         optical_depthR += hr;
         optical_depthM += hm;
 
@@ -131,19 +133,18 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
             // float t0, t1;
             // isect_sphere(light_ray, atmosphere, t0, t1);
     
-            float march_pos2 = 0.0;
             // float march_step2 = t1 / float(num_samples);
             float march_step2 = 0.8;
 
             for (int j = 0; j < num_samples2; j++) {
                 float3 s2 = light_ray.origin + light_ray.direction * ((float(j) + 0.1) * march_step2);
 
-                float height2 = distance(s2, {});
-
-                optical_depth_lightR += exp(-height2 / hR) * march_step2;
-                optical_depth_lightM += exp(-height2 / hM) * march_step2;
-    
-                march_pos2 += march_step2;
+                // float height2 = distance(s2, {});
+                // optical_depth_lightR += exp(-height2 / hR) * march_step2;
+                // optical_depth_lightM += exp(-height2 / hM) * march_step2;
+                float d2 = distance(light_ray.origin, s2);
+                optical_depth_lightR += d2 * march_step2;
+                optical_depth_lightM += d2 * march_step2;
             }
         }
 
@@ -171,8 +172,6 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
 // Returns the world space position of the fragment identified
 // by its depth value and position in UV space
 float3 perspective_frag_depth_to_world_pos(float depth_sample, float2 uv, UniformData *u_data) {
-    // Why does this break when depth_sample ~<= 0.0075???
-    //float z_ndc = max(depth_sample, 0.0075);
     float z_ndc = depth_sample;
     float4 p_ndc = float4(uv * 2.0 - 1.0, z_ndc, 1.0);
     float3 world_pos = perspective_ndc_to_world(p_ndc, u_data);
@@ -239,17 +238,10 @@ float4 fragment_main(VertexOutput input) {
 
     float depth_sample = textures[depth_target].Sample(samplers[sampler_idx], sample_pos).r;
     float3 frag_world_pos = perspective_frag_depth_to_world_pos(depth_sample, sample_pos, u_data);
-    //return float4(frag_world_pos / 300.0, 1.0);
 
     DirectionalLight light = u_data.directional_lights[0];
     Ray view_ray;
-
     view_ray.direction = normalize(frag_world_pos - u_data.view_position.xyz);
-    static const int num_samples = 64;
-    static const float MAX_DEPTH = 750.0;
-    float pixel_depth = distance(u_data.view_position.xyz, frag_world_pos);
-    float march_step = min(pixel_depth, MAX_DEPTH) / float(num_samples);
-    // view_ray.origin = u_data.view_position.xyz + (my_noise(sample_pos * 1000.0) * march_step);
     view_ray.origin = u_data.view_position.xyz;
     target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, u_data);
 
