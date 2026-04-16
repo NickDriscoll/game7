@@ -60,7 +60,7 @@ static const float3 betaM = float3(21e-6);                    // Mie
 // static const float hR = 7994.0; // Rayleigh
 // static const float hM = 1200.0; // Mie
 
-float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u_data) {
+float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, UniformData* u_data) {
     const int num_samples = 4 * u_data.fog_step_multiple;
 
     DirectionalLight light = u_data.directional_lights[0];
@@ -91,9 +91,11 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
 
     float pixel_depth = distance(u_data.view_position.xyz, frag_pos);
     float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
+    float random_offset = my_noise(uv*5000);
 
     for (int i = 0; i < num_samples; i++) {
-        float3 s = ray.origin + ray.direction * ((float(i) + 0.1) * march_step);
+        float d = (float(i) + 0.01 + random_offset) * march_step;
+        float3 s = ray.origin + ray.direction * d;
         // float height = length(s) + HEIGHT_OFFSET;
         // float height = s.z;
         float height = distance(s, {});
@@ -101,9 +103,8 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         // integrate the height scale
         // float hr = exp(-height / hR) * march_step;
         // float hm = exp(-height / hM) * march_step;
-        float d = distance(s, ray.origin);
-        float hr = d * march_step;
-        float hm = d * march_step;
+        float hr = d;
+        float hm = d;
         optical_depthR += hr;
         optical_depthM += hm;
 
@@ -114,10 +115,10 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         };
 
     #if defined(HardwareRT)
-            // Skip integrating this sample if we're in shadow
-            if (trace_shadow_ray(tlases[tlas_idx], light_ray, 1000000.0)) {
-                continue;
-            }
+        // Skip integrating this sample if we're in shadow
+        if (trace_shadow_ray(tlases[tlas_idx], light_ray, 1000000.0)) {
+            continue;
+        }
     #endif
 
         // gather the sunlight
@@ -125,10 +126,6 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         float optical_depth_lightM = 0.0;
         {
             const int num_samples2 = 8;
-            // float t0, t1;
-            // isect_sphere(light_ray, atmosphere, t0, t1);
-    
-            // float march_step2 = t1 / float(num_samples);
             float march_step2 = 0.8;
 
             for (int j = 0; j < num_samples2; j++) {
@@ -154,12 +151,15 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, UniformData* u
         }
     }
 
+    // Average out the sums
+    sumR /= float(num_samples);
+    sumM /= float(num_samples);
+
     float3 rayleigh_contribution = sumR * phaseR * betaR;
     //float3 rayleigh_contribution = {};
     float3 mie_contribution = sumM * phaseM * betaM;
     //float3 mie_contribution = {};
     float3 fogged_color = u_data.fog_fudge * sun_color * (rayleigh_contribution + mie_contribution);
-    // return lerp(fogged_color, sun_direction, float(shadow_hits) / float(num_samples));
     return fogged_color;
 }
 
@@ -237,7 +237,7 @@ float4 fragment_main(VertexOutput input) {
     Ray view_ray;
     view_ray.origin = u_data.view_position.xyz;
     view_ray.direction = normalize(frag_world_pos - view_ray.origin);
-    target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, u_data);
+    target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, sample_pos, u_data);
 
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
         float3 final = crt_filer(textures[color_target], samplers[sampler_idx], sample_pos, u_data.clip_from_screen);
