@@ -120,6 +120,9 @@ struct UniformData {
     int fog_step_multiple;
     float henyey_greenstein_g;
 
+    float beta_scale;
+    float3 _pad;
+
     // RaytracingAccelerationStructure.Handle tlas;
     // float2 _pad1;
 }
