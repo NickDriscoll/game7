@@ -130,6 +130,9 @@ UniformBuffer :: struct {
     fog_step_multiple: i32,
     henyey_greenstein_g: f32,
 
+    beta_scale: f32,
+    _pad: hlsl.float3,
+
     // acceleration_structures_ptr: vk.DeviceAddress,
     // _pad1: [2]f32,
 }
@@ -417,6 +420,7 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
         unis.fog_fudge = 30.0
         unis.fog_max_depth = 250.0
         unis.henyey_greenstein_g = 0.76
+        unis.beta_scale = 1.0
         //unis.flags += {.CRTShader}
     }
 }
