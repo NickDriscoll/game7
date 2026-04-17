@@ -91,10 +91,10 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, Uni
 
     float pixel_depth = distance(u_data.view_position.xyz, frag_pos);
     float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
-    float random_offset = my_noise(uv*5000);
+    float random_offset = my_noise(uv*5000 + 5.3338 * u_data.time);
 
     for (int i = 0; i < num_samples; i++) {
-        float d = (float(i) + 0.01 + random_offset) * march_step;
+        float d = (float(i) + random_offset) * march_step;
         float3 s = ray.origin + ray.direction * d;
         // float height = length(s) + HEIGHT_OFFSET;
         // float height = s.z;
@@ -157,7 +157,7 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, Uni
 
     float3 rayleigh_contribution = sumR * phaseR * betaR;
     //float3 rayleigh_contribution = {};
-    float3 mie_contribution = sumM * phaseM * betaM;
+    float3 mie_contribution = sumM * phaseM * betaM * u_data.beta_scale;
     //float3 mie_contribution = {};
     float3 fogged_color = u_data.fog_fudge * sun_color * (rayleigh_contribution + mie_contribution);
     return fogged_color;
