@@ -119,19 +119,25 @@ main :: proc() {
     stdout_files: [dynamic]^os.File
     defer delete(stdout_files)
 
+    // Need to create log directory if it doesn't exist
+    os.make_directory_all("./build/logs")
+
     new_log_file :: proc(name: string) -> ^os.File {
 	sb: strings.Builder
 	strings.builder_init(&sb)
 	defer strings.builder_destroy(&sb)
-	path := fmt.sbprintf(&sb, "./build/%v.log", name)
+	path := fmt.sbprintf(&sb, "./build/logs/%v.log", name)
 
 	f, err := os.create(path)
 	if err != nil {
-	    log.warnf("Failed to create log file: %v", err)
+	    log.warnf("Failed to create log file at \"%v\": %v", path, err)
 	}
 
         return f;
     }
+
+    // Need to create shader spir-v directory
+    os.make_directory_all("data/shaders")
 
     shader_types : []string = {"vertex", "fragment", "compute"}
     entry_points: []string = {"vertex_main", "fragment_main", "compute_main"}
