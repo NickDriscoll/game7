@@ -106,9 +106,32 @@ main :: proc() {
     defer strings.builder_destroy(&in_sb)
     defer strings.builder_destroy(&out_sb)
 
+    // stdout file path string builder
+    file_sb: strings.Builder
+    strings.builder_init(&file_sb)
+    defer strings.builder_destroy(&file_sb)
+
     // Dynamic array for gathering process handles to wait on
     processes: [dynamic]os.Process
     defer delete(processes)
+
+    // File handles for stdout files
+    stdout_files: [dynamic]^os.File
+    defer delete(stdout_files)
+
+    new_log_file :: proc(name: string) -> ^os.File {
+	sb: strings.Builder
+	strings.builder_init(&sb)
+	defer strings.builder_destroy(&sb)
+	path := fmt.sbprintf(&sb, "./build/%v.log", name)
+
+	f, err := os.create(path)
+	if err != nil {
+	    log.warnf("Failed to create log file: %v", err)
+	}
+
+        return f;
+    }
 
     shader_types : []string = {"vertex", "fragment", "compute"}
     entry_points: []string = {"vertex_main", "fragment_main", "compute_main"}
@@ -124,19 +147,25 @@ main :: proc() {
             out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
             in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
 
+	    log_name := fmt.sbprintf(&file_sb, "%v.%v.stdout", shader, type[0:4])
+	    defer strings.builder_reset(&file_sb)
+	    stdout_file := new_log_file(log_name)
+	    append(&stdout_files, stdout_file)
+
             slangc_command := os.Process_Desc {
                 command = {
                     "slangc",
                     "-stage",
                     type,
                     "-g3",
-                    "-Wno-39001",   // Ignore shaders aliasing descriptor bindings
+                    "-Wno-39001",   // Ignore aliased descriptor bindings warning
                     "-entry",
                     entry_point,
                     "-o",
                     out_path,
                     in_path
-                }
+                },
+		stdout = stdout_file,
             }
 
             process, error := os.process_start(slangc_command)
@@ -154,6 +183,11 @@ main :: proc() {
                 out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v%v.%v.spv", shader, extra[1], type[0:4])
                 in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
 
+		log_name := fmt.sbprintf(&file_sb, "%v%v.%v.stdout", shader, extra[1], type[0:4])
+	        defer strings.builder_reset(&file_sb)
+	        stdout_file := new_log_file(log_name)
+	        append(&stdout_files, stdout_file)
+
                 slangc_command := os.Process_Desc {
                     command = {
                         "slangc",
@@ -168,7 +202,8 @@ main :: proc() {
                         "-o",
                         out_path,
                         in_path
-                    }
+                    },
+		    stdout = stdout_file,
                 }
 
                 process, error := os.process_start(slangc_command)
@@ -200,8 +235,12 @@ main :: proc() {
     log.info("starting odin compiler...")
     odin_process: os.Process
     {
+	stdout_file := new_log_file("main.stdout")
+	append(&stdout_files, stdout_file)
+
         odin_proc := os.Process_Desc {
-            command = ODIN_COMMAND
+            command = ODIN_COMMAND,
+	    stderr = stdout_file,
         }
         command_str := strings.join(odin_proc.command, " ")
         log.debugf("Launching:\n\"%v\"", command_str)
@@ -218,6 +257,9 @@ main :: proc() {
         }
     }
 
+    for file in stdout_files {
+        os.close(file)
+    }
 
     log.info("Program compilation succeeded!")
 }
