@@ -4,6 +4,7 @@
 *.ini
 *.cfg
 *.spall
+*.log
 .vscode/
 ols.json
 blender/
