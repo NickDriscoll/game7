@@ -9,7 +9,7 @@ else when ODIN_OS == .Darwin  {
 }
 
 // imgui_impl_sdl2.h
-// Last checked `v1.91.1-docking` (6df1a0)
+// Last checked `v1.91.7-docking` (a9cd0f5)
 GamepadMode :: enum i32 {
 	AutoFirst,
 	AutoAll,

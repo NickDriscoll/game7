@@ -9,7 +9,7 @@ else when ODIN_OS == .Darwin  {
 }
 
 // imgui_impl_opengl3.h
-// Last checked `v1.91.1-docking` (6df1a0)
+// Last checked `v1.91.7-docking` (a9cd0f5)
 @(link_prefix="ImGui_ImplOpenGL3_")
 foreign lib {
 	// Backend API

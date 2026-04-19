@@ -10,6 +10,7 @@ import "base:runtime"
 
 import "core:fmt"
 import "core:os"
+import "core:math/linalg"
 
 import "vendor:glfw"
 import "vendor:wgpu"
@@ -49,7 +50,7 @@ main :: proc() {
 	instance = wgpu.CreateInstance()
 	defer wgpu.InstanceRelease(instance)
 
-	wgpu.InstanceRequestAdapter(instance, nil, on_adapter, nil)
+	wgpu.InstanceRequestAdapter(instance, nil, { callback = on_adapter })
 	defer wgpu.AdapterRelease(adapter)
 	defer wgpu.DeviceRelease(device)
 	defer wgpu.SurfaceRelease(surface)
@@ -64,19 +65,16 @@ main :: proc() {
 			continue
 		}
 
-		width, height := glfw.GetFramebufferSize(window)
-		if u32(width) != config.width || u32(height) != config.height {
-			imgui_impl_wgpu.InvalidateDeviceObjects()
+		imgui_impl_glfw.NewFrame()
 
-			config.width  = u32(width)
-			config.height = u32(height)
+		sz := linalg.to_u32(io.DisplaySize * io.DisplayFramebufferScale)
+		if sz != ([2]u32{config.width, config.height}) {
+			config.width  = sz.x
+			config.height = sz.y
 			wgpu.SurfaceConfigure(surface, &config)
-
-			imgui_impl_wgpu.CreateDeviceObjects()
 		}
 
 		imgui_impl_wgpu.NewFrame()
-		imgui_impl_glfw.NewFrame()
 		im.NewFrame()
 
 		im.ShowDemoWindow()
@@ -122,19 +120,19 @@ main :: proc() {
 	}
 }
 
-on_adapter :: proc "c" (status: wgpu.RequestAdapterStatus, the_adapter: wgpu.Adapter, msg: cstring, user: rawptr) {
+on_adapter :: proc "c" (status: wgpu.RequestAdapterStatus, the_adapter: wgpu.Adapter, msg: string, user, _: rawptr) {
 	context = ctx
 	if status == .Success {
 		adapter = the_adapter
 		assert(adapter != nil)
-		wgpu.AdapterRequestDevice(adapter, nil, on_device, nil)
+		wgpu.AdapterRequestDevice(adapter, nil, { callback = on_device })
 	} else {
 		fmt.eprintfln("Could not get WebGPU adapter: %v: %v", status, msg)
 		os.exit(1)
 	}
 }
 
-on_device :: proc "c" (status: wgpu.RequestDeviceStatus, the_device: wgpu.Device, msg: cstring, user: rawptr) {
+on_device :: proc "c" (status: wgpu.RequestDeviceStatus, the_device: wgpu.Device, msg: string, user, _: rawptr) {
 	context = ctx
 	if status == .Success {
 		device = the_device
@@ -149,28 +147,23 @@ on_device :: proc "c" (status: wgpu.RequestDeviceStatus, the_device: wgpu.Device
 
 	queue = wgpu.DeviceGetQueue(device)
 
-	surface_capabilities := wgpu.SurfaceGetCapabilities(surface, adapter)
+	surface_capabilities, _ := wgpu.SurfaceGetCapabilities(surface, adapter)
 	assert(surface_capabilities.formatCount >= 1)
 	// The first present mode is the preferred one
 	preferred_surface_format := surface_capabilities.formats[0]
 
-	display_w, display_h := glfw.GetFramebufferSize(window)
 	config  = {
 		device      = device,
 		format      = preferred_surface_format,
 		usage       = { .RenderAttachment },
-		width       = u32(display_w),
-		height      = u32(display_h),
 		alphaMode   = .Opaque,
 		presentMode = .Fifo,
 	}
-	wgpu.SurfaceConfigure(surface, &config)
 
 	init_info := imgui_impl_wgpu.INIT_INFO_DEFAULT
 	init_info.Device = device
 	init_info.NumFramesInFlight = 3
 	init_info.RenderTargetFormat = preferred_surface_format
-	init_info.DepthStencilFormat = .Undefined
 
-	assert(imgui_impl_wgpu.Init(&init_info))
+	imgui_impl_wgpu.Init(init_info)
 }

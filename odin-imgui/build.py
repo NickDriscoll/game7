@@ -17,14 +17,14 @@ import random
 # @CONFIGURE: Must be key into below table
 # Note that the backend files and examples may also have to be updated, if you use these.
 git_heads = {
-	"imgui": "v1.91.1-docking",
+	"imgui": "v1.91.7-docking",
 	"dear_bindings": "81c906b",
 }
 
-# Note - tested with Odin version `dev-2025-01`
+# Note - tested with Odin version `dev-2025-07`
 
 # @CONFIGURE: Elements must be keys into below table
-#wanted_backends = ["vulkan", "sdl2", "opengl3", "sdlrenderer2", "glfw", "dx11", "dx12", "win32", "osx", "metal", "wgpu"]
+#wanted_backends = ["vulkan", "sdl2", "opengl3", "sdlrenderer2", "glfw", "dx11", "dx12", "osx", "metal", "wgpu", "webgl"]
 wanted_backends = []
 # Supported means that an impl bindings file exists, and that it has been tested.
 # Some backends (like dx12, win32) have bindings but not been tested.
@@ -47,7 +47,8 @@ backends = {
 	"sdlrenderer2": { "supported": True,  "deps": ["sdl2"] },
 	"sdlrenderer3": { "supported": False },
 	"vulkan":       { "supported": True,  "defines": ["VK_NO_PROTOTYPES"], "deps": ["vulkan"] },
-	"wgpu":         { "supported": True,  "deps": ["wgpu"] },
+	"webgl":        { "supported": True,  "odin": True },
+	"wgpu":         { "supported": True,  "odin": True },
 	# Bindings exist for win32, but they are untested
 	"win32":        { "supported": False, "enabled_on": ["windows"] },
 }
@@ -57,11 +58,13 @@ backend_deps = {
 	"sdl2":   { "repo": "https://github.com/libsdl-org/SDL.git",               "commit": "release-2.28.3", "path": "SDL2" },
 	"glfw":   { "repo": "https://github.com/glfw/glfw.git",                    "commit": "3eaf125",        "path": "glfw" },
 	"vulkan": { "repo": "https://github.com/KhronosGroup/Vulkan-Headers.git",  "commit": "4f51aac",        "path": "Vulkan-Headers" },
-	"wgpu":   { "repo": "https://github.com/webgpu-native/webgpu-headers.git", "commit": "aef5e42",        "path": "webgpu-headers/webgpu", "include": "webgpu-headers" },
 }
 
 # @CONFIGURE:
 compile_debug = False
+
+# @CONFIGURE:
+build_wasm = False
 
 # @CONFIGURE:
 build_imgui_internal = True
@@ -85,7 +88,7 @@ def exec(cmd: typing.List[str], what: str) -> str:
 	if len(what) > max_what_len:
 		what = what[:max_what_len - 2] + ".."
 	print(what + (" " * (max_what_len - len(what))) + "> " + " ".join(cmd))
-	try: subprocess.check_output(cmd)
+	try: return subprocess.check_output(cmd).decode('utf-8')
 	except subprocess.CalledProcessError as uh_oh:
 		print("=" * 80)
 		print("FAILED")
@@ -104,7 +107,24 @@ def copy(from_path: str, files: typing.List[str], to_path: str):
 	for file in files:
 		shutil.copy(path.join(from_path, file), to_path)
 
+# glob copy backported for python 3.9
+def glob_copy_39(root_dir: str, glob_pattern: str, dest_dir: str):
+	real_pattern = os.path.join(root_dir, glob_pattern)
+	the_files = glob(real_pattern)
+
+	# strip root_dir
+	results = []
+	for item in the_files:
+		results.append(item[len(root_dir)+1:])
+
+	copy(root_dir, results, dest_dir)
+	return results
+
 def glob_copy(root_dir: str, glob_pattern: str, dest_dir: str):
+	version_info = sys.version_info
+	if version_info.major == 3 and version_info.minor == 9:
+		return glob_copy_39(root_dir, glob_pattern, dest_dir)
+
 	the_files = glob(root_dir=root_dir, pathname=glob_pattern)
 	copy(root_dir, the_files, dest_dir)
 	return the_files
@@ -137,7 +157,8 @@ def ensure_checked_out_with_commit(dir: str, repo: str, wanted_commit: str):
 	if not path.exists(dir):
 		exec(["git", "clone", repo, dir], f"Cloning {dir}")
 
-	exec(["git", "-c", "advice.detachedHead=false", "-C", dir, "checkout", "-f", wanted_commit], f"Checking out {dir}")
+	exec(["git", "-C", dir, "fetch"], f"Fetching latest commits for {dir}")
+	exec(["git", "-c", "advice.detachedHead=false", "-C", dir, "checkout", "--force", wanted_commit], f"Checking out {dir}")
 
 def get_platform_imgui_lib_name() -> str:
 	""" Returns imgui binary name for system/processor """
@@ -165,6 +186,85 @@ def did_re_execute() -> bool:
 	print("Re-executing with vcvarsall..")
 	os.system("".join(["vcvarsall.bat x64 && ", sys.executable, " build.py -no_reexecute"]))
 	return True
+
+def compile(backend_deps_names: typing.Set[str], all_sources: typing.List[str], wasm: bool):
+	# Basic flags
+	# We aren't meant to have IMGUI_IMPL_API be extern "C"?
+	# https://github.com/ocornut/imgui/issues/7930#issuecomment-2319725332
+	if wasm:
+		compile_flags = ['-DIMGUI_IMPL_API=extern\"C\"', "-DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS", "-DIMGUI_DISABLE_FILE_FUNCTIONS", "--target=wasm32", "-mbulk-memory", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-nostdlib++", "-fno-use-cxa-atexit"]
+
+		assertx(has_tool("odin"), "odin not found!")
+		root = exec(["odin", "root"], "Get odin root")
+		compile_flags += ["--sysroot=" + root + "vendor/libc"]
+	else:
+		compile_flags = platform_select({
+			"windows": ['/DIMGUI_IMPL_API=extern\\\"C\\\"'],
+			"linux, darwin": ['-DIMGUI_IMPL_API=extern\"C\"', "-fPIC", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-std=c++11"],
+		})
+
+	# Optimization flags
+	if compile_debug: compile_flags += platform_select({ "windows": ["/Od", "/Z7"], "linux, darwin": ["-g", "-O0"] })
+	else: compile_flags += platform_select({ "windows": ["/O2"], "linux, darwin": ["-O3"] })
+
+	if not wasm:
+		# Find and copy imgui backend sources to temp folder
+		for backend_name in wanted_backends:
+			backend = backends[backend_name]
+
+			if "enabled_on" in backend and not platform.system().lower() in backend["enabled_on"]:
+				continue
+
+			if not backend["supported"]:
+				print(f"Warning: compiling backend '{backend_name}' which is not officially supported")
+
+			if "odin" in backend and backend["odin"]:
+				print(f"Note: backend '{backend_name}' is native Odin code, nothing to compile")
+				continue
+
+			glob_copy(pp("imgui/backends"), f"imgui_impl_{backend_name}.*", "temp")
+
+			if backend_name in ["osx", "metal"]: all_sources += [f"imgui_impl_{backend_name}.mm"]
+			else:                                all_sources += [f"imgui_impl_{backend_name}.cpp"]
+
+			if backend_name == "opengl3":
+				shutil.copy(pp("imgui/backends/imgui_impl_opengl3_loader.h"), "temp")
+
+			for define in backend.get("defines", []): compile_flags += [platform_select({ "windows": f"/D{define}", "linux, darwin": f"-D{define}" })]
+
+		# Add backend dependency include paths
+		for backend_dep in backend_deps_names:
+			include_path = path.join(backend_deps[backend_dep]["path"], "include")
+			if "include" in backend_deps[backend_dep]:
+				include_path = backend_deps[backend_dep]["include"]
+
+			if platform_win32_like:  compile_flags += ["/I" + path.join("..", "backend_deps", include_path)]
+			elif platform_unix_like: compile_flags += ["-I" + path.join("..", "backend_deps", include_path)]
+
+	all_objects = []
+	if platform_win32_like: all_objects += map(lambda file: file.removesuffix(".cpp") + ".obj", all_sources)
+	elif platform_unix_like:
+		for file in all_sources:
+			if file.endswith(".cpp"): all_objects.append(file.removesuffix(".cpp") + ".o")
+			elif file.endswith(".mm"): all_objects.append(file.removesuffix(".mm") + ".o")
+
+	os.chdir("temp")
+
+	# cl.exe, *in particular*, won't work without running vcvarsall first, even if cl.exe is in the path.
+	# See did_re_execute
+	if platform_win32_like:  exec_vcvars(["cl"] + compile_flags + ["/c"] + all_sources, "Compiling sources")
+	elif platform_unix_like: exec(["clang"] + compile_flags + ["-c"] + all_sources, "Compiling sources")
+
+	os.chdir("..")
+
+	dest_binary = get_platform_imgui_lib_name()
+
+	if wasm:
+		shutil.rmtree(path="wasm", ignore_errors=True)
+		os.mkdir("wasm")
+		copy("temp", all_objects, "wasm")
+	elif platform_win32_like: exec(["lib", "/OUT:" + dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
+	elif platform_unix_like:  exec(["ar", "rcs", dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
 
 def main():
 	assertx(path.isfile("build.py"), "You have to run the script from within the repository for now!")
@@ -227,80 +327,28 @@ def main():
 	if build_imgui_internal:
 		all_sources.append("c_imgui_internal.cpp")
 
-	# Basic flags
-	compile_flags = platform_select({
-		"windows": ['/DIMGUI_IMPL_API=extern\\\"C\\\"'],
-		"linux, darwin": ['-DIMGUI_IMPL_API=extern\"C\"', "-fPIC", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-std=c++11"],
-	})
-
-	# Optimization flags
-	if compile_debug: compile_flags += platform_select({ "windows": ["/Od", "/Z7"], "linux, darwin": ["-g", "-O0"] })
-	else: compile_flags += platform_select({ "windows": ["/O2"], "linux, darwin": ["-O3"] })
-
-	# Write file describing the enabled backends
-	f = open("impl_enabled.odin", "w+")
+	# Write file describing the build configuration.
+	f = open("enabled.odin", "w+")
 	f.writelines([
 		"package imgui\n",
 		"\n",
-		"// This is a generated helper file which you can use to know which\n",
-		"// implementations have been compiled into the bindings.\n",
+		"// This is a generated helper file which you can use to know about the build configuration.\n",
 		"\n",
 	])
+
+	f.writelines([f"DEBUG_ENABLED :: {'true' if compile_debug else 'false'}", "\n"])
+	f.writelines([f"WASM_ENABLED :: {'true' if build_wasm else 'false'}", "\n", "\n"])
 
 	for backend_name in backends:
 		f.writelines([f"BACKEND_{backend_name.upper()}_ENABLED :: {'true' if backend_name in wanted_backends else 'false'}\n"])
 
-	# Find and copy imgui backend sources to temp folder
-	for backend_name in wanted_backends:
-		backend = backends[backend_name]
-
-		if "enabled_on" in backend and not platform.system().lower() in backend["enabled_on"]:
-			continue
-
-		if not backend["supported"]:
-			print(f"Warning: compiling backend '{backend_name}' which is not officially supported")
-
-		glob_copy(pp("imgui/backends"), f"imgui_impl_{backend_name}.*", "temp")
-
-		if backend_name in ["osx", "metal"]: all_sources += [f"imgui_impl_{backend_name}.mm"]
-		else:                                all_sources += [f"imgui_impl_{backend_name}.cpp"]
-
-		if backend_name == "opengl3":
-			shutil.copy(pp("imgui/backends/imgui_impl_opengl3_loader.h"), "temp")
-
-		for define in backend.get("defines", []): compile_flags += [platform_select({ "windows": f"/D{define}", "linux, darwin": f"-D{define}" })]
-
-	# Add backend dependency include paths
-	for backend_dep in backend_deps_names:
-		include_path = path.join(backend_deps[backend_dep]["path"], "include")
-		if "include" in backend_deps[backend_dep]:
-			include_path = backend_deps[backend_dep]["include"]
-
-		if platform_win32_like:  compile_flags += ["/I" + path.join("..", "backend_deps", include_path)]
-		elif platform_unix_like: compile_flags += ["-I" + path.join("..", "backend_deps", include_path)]
-
-	all_objects = []
-	if platform_win32_like: all_objects += map(lambda file: file.removesuffix(".cpp") + ".obj", all_sources)
-	elif platform_unix_like:
-		for file in all_sources:
-			if file.endswith(".cpp"): all_objects.append(file.removesuffix(".cpp") + ".o")
-			elif file.endswith(".mm"): all_objects.append(file.removesuffix(".mm") + ".o")
-
-	os.chdir("temp")
-
-	# cl.exe, *in particular*, won't work without running vcvarsall first, even if cl.exe is in the path.
-	# See did_re_execute
-	if platform_win32_like:  exec_vcvars(["cl"] + compile_flags + ["/c"] + all_sources, "Compiling sources")
-	elif platform_unix_like: exec(["clang"] + compile_flags + ["-c"] + all_sources, "Compiling sources")
-
-	os.chdir("..")
+	if build_wasm:
+		compile(backend_deps_names, all_sources, True)
+	compile(backend_deps_names, all_sources, False)
 
 	dest_binary = get_platform_imgui_lib_name()
 
-	if platform_win32_like:  exec(["lib", "/OUT:" + dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
-	elif platform_unix_like: exec(["ar", "rcs", dest_binary] + map_to_folder(all_objects, "temp"), "Making library from objects")
-
-	expected_files = ["imgui.odin", "impl_enabled.odin", dest_binary] # TODO: imconfig, internal
+	expected_files = ["imgui.odin", "enabled.odin", dest_binary] # TODO: imconfig, internal
 
 	for file in expected_files:
 		assertx(path.isfile(file), f"Missing file '{file}' in build folder! Something went wrong..")

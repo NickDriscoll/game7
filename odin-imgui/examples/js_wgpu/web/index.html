@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Dear Imgui</title>
+		<style>
+			html, body, canvas {
+				height: 100%;
+				padding: 0;
+				margin: 0;
+			}
+
+			body {
+				overflow: hidden;
+			}
+
+			canvas {
+				width: 100%;
+			}
+		</style>
+	</head>
+	<body id="body">
+		<canvas id="wgpu-canvas"></canvas>
+		<h1 id="unsupported" style="display: none;">WebGPU is unsupported by your browser</h1>
+
+		<script type="text/javascript" src="odin.js"></script>
+		<script type="text/javascript" src="wgpu.js"></script>
+		<script type="text/javascript">
+			const mem = new WebAssembly.Memory({ initial: 32000, maximum: 65536, shared: false });
+			const memInterface = new odin.WasmMemoryInterface();
+			memInterface.setMemory(mem);
+
+			const wgpuInterface = (new odin.WebGPUInterface(memInterface)).getInterface();
+
+			odin.runWasm("module.wasm", null, { wgpu: wgpuInterface }, memInterface, /*intSize=8*/);
+		</script>
+	</body>
+</html>
+asdasd

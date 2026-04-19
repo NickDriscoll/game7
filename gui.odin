@@ -83,7 +83,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     // Free CPU-side texture data
     imgui.FontAtlas_ClearTexData(io.Fonts)
 
-    imgui.FontAtlas_SetTexID(io.Fonts, hm.handle_to_rawptr(imgui_state.font_atlas))
+    imgui.FontAtlas_SetTexID(io.Fonts, hm.handle_to_u64(imgui_state.font_atlas))
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -581,7 +581,7 @@ render_imgui :: proc(
                 },
             })
 
-            tex_handle := hm.rawptr_to_handle(cmd.TextureId)
+            tex_handle := hm.u64_to_handle(cmd.TextureId)
             vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &ImguiPushConstants {
                 font_idx = tex_handle.index,
                 sampler = .Point,
