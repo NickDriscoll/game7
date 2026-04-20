@@ -476,9 +476,10 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
         unis.fog_step_multiple = 4
-        unis.fog_fudge = 30.0
+        unis.fog_fudge = 1500.0
         unis.fog_max_depth = 250.0
-        unis.henyey_greenstein_g = 0.76
+        //unis.henyey_greenstein_g = 0.76
+        unis.henyey_greenstein_g = 0.55
         unis.beta_scale = 1.0
         //unis.flags += {.CRTShader}
     }

@@ -221,13 +221,8 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
-    // Extract resolution from clip_from_screen matrix
-    float2 framebuffer_resolution;
-    // framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
-    // framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
-    framebuffer_resolution = { 640.0, 480.0 };
-
-    float2 sample_pos = input.uv;
+    float2 uv = input.uv;
+    float2 sample_pos = uv;
     sample_pos += u_data.distortion_strength * 
         float2(
             my_noise(input.uv + 0.5 * u_data.time),
@@ -235,10 +230,6 @@ float4 fragment_main(VertexOutput input) {
         );
 
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
-<<<<<<< HEAD
-    if ((u_data.flags & UniformFlag.CRTShader) != 0) {
-=======
->>>>>>> 8da998d (everything squashed)
 
     float depth_sample = textures[depth_target].Sample(samplers[sampler_idx], sample_pos).r;
     float3 frag_world_pos = perspective_frag_depth_to_world_pos(depth_sample, sample_pos, u_data);
