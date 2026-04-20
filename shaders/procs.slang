@@ -28,7 +28,6 @@ float3 shade_sky(float3 view_dir, UniformData* u_data, uint sampler_idx) {
 }
 
 bool trace_shadow_ray(RaytracingAccelerationStructure tlas, Ray r, float max_length) {
-#if defined(HardwareRT)
     RayDesc ray;
     ray.Direction = r.direction;
     ray.Origin = r.origin;
@@ -46,7 +45,4 @@ bool trace_shadow_ray(RaytracingAccelerationStructure tlas, Ray r, float max_len
     query.Proceed();
 
     return query.CommittedStatus() != COMMITTED_NOTHING;
-#else
-    return false;
-#endif
 }
