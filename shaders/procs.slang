@@ -1,6 +1,10 @@
 import structs;
 import tex_bindings;
 
+float2 dimensions_from_clip_from_screen(float4x4 clip_from_screen) {
+    // clip_from_screen[0][0] == 2.0 / screen_width
+}
+
 float3 sky_color(float3 view_dir) {
     float3 sky = (view_dir + 1.0) / 2.0;
     return sky;
@@ -24,7 +28,6 @@ float3 shade_sky(float3 view_dir, UniformData* u_data, uint sampler_idx) {
 }
 
 bool trace_shadow_ray(RaytracingAccelerationStructure tlas, Ray r, float max_length) {
-#if defined(HardwareRT)
     RayDesc ray;
     ray.Direction = r.direction;
     ray.Origin = r.origin;
@@ -42,7 +45,4 @@ bool trace_shadow_ray(RaytracingAccelerationStructure tlas, Ray r, float max_len
     query.Proceed();
 
     return query.CommittedStatus() != COMMITTED_NOTHING;
-#else
-    return false;
-#endif
 }

@@ -417,9 +417,10 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
         unis.fog_step_multiple = 4
-        unis.fog_fudge = 30.0
+        unis.fog_fudge = 1500.0
         unis.fog_max_depth = 250.0
-        unis.henyey_greenstein_g = 0.76
+        //unis.henyey_greenstein_g = 0.76
+        unis.henyey_greenstein_g = 0.55
         unis.beta_scale = 1.0
         //unis.flags += {.CRTShader}
     }
@@ -1905,15 +1906,6 @@ render_scene :: proc(
         len(renderer.ps1_static_instances),
         draws_offset
     )
-
-    // After all imgui work, update clip_from_screen matrix
-    io := imgui.GetIO()
-    renderer.uniforms.clip_from_screen = {
-        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    }
 
     // Update instances buffer
     {
