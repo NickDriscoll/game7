@@ -21,7 +21,7 @@
 
 Download the following and put them in your PATH
 - [Odin (ver. dev-2026-04)](https://github.com/odin-lang/Odin/releases/tag/dev-2026-04)
-- [Slang (ver. 2026.5.2)](https://github.com/shader-slang/slang/releases/download/v2026.5.2)
+- [Slang (ver. 2026.5.2)](https://github.com/shader-slang/slang/releases/tag/v2026.5.2)
 
 Clone the repo and init submodules
 ```
