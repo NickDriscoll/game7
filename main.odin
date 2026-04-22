@@ -501,7 +501,7 @@ main :: proc() {
         // Update
 
         // Misc imgui window for testing
-        @static cpu_limiter_ms : c.int = 100
+        @static minimum_frametime : c.int = 33
         @static move_player := false
         if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
@@ -579,10 +579,10 @@ main :: proc() {
                 imgui.SameLine()
                 HelpMarker(
                     "Enabling this setting forces the main thread " +
-                    "to sleep for 100 milliseconds at the end of the main loop, " +
-                    "effectively capping the framerate to 10 FPS"
+                    "to sleep for (minimum_frametime - this_frames_duration) milliseconds " +
+                    "at the end of the main loop, more-or-less capping the framerate."
                 )
-                imgui.SliderInt("CPU Limiter milliseconds", &cpu_limiter_ms, 10, 1000)
+                imgui.SliderInt("Minimum frametime", &minimum_frametime, 2, 50)
 
                 imgui.Separator()
             }
@@ -1229,7 +1229,12 @@ main :: proc() {
         // CPU limiter
         if do_limit_cpu {
             scoped_event(&profiler, "CPU Limiter")
-            time.sleep(time.Duration(MILLISECONDS_TO_NANOSECONDS * cpu_limiter_ms))
+            min_time := time.time_add(
+                current_time,
+                time.Duration(MILLISECONDS_TO_NANOSECONDS * minimum_frametime)
+            )
+            sleep_duration := time.diff(time.now(), min_time)
+            time.sleep(sleep_duration)
         }
     }
 
