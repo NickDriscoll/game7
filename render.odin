@@ -2600,7 +2600,7 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
 
                     image := &gd.images.values[i]
                     as := f32(image.extent.width) / f32(image.extent.height)
-                    height := f32(min(512, image.extent.height))
+                    height := f32(clamp(image.extent.height, 128, 512))
                     width := as * height
                     imgui.Image(imgui.TextureID(uintptr(i)), {width, height})
                 }
