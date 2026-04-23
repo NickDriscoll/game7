@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
 import "core:mem"
+import vmem "core:mem/virtual"
 import "core:os"
 import "core:strings"
 import "core:time"
@@ -23,9 +24,6 @@ TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
 MAXIMUM_FRAME_DT :: 1.0 / 30.0
-
-SCENE_ARENA_SIZE :: 16 * 1024 * 1024          // Memory pool for per-scene allocations
-TEMP_ARENA_SIZE :: 4 * 1024 * 1024                // Memory pool for per-frame allocations
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
@@ -134,6 +132,8 @@ main :: proc() {
 
     current_time: time.Time
     previous_time: time.Time
+    per_scene_arena: vmem.Arena
+    per_frame_arena: vmem.Arena
     scene_allocator: mem.Allocator
     per_frame_allocator: mem.Allocator
     load_new_level: Maybe(string)
@@ -156,27 +156,22 @@ main :: proc() {
         // Set up per-scene allocator
         {
             scoped_event(&profiler, "Create per-scene allocator")
-            per_scene_arena: mem.Arena
-            scene_backing_memory, err := mem.alloc_bytes(SCENE_ARENA_SIZE)
+            err := vmem.arena_init_growing(&per_scene_arena)
             if err != nil {
-                log.error("Error allocating scene allocator backing buffer.")
+                log.errorf("Error initing virtual arena: %v", err)
             }
 
-            mem.arena_init(&per_scene_arena, scene_backing_memory)
-            scene_allocator = mem.arena_allocator(&per_scene_arena)
+            scene_allocator = vmem.arena_allocator(&per_scene_arena)
         }
 
         // Set up per-frame temp allocator
         {
             scoped_event(&profiler, "Create per-frame allocator")
-            per_frame_arena: mem.Arena
-            temp_backing_memory, err := mem.alloc_bytes(TEMP_ARENA_SIZE)
+            err := vmem.arena_init_growing(&per_frame_arena)
             if err != nil {
-                log.error("Error allocating temporary allocator backing buffer.")
+                log.errorf("Error initing virtual arena: %v", err)
             }
-
-            mem.arena_init(&per_frame_arena, temp_backing_memory)
-            per_frame_allocator = mem.arena_allocator(&per_frame_arena)
+            per_frame_allocator = vmem.arena_allocator(&per_frame_arena)
         }
         context.temp_allocator = per_frame_allocator
 
