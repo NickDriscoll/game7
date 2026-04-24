@@ -218,6 +218,13 @@ new_coin :: proc(game_state: ^GameState, position: hlsl.float3) {
     append(&game_state.coins, id)
 }
 
+delete_coin :: proc(game_state: ^GameState, idx: int) {
+    id := game_state.coins[idx]
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.static_models, id)
+    unordered_remove(&game_state.coins, idx)
+}
+
 EnemyAI :: struct {
     home_position: hlsl.float3,
     facing: hlsl.float3,
@@ -2058,6 +2065,17 @@ scene_editor :: proc(
             // imgui.EndDisabled()
 
             imgui.Separator()
+        }
+
+        if imgui.Button("Delete all coins") {
+            for len(game_state.coins) > 0 {
+                delete_coin(game_state, 0)
+            }
+
+            // for i in 1..=len(game_state.coins) {
+            //     idx := len(game_state.coins) - i
+            //     delete_coin(game_state, idx)
+            // }
         }
 
         // Edit verb selection
