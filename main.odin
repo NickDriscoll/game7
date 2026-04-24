@@ -49,31 +49,45 @@ Window :: struct {
     window: ^sdl2.Window,
 }
 
+AppOption :: enum {
+    LimitCPU,
+    PerfProfile
+}
+AppOptions :: bit_set[AppOption]
+
 App :: struct {
     global_allocator: mem.Allocator,
     per_scene_allocator: mem.Allocator,
     per_frame_allocator: mem.Allocator,
+    per_scene_arena: vmem.Arena,
+    per_frame_arena: vmem.Arena,
+    global_track: mem.Tracking_Allocator,
+    scene_track: mem.Tracking_Allocator,
+    temp_track: mem.Tracking_Allocator,
+
+    vgd: vkw.GraphicsDevice,
+    renderer: Renderer,
+    input_system: InputSystem,
+    audio_system: AudioSystem,
+    imgui_state: ImguiState,
+
+    game_state: GameState,
+
+    app_options: AppOptions,
 
     current_time: time.Time,
     previous_time: time.Time,
-    per_scene_arena: vmem.Arena,
-    per_frame_arena: vmem.Arena,
     load_new_level: Maybe(string),
-    do_limit_cpu: bool,
     saved_mouse_coords: hlsl.int2,
-    vgd: vkw.GraphicsDevice,
-    renderer: Renderer,
-    imgui_state: ImguiState,
     user_config: UserConfiguration,
-    input_system: InputSystem,
-    audio_system: AudioSystem,
-    game_state: GameState,
     window: Window,
 }
 
-app_startup :: proc() -> (App, bool) {// Parse command-line arguments
+app_startup :: proc() -> (App, bool) {
+    app: App
+
+    // Parse command-line arguments
     log_level := log.Level.Info
-    do_profiling := false
     profile_name := "game7.spall"
     want_rt := true
     {
@@ -99,7 +113,7 @@ app_startup :: proc() -> (App, bool) {// Parse command-line arguments
                     i += 1
                 }
             } else if arg == "--profile" || arg == "-p" {
-                do_profiling = true
+                app.app_options += {.PerfProfile}
                 if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
                     profile_name = os.args[i + 1]
                     i += 1
@@ -112,17 +126,12 @@ app_startup :: proc() -> (App, bool) {// Parse command-line arguments
         log.destroy_console_logger(context.logger)
     }
 
-    app: App
-
     // Set up global allocator
     app.global_allocator = runtime.heap_allocator()
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
-        global_track: mem.Tracking_Allocator
-        scene_track: mem.Tracking_Allocator
-        temp_track: mem.Tracking_Allocator
-        mem.tracking_allocator_init(&global_track, global_allocator)
-        global_allocator = mem.tracking_allocator(&global_track)
+        mem.tracking_allocator_init(&app.global_track, app.global_allocator)
+        global_allocator = mem.tracking_allocator(&app.global_track)
 
         // defer {
         //     if len(global_track.allocation_map) > 0 {
@@ -142,7 +151,7 @@ app_startup :: proc() -> (App, bool) {// Parse command-line arguments
     }
     context.allocator = app.global_allocator
 
-    if do_profiling {
+    if .PerfProfile in app.app_options {
         profiler = init_profiler(profile_name, app.global_allocator)
     }
     defer quit_profiler(&profiler)
@@ -162,7 +171,7 @@ app_startup :: proc() -> (App, bool) {// Parse command-line arguments
     // saved_mouse_coords: hlsl.int2
     // vgd: vkw.GraphicsDevice
     // renderer: Renderer
-    // app_window: Window
+    // app.window: Window
     // imgui_state: ImguiState
     // user_config: UserConfiguration
     // input_system: InputSystem
@@ -365,293 +374,14 @@ app_shutdown :: proc() {
 @thread_local profiler: Profiler
 
 main :: proc() {
-    // Parse command-line arguments
-    log_level := log.Level.Info
-    do_profiling := false
-    profile_name := "game7.spall"
-    want_rt := true
-    {
-        context.logger = log.create_console_logger(log_level)
-        argc := len(os.args)
-        i := 0
-        for i < len(os.args) {
-            arg := os.args[i]
-            if arg == "--log-level" || arg == "-l" {
-                if i + 1 < argc {
-                    switch os.args[i + 1] {
-                        case "DEBUG": log_level = .Debug
-                        case "INFO": log_level = .Info
-                        case "WARNING": log_level = .Warning
-                        case "ERROR": log_level = .Error
-                        case "FATAL": log_level = .Fatal
-                        case: log.warnf(
-                            "Unrecognized --log-level \"%v\". Using default (%v)",
-                            os.args[i + 1],
-                            log_level,
-                        )
-                    }
-                    i += 1
-                }
-            } else if arg == "--profile" || arg == "-p" {
-                do_profiling = true
-                if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
-                    profile_name = os.args[i + 1]
-                    i += 1
-                }
-            } else if arg == "-nort" {
-                want_rt = false
-            }
-            i += 1
-        }
-        log.destroy_console_logger(context.logger)
-    }
-
+    // Initialize app state and subsystems
     app, app_init_ok := app_startup()
     if !app_init_ok {
         log.error("Failed to init app struct")
         return
     }
 
-    // Set up global allocator
-    // app.global_allocator = runtime.heap_allocator()
-    // when ODIN_DEBUG {
-    //     // Set up the tracking allocator if this is a debug build
-    //     global_track: mem.Tracking_Allocator
-    //     scene_track: mem.Tracking_Allocator
-    //     temp_track: mem.Tracking_Allocator
-    //     mem.tracking_allocator_init(&global_track, global_allocator)
-    //     global_allocator = mem.tracking_allocator(&global_track)
-
-    //     // defer {
-    //     //     if len(global_track.allocation_map) > 0 {
-    //     //         fmt.eprintf("=== %v allocations not freed from global allocator: ===\n", len(global_track.allocation_map))
-    //     //         for _, entry in global_track.allocation_map {
-    //     //             fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-    //     //         }
-    //     //     }
-    //     //     if len(global_track.bad_free_array) > 0 {
-    //     //         fmt.eprintf("=== %v incorrect frees from global allocator: ===\n", len(global_track.bad_free_array))
-    //     //         for entry in global_track.bad_free_array {
-    //     //             fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
-    //     //         }
-    //     //     }
-    //     //     mem.tracking_allocator_destroy(&global_track)
-    //     // }
-    // }
-    // context.allocator = app.global_allocator
-
-    // if do_profiling {
-    //     profiler = init_profiler(profile_name, app.global_allocator)
-    // }
-    // defer quit_profiler(&profiler)
-    // scoped_event(&profiler, "Main proc")
-
-    // // Set up logger
-    // context.logger = log.create_console_logger(log_level)
-
-    // current_time: time.Time
-    // previous_time: time.Time
-    // per_scene_arena: vmem.Arena
-    // per_frame_arena: vmem.Arena
-    // scene_allocator: mem.Allocator
-    // per_frame_allocator: mem.Allocator
-    // load_new_level: Maybe(string)
-    // do_limit_cpu := false
-    // saved_mouse_coords: hlsl.int2
-    // vgd: vkw.GraphicsDevice
-    // renderer: Renderer
-    // app_window: Window
-    // imgui_state: ImguiState
-    // user_config: UserConfiguration
-    // input_system: InputSystem
-    // audio_system: AudioSystem
-    // game_state: GameState
-    // {
-    //     scoped_event(&profiler, "App initialization")
-
-    //     log.info("Initiating swag mode...")
-
-
-    //     // Set up per-scene allocator
-    //     {
-    //         scoped_event(&profiler, "Create per-scene allocator")
-    //         err := vmem.arena_init_growing(&per_scene_arena)
-    //         if err != nil {
-    //             log.errorf("Error initing virtual arena: %v", err)
-    //         }
-
-    //         scene_allocator = vmem.arena_allocator(&per_scene_arena)
-    //     }
-
-    //     // Set up per-frame temp allocator
-    //     {
-    //         scoped_event(&profiler, "Create per-frame allocator")
-    //         err := vmem.arena_init_growing(&per_frame_arena)
-    //         if err != nil {
-    //             log.errorf("Error initing virtual arena: %v", err)
-    //         }
-    //         per_frame_allocator = vmem.arena_allocator(&per_frame_arena)
-    //     }
-    //     context.temp_allocator = per_frame_allocator
-
-    //     // Load user configuration
-    //     cfg, config_err := load_user_config(USER_CONFIG_FILENAME)
-    //     if config_err != nil {
-    //         log.errorf("Failed to load user config: %v", config_err)
-    //     }
-    //     user_config = cfg
-
-    //     // Initialize SDL2
-    //     {
-    //         scoped_event(&profiler, "Initialize SDL2")
-    //         sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
-    //         log.info("Initialized SDL2")
-    //     }
-
-    //     // Use SDL2 to dynamically link against the Vulkan loader
-    //     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
-    //     {
-    //         scoped_event(&profiler, "sdl2.Vulkan_LoadLibrary()")
-    //         if sdl2.Vulkan_LoadLibrary(nil) != 0 {
-    //             s := sdl2.GetErrorString()
-    //             log.fatalf("Failed to link Vulkan loader: %v", s)
-    //             return
-    //         }
-    //     }
-
-    //     {
-    //         scoped_event(&profiler, "Window setup")
-
-    //         // Determine window resolution
-    //         {
-    //             desktop_display_mode: sdl2.DisplayMode
-    //             if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
-    //                 log.error("Error getting desktop display mode.")
-    //             }
-    //             app_window.display_resolution = hlsl.uint2 {
-    //                 u32(desktop_display_mode.w),
-    //                 u32(desktop_display_mode.h),
-    //             }
-    //             app_window.resolution = DEFAULT_RESOLUTION
-    //             if user_config.flags[.ExclusiveFullscreen] || user_config.flags[.BorderlessFullscreen] {
-    //                 app_window.resolution = app_window.display_resolution
-    //             }
-    //             if .WindowWidth in user_config.ints && .WindowHeight in user_config.ints {
-    //                 x := user_config.ints[.WindowWidth]
-    //                 y := user_config.ints[.WindowHeight]
-    //                 app_window.resolution = {u32(x), u32(y)}
-    //             }
-    //             app_window.present_mode = .FIFO
-    //         }
-
-    //         // Determine SDL window flags
-    //         app_window.flags = {.VULKAN,.RESIZABLE}
-    //         if user_config.flags[.ExclusiveFullscreen] {
-    //             app_window.flags += {.FULLSCREEN}
-    //         } else if user_config.flags[.BorderlessFullscreen] {
-    //             app_window.flags += {.BORDERLESS}
-    //         }
-
-    //         // Determine SDL window position
-    //         app_window.position.x = sdl2.WINDOWPOS_CENTERED
-    //         app_window.position.y = sdl2.WINDOWPOS_CENTERED
-    //         if .WindowX in user_config.ints && .WindowY in user_config.ints {
-    //             app_window.position.x = i32(user_config.ints[.WindowX])
-    //             app_window.position.y = i32(user_config.ints[.WindowY])
-    //         } else {
-    //             user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
-    //             user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
-    //         }
-
-    //         app_window.window = sdl2.CreateWindow(
-    //             TITLE_WITHOUT_IMGUI,
-    //             app_window.position.x,
-    //             app_window.position.y,
-    //             i32(app_window.resolution.x),
-    //             i32(app_window.resolution.y),
-    //             app_window.flags
-    //         )
-    //         sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
-    //     }
-
-    //     // Initialize graphics device
-    //     init_params := vkw.InitParameters {
-    //         app_name = "Game7",
-    //         frames_in_flight = FRAMES_IN_FLIGHT,
-    //         desired_features = {.Window,.Raytracing},
-    //         vk_get_instance_proc_addr = sdl2.Vulkan_GetVkGetInstanceProcAddr(),
-    //     }
-    //     {
-    //         scoped_event(&profiler, "Init Vulkan")
-    //         res: vk.Result
-    //         vgd, res = vkw.init_vulkan(init_params)
-    //         if res != .SUCCESS {
-    //             log.errorf("Failed to initialize Vulkan : %v", res)
-    //             return
-    //         }
-    //     }
-
-    //     {
-    //         // Initialize the state required for rendering to the window
-    //         {
-    //             scoped_event(&profiler, "vkw.init_sdl2_window()")
-    //             app_window.present_mode = .FIFO
-    //             if !vkw.init_sdl2_window(&vgd, app_window.window, app_window.present_mode) {
-    //                 e := sdl2.GetError()
-    //                 log.fatalf("Couldn't init SDL2 surface: %v", e)
-    //                 return
-    //             }
-    //         }
-    //     }
-
-
-    //     // Now that we're done with global allocations, switch context.allocator to scene_allocator
-    //     context.allocator = scene_allocator
-
-    //     // Initialize the renderer
-    //     renderer = init_renderer(&vgd, app_window.resolution, want_rt)
-    //     if !renderer.do_raytracing {
-    //         log.warn("Raytracing features are not supported by your GPU.")
-    //     }
-
-    //     //Dear ImGUI init
-    //     imgui_state = imgui_init(&vgd, user_config, app_window.resolution)
-    //     if imgui_state.show_gui {
-    //         sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
-    //     }
-
-    //     // Init audio system
-    //     init_audio_system(&audio_system, user_config, app.global_allocator, scene_allocator)
-    //     toggle_device_playback(&audio_system, true)
-
-    //     // Main app structure storing the game's overall state
-    //     game_state = init_gamestate(&vgd, &renderer, &audio_system, &user_config, app.global_allocator)
-
-    //     {
-    //         start_level := "test02"
-    //         s, ok := user_config.strs[.StartLevel]
-    //         if ok {
-    //             start_level = s
-    //         }
-    //         sb: strings.Builder
-    //         strings.builder_init(&sb, per_frame_allocator)
-    //         start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-    //         load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, start_path)
-    //     }
-
-    //     // Init input system
-    //     context.allocator = app.global_allocator
-    //     is_lookat := game_state.viewport_camera_id in game_state.lookat_controllers
-    //     if is_lookat {
-    //         input_system = init_input_system(&game_state.character_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
-    //     } else {
-    //         input_system = init_input_system(&game_state.freecam_key_mappings, &game_state.mouse_mappings, &game_state.button_mappings)
-    //     }
-
-    //     current_time = time.now()          // Time in nanoseconds since UNIX epoch
-    //     previous_time = time.time_add(current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
-    //     saved_mouse_coords = hlsl.int2 {0, 0}
-    // }
+    
 
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
@@ -687,14 +417,17 @@ main :: proc() {
                 scoped_event(&profiler, "Quit Vulkan")
                 vkw.quit_vulkan(&vgd)
             }
-            sdl2.DestroyWindow(app_window.window)
+            sdl2.DestroyWindow(app.window.window)
             sdl2.Quit()
         }
     }
 
+
+
+
     // context is per-scope, so set the allocators here for the rest of main's scope
-    context.allocator = scene_allocator
-    context.temp_allocator = per_frame_allocator
+    context.allocator = app.per_scene_allocator
+    context.temp_allocator = app.per_frame_allocator
 
     log.info("App initialization complete. Entering main loop")
 
@@ -703,57 +436,57 @@ main :: proc() {
         scoped_event(&profiler, "Main frame loop")
 
         // Time
-        current_time = time.now()
-        nanosecond_dt := time.diff(previous_time, current_time)
+        app.current_time = time.now()
+        nanosecond_dt := time.diff(app.previous_time, app.current_time)
         last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
         dt := min(last_frame_dt, MAXIMUM_FRAME_DT)
-        scaled_dt := game_state.timescale * dt
-        previous_time = current_time
+        scaled_dt := app.game_state.timescale * dt
+        app.previous_time = app.current_time
 
         // @TODO: Wrap this value at some point?
-        game_state.time += scaled_dt
+        app.game_state.time += scaled_dt
 
         // Save user configuration every 100ms
-        if user_config.autosave && time.diff(user_config.last_saved, current_time) >= 100_000_000 {
+        if app.user_config.autosave && time.diff(app.user_config.last_saved, app.current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
-            tform := &game_state.transforms[game_state.viewport_camera_id]
-            camera := &game_state.cameras[game_state.viewport_camera_id]
-            following := game_state.viewport_camera_id in game_state.lookat_controllers
-            user_config.strs[.StartLevel] = game_state.current_level
-            update_user_cfg_camera(&user_config, tform.position, following, camera^)
-            save_user_config(&user_config, USER_CONFIG_FILENAME)
-            user_config.last_saved = current_time
+            tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
+            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
+            following := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
+            app.user_config.strs[.StartLevel] = app.game_state.current_level
+            update_user_cfg_camera(&app.user_config, tform.position, following, camera^)
+            save_user_config(&app.user_config, USER_CONFIG_FILENAME)
+            app.user_config.last_saved = app.current_time
         }
 
         // Load new level before any other per-frame work begins
         {
-            level, ok := load_new_level.?
+            level, ok := app.load_new_level.?
             if ok {
                 builder: strings.Builder
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&vgd, &renderer, &audio_system, &game_state, &user_config, path)
-                load_new_level = nil
+                load_level_file(&app.vgd, &app.renderer, &app.audio_system, &app.game_state, &app.user_config, path)
+                app.load_new_level = nil
             }
         }
 
         // Start a new Dear ImGUI frame and get an io reference
-        begin_gui(&imgui_state)
+        begin_gui(&app.imgui_state)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
-        renderer.uniforms.time += scaled_dt
+        app.renderer.uniforms.time += scaled_dt
 
-        new_frame(&renderer)
+        new_frame(&app.renderer)
 
-        scene_editor(&game_state, &vgd, &renderer, &imgui_state, &user_config)
+        scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
 
-        output_verbs := poll_sdl2_events(&input_system)
+        output_verbs := poll_sdl2_events(&app.input_system)
 
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
-        if do_profiling && vgd.frame_count >= 144 * 5 {
+        if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             do_main_loop = false
         }
 
@@ -761,15 +494,15 @@ main :: proc() {
         {
             scoped_event(&profiler, "Tell Dear ImGUI about events")
 
-            camera := &game_state.cameras[game_state.viewport_camera_id]
+            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
 
             if output_verbs.bools[.ToggleImgui] {
-                imgui_state.show_gui = !imgui_state.show_gui
-                user_config.flags[.ImguiEnabled] = imgui_state.show_gui
-                if imgui_state.show_gui {
-                    sdl2.SetWindowTitle(app_window.window, TITLE_WITH_IMGUI)
+                app.imgui_state.show_gui = !app.imgui_state.show_gui
+                app.user_config.flags[.ImguiEnabled] = app.imgui_state.show_gui
+                if app.imgui_state.show_gui {
+                    sdl2.SetWindowTitle(app.window.window, TITLE_WITH_IMGUI)
                 } else {
-                    sdl2.SetWindowTitle(app_window.window, TITLE_WITHOUT_IMGUI)
+                    sdl2.SetWindowTitle(app.window.window, TITLE_WITHOUT_IMGUI)
                 }
             }
 
@@ -780,10 +513,10 @@ main :: proc() {
                 if !(mlook && io.WantCaptureMouse) {
                     sdl2.SetRelativeMouseMode(sdl2.bool(mlook))
                     if mlook {
-                        saved_mouse_coords.x = i32(mlook_coords.x)
-                        saved_mouse_coords.y = i32(mlook_coords.y)
+                        app.saved_mouse_coords.x = i32(mlook_coords.x)
+                        app.saved_mouse_coords.y = i32(mlook_coords.y)
                     } else {
-                        sdl2.WarpMouseInWindow(app_window.window, saved_mouse_coords.x, saved_mouse_coords.y)
+                        sdl2.WarpMouseInWindow(app.window.window, app.saved_mouse_coords.x, app.saved_mouse_coords.y)
                     }
                     // The ~ is "symmetric difference" for bit_sets
                     // Basically like XOR
@@ -796,19 +529,19 @@ main :: proc() {
                 sdl2.GetMouseState(&x, &y)
                 imgui.IO_AddMousePosEvent(io, f32(x), f32(y))
             } else {
-                sdl2.WarpMouseInWindow(app_window.window, saved_mouse_coords.x, saved_mouse_coords.y)
+                sdl2.WarpMouseInWindow(app.window.window, app.saved_mouse_coords.x, app.saved_mouse_coords.y)
             }
 
         }
 
         {
-            docknode := imgui.DockBuilderGetCentralNode(imgui_state.dockspace_id)
-            renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
-            renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
-            renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
-            renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
+            docknode := imgui.DockBuilderGetCentralNode(app.imgui_state.dockspace_id)
+            app.renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
+            app.renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
+            app.renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
+            app.renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
 
-            camera := &game_state.cameras[game_state.viewport_camera_id]
+            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
             camera.aspect_ratio = docknode.Size.x / docknode.Size.y
         }
 
@@ -817,42 +550,42 @@ main :: proc() {
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33
         @static move_player := false
-        if imgui_state.show_gui && user_config.flags[.ShowDebugMenu] {
-            if imgui.Begin("Hacking window", &user_config.flags[.ShowDebugMenu]) {
+        if app.imgui_state.show_gui && app.user_config.flags[.ShowDebugMenu] {
+            if imgui.Begin("Hacking window", &app.user_config.flags[.ShowDebugMenu]) {
                 scoped_event(&profiler, "Show debug menu")
-                imgui.Text("Frame #%i", vgd.frame_count)
+                imgui.Text("Frame #%i", app.vgd.frame_count)
                 imgui.Separator()
 
                 {
-                    //player := &game_state.character
-                    tform := &game_state.transforms[game_state.player_id]
-                    collision := &game_state.spherical_bodies[game_state.player_id]
-                    player := &game_state.character_controllers[game_state.player_id]
+                    //player := &app.game_state.character
+                    tform := &app.game_state.transforms[app.game_state.player_id]
+                    collision := &app.game_state.spherical_bodies[app.game_state.player_id]
+                    player := &app.game_state.character_controllers[app.game_state.player_id]
 
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
                     defer strings.builder_destroy(&sb)
 
-                    flag := .ShowPlayerHitSphere in game_state.debug_vis_flags
+                    flag := .ShowPlayerHitSphere in app.game_state.debug_vis_flags
                     if imgui.Checkbox("Show player collision", &flag) {
-                        game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                        app.game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
                         if flag {
-                            game_state.debug_models[game_state.player_id] = DebugModelInstance {
-                                handle = game_state.sphere_mesh,
+                            app.game_state.debug_models[app.game_state.player_id] = DebugModelInstance {
+                                handle = app.game_state.sphere_mesh,
                                 scale = collision.radius,
                                 color = {0.2, 0.0, 1.0, 0.5}
                             }
                         } else {
-                            delete_key(&game_state.debug_models, game_state.player_id)
+                            delete_key(&app.game_state.debug_models, app.game_state.player_id)
                         }
                     }
-                    flag = .ShowPlayerActivityRadius in game_state.debug_vis_flags
+                    flag = .ShowPlayerActivityRadius in app.game_state.debug_vis_flags
                     if imgui.Checkbox("Show player activity radius", &flag) {
-                        game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
+                        app.game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
                     }
-                    flag = .ShowCoinRadius in game_state.debug_vis_flags
+                    flag = .ShowCoinRadius in app.game_state.debug_vis_flags
                     if imgui.Checkbox("Show coin radius", &flag) {
-                        game_state.debug_vis_flags ~= {.ShowCoinRadius}
+                        app.game_state.debug_vis_flags ~= {.ShowCoinRadius}
                     }
 
                     gui_print_value(&sb, "Player position", tform.position)
@@ -866,7 +599,7 @@ main :: proc() {
                     imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
                     imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
-                    imgui.SliderFloat("Coin radius", &game_state.coin_collision_radius, 0.1, 1.0)
+                    imgui.SliderFloat("Coin radius", &app.game_state.coin_collision_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {
                         output_verbs.bools[.PlayerReset] = true
                     }
@@ -882,14 +615,19 @@ main :: proc() {
                     imgui.EndDisabled()
                 }
 
-                imgui.SliderFloat("Distortion Strength", &renderer.uniforms.distortion_strength, 0.0, 1.0)
-                imgui.SliderFloat("Timescale", &game_state.timescale, 0.0, 2.0)
+                imgui.SliderFloat("Distortion Strength", &app.renderer.uniforms.distortion_strength, 0.0, 1.0)
+                imgui.SliderFloat("Timescale", &app.game_state.timescale, 0.0, 2.0)
                 imgui.SameLine()
                 if imgui.Button("Reset") {
-                    game_state.timescale = 1.0
+                    app.game_state.timescale = 1.0
                 }
 
-                imgui.Checkbox("Enable CPU Limiter", &do_limit_cpu)
+                {
+                    b := .LimitCPU in app.app_options
+                    if imgui.Checkbox("Enable CPU Limiter", &b) {
+                        app.app_options ~= {.LimitCPU}
+                    }
+                }
                 imgui.SameLine()
                 HelpMarker(
                     "Enabling this setting forces the main thread " +
@@ -907,7 +645,7 @@ main :: proc() {
         @static show_load_modal := false
         @static show_save_modal := false
         do_fullscreen := false
-        switch gui_main_menu_bar(&imgui_state, &game_state, &user_config) {
+        switch gui_main_menu_bar(&app.imgui_state, &app.game_state, &app.user_config) {
             case .Exit: do_main_loop = false
             case .LoadLevel: {
                 show_load_modal = true
@@ -915,40 +653,40 @@ main :: proc() {
             case .SaveLevel: {
                 sb: strings.Builder
                 strings.builder_init(&sb, context.temp_allocator)
-                path := fmt.sbprintf(&sb, "data/levels/%v.lvl", game_state.current_level)
-                save_level_file(&game_state, &renderer, audio_system, path)
+                path := fmt.sbprintf(&sb, "data/levels/%v.lvl", app.game_state.current_level)
+                save_level_file(&app.game_state, &app.renderer, app.audio_system, path)
             }
             case .SaveLevelAs: {
                 show_save_modal = true
             }
             case .ToggleAlwaysOnTop: {
-                sdl2.SetWindowAlwaysOnTop(app_window.window, sdl2.bool(user_config.flags[.AlwaysOnTop]))
+                sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop]))
             }
             case .ToggleBorderlessFullscreen: {
                 do_fullscreen = true
             }
             case .ToggleExclusiveFullscreen: {
-                game_state.exclusive_fullscreen = !game_state.exclusive_fullscreen
-                game_state.borderless_fullscreen = false
+                app.game_state.exclusive_fullscreen = !app.game_state.exclusive_fullscreen
+                app.game_state.borderless_fullscreen = false
                 xpos, ypos: c.int
                 flags : sdl2.WindowFlags = nil
-                app_window.resolution = DEFAULT_RESOLUTION
-                if game_state.exclusive_fullscreen {
+                app.window.resolution = DEFAULT_RESOLUTION
+                if app.game_state.exclusive_fullscreen {
                     flags += {.FULLSCREEN}
-                    app_window.resolution = app_window.display_resolution
+                    app.window.resolution = app.window.display_resolution
                 } else {
-                    app_window.resolution = DEFAULT_RESOLUTION
-                    xpos = c.int(user_config.ints[.WindowX])
-                    ypos = c.int(user_config.ints[.WindowY])
+                    app.window.resolution = DEFAULT_RESOLUTION
+                    xpos = c.int(app.user_config.ints[.WindowX])
+                    ypos = c.int(app.user_config.ints[.WindowY])
                 }
-                io.DisplaySize.x = f32(app_window.resolution.x)
-                io.DisplaySize.y = f32(app_window.resolution.y)
+                io.DisplaySize.x = f32(app.window.resolution.x)
+                io.DisplaySize.y = f32(app.window.resolution.y)
 
-                sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
-                sdl2.SetWindowFullscreen(app_window.window, flags)
-                sdl2.SetWindowResizable(app_window.window, !game_state.exclusive_fullscreen)
+                sdl2.SetWindowSize(app.window.window, c.int(app.window.resolution.x), c.int(app.window.resolution.y))
+                sdl2.SetWindowFullscreen(app.window.window, flags)
+                sdl2.SetWindowResizable(app.window.window, !app.game_state.exclusive_fullscreen)
 
-                vgd.resize_window = true
+                app.vgd.resize_window = true
             }
             case .None: {}
         }
@@ -958,25 +696,25 @@ main :: proc() {
         }
 
         if do_fullscreen {
-            game_state.borderless_fullscreen = !game_state.borderless_fullscreen
-            game_state.exclusive_fullscreen = false
+            app.game_state.borderless_fullscreen = !app.game_state.borderless_fullscreen
+            app.game_state.exclusive_fullscreen = false
             xpos, ypos: c.int
-            if game_state.borderless_fullscreen {
-                app_window.resolution = app_window.display_resolution
+            if app.game_state.borderless_fullscreen {
+                app.window.resolution = app.window.display_resolution
             } else {
-                app_window.resolution = {u32(user_config.ints[.WindowWidth]), u32(user_config.ints[.WindowHeight])}
-                xpos = c.int(user_config.ints[.WindowX])
-                ypos = c.int(user_config.ints[.WindowY])
+                app.window.resolution = {u32(app.user_config.ints[.WindowWidth]), u32(app.user_config.ints[.WindowHeight])}
+                xpos = c.int(app.user_config.ints[.WindowX])
+                ypos = c.int(app.user_config.ints[.WindowY])
             }
-            io.DisplaySize.x = f32(app_window.resolution.x)
-            io.DisplaySize.y = f32(app_window.resolution.y)
+            io.DisplaySize.x = f32(app.window.resolution.x)
+            io.DisplaySize.y = f32(app.window.resolution.y)
 
-            sdl2.SetWindowBordered(app_window.window, !game_state.borderless_fullscreen)
-            sdl2.SetWindowPosition(app_window.window, xpos, ypos)
-            sdl2.SetWindowSize(app_window.window, c.int(app_window.resolution.x), c.int(app_window.resolution.y))
-            sdl2.SetWindowResizable(app_window.window, !game_state.borderless_fullscreen)
+            sdl2.SetWindowBordered(app.window.window, !app.game_state.borderless_fullscreen)
+            sdl2.SetWindowPosition(app.window.window, xpos, ypos)
+            sdl2.SetWindowSize(app.window.window, c.int(app.window.resolution.x), c.int(app.window.resolution.y))
+            sdl2.SetWindowResizable(app.window.window, !app.game_state.borderless_fullscreen)
 
-            vgd.resize_window = true
+            app.vgd.resize_window = true
         }
 
         if show_load_modal {
@@ -991,7 +729,7 @@ main :: proc() {
                 list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
                 if gui_list_files("./data/levels/", &list_items, &selected_item, popup_text) {
                     // Load selected level
-                    load_new_level = strings.clone(string(list_items[selected_item]), context.allocator)
+                    app.load_new_level = strings.clone(string(list_items[selected_item]), context.allocator)
                     show_load_modal = false
                     imgui.CloseCurrentPopup()
                 }
@@ -1024,11 +762,11 @@ main :: proc() {
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
-                imgui.InputText("Level savename", cstring(&game_state.savename_buffer[0]), len(game_state.savename_buffer))
+                imgui.InputText("Level savename", cstring(&app.game_state.savename_buffer[0]), len(app.game_state.savename_buffer))
                 if imgui.Button("Save") {
-                    s := strings.string_from_null_terminated_ptr(&game_state.savename_buffer[0], len(game_state.savename_buffer))
+                    s := strings.string_from_null_terminated_ptr(&app.game_state.savename_buffer[0], len(app.game_state.savename_buffer))
                     level_savename = fmt.sbprintf(&builder, "data/levels/%v", s)
-                    game_state.savename_buffer[0] = 0
+                    app.game_state.savename_buffer[0] = 0
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
@@ -1040,40 +778,40 @@ main :: proc() {
                 }
 
                 if len(level_savename) > 0 {
-                    save_level_file(&game_state, &renderer, audio_system, level_savename)
+                    save_level_file(&app.game_state, &app.renderer, app.audio_system, level_savename)
                 }
 
                 imgui.EndPopup()
             }
         }
 
-        if imgui_state.show_gui && user_config.flags[.CameraConfig] {
+        if app.imgui_state.show_gui && app.user_config.flags[.CameraConfig] {
             camera_gui(
-                &game_state,
-                game_state.viewport_camera_id,
-                &input_system,
-                &user_config,
-                &user_config.flags[.CameraConfig]
+                &app.game_state,
+                app.game_state.viewport_camera_id,
+                &app.input_system,
+                &app.user_config,
+                &app.user_config.flags[.CameraConfig]
             )
         }
 
-        if imgui_state.show_gui && user_config.flags[.WindowConfig] {
-            vgd.resize_window |= window_config(imgui_state, &app_window, user_config)
+        if app.imgui_state.show_gui && app.user_config.flags[.WindowConfig] {
+            app.vgd.resize_window |= window_config(app.imgui_state, &app.window, app.user_config)
         }
 
-        if imgui_state.show_gui && user_config.flags[.GraphicsSettings] {
-            graphics_gui(vgd, &renderer, &user_config.flags[.GraphicsSettings])
+        if app.imgui_state.show_gui && app.user_config.flags[.GraphicsSettings] {
+            graphics_gui(app.vgd, &app.renderer, &app.user_config.flags[.GraphicsSettings])
         }
-        if imgui_state.show_gui && user_config.flags[.AudioPanel] {
-            audio_gui(&game_state, &audio_system, &user_config, &user_config.flags[.AudioPanel])
+        if app.imgui_state.show_gui && app.user_config.flags[.AudioPanel] {
+            audio_gui(&app.game_state, &app.audio_system, &app.user_config, &app.user_config.flags[.AudioPanel])
         }
         // Input remapping GUI
-        if imgui_state.show_gui && user_config.flags[.InputConfig] {
-            input_gui(&input_system, &user_config.flags[.InputConfig])
+        if app.imgui_state.show_gui && app.user_config.flags[.InputConfig] {
+            input_gui(&app.input_system, &app.user_config.flags[.InputConfig])
         }
         // Imgui Demo
-        if imgui_state.show_gui && user_config.flags[.ShowImguiDemo] {
-            imgui.ShowDemoWindow(&user_config.flags[.ShowImguiDemo])
+        if app.imgui_state.show_gui && app.user_config.flags[.ShowImguiDemo] {
+            imgui.ShowDemoWindow(&app.user_config.flags[.ShowImguiDemo])
         }
 
         // Handle current editor state
@@ -1160,7 +898,7 @@ main :: proc() {
         //                     rotation := quaternion128 {}
         //                     scale : f32 = 1.0
         //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-        //                     model := load_gltf_static_model(&vgd, &renderer, path)
+        //                     model := load_gltf_static_model(&app.vgd, &renderer, path)
 
         //                     positions := get_glb_positions(path)
         //                     collision := new_static_triangle_mesh(positions[:], mmat)
@@ -1190,7 +928,7 @@ main :: proc() {
         //                     rotation := quaternion128 {}
         //                     scale : f32 = 1.0
         //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-        //                     model := load_gltf_static_model(&vgd, &renderer, path)
+        //                     model := load_gltf_static_model(&app.vgd, &renderer, path)
 
         //                     append(&game_state.static_scenery, StaticScenery {
         //                         position = position,
@@ -1203,7 +941,7 @@ main :: proc() {
         //             case .AddAnimatedScenery: {
         //                 path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
         //                 if ok {
-        //                     model := load_gltf_skinned_model(&vgd, &renderer, path, scene_allocator)
+        //                     model := load_gltf_skinned_model(&app.vgd, &renderer, path, scene_allocator)
         //                     position := hlsl.float3 {}
         //                     rotation := quaternion128 {}
         //                     scale : f32 = 1.0
@@ -1273,8 +1011,8 @@ main :: proc() {
 
         // Memory viewer
         when ODIN_DEBUG {
-            if imgui_state.show_gui && user_config.flags[.ShowAllocatorStats] {
-                if imgui.Begin("Allocator stats", &user_config.flags[.ShowAllocatorStats]) {
+            if app.imgui_state.show_gui && app.user_config.flags[.ShowAllocatorStats] {
+                if imgui.Begin("Allocator stats", &app.user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
                     imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
                     imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
@@ -1288,24 +1026,24 @@ main :: proc() {
             }
         }
 
-        game_tick(&game_state, &vgd, &renderer, output_verbs, &audio_system, scaled_dt)
+        game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
         // Move player hackiness
         if move_player && !io.WantCaptureMouse {
             scoped_event(&profiler, "Move player cheat")
-            tform := &game_state.transforms[game_state.player_id]
-            col := &game_state.spherical_bodies[game_state.player_id]
+            tform := &app.game_state.transforms[app.game_state.player_id]
+            col := &app.game_state.spherical_bodies[app.game_state.player_id]
             dims : [4]f32 = {
-                cast(f32)renderer.viewport_dimensions.offset.x,
-                cast(f32)renderer.viewport_dimensions.offset.y,
-                cast(f32)renderer.viewport_dimensions.extent.width,
-                cast(f32)renderer.viewport_dimensions.extent.height,
+                cast(f32)app.renderer.viewport_dimensions.offset.x,
+                cast(f32)app.renderer.viewport_dimensions.offset.y,
+                cast(f32)app.renderer.viewport_dimensions.extent.width,
+                cast(f32)app.renderer.viewport_dimensions.extent.height,
             }
             collision_pt, hit := do_mouse_raycast(
-                game_state,
-                game_state.viewport_camera_id,
-                game_state.triangle_meshes,
-                input_system.mouse_location,
+                app.game_state,
+                app.game_state.viewport_camera_id,
+                app.game_state.triangle_meshes,
+                app.input_system.mouse_location,
                 dims
             )
             if hit {
@@ -1313,7 +1051,7 @@ main :: proc() {
                 tform.position.z += col.radius
             }
 
-            if input_system.mouse_clicked {
+            if app.input_system.mouse_clicked {
                 move_player = false
             }
         }
@@ -1322,34 +1060,34 @@ main :: proc() {
         {
             scoped_event(&profiler, "Camera update")
 
-            tform := &game_state.transforms[game_state.viewport_camera_id]
-            camera := &game_state.cameras[game_state.viewport_camera_id]
-            lookat_controller, is_lookat := &game_state.lookat_controllers[game_state.viewport_camera_id]
+            tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
+            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
+            lookat_controller, is_lookat := &app.game_state.lookat_controllers[app.game_state.viewport_camera_id]
             current_view_from_world: hlsl.float4x4 
             if is_lookat {
-                lookat_camera_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                lookat_camera_update(&app.game_state, output_verbs, app.game_state.viewport_camera_id, dt)
                 current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
             } else {
-                freecam_update(&game_state, output_verbs, game_state.viewport_camera_id, dt)
+                freecam_update(&app.game_state, output_verbs, app.game_state.viewport_camera_id, dt)
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
             }
 
             projection_from_view := camera_projection_from_view(camera^)
-            renderer.uniforms.clip_from_world =
+            app.renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
 
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
-            renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
+            app.renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
 
-            renderer.uniforms.view_position.xyz = tform.position
-            renderer.uniforms.view_position.a = 1.0
+            app.renderer.uniforms.view_position.xyz = tform.position
+            app.renderer.uniforms.view_position.a = 1.0
         }
 
         // Draw static models
-        for id, model in game_state.static_models {
-            tform := &game_state.transforms[id]
+        for id, model in app.game_state.static_models {
+            tform := &app.game_state.transforms[id]
 
             mat := get_transform_matrix(tform^)
             mat[3][0] += model.pos_offset.x
@@ -1359,21 +1097,21 @@ main :: proc() {
                 world_from_model = mat,
                 flags = model.flags
             }
-            draw_ps1_static_mesh(&vgd, &renderer, model.handle, draw)
+            draw_ps1_static_mesh(&app.vgd, &app.renderer, model.handle, draw)
 
             if .Glowing in model.flags {
                 // Light source
                 l := default_point_light()
                 l.world_position = tform.position
                 l.color = {0.0, 1.0, 0.0}
-                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-                do_point_light(&renderer, l)
+                l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
+                do_point_light(&app.renderer, l)
             }
         }
 
         // Draw skinned models
-        for id, model in game_state.skinned_models {
-            tform := &game_state.transforms[id]
+        for id, model in app.game_state.skinned_models {
+            tform := &app.game_state.transforms[id]
 
             mat := get_transform_matrix(tform^)
             mat[3][0] += model.pos_offset.x
@@ -1385,21 +1123,21 @@ main :: proc() {
                 anim_t = model.anim_t,
                 //flags = model.flags
             }
-            draw_ps1_skinned_mesh(&vgd, &renderer, model.handle, &draw)
+            draw_ps1_skinned_mesh(&app.vgd, &app.renderer, model.handle, &draw)
 
             if .Glowing in model.flags {
                 // Light source
                 l := default_point_light()
                 l.world_position = tform.position
                 l.color = {0.0, 1.0, 0.0}
-                l.intensity = light_flicker(game_state.rng_seed, game_state.time)
-                do_point_light(&renderer, l)
+                l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
+                do_point_light(&app.renderer, l)
             }
         }
 
         // Draw debug models
-        for id, model in game_state.debug_models {
-            tform := &game_state.transforms[id]
+        for id, model in app.game_state.debug_models {
+            tform := &app.game_state.transforms[id]
 
             mat := get_transform_matrix(tform^, model.scale)
             mat[3][0] += model.pos_offset.x
@@ -1409,7 +1147,7 @@ main :: proc() {
                 world_from_model = mat,
                 color = model.color
             }
-            draw_debug_mesh(&vgd, &renderer, game_state.sphere_mesh, &draw)
+            draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &draw)
         }
 
         // Window update
@@ -1417,19 +1155,19 @@ main :: proc() {
             scoped_event(&profiler, "Window update")
             new_size, ok := output_verbs.int2s[.ResizeWindow]
             if ok {
-                app_window.resolution.x = u32(new_size.x)
-                app_window.resolution.y = u32(new_size.y)
-                vgd.resize_window = true
+                app.window.resolution.x = u32(new_size.x)
+                app.window.resolution.y = u32(new_size.y)
+                app.vgd.resize_window = true
             }
 
             new_pos, ok2 := output_verbs.int2s[.MoveWindow]
             if ok2 {
-                user_config.ints[.WindowX] = i64(new_pos.x)
-                user_config.ints[.WindowY] = i64(new_pos.y)
+                app.user_config.ints[.WindowX] = i64(new_pos.x)
+                app.user_config.ints[.WindowY] = i64(new_pos.y)
             }
         }
 
-        audio_tick(&audio_system)
+        audio_tick(&app.audio_system)
 
         @static window_minimized := false
         {
@@ -1437,7 +1175,7 @@ main :: proc() {
             if ok {
                 window_minimized = value
                 if !value {
-                    vgd.resize_window = true
+                    app.vgd.resize_window = true
                 }
             }
         }
@@ -1470,58 +1208,58 @@ main :: proc() {
             }
 
             // Resize swapchain if necessary
-            if vgd.resize_window {
-                full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
-                vgd.resize_window = false
+            if app.vgd.resize_window {
+                full_swapchain_remake(&app.vgd, &app.renderer, &app.user_config, app.window)
+                app.vgd.resize_window = false
             }
 
             // Sync point where we wait if there are already 2 frames in the gfx queue
             {
                 scoped_event(&profiler, "CPU wait on GPU")
-                vkw.wait_frames_in_flight(&vgd, renderer.gfx_timeline)
+                vkw.wait_frames_in_flight(&app.vgd, app.renderer.gfx_timeline)
             }
 
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&vgd)
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
 
             // Increment timeline semaphore upon command buffer completion
-            vkw.add_signal_op(&vgd, &renderer.gfx_sync, renderer.gfx_timeline, vgd.frame_count + 1)
+            vkw.add_signal_op(&app.vgd, &app.renderer.gfx_sync, app.renderer.gfx_timeline, app.vgd.frame_count + 1)
 
             // Acquire swapchain image and try to handle result
-            swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&vgd, gfx_cb_idx, &renderer.gfx_sync)
+            swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&app.vgd, gfx_cb_idx, &app.renderer.gfx_sync)
             #partial switch acquire_result {
                 case .SUCCESS: {}
                 case .SUBOPTIMAL_KHR, .ERROR_OUT_OF_DATE_KHR: {
-                    full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+                    full_swapchain_remake(&app.vgd, &app.renderer, &app.user_config, app.window)
                 }
                 case: {
                     log.errorf("Swapchain image acquire failed: %v", acquire_result)
                 }
             }
 
-            framebuffer := swapchain_framebuffer(&vgd, swapchain_image_idx, app_window.resolution)
+            framebuffer := swapchain_framebuffer(&app.vgd, swapchain_image_idx, app.window.resolution)
 
             // Main render call
             render_scene(
-                &vgd,
+                &app.vgd,
                 gfx_cb_idx,
-                &renderer,
+                &app.renderer,
                 &framebuffer
             )
 
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
-            render_imgui(&vgd, gfx_cb_idx, &imgui_state, &framebuffer)
+            render_imgui(&app.vgd, gfx_cb_idx, &app.imgui_state, &framebuffer)
 
             // Submit gfx command buffer and present swapchain image
             {
                 scoped_event(&profiler, "Submit to gfx queue and present")
-                present_res := vkw.submit_gfx_and_present(&vgd, gfx_cb_idx, &renderer.gfx_sync, &swapchain_image_idx)
+                present_res := vkw.submit_gfx_and_present(&app.vgd, gfx_cb_idx, &app.renderer.gfx_sync, &swapchain_image_idx)
                 if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
-                    full_swapchain_remake(&vgd, &renderer, &user_config, app_window)
+                    full_swapchain_remake(&app.vgd, &app.renderer, &app.user_config, app.window)
                 }
             }
         } else {
-            gui_cancel_frame(&imgui_state)
+            gui_cancel_frame(&app.imgui_state)
         }
 
         // End-of-frame cleanup
@@ -1529,22 +1267,22 @@ main :: proc() {
             scoped_event(&profiler, "End-of-frame cleanup")
             // CLear temp allocator for next frame
             when ODIN_DEBUG {
-                if vgd.frame_count % 100 == 0 {
-                    //log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, vgd.frame_count)
+                if app.vgd.frame_count % 100 == 0 {
+                    //log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, app.vgd.frame_count)
                 }
             }
             free_all(context.temp_allocator)
 
             // Clear sync info for next frame
-            vkw.clear_sync_info(&renderer.gfx_sync)
-            vkw.clear_sync_info(&renderer.compute_sync)
+            vkw.clear_sync_info(&app.renderer.gfx_sync)
+            vkw.clear_sync_info(&app.renderer.compute_sync)
         }
 
         // CPU limiter
-        if do_limit_cpu {
+        if .LimitCPU in app.app_options {
             scoped_event(&profiler, "CPU Limiter")
             min_time := time.time_add(
-                current_time,
+                app.current_time,
                 time.Duration(MILLISECONDS_TO_NANOSECONDS * minimum_frametime)
             )
             sleep_duration := time.diff(time.now(), min_time)
@@ -1552,6 +1290,6 @@ main :: proc() {
         }
     }
 
-    vkw.device_wait_idle(&vgd)
+    vkw.device_wait_idle(&app.vgd)
     log.info("Returning from main()")
 }
