@@ -289,7 +289,7 @@ main :: proc() {
     {
         proc_state, _ := os.process_wait(odin_process)
 	    if proc_state.exit_code != 0 {
-            log.errorf("main program failed to build. Please see ./build/logs/main.stdout.log and main.stderr.log")
+            log.errorf("main program failed to build with exit code %v. Please see ./build/logs/main.stdout.log and main.stderr.log", proc_state.exit_code)
             return
         }
     }
