@@ -61,6 +61,8 @@ App :: struct {
     per_frame_allocator: mem.Allocator,
     per_scene_arena: vmem.Arena,
     per_frame_arena: vmem.Arena,
+
+    // Tracking allocators for debug builds
     global_track: mem.Tracking_Allocator,
     scene_track: mem.Tracking_Allocator,
     temp_track: mem.Tracking_Allocator,
@@ -71,6 +73,8 @@ App :: struct {
     audio_system: AudioSystem,
     imgui_state: ImguiState,
 
+    // There will be two of these in order to support
+    // tick-rate/frame-rate independence
     game_state: GameState,
 
     app_options: AppOptions,
@@ -83,9 +87,7 @@ App :: struct {
     window: Window,
 }
 
-app_startup :: proc() -> (App, bool) {
-    app: App
-
+app_startup :: proc(app: ^App) -> bool {
     // Parse command-line arguments
     log_level := log.Level.Info
     profile_name := "game7.spall"
@@ -131,52 +133,18 @@ app_startup :: proc() -> (App, bool) {
     when ODIN_DEBUG {
         // Set up the tracking allocator if this is a debug build
         mem.tracking_allocator_init(&app.global_track, app.global_allocator)
-        global_allocator = mem.tracking_allocator(&app.global_track)
-
-        // defer {
-        //     if len(global_track.allocation_map) > 0 {
-        //         fmt.eprintf("=== %v allocations not freed from global allocator: ===\n", len(global_track.allocation_map))
-        //         for _, entry in global_track.allocation_map {
-        //             fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-        //         }
-        //     }
-        //     if len(global_track.bad_free_array) > 0 {
-        //         fmt.eprintf("=== %v incorrect frees from global allocator: ===\n", len(global_track.bad_free_array))
-        //         for entry in global_track.bad_free_array {
-        //             fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
-        //         }
-        //     }
-        //     mem.tracking_allocator_destroy(&global_track)
-        // }
+        app.global_allocator = mem.tracking_allocator(&app.global_track)
     }
     context.allocator = app.global_allocator
 
     if .PerfProfile in app.app_options {
         profiler = init_profiler(profile_name, app.global_allocator)
     }
-    defer quit_profiler(&profiler)
-    scoped_event(&profiler, "Main proc")
+    scoped_event(&profiler, "App startup")
 
     // Set up logger
     context.logger = log.create_console_logger(log_level)
 
-    // current_time: time.Time
-    // previous_time: time.Time
-    // per_scene_arena: vmem.Arena
-    // per_frame_arena: vmem.Arena
-    // scene_allocator: mem.Allocator
-    // per_frame_allocator: mem.Allocator
-    // load_new_level: Maybe(string)
-    // do_limit_cpu := false
-    // saved_mouse_coords: hlsl.int2
-    // vgd: vkw.GraphicsDevice
-    // renderer: Renderer
-    // app.window: Window
-    // imgui_state: ImguiState
-    // user_config: UserConfiguration
-    // input_system: InputSystem
-    // audio_system: AudioSystem
-    // game_state: GameState
     {
         scoped_event(&profiler, "App initialization")
 
@@ -205,6 +173,14 @@ app_startup :: proc() -> (App, bool) {
         }
         context.temp_allocator = app.per_frame_allocator
 
+        when ODIN_DEBUG {
+            // Set up the tracking allocator if this is a debug build
+            mem.tracking_allocator_init(&app.scene_track, app.per_scene_allocator)
+            app.per_scene_allocator = mem.tracking_allocator(&app.scene_track)
+            mem.tracking_allocator_init(&app.temp_track, app.per_frame_allocator)
+            app.per_frame_allocator = mem.tracking_allocator(&app.temp_track)
+        }
+
         // Load user configuration
         cfg, config_err := load_user_config(USER_CONFIG_FILENAME)
         if config_err != nil {
@@ -226,7 +202,7 @@ app_startup :: proc() -> (App, bool) {
             if sdl2.Vulkan_LoadLibrary(nil) != 0 {
                 s := sdl2.GetErrorString()
                 log.fatalf("Failed to link Vulkan loader: %v", s)
-                return {}, false
+                return false
             }
         }
 
@@ -298,7 +274,7 @@ app_startup :: proc() -> (App, bool) {
             app.vgd, res = vkw.init_vulkan(init_params)
             if res != .SUCCESS {
                 log.errorf("Failed to initialize Vulkan : %v", res)
-                return {}, false
+                return false
             }
         }
 
@@ -310,7 +286,7 @@ app_startup :: proc() -> (App, bool) {
                 if !vkw.init_sdl2_window(&app.vgd, app.window.window, app.window.present_mode) {
                     e := sdl2.GetError()
                     log.fatalf("Couldn't init SDL2 surface: %v", e)
-                    return {}, false
+                    return false
                 }
             }
         }
@@ -364,66 +340,67 @@ app_startup :: proc() -> (App, bool) {
         app.saved_mouse_coords = hlsl.int2 {0, 0}
     }
 
-    return app, true
+    return true
 }
 
-app_shutdown :: proc() {
+@(disabled=!ODIN_DEBUG)
+app_shutdown :: proc(app: ^App) {
+    scoped_event(&profiler, "Shutdown")
+    log.destroy_console_logger(context.logger)
+    gui_cleanup(&app.vgd, &app.imgui_state)
+    destroy_audio_system(&app.audio_system)
+    {
+        scoped_event(&profiler, "Quit Vulkan")
+        vkw.quit_vulkan(&app.vgd)
+    }
+    sdl2.DestroyWindow(app.window.window)
+    sdl2.Quit()
+    
+    if len(app.global_track.allocation_map) > 0 {
+        fmt.eprintf("=== %v allocations not freed from global allocator: ===\n", len(app.global_track.allocation_map))
+        for _, entry in app.global_track.allocation_map {
+            fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+        }
+    }
+    if len(app.global_track.bad_free_array) > 0 {
+        fmt.eprintf("=== %v incorrect frees from global allocator: ===\n", len(app.global_track.bad_free_array))
+        for entry in app.global_track.bad_free_array {
+            fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+        }
+    }
+    
+    if len(app.scene_track.allocation_map) > 0 {
+        fmt.eprintf("=== %v allocations not freed from scene allocator: ===\n", len(app.scene_track.allocation_map))
+        for _, entry in app.scene_track.allocation_map {
+            fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+        }
+    }
+    if len(app.scene_track.bad_free_array) > 0 {
+        fmt.eprintf("=== %v incorrect frees from scene allocator: ===\n", len(app.scene_track.bad_free_array))
+        for entry in app.scene_track.bad_free_array {
+            fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+        }
+    }
 
+    mem.tracking_allocator_destroy(&app.global_track)
+    mem.tracking_allocator_destroy(&app.scene_track)
+    mem.tracking_allocator_destroy(&app.temp_track)
+
+    quit_profiler(&profiler)
 }
 
 @thread_local profiler: Profiler
 
 main :: proc() {
     // Initialize app state and subsystems
-    app, app_init_ok := app_startup()
+    app: App
+    app_init_ok := app_startup(&app)
     if !app_init_ok {
         log.error("Failed to init app struct")
         return
     }
-
-    
-
-    when ODIN_DEBUG {
-        // Set up the tracking allocator if this is a debug build
-        mem.tracking_allocator_init(&scene_track, scene_allocator)
-        scene_allocator = mem.tracking_allocator(&scene_track)
-        mem.tracking_allocator_init(&temp_track, per_frame_allocator)
-        per_frame_allocator = mem.tracking_allocator(&temp_track)
-
-        // defer {
-        //     if len(scene_track.allocation_map) > 0 {
-        //         fmt.eprintf("=== %v allocations not freed from scene allocator: ===\n", len(scene_track.allocation_map))
-        //         for _, entry in scene_track.allocation_map {
-        //             fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-        //         }
-        //     }
-        //     if len(scene_track.bad_free_array) > 0 {
-        //         fmt.eprintf("=== %v incorrect frees from scene allocator: ===\n", len(scene_track.bad_free_array))
-        //         for entry in scene_track.bad_free_array {
-        //             fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
-        //         }
-        //     }
-        //     mem.tracking_allocator_destroy(&scene_track)
-        //     mem.tracking_allocator_destroy(&temp_track)
-        // }
-    }
-    when ODIN_DEBUG {
-        defer {
-            scoped_event(&profiler, "Shutdown")
-            log.destroy_console_logger(context.logger)
-            gui_cleanup(&vgd, &imgui_state)
-            destroy_audio_system(&audio_system)
-            {
-                scoped_event(&profiler, "Quit Vulkan")
-                vkw.quit_vulkan(&vgd)
-            }
-            sdl2.DestroyWindow(app.window.window)
-            sdl2.Quit()
-        }
-    }
-
-
-
+    defer app_shutdown(&app)
+    scoped_event(&profiler, "Main proc")
 
     // context is per-scope, so set the allocators here for the rest of main's scope
     context.allocator = app.per_scene_allocator
@@ -1014,12 +991,12 @@ main :: proc() {
             if app.imgui_state.show_gui && app.user_config.flags[.ShowAllocatorStats] {
                 if imgui.Begin("Allocator stats", &app.user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
-                    imgui.Text("Total global memory allocated: %i", global_track.current_memory_allocated)
-                    imgui.Text("Peak global memory allocated: %i", global_track.peak_memory_allocated)
+                    imgui.Text("Total global memory allocated: %i", app.global_track.current_memory_allocated)
+                    imgui.Text("Peak global memory allocated: %i", app.global_track.peak_memory_allocated)
                     imgui.Separator()
                     imgui.Text("Per-scene allocator stats")
-                    imgui.Text("Total per-scene memory allocated: %i", scene_track.current_memory_allocated)
-                    imgui.Text("Peak per-scene memory allocated: %i", scene_track.peak_memory_allocated)
+                    imgui.Text("Total per-scene memory allocated: %i", app.scene_track.current_memory_allocated)
+                    imgui.Text("Peak per-scene memory allocated: %i", app.scene_track.peak_memory_allocated)
                     imgui.Separator()
                 }
                 imgui.End()
