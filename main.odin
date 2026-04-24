@@ -523,6 +523,43 @@ main :: proc() {
         }
 
         // Update
+        
+        // Do editor window and verb handling
+        scene_editor(&game_state, &vgd, &renderer, &imgui_state, &user_config)
+        switch game_state.edit_verb {
+            case .None: {}
+            case .Select: {
+                if input_system.mouse_held {
+                    log.warnf("%v edit verb not implemented.", game_state.edit_verb)
+                }
+            }
+            case .PaintCoins: {
+                if input_system.mouse_held {
+                    dims : [4]f32 = {
+                        cast(f32)renderer.viewport_dimensions.offset.x,
+                        cast(f32)renderer.viewport_dimensions.offset.y,
+                        cast(f32)renderer.viewport_dimensions.extent.width,
+                        cast(f32)renderer.viewport_dimensions.extent.height,
+                    }
+                    collision_pt, hit := do_mouse_raycast(
+                        game_state,
+                        game_state.viewport_camera_id,
+                        game_state.triangle_meshes,
+                        input_system.mouse_location,
+                        dims
+                    )
+                    if hit {
+                        far_enough_away := hlsl.distance(game_state.last_placed_position, collision_pt) >= game_state.coin_paint_radius
+                        if far_enough_away {
+                            coin_pos := collision_pt
+                            coin_pos.z += game_state.coin_z_offset
+                            new_coin(&game_state, coin_pos)
+                            game_state.last_placed_position = collision_pt
+                        }
+                    }
+                }
+            }
+        }
 
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33

@@ -203,6 +203,21 @@ tick_coins :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
     }
 }
 
+new_coin :: proc(game_state: ^GameState, position: hlsl.float3) {
+    id := gamestate_next_id(game_state)
+
+    game_state.transforms[id] = Transform {
+        position = position,
+        rotation = linalg.QUATERNIONF32_IDENTITY,
+        scale = 0.6
+    }
+    game_state.static_models[id] = StaticModelInstance {
+        handle = game_state.coin_mesh,
+        flags = {}
+    }
+    append(&game_state.coins, id)
+}
+
 EnemyAI :: struct {
     home_position: hlsl.float3,
     facing: hlsl.float3,
@@ -993,6 +1008,11 @@ DebugModelInstance :: struct {
     scale: f32,
 }
 
+// BoundingSphere :: struct {
+//     sphere: Sphere,
+    
+// }
+
 DamageEvent :: struct {
 
 }
@@ -1083,6 +1103,7 @@ GameState :: struct {
     static_models: map[EntityID]StaticModelInstance,
     skinned_models: map[EntityID]SkinnedModelInstance,
     debug_models: map[EntityID]DebugModelInstance,
+    bounding_spheres: map[EntityID]Sphere,
 
     // Sometimes we need behavior associated with a group of ids
     // without actually needing to store additional state
@@ -1108,9 +1129,13 @@ GameState :: struct {
     debug_vis_flags: DebugVisualizationFlags,
 
     // Editor state
-    editor_response: Maybe(EditorResponse),
+    //editor_response: Maybe(EditorResponse),
+    edit_verb: EditVerb,
     current_level: string,
     savename_buffer: [1024]c.char,
+    last_placed_position: hlsl.float3,
+    coin_paint_radius: f32,
+    coin_z_offset: f32,
 
     // Global sound effects loaded on init_gamestate()
     bgm_id: uint,
@@ -1150,6 +1175,8 @@ init_gamestate :: proc(
     game_state.paused = false
     game_state.timescale = 1.0
     game_state.coin_collision_radius = 0.1
+    game_state.coin_paint_radius = 1.0
+    game_state.coin_z_offset = 1.0
 
     game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -1298,6 +1325,7 @@ gamestate_new_scene :: proc(
     game_state.static_models = make(map[EntityID]StaticModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.skinned_models = make(map[EntityID]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.debug_models = make(map[EntityID]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.bounding_spheres = make(map[EntityID]Sphere, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
     game_state.looping_animations = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.coins = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1970,6 +1998,12 @@ EditorResponse :: struct {
     index: u32
 }
 
+EditVerb :: enum {
+    None = 0,
+    Select,
+    PaintCoins
+}
+
 scene_editor :: proc(
     game_state: ^GameState,
     gd: ^vkw.GraphicsDevice,
@@ -2005,25 +2039,81 @@ scene_editor :: proc(
                 // }
             }
 
-            resp, ok := game_state.editor_response.(EditorResponse)
-            disable := false
-            move_text : cstring = "Move player spawn"
-            if ok {
-                if resp.type == .MovePlayerSpawn {
-                    disable = true
-                    move_text = "Moving player spawn..."
-                }
-            }
-            imgui.BeginDisabled(disable)
-            if imgui.Button(move_text) {
-                game_state.editor_response = EditorResponse {
-                    type = .MovePlayerSpawn,
-                    index = 0
-                }
-            }
-            imgui.EndDisabled()
+            // resp, ok := game_state.editor_response.(EditorResponse)
+            // disable := false
+            // move_text : cstring = "Move player spawn"
+            // if ok {
+            //     if resp.type == .MovePlayerSpawn {
+            //         disable = true
+            //         move_text = "Moving player spawn..."
+            //     }
+            // }
+            // imgui.BeginDisabled(disable)
+            // if imgui.Button(move_text) {
+            //     game_state.editor_response = EditorResponse {
+            //         type = .MovePlayerSpawn,
+            //         index = 0
+            //     }
+            // }
+            // imgui.EndDisabled()
 
             imgui.Separator()
+        }
+
+        // Edit verb selection
+        {
+            imgui.Text("Active edit verb")
+            if imgui.RadioButton("None", game_state.edit_verb == .None) {
+                game_state.edit_verb = .None
+            }
+            if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
+                game_state.edit_verb = .Select
+            }
+            if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
+                game_state.edit_verb = .PaintCoins
+            }
+        }
+        imgui.Separator()
+
+        // Per-verb options menu
+        switch game_state.edit_verb {
+            case .None: {}
+            case .Select: {
+                
+            }
+            case .PaintCoins: {
+                imgui.SliderFloat("Coin paint radius", &game_state.coin_paint_radius, 0.1, 20.0)
+                imgui.SliderFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
+            }
+        }
+        imgui.Separator()
+
+        // Entity view
+        // {
+        //     for id in 0..<game_state._next_id {
+        //         eid := EntityID(id)
+        //         transform, exists := &game_state.transforms[eid]
+        //         if exists {
+        //             fmt.sbprintf(&builder, "Entity #%v", id)
+        //             cs := strings.to_cstring(&builder)
+        //             if imgui.CollapsingHeader(cs) {
+                        
+        //             }
+        //             strings.builder_reset(&builder)
+        //         }
+        //     }
+        // }
+        // imgui.Separator()
+
+        // Raw component view
+        {
+            for id, ai in game_state.enemy_ais {
+                imgui.Text("EnemyAI with id %i", id)
+                label := fmt.sbprintf(&builder, "%#v", ai)
+                cs := strings.to_cstring(&builder)
+                imgui.Text(cs)
+                strings.builder_reset(&builder)
+            }
         }
 
         // terrain_piece_clone_idx: Maybe(int)

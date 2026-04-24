@@ -2088,6 +2088,7 @@ StaticDrawPrimitive :: struct {
 
 StaticModel :: struct {
     primitives: [dynamic]StaticDrawPrimitive,
+    bounding_sphere: Sphere,
     name: string,
 }
 
@@ -2209,6 +2210,9 @@ load_gltf_static_model :: proc(
     }
     draw_primitives := make([dynamic]StaticDrawPrimitive, 0, primitive_count, allocator)
 
+    // Used for constructing bounding sphere
+    all_mesh_vertices := make([dynamic]half4, context.temp_allocator)
+
     for mesh in gltf_data.meshes {
         for &primitive, i in mesh.primitives {
             // Get indices
@@ -2239,6 +2243,8 @@ load_gltf_static_model :: proc(
                     case .texcoord: uv_data = load_gltf_float2(&attrib)
                 }
             }
+
+            append_elems(&all_mesh_vertices, ..position_data[:])
 
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
@@ -2282,9 +2288,29 @@ load_gltf_static_model :: proc(
         }
     }
 
+    // Compute bounding sphere
+    s: Sphere
+    {
+        average: hlsl.half3
+        for vertex in all_mesh_vertices {
+            average += vertex.xyz
+        }
+        average /= hlsl.half(len(all_mesh_vertices))
+        s.position = hlsl.float3{f32(average.x), f32(average.y), f32(average.z)}
+
+        for v in all_mesh_vertices {
+            vertex := hlsl.float3{f32(v.x), f32(v.y), f32(v.z)}
+            d := hlsl.distance(s.position, vertex)
+            if d > s.radius {
+                s.radius = d
+            }
+        }
+    }
+
     cloned_name, _ := strings.clone(glb_filename, allocator)
     handle := hm.insert(&renderer.loaded_static_models, StaticModel {
         primitives = draw_primitives,
+        bounding_sphere = s,
         name = cloned_name
     })
     return StaticModelHandle(handle)
@@ -2299,6 +2325,7 @@ SkinnedModel :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
     first_animation_idx: u32,
     first_joint_idx: u32,
+    bounding_sphere: Sphere, // approximate bc of animation
     name: string,
 }
 
