@@ -90,6 +90,7 @@ InputSystem :: struct {
 
     mouse_location: [2]i32,
     mouse_clicked: bool,
+    mouse_held: bool,
 
     input_being_remapped: RemapInput,
     currently_remapping: bool,
@@ -276,6 +277,7 @@ poll_sdl2_events :: proc(
                 }
                 if event.button.button == sdl2.BUTTON_LEFT {
                     state.mouse_clicked = true
+                    state.mouse_held = true
                 }
             }
             case .MOUSEBUTTONUP: {
@@ -287,6 +289,9 @@ poll_sdl2_events :: proc(
                 if found {
                     outputs.bools[verbtype] = false
                     outputs.int2s[verbtype] = {0, 0}
+                }
+                if event.button.button == sdl2.BUTTON_LEFT {
+                    state.mouse_held = false
                 }
             }
             case .MOUSEMOTION: {
