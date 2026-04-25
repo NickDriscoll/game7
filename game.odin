@@ -117,20 +117,9 @@ do_mouse_raycast :: proc(
         u32(mouse_location.x) - u32(viewport_dimensions[0]),
         u32(mouse_location.y) - u32(viewport_dimensions[1]),
     }
+    ray := view_ray(game_state, viewport_camera_id, mouse_location, viewport_dimensions)
 
     tform := &game_state.transforms[viewport_camera_id]
-    camera := &game_state.cameras[viewport_camera_id]
-    lookat_controller, is_lookat := &game_state.lookat_controllers[viewport_camera_id]
-
-    resolution := hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
-    ray: Ray
-    if is_lookat {
-        target := &game_state.transforms[lookat_controller.target]
-        ray = lookat_view_ray(tform^, camera^, target.position, click_coords, resolution)
-    } else {
-        ray = freecam_view_ray(tform^, camera^, click_coords, resolution)
-    }
-
     collision_pt: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in triangle_meshes {
@@ -2025,525 +2014,521 @@ scene_editor :: proc(
     io := imgui.GetIO()
 
     show_editor := gui.show_gui && user_config.flags[.SceneEditor]
-    if show_editor && imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
-        // Spawn point editor
-        {
-            imgui.DragFloat3("Player spawn", &game_state.level_start, 0.1)
-            flag := .ShowPlayerSpawn in game_state.debug_vis_flags
-            if imgui.Checkbox("Show player spawn", &flag) {
-                game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
-
-
-                // game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
-                // if flag {
-                //     game_state.debug_models[game_state.player_id] = DebugModelInstance {
-                //         handle = game_state.sphere_mesh,
-                //         scale = collision.radius,
-                //         color = {0.2, 0.0, 1.0, 0.5}
-                //     }
-                // } else {
-                //     delete_key(&game_state.debug_models, game_state.player_id)
-                // }
-            }
-
-            // resp, ok := game_state.editor_response.(EditorResponse)
-            // disable := false
-            // move_text : cstring = "Move player spawn"
-            // if ok {
-            //     if resp.type == .MovePlayerSpawn {
-            //         disable = true
-            //         move_text = "Moving player spawn..."
-            //     }
-            // }
-            // imgui.BeginDisabled(disable)
-            // if imgui.Button(move_text) {
-            //     game_state.editor_response = EditorResponse {
-            //         type = .MovePlayerSpawn,
-            //         index = 0
-            //     }
-            // }
-            // imgui.EndDisabled()
-
-            imgui.Separator()
-        }
-
-        if imgui.Button("Delete all coins") {
-            for len(game_state.coins) > 0 {
-                delete_coin(game_state, 0)
-            }
-
-            // for i in 1..=len(game_state.coins) {
-            //     idx := len(game_state.coins) - i
-            //     delete_coin(game_state, idx)
-            // }
-        }
-
-        // Edit verb selection
-        {
-            imgui.Text("Active edit verb")
-            if imgui.RadioButton("None", game_state.edit_verb == .None) {
-                game_state.edit_verb = .None
-            }
-            if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
-                game_state.edit_verb = .Select
-            }
-            if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
-                game_state.edit_verb = .PaintCoins
-            }
-        }
-        imgui.Separator()
-
-        // Per-verb options menu
-        switch game_state.edit_verb {
-            case .None: {}
-            case .Select: {
-                
-            }
-            case .PaintCoins: {
-                imgui.SliderFloat("Coin paint radius", &game_state.coin_paint_radius, 0.1, 20.0)
-                imgui.SliderFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
-            }
-        }
-        imgui.Separator()
-
-        // Entity view
-        // {
-        //     for id in 0..<game_state._next_id {
-        //         eid := EntityID(id)
-        //         transform, exists := &game_state.transforms[eid]
-        //         if exists {
-        //             fmt.sbprintf(&builder, "Entity #%v", id)
-        //             cs := strings.to_cstring(&builder)
-        //             if imgui.CollapsingHeader(cs) {
-                        
-        //             }
-        //             strings.builder_reset(&builder)
-        //         }
-        //     }
-        // }
-        // imgui.Separator()
-
-        // Raw component view
-        {
-            for id, ai in game_state.enemy_ais {
-                imgui.Text("EnemyAI with id %i", id)
-                label := fmt.sbprintf(&builder, "%#v", ai)
-                cs := strings.to_cstring(&builder)
-                imgui.Text(cs)
-                strings.builder_reset(&builder)
-            }
-        }
-
-        // terrain_piece_clone_idx: Maybe(int)
-        // {
-        //     objects := &game_state.terrain_pieces
-        //     label : cstring = "Terrain pieces"
-        //     editor_response := &game_state.editor_response
-        //     response_type := EditorResponseType.MoveTerrainPiece
-        //     if imgui.CollapsingHeader(label) {
-        //         imgui.PushID(label)
-        //         if len(objects) == 0 {
-        //             imgui.Text("Nothing to see here!")
-        //         }
-        //         if imgui.Button("Add") {
-        //             editor_response^ = EditorResponse {
-        //                 type = .AddTerrainPiece,
-        //                 index = 0
-        //             }
-        //         }
-        //         imgui.Separator()
-        //         for &mesh, i in objects {
-        //             imgui.PushIDInt(c.int(i))
-
-        //             model := get_static_model(renderer, mesh.model)
-        //             gui_print_value(&builder, "Name", model.name)
-        //             gui_print_value(&builder, "Rotation", mesh.rotation)
-
-        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
-        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-
-        //             disable_button := false
-        //             move_text : cstring = "Move"
-        //             obj, obj_ok := editor_response.(EditorResponse)
-        //             if obj_ok {
-        //                 if obj.type == response_type && obj.index == u32(i) {
-        //                     disable_button = true
-        //                     move_text = "Moving..."
-        //                 }
-        //             }
-
-        //             imgui.BeginDisabled(disable_button)
-        //             if imgui.Button(move_text) {
-        //                 editor_response^ = EditorResponse {
-        //                     type = response_type,
-        //                     index = u32(i)
-        //                 }
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Clone") {
-        //                 terrain_piece_clone_idx = i
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Delete") {
-        //                 unordered_remove(objects, i)
-        //                 game_state.editor_response = nil
-        //             }
-        //             if imgui.Button("Rebuild collision mesh") {
-        //                 rot := linalg.to_matrix4(mesh.rotation)
-        //                 mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
-        //                 rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
-        //             }
-        //             imgui.EndDisabled()
-        //             imgui.Separator()
-
-        //             imgui.PopID()
-        //         }
-        //         imgui.PopID()
-        //     }
-        // }
-
-        // static_to_clone_idx: Maybe(int)
-        // {
-        //     objects := &game_state.static_scenery
-        //     label : cstring = "Static scenery"
-        //     editor_response := &game_state.editor_response
-        //     response_type := EditorResponseType.MoveStaticScenery
-        //     add_response_type := EditorResponseType.AddStaticScenery
-        //     if imgui.CollapsingHeader(label) {
-        //         imgui.PushID(label)
-        //         if len(objects) == 0 {
-        //             imgui.Text("Nothing to see here!")
-        //         }
-        //         if imgui.Button("Add") {
-        //             editor_response^ = EditorResponse {
-        //                 type = add_response_type,
-        //                 index = 0
-        //             }
-        //         }
-        //         for &mesh, i in objects {
-        //             imgui.PushIDInt(c.int(i))
-
-        //             model := get_static_model(renderer, mesh.model)
-        //             gui_print_value(&builder, "Name", model.name)
-        //             gui_print_value(&builder, "Rotation", mesh.rotation)
-
-        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
-        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-
-        //             disable_button := false
-        //             move_text : cstring = "Move"
-        //             obj, obj_ok := editor_response.(EditorResponse)
-        //             if obj_ok {
-        //                 if obj.type == response_type && obj.index == u32(i) {
-        //                     disable_button = true
-        //                     move_text = "Moving..."
-        //                 }
-        //             }
-
-        //             imgui.BeginDisabled(disable_button)
-        //             if imgui.Button(move_text) {
-        //                 editor_response^ = EditorResponse {
-        //                     type = response_type,
-        //                     index = u32(i)
-        //                 }
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Clone") {
-        //                 static_to_clone_idx = i
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Delete") {
-        //                 unordered_remove(objects, i)
-        //                 editor_response^ = nil
-        //             }
-        //             imgui.EndDisabled()
-        //             imgui.Separator()
-
-        //             imgui.PopID()
-        //         }
-        //         imgui.PopID()
-        //     }
-        // }
-
-        // anim_to_clone_idx: Maybe(int)
-        // {
-        //     objects := &game_state.animated_scenery
-        //     label : cstring = "Animated scenery"
-        //     editor_response := &game_state.editor_response
-        //     response_type := EditorResponseType.MoveAnimatedScenery
-        //     add_response_type := EditorResponseType.AddAnimatedScenery
-        //     if imgui.CollapsingHeader(label) {
-        //         imgui.PushID(label)
-        //         if len(objects) == 0 {
-        //             imgui.Text("Nothing to see here!")
-        //         }
-        //         if imgui.Button("Add") {
-        //             editor_response^ = EditorResponse {
-        //                 type = add_response_type,
-        //                 index = 0
-        //             }
-        //         }
-        //         for &mesh, i in objects {
-        //             imgui.PushIDInt(c.int(i))
-
-        //             model := get_skinned_model(renderer, mesh.model)
-        //             gui_print_value(&builder, "Name", model.name)
-        //             gui_print_value(&builder, "Rotation", mesh.rotation)
-
-        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
-        //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
-
-        //             anim := &renderer.animations[model.first_animation_idx]
-        //             imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_duration(anim))
-        //             imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
-
-        //             disable_button := false
-        //             move_text : cstring = "Move"
-        //             obj, obj_ok := editor_response.(EditorResponse)
-        //             if obj_ok {
-        //                 if obj.type == response_type && obj.index == u32(i) {
-        //                     disable_button = true
-        //                     move_text = "Moving..."
-        //                 }
-        //             }
-
-        //             imgui.BeginDisabled(disable_button)
-        //             if imgui.Button(move_text) {
-        //                 editor_response^ = EditorResponse {
-        //                     type = response_type,
-        //                     index = u32(i)
-        //                 }
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Clone") {
-        //                 anim_to_clone_idx = i
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Delete") {
-        //                 unordered_remove(objects, i)
-        //                 editor_response^ = nil
-        //             }
-        //             imgui.EndDisabled()
-        //             imgui.Separator()
-
-        //             imgui.PopID()
-        //         }
-        //         imgui.PopID()
-        //     }
-        // }
-
-        // enemy_to_clone_idx: Maybe(int)
-        // {
-        //     objects := &game_state.enemies
-        //     label : cstring = "Enemies"
-        //     editor_response := &game_state.editor_response
-        //     response_type := EditorResponseType.MoveEnemy
-        //     if imgui.CollapsingHeader(label) {
-        //         imgui.PushID(label)
-        //         if len(objects) == 0 {
-        //             imgui.Text("Nothing to see here!")
-        //         }
-        //         if imgui.Button("Add") {
-        //             new_enemy := default_enemy(game_state^)
-        //             append(&game_state.enemies, new_enemy)
-        //         }
-        //         for &mesh, i in objects {
-        //             imgui.PushIDInt(c.int(i))
-
-        //             gui_print_value(&builder, "Collision state", mesh.collision_state)
-
-        //             // AI state dropdown box
-        //             {
-        //                 cstrs := ENEMY_STATE_CSTRINGS
-        //                 selected := mesh.ai_state
-        //                 if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
-        //                     for item, i in cstrs {
-        //                         if imgui.Selectable(item) {
-        //                             mesh.ai_state = EnemyState(i)
-        //                             mesh.velocity = {}
-        //                             mesh.home_position = mesh.position
-        //                         }
-        //                     }
-        //                     imgui.EndCombo()
-        //                 }
-        //             }
-
-        //             if imgui.DragFloat3("Position", &mesh.position, 0.1) {
-        //                 mesh.velocity = {}
-        //             }
-        //             imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
-        //             imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
-        //             {
-        //                 imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
-        //             }
-
-        //             disable_button := false
-        //             move_text : cstring = "Move"
-        //             obj, obj_ok := editor_response.(EditorResponse)
-        //             if obj_ok {
-        //                 if obj.type == response_type && obj.index == u32(i) {
-        //                     disable_button = true
-        //                     move_text = "Moving..."
-        //                 }
-        //             }
-
-        //             imgui.BeginDisabled(disable_button)
-        //             if imgui.Button(move_text) {
-        //                 editor_response^ = EditorResponse {
-        //                     type = response_type,
-        //                     index = u32(i)
-        //                 }
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Clone") {
-        //                 enemy_to_clone_idx = i
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Delete") {
-        //                 unordered_remove(objects, i)
-        //                 editor_response^ = nil
-        //             }
-        //             imgui.EndDisabled()
-        //             {
-        //                 imgui.SameLine()
-        //                 idx, ok := game_state.selected_enemy.?
-        //                 h := ok && i == idx
-        //                 if imgui.Checkbox("Highlighted", &h) {
-        //                     if ok && i == idx {
-        //                         game_state.selected_enemy = nil
-        //                     } else {
-        //                         game_state.selected_enemy = i
-        //                     }
-        //                 }
-        //             }
-        //             imgui.Separator()
-
-        //             imgui.PopID()
-        //         }
-        //         imgui.PopID()
-        //     }
-        // }
-
-        // coin_to_clone_idx: Maybe(int)
-        // {
-        //     objects := &game_state.coins
-        //     label : cstring = "Coins"
-        //     editor_response := &game_state.editor_response
-        //     response_type := EditorResponseType.MoveCoin
-        //     if imgui.CollapsingHeader(label) {
-        //         imgui.PushID(label)
-        //         if len(objects) == 0 {
-        //             imgui.Text("Nothing to see here!")
-        //         }
-        //         if imgui.Button("Add") {
-        //             append(&game_state.coins, Coin {})
-        //         }
-        //         for &mesh, i in objects {
-        //             imgui.PushIDInt(c.int(i))
-
-        //             imgui.DragFloat3("Position", &mesh.position, 0.1)
-
-        //             disable_button := false
-        //             move_text : cstring = "Move"
-        //             obj, obj_ok := editor_response.(EditorResponse)
-        //             if obj_ok {
-        //                 if obj.type == response_type && obj.index == u32(i) {
-        //                     disable_button = true
-        //                     move_text = "Moving..."
-        //                 }
-        //             }
-
-        //             imgui.BeginDisabled(disable_button)
-        //             if imgui.Button(move_text) {
-        //                 editor_response^ = EditorResponse {
-        //                     type = response_type,
-        //                     index = u32(i)
-        //                 }
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Clone") {
-        //                 coin_to_clone_idx = i
-        //             }
-        //             imgui.SameLine()
-        //             if imgui.Button("Delete") {
-        //                 unordered_remove(objects, i)
-        //                 editor_response^ = nil
-        //             }
-        //             imgui.EndDisabled()
-        //             imgui.Separator()
-
-        //             imgui.PopID()
-        //         }
-        //         imgui.PopID()
-        //     }
-        // }
-
-        // Do object clone
-        // {
-        //     things := &game_state.terrain_pieces
-        //     clone_idx, clone_ok := terrain_piece_clone_idx.?
-        //     if clone_ok {
-        //         new_terrain_piece := things[clone_idx]
-        //         new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
-
-        //         append(things, new_terrain_piece)
-        //         new_idx := len(things) - 1
-        //         game_state.editor_response = EditorResponse {
-        //             type = .MoveTerrainPiece,
-        //             index = u32(new_idx)
-        //         }
-        //     }
-        // }
-        // {
-        //     things := &game_state.static_scenery
-        //     clone_idx, clone_ok := static_to_clone_idx.?
-        //     if clone_ok {
-        //         append(things, things[clone_idx])
-        //         new_idx := len(things) - 1
-        //         game_state.editor_response = EditorResponse {
-        //             type = .MoveStaticScenery,
-        //             index = u32(new_idx)
-        //         }
-        //     }
-        // }
-        // {
-        //     things := &game_state.animated_scenery
-        //     clone_idx, clone_ok := anim_to_clone_idx.?
-        //     if clone_ok {
-        //         append(things, things[clone_idx])
-        //         new_idx := len(things) - 1
-        //         game_state.editor_response = EditorResponse {
-        //             type = .MoveAnimatedScenery,
-        //             index = u32(new_idx)
-        //         }
-        //     }
-        // }
-        // {
-        //     things := &game_state.enemies
-        //     clone_idx, clone_ok := enemy_to_clone_idx.?
-        //     if clone_ok {
-        //         append(things, things[clone_idx])
-        //         new_idx := len(things) - 1
-        //         game_state.editor_response = EditorResponse {
-        //             type = .MoveEnemy,
-        //             index = u32(new_idx)
-        //         }
-        //     }
-        // }
-        // {
-        //     things := &game_state.coins
-        //     clone_idx, clone_ok := coin_to_clone_idx.?
-        //     if clone_ok {
-        //         append(things, things[clone_idx])
-        //         new_idx := len(things) - 1
-        //         game_state.editor_response = EditorResponse {
-        //             type = .MoveCoin,
-        //             index = u32(new_idx)
-        //         }
-        //     }
-        // }
-    }
     if show_editor {
+        if imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
+            // Spawn point editor
+            {
+                imgui.DragFloat3("Player spawn", &game_state.level_start, 0.1)
+                flag := .ShowPlayerSpawn in game_state.debug_vis_flags
+                if imgui.Checkbox("Show player spawn", &flag) {
+                    game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+    
+    
+                    // game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                    // if flag {
+                    //     game_state.debug_models[game_state.player_id] = DebugModelInstance {
+                    //         handle = game_state.sphere_mesh,
+                    //         scale = collision.radius,
+                    //         color = {0.2, 0.0, 1.0, 0.5}
+                    //     }
+                    // } else {
+                    //     delete_key(&game_state.debug_models, game_state.player_id)
+                    // }
+                }
+    
+                // resp, ok := game_state.editor_response.(EditorResponse)
+                // disable := false
+                // move_text : cstring = "Move player spawn"
+                // if ok {
+                //     if resp.type == .MovePlayerSpawn {
+                //         disable = true
+                //         move_text = "Moving player spawn..."
+                //     }
+                // }
+                // imgui.BeginDisabled(disable)
+                // if imgui.Button(move_text) {
+                //     game_state.editor_response = EditorResponse {
+                //         type = .MovePlayerSpawn,
+                //         index = 0
+                //     }
+                // }
+                // imgui.EndDisabled()
+    
+                imgui.Separator()
+            }
+    
+            if imgui.Button("Delete all coins") {
+                for len(game_state.coins) > 0 {
+                    delete_coin(game_state, 0)
+                }
+            }
+    
+            // Edit verb selection
+            {
+                imgui.Text("Active edit verb")
+                // @TODO: Use reflection here
+                if imgui.RadioButton("None", game_state.edit_verb == .None) {
+                    game_state.edit_verb = .None
+                }
+                if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
+                    game_state.edit_verb = .Select
+                }
+                if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
+                    game_state.edit_verb = .PaintCoins
+                }
+            }
+            imgui.Separator()
+    
+            // Per-verb options menu
+            switch game_state.edit_verb {
+                case .None: {}
+                case .Select: {
+                    imgui.Text("Hi")
+                }
+                case .PaintCoins: {
+                    imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)
+                    imgui.DragFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
+                }
+            }
+            imgui.Separator()
+    
+            // Entity view
+            // {
+            //     for id in 0..<game_state._next_id {
+            //         eid := EntityID(id)
+            //         transform, exists := &game_state.transforms[eid]
+            //         if exists {
+            //             fmt.sbprintf(&builder, "Entity #%v", id)
+            //             cs := strings.to_cstring(&builder)
+            //             if imgui.CollapsingHeader(cs) {
+                            
+            //             }
+            //             strings.builder_reset(&builder)
+            //         }
+            //     }
+            // }
+            // imgui.Separator()
+    
+            // Raw component view
+            // {
+            //     for id, ai in game_state.enemy_ais {
+            //         imgui.Text("EnemyAI with id %i", id)
+            //         label := fmt.sbprintf(&builder, "%#v", ai)
+            //         cs := strings.to_cstring(&builder)
+            //         imgui.Text(cs)
+            //         strings.builder_reset(&builder)
+            //     }
+            // }
+    
+            // terrain_piece_clone_idx: Maybe(int)
+            // {
+            //     objects := &game_state.terrain_pieces
+            //     label : cstring = "Terrain pieces"
+            //     editor_response := &game_state.editor_response
+            //     response_type := EditorResponseType.MoveTerrainPiece
+            //     if imgui.CollapsingHeader(label) {
+            //         imgui.PushID(label)
+            //         if len(objects) == 0 {
+            //             imgui.Text("Nothing to see here!")
+            //         }
+            //         if imgui.Button("Add") {
+            //             editor_response^ = EditorResponse {
+            //                 type = .AddTerrainPiece,
+            //                 index = 0
+            //             }
+            //         }
+            //         imgui.Separator()
+            //         for &mesh, i in objects {
+            //             imgui.PushIDInt(c.int(i))
+    
+            //             model := get_static_model(renderer, mesh.model)
+            //             gui_print_value(&builder, "Name", model.name)
+            //             gui_print_value(&builder, "Rotation", mesh.rotation)
+    
+            //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+            //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+    
+            //             disable_button := false
+            //             move_text : cstring = "Move"
+            //             obj, obj_ok := editor_response.(EditorResponse)
+            //             if obj_ok {
+            //                 if obj.type == response_type && obj.index == u32(i) {
+            //                     disable_button = true
+            //                     move_text = "Moving..."
+            //                 }
+            //             }
+    
+            //             imgui.BeginDisabled(disable_button)
+            //             if imgui.Button(move_text) {
+            //                 editor_response^ = EditorResponse {
+            //                     type = response_type,
+            //                     index = u32(i)
+            //                 }
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Clone") {
+            //                 terrain_piece_clone_idx = i
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Delete") {
+            //                 unordered_remove(objects, i)
+            //                 game_state.editor_response = nil
+            //             }
+            //             if imgui.Button("Rebuild collision mesh") {
+            //                 rot := linalg.to_matrix4(mesh.rotation)
+            //                 mm := translation_matrix(mesh.position) * rot * scaling_matrix(mesh.scale)
+            //                 rebuild_static_triangle_mesh(&game_state.terrain_pieces[i].collision, mm)
+            //             }
+            //             imgui.EndDisabled()
+            //             imgui.Separator()
+    
+            //             imgui.PopID()
+            //         }
+            //         imgui.PopID()
+            //     }
+            // }
+    
+            // static_to_clone_idx: Maybe(int)
+            // {
+            //     objects := &game_state.static_scenery
+            //     label : cstring = "Static scenery"
+            //     editor_response := &game_state.editor_response
+            //     response_type := EditorResponseType.MoveStaticScenery
+            //     add_response_type := EditorResponseType.AddStaticScenery
+            //     if imgui.CollapsingHeader(label) {
+            //         imgui.PushID(label)
+            //         if len(objects) == 0 {
+            //             imgui.Text("Nothing to see here!")
+            //         }
+            //         if imgui.Button("Add") {
+            //             editor_response^ = EditorResponse {
+            //                 type = add_response_type,
+            //                 index = 0
+            //             }
+            //         }
+            //         for &mesh, i in objects {
+            //             imgui.PushIDInt(c.int(i))
+    
+            //             model := get_static_model(renderer, mesh.model)
+            //             gui_print_value(&builder, "Name", model.name)
+            //             gui_print_value(&builder, "Rotation", mesh.rotation)
+    
+            //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+            //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+    
+            //             disable_button := false
+            //             move_text : cstring = "Move"
+            //             obj, obj_ok := editor_response.(EditorResponse)
+            //             if obj_ok {
+            //                 if obj.type == response_type && obj.index == u32(i) {
+            //                     disable_button = true
+            //                     move_text = "Moving..."
+            //                 }
+            //             }
+    
+            //             imgui.BeginDisabled(disable_button)
+            //             if imgui.Button(move_text) {
+            //                 editor_response^ = EditorResponse {
+            //                     type = response_type,
+            //                     index = u32(i)
+            //                 }
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Clone") {
+            //                 static_to_clone_idx = i
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Delete") {
+            //                 unordered_remove(objects, i)
+            //                 editor_response^ = nil
+            //             }
+            //             imgui.EndDisabled()
+            //             imgui.Separator()
+    
+            //             imgui.PopID()
+            //         }
+            //         imgui.PopID()
+            //     }
+            // }
+    
+            // anim_to_clone_idx: Maybe(int)
+            // {
+            //     objects := &game_state.animated_scenery
+            //     label : cstring = "Animated scenery"
+            //     editor_response := &game_state.editor_response
+            //     response_type := EditorResponseType.MoveAnimatedScenery
+            //     add_response_type := EditorResponseType.AddAnimatedScenery
+            //     if imgui.CollapsingHeader(label) {
+            //         imgui.PushID(label)
+            //         if len(objects) == 0 {
+            //             imgui.Text("Nothing to see here!")
+            //         }
+            //         if imgui.Button("Add") {
+            //             editor_response^ = EditorResponse {
+            //                 type = add_response_type,
+            //                 index = 0
+            //             }
+            //         }
+            //         for &mesh, i in objects {
+            //             imgui.PushIDInt(c.int(i))
+    
+            //             model := get_skinned_model(renderer, mesh.model)
+            //             gui_print_value(&builder, "Name", model.name)
+            //             gui_print_value(&builder, "Rotation", mesh.rotation)
+    
+            //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+            //             imgui.SliderFloat("Scale", &mesh.scale, 0.0, 50.0)
+    
+            //             anim := &renderer.animations[model.first_animation_idx]
+            //             imgui.SliderFloat("Anim t", &mesh.anim_t, 0.0, get_animation_duration(anim))
+            //             imgui.SliderFloat("Anim speed", &mesh.anim_speed, 0.0, 20.0)
+    
+            //             disable_button := false
+            //             move_text : cstring = "Move"
+            //             obj, obj_ok := editor_response.(EditorResponse)
+            //             if obj_ok {
+            //                 if obj.type == response_type && obj.index == u32(i) {
+            //                     disable_button = true
+            //                     move_text = "Moving..."
+            //                 }
+            //             }
+    
+            //             imgui.BeginDisabled(disable_button)
+            //             if imgui.Button(move_text) {
+            //                 editor_response^ = EditorResponse {
+            //                     type = response_type,
+            //                     index = u32(i)
+            //                 }
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Clone") {
+            //                 anim_to_clone_idx = i
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Delete") {
+            //                 unordered_remove(objects, i)
+            //                 editor_response^ = nil
+            //             }
+            //             imgui.EndDisabled()
+            //             imgui.Separator()
+    
+            //             imgui.PopID()
+            //         }
+            //         imgui.PopID()
+            //     }
+            // }
+    
+            // enemy_to_clone_idx: Maybe(int)
+            // {
+            //     objects := &game_state.enemies
+            //     label : cstring = "Enemies"
+            //     editor_response := &game_state.editor_response
+            //     response_type := EditorResponseType.MoveEnemy
+            //     if imgui.CollapsingHeader(label) {
+            //         imgui.PushID(label)
+            //         if len(objects) == 0 {
+            //             imgui.Text("Nothing to see here!")
+            //         }
+            //         if imgui.Button("Add") {
+            //             new_enemy := default_enemy(game_state^)
+            //             append(&game_state.enemies, new_enemy)
+            //         }
+            //         for &mesh, i in objects {
+            //             imgui.PushIDInt(c.int(i))
+    
+            //             gui_print_value(&builder, "Collision state", mesh.collision_state)
+    
+            //             // AI state dropdown box
+            //             {
+            //                 cstrs := ENEMY_STATE_CSTRINGS
+            //                 selected := mesh.ai_state
+            //                 if imgui.BeginCombo("AI state", cstrs[selected], {.HeightLarge}) {
+            //                     for item, i in cstrs {
+            //                         if imgui.Selectable(item) {
+            //                             mesh.ai_state = EnemyState(i)
+            //                             mesh.velocity = {}
+            //                             mesh.home_position = mesh.position
+            //                         }
+            //                     }
+            //                     imgui.EndCombo()
+            //                 }
+            //             }
+    
+            //             if imgui.DragFloat3("Position", &mesh.position, 0.1) {
+            //                 mesh.velocity = {}
+            //             }
+            //             imgui.DragFloat3("Home position", &mesh.home_position, 0.1)
+            //             imgui.SliderFloat("Scale", &mesh.collision_radius, 0.0, 50.0)
+            //             {
+            //                 imgui.Checkbox("Visualize home radius", &mesh.visualize_home)
+            //             }
+    
+            //             disable_button := false
+            //             move_text : cstring = "Move"
+            //             obj, obj_ok := editor_response.(EditorResponse)
+            //             if obj_ok {
+            //                 if obj.type == response_type && obj.index == u32(i) {
+            //                     disable_button = true
+            //                     move_text = "Moving..."
+            //                 }
+            //             }
+    
+            //             imgui.BeginDisabled(disable_button)
+            //             if imgui.Button(move_text) {
+            //                 editor_response^ = EditorResponse {
+            //                     type = response_type,
+            //                     index = u32(i)
+            //                 }
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Clone") {
+            //                 enemy_to_clone_idx = i
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Delete") {
+            //                 unordered_remove(objects, i)
+            //                 editor_response^ = nil
+            //             }
+            //             imgui.EndDisabled()
+            //             {
+            //                 imgui.SameLine()
+            //                 idx, ok := game_state.selected_enemy.?
+            //                 h := ok && i == idx
+            //                 if imgui.Checkbox("Highlighted", &h) {
+            //                     if ok && i == idx {
+            //                         game_state.selected_enemy = nil
+            //                     } else {
+            //                         game_state.selected_enemy = i
+            //                     }
+            //                 }
+            //             }
+            //             imgui.Separator()
+    
+            //             imgui.PopID()
+            //         }
+            //         imgui.PopID()
+            //     }
+            // }
+    
+            // coin_to_clone_idx: Maybe(int)
+            // {
+            //     objects := &game_state.coins
+            //     label : cstring = "Coins"
+            //     editor_response := &game_state.editor_response
+            //     response_type := EditorResponseType.MoveCoin
+            //     if imgui.CollapsingHeader(label) {
+            //         imgui.PushID(label)
+            //         if len(objects) == 0 {
+            //             imgui.Text("Nothing to see here!")
+            //         }
+            //         if imgui.Button("Add") {
+            //             append(&game_state.coins, Coin {})
+            //         }
+            //         for &mesh, i in objects {
+            //             imgui.PushIDInt(c.int(i))
+    
+            //             imgui.DragFloat3("Position", &mesh.position, 0.1)
+    
+            //             disable_button := false
+            //             move_text : cstring = "Move"
+            //             obj, obj_ok := editor_response.(EditorResponse)
+            //             if obj_ok {
+            //                 if obj.type == response_type && obj.index == u32(i) {
+            //                     disable_button = true
+            //                     move_text = "Moving..."
+            //                 }
+            //             }
+    
+            //             imgui.BeginDisabled(disable_button)
+            //             if imgui.Button(move_text) {
+            //                 editor_response^ = EditorResponse {
+            //                     type = response_type,
+            //                     index = u32(i)
+            //                 }
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Clone") {
+            //                 coin_to_clone_idx = i
+            //             }
+            //             imgui.SameLine()
+            //             if imgui.Button("Delete") {
+            //                 unordered_remove(objects, i)
+            //                 editor_response^ = nil
+            //             }
+            //             imgui.EndDisabled()
+            //             imgui.Separator()
+    
+            //             imgui.PopID()
+            //         }
+            //         imgui.PopID()
+            //     }
+            // }
+    
+            // Do object clone
+            // {
+            //     things := &game_state.terrain_pieces
+            //     clone_idx, clone_ok := terrain_piece_clone_idx.?
+            //     if clone_ok {
+            //         new_terrain_piece := things[clone_idx]
+            //         new_terrain_piece.collision = copy_static_triangle_mesh(things[clone_idx].collision)
+    
+            //         append(things, new_terrain_piece)
+            //         new_idx := len(things) - 1
+            //         game_state.editor_response = EditorResponse {
+            //             type = .MoveTerrainPiece,
+            //             index = u32(new_idx)
+            //         }
+            //     }
+            // }
+            // {
+            //     things := &game_state.static_scenery
+            //     clone_idx, clone_ok := static_to_clone_idx.?
+            //     if clone_ok {
+            //         append(things, things[clone_idx])
+            //         new_idx := len(things) - 1
+            //         game_state.editor_response = EditorResponse {
+            //             type = .MoveStaticScenery,
+            //             index = u32(new_idx)
+            //         }
+            //     }
+            // }
+            // {
+            //     things := &game_state.animated_scenery
+            //     clone_idx, clone_ok := anim_to_clone_idx.?
+            //     if clone_ok {
+            //         append(things, things[clone_idx])
+            //         new_idx := len(things) - 1
+            //         game_state.editor_response = EditorResponse {
+            //             type = .MoveAnimatedScenery,
+            //             index = u32(new_idx)
+            //         }
+            //     }
+            // }
+            // {
+            //     things := &game_state.enemies
+            //     clone_idx, clone_ok := enemy_to_clone_idx.?
+            //     if clone_ok {
+            //         append(things, things[clone_idx])
+            //         new_idx := len(things) - 1
+            //         game_state.editor_response = EditorResponse {
+            //             type = .MoveEnemy,
+            //             index = u32(new_idx)
+            //         }
+            //     }
+            // }
+            // {
+            //     things := &game_state.coins
+            //     clone_idx, clone_ok := coin_to_clone_idx.?
+            //     if clone_ok {
+            //         append(things, things[clone_idx])
+            //         new_idx := len(things) - 1
+            //         game_state.editor_response = EditorResponse {
+            //             type = .MoveCoin,
+            //             index = u32(new_idx)
+            //         }
+            //     }
+            // }
+        }
         imgui.End()
     }
 }
