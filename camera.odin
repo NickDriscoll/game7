@@ -143,3 +143,24 @@ lookat_view_ray :: proc(transform: Transform, camera: FreecamController, target:
         direction = hlsl.normalize(start - transform.position)
     }
 }
+
+view_ray :: proc(game_state: GameState, viewport_camera_id: EntityID, mouse_location: [2]i32, viewport_dimensions: [4]f32) -> Ray {
+    click_coords := hlsl.uint2 {
+        u32(mouse_location.x) - u32(viewport_dimensions[0]),
+        u32(mouse_location.y) - u32(viewport_dimensions[1]),
+    }
+
+    tform := &game_state.transforms[viewport_camera_id]
+    camera := &game_state.cameras[viewport_camera_id]
+    lookat_controller, is_lookat := &game_state.lookat_controllers[viewport_camera_id]
+
+    resolution := hlsl.uint2 {u32(viewport_dimensions[2]), u32(viewport_dimensions[3])}
+    ray: Ray
+    if is_lookat {
+        target := &game_state.transforms[lookat_controller.target]
+        ray = lookat_view_ray(tform^, camera^, target.position, click_coords, resolution)
+    } else {
+        ray = freecam_view_ray(tform^, camera^, click_coords, resolution)
+    }
+    return ray
+}

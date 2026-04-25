@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:math/linalg/hlsl"
 import "core:mem"
 import vmem "core:mem/virtual"
@@ -56,6 +57,8 @@ AppOption :: enum {
 AppOptions :: bit_set[AppOption]
 
 App :: struct {
+    logger: log.Logger,
+
     global_allocator: mem.Allocator,
     per_scene_allocator: mem.Allocator,
     per_frame_allocator: mem.Allocator,
@@ -143,7 +146,8 @@ app_startup :: proc(app: ^App) -> bool {
     scoped_event(&profiler, "App startup")
 
     // Set up logger
-    context.logger = log.create_console_logger(log_level)
+    app.logger = log.create_console_logger(log_level)
+    context.logger = app.logger
 
     {
         scoped_event(&profiler, "App initialization")
@@ -402,7 +406,8 @@ main :: proc() {
     defer app_shutdown(&app)
     scoped_event(&profiler, "Main proc")
 
-    // context is per-scope, so set the allocators here for the rest of main's scope
+    // context is per-scope, so set the allocators and logger here
+    context.logger = app.logger
     context.allocator = app.per_scene_allocator
     context.temp_allocator = app.per_frame_allocator
 
@@ -455,8 +460,6 @@ main :: proc() {
         app.renderer.uniforms.time += scaled_dt
 
         new_frame(&app.renderer)
-
-        scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
 
         output_verbs := poll_sdl2_events(&app.input_system)
 
@@ -529,8 +532,40 @@ main :: proc() {
         switch app.game_state.edit_verb {
             case .None: {}
             case .Select: {
-                if app.input_system.mouse_held {
-                    log.warnf("%v edit verb not implemented.", app.game_state.edit_verb)
+                if app.input_system.mouse_clicked {
+                    dims : [4]f32 = {
+                        cast(f32)app.renderer.viewport_dimensions.offset.x,
+                        cast(f32)app.renderer.viewport_dimensions.offset.y,
+                        cast(f32)app.renderer.viewport_dimensions.extent.width,
+                        cast(f32)app.renderer.viewport_dimensions.extent.height,
+                    }
+                    // @TODO: Clean up the view_ray apis
+                    ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
+                    closest_id: EntityID
+                    closest_t := math.INF_F32
+                    for id, instance in app.game_state.static_models {
+                        tform := &app.game_state.transforms[id]
+                        model := get_static_model(&app.renderer, instance.handle)
+                        world_space_sphere_pos := tform.position + model.bounding_sphere.position
+                        s := Sphere {
+                            position = world_space_sphere_pos,
+                            radius = model.bounding_sphere.radius
+                        }
+                        t, did_intersect := intersect_ray_sphere_t(ray, s)
+                        if did_intersect {
+                            if closest_t > t {
+                                closest_t = t
+                                closest_id = id
+                            }
+                        }
+                    }
+                    if closest_t < math.INF_F32 {
+                        log.infof("Selected entity #%v!", closest_id)
+                        m := &app.game_state.static_models[closest_id]
+                        m.flags += {.Highlighted}
+                    } else {
+                        log.info("No entity selected")
+                    }
                 }
             }
             case .PaintCoins: {
@@ -571,7 +606,6 @@ main :: proc() {
                 imgui.Separator()
 
                 {
-                    //player := &app.game_state.character
                     tform := &app.game_state.transforms[app.game_state.player_id]
                     collision := &app.game_state.spherical_bodies[app.game_state.player_id]
                     player := &app.game_state.character_controllers[app.game_state.player_id]
@@ -592,10 +626,6 @@ main :: proc() {
                         } else {
                             delete_key(&app.game_state.debug_models, app.game_state.player_id)
                         }
-                    }
-                    flag = .ShowPlayerActivityRadius in app.game_state.debug_vis_flags
-                    if imgui.Checkbox("Show player activity radius", &flag) {
-                        app.game_state.debug_vis_flags ~= {.ShowPlayerActivityRadius}
                     }
                     flag = .ShowCoinRadius in app.game_state.debug_vis_flags
                     if imgui.Checkbox("Show coin radius", &flag) {
