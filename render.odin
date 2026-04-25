@@ -2291,12 +2291,12 @@ load_gltf_static_model :: proc(
     // Compute bounding sphere
     s: Sphere
     {
-        average: hlsl.half3
+        average: hlsl.float3
         for vertex in all_mesh_vertices {
-            average += vertex.xyz
+            average += hlsl.float3{f32(vertex.x), f32(vertex.y), f32(vertex.z)}
         }
-        average /= hlsl.half(len(all_mesh_vertices))
-        s.position = hlsl.float3{f32(average.x), f32(average.y), f32(average.z)}
+        average /= f32(len(all_mesh_vertices))
+        s.position = average
 
         for v in all_mesh_vertices {
             vertex := hlsl.float3{f32(v.x), f32(v.y), f32(v.z)}
@@ -2306,6 +2306,7 @@ load_gltf_static_model :: proc(
             }
         }
     }
+    log.infof("Computed bounding sphere for %v: %v", path, s)
 
     cloned_name, _ := strings.clone(glb_filename, allocator)
     handle := hm.insert(&renderer.loaded_static_models, StaticModel {
