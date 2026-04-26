@@ -1127,6 +1127,7 @@ GameState :: struct {
     // Editor state
     //editor_response: Maybe(EditorResponse),
     edit_verb: EditVerb,
+    selected_entity: Maybe(EntityID),
     current_level: string,
     savename_buffer: [1024]c.char,
     last_placed_position: hlsl.float3,
@@ -1977,22 +1978,22 @@ new_save_level_file :: proc(
     log.infof("Finished saving level to \"%v\"", path)
 }
 
-EditorResponseType :: enum {
-    MoveTerrainPiece,
-    MoveStaticScenery,
-    MoveAnimatedScenery,
-    MoveEnemy,
-    MoveCoin,
-    MovePlayerSpawn,
-    AddTerrainPiece,
-    AddStaticScenery,
-    AddAnimatedScenery,
-    AddCoin
-}
-EditorResponse :: struct {
-    type: EditorResponseType,
-    index: u32
-}
+// EditorResponseType :: enum {
+//     MoveTerrainPiece,
+//     MoveStaticScenery,
+//     MoveAnimatedScenery,
+//     MoveEnemy,
+//     MoveCoin,
+//     MovePlayerSpawn,
+//     AddTerrainPiece,
+//     AddStaticScenery,
+//     AddAnimatedScenery,
+//     AddCoin
+// }
+// EditorResponse :: struct {
+//     type: EditorResponseType,
+//     index: u32
+// }
 
 EditVerb :: enum {
     None = 0,
@@ -2078,12 +2079,21 @@ scene_editor :: proc(
                 }
             }
             imgui.Separator()
+
+            if game_state.edit_verb != .Select {
+                game_state.selected_entity = nil
+            }
     
             // Per-verb options menu
             switch game_state.edit_verb {
                 case .None: {}
                 case .Select: {
-                    imgui.Text("Hi")
+                    id, ok := game_state.selected_entity.?
+                    if ok {
+                        imgui.Text("Selected #%i", c.int(id))
+                    } else {
+                        imgui.Text("Hi")
+                    }
                 }
                 case .PaintCoins: {
                     imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)

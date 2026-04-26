@@ -526,6 +526,17 @@ main :: proc() {
         }
 
         // Update
+
+        for id, instance in app.game_state.static_models {
+            tform := &app.game_state.transforms[id]
+            model := get_static_model(&app.renderer, instance.handle)
+            pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+            ddraw := DebugDraw {
+                world_from_model = translation_matrix(pos) * uniform_scaling_matrix(model.bounding_sphere.radius),
+                color = {1.0, 1.0, 0.0, 0.2},
+            }
+            draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+        }
         
         // Do editor window and verb handling
         scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
@@ -546,13 +557,13 @@ main :: proc() {
                     for id, instance in app.game_state.static_models {
                         tform := &app.game_state.transforms[id]
                         model := get_static_model(&app.renderer, instance.handle)
-                        world_space_sphere_pos := tform.position + model.bounding_sphere.position
+                        world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
                         s := Sphere {
                             position = world_space_sphere_pos,
                             radius = model.bounding_sphere.radius
                         }
-                        t, did_intersect := intersect_ray_sphere_t(ray, s)
-                        if did_intersect {
+                        t, res := intersect_ray_sphere_t(ray, s)
+                        if res == .OutsideHit {
                             if closest_t > t {
                                 closest_t = t
                                 closest_id = id
@@ -561,8 +572,14 @@ main :: proc() {
                     }
                     if closest_t < math.INF_F32 {
                         log.infof("Selected entity #%v!", closest_id)
+                        old_id, exists := app.game_state.selected_entity.?
+                        if exists {
+                            old_m := &app.game_state.static_models[old_id]
+                            old_m.flags -= {.Highlighted}
+                        }
                         m := &app.game_state.static_models[closest_id]
                         m.flags += {.Highlighted}
+                        app.game_state.selected_entity = closest_id
                     } else {
                         log.info("No entity selected")
                     }

@@ -503,21 +503,29 @@ intersect_segment_triangle :: proc(segment: LineSegment, tri: Triangle) -> (hlsl
     return world_space_collision, ok
 }
 
+RaySphereResult :: enum {
+    Miss,
+    OutsideHit,
+    InsideHit
+}
+
 // Implementation adapted from section 5.3.2 of Real-Time Collision Detection
-intersect_ray_sphere_t :: proc(r: Ray, s: Sphere) -> (f32, bool) {
+intersect_ray_sphere_t :: proc(r: Ray, s: Sphere) -> (f32, RaySphereResult) {
+    res := RaySphereResult.Miss
+
     m := r.start - s.position
     b := hlsl.dot(m, r.direction)
     c := hlsl.dot(m, m) - s.radius * s.radius // Signed distance of the ray origin from the sphere origin
 
     // Exit if r's origin is outside s (c > 0) and r is pointing away from s (b > 0.0)
     if c > 0.0 && b > 0.0 {
-        return {}, false
+        return {}, res
     }
 
     // discr < 0.0 means the ray missed
     discr := b * b - c
     if discr < 0.0 {
-        return {}, false
+        return {}, res
     }   
 
     // Compute smallest t-value of intersection
@@ -529,14 +537,16 @@ intersect_ray_sphere_t :: proc(r: Ray, s: Sphere) -> (f32, bool) {
     // and as such clamps t to 0.0 when t < 0.0
     // This, however, is a hollow sphere, so we try the 
     // second t-value and try again
+    res = .OutsideHit
     if t < 0.0 {
+        res = .InsideHit
         t = -b + sqrt_discr
     }
     if t < 0.0 {
-        return {}, false
+        return {}, res
     }
 
-    return t, true
+    return t, res
 }
 intersect_segment_sphere_t :: proc(seg: LineSegment, s: Sphere) -> (f32, bool) {
     seg_vec := seg.end - seg.start
@@ -545,11 +555,13 @@ intersect_segment_sphere_t :: proc(seg: LineSegment, s: Sphere) -> (f32, bool) {
         start = seg.start,
         direction = seg_vec / seg_len
     }
-    t, ok := intersect_ray_sphere_t(r, s)
+    t, res := intersect_ray_sphere_t(r, s)
+    ok := res != .Miss
     return t / seg_len, ok
 }
 intersect_ray_sphere :: proc(r: Ray, s: Sphere) -> (hlsl.float3, bool) {
-    t, ok := intersect_ray_sphere_t(r, s)
+    t, res := intersect_ray_sphere_t(r, s)
+    ok := res != .Miss
     return r.start + t * r.direction, ok
 }
 
