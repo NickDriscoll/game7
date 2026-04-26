@@ -219,6 +219,9 @@ Renderer :: struct {
     gpu_static_meshes: [dynamic]GPUStaticMesh,
     mesh_raytracing_datas: [dynamic]MeshRaytracingData,
 
+    // @TODO: Replace with config flags field if necessary
+    do_raytracing: bool,
+
     // Separate global mesh buffer for skinned meshes
     cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMesh),
 
@@ -305,6 +308,7 @@ renderer_new_scene :: proc(renderer: ^Renderer) {
 
 init_renderer :: proc(gd: ^vkw.Graphics_Device, screen_size: hlsl.uint2) -> Renderer {
     renderer: Renderer
+    renderer.do_raytracing = gd.has_raytracing
 
     renderer_new_scene(&renderer)
 
@@ -819,6 +823,22 @@ create_static_mesh :: proc(
         color_offset = NULL_OFFSET
     }
     append(&renderer.gpu_static_meshes, gpu_mesh)
+
+    // TEMP: Just trying to build a BLAS when I don't know how
+    {
+        blas: vk.AccelerationStructureKHR
+        infos : []vkw.AccelerationStructureBuildInfo = {
+            {
+                type = .BOTTOM_LEVEL,
+                flags = {.PREFER_FAST_TRACE},
+                mode = .BUILD,
+                src = 0,
+                dst = blas,
+
+            }
+        }
+        //vkw.cmd_build_acceleration_structures(gd, infos)
+    }
 
     mesh := CPUStaticMesh {
         indices_start = indices_start,

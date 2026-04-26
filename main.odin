@@ -269,6 +269,9 @@ main :: proc() {
     // Initialize the renderer
     renderer := init_renderer(&vgd, app_window.resolution)
     when ODIN_DEBUG do defer delete_renderer(&vgd, &renderer)
+    if !renderer.do_raytracing {
+        log.warn("Raytracing unsupported by your GPU")
+    }
 
     //Dear ImGUI init
     imgui_state := imgui_init(&vgd, app_window.resolution)
