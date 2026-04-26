@@ -531,9 +531,14 @@ main :: proc() {
             tform := &app.game_state.transforms[id]
             model := get_static_model(&app.renderer, instance.handle)
             pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+            color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+            selected_id, id_ok := app.game_state.selected_entity.?
+            if id_ok && selected_id == id {
+                color = {0.0, 1.0, 0.0, 0.2}
+            }
             ddraw := DebugDraw {
                 world_from_model = translation_matrix(pos) * uniform_scaling_matrix(model.bounding_sphere.radius),
-                color = {1.0, 1.0, 0.0, 0.2},
+                color = color,
             }
             draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
         }
@@ -582,6 +587,7 @@ main :: proc() {
                         app.game_state.selected_entity = closest_id
                     } else {
                         log.info("No entity selected")
+                        app.game_state.selected_entity = nil
                     }
                 }
             }
