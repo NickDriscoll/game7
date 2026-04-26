@@ -1,11 +1,13 @@
 package main
 
+import "core:text/match"
 import "core:c"
 import "core:fmt"
 import "core:math/linalg/hlsl"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:reflect"
 import "core:slice"
 import "core:strings"
 import "vendor:sdl2"
@@ -370,6 +372,31 @@ gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_ite
     // Show listbox
     selected_item^ = 0
     return imgui.ListBox(name, selected_item, &list_items[0], c.int(len(list_items)), 15)
+}
+
+gui_dropdown_enum :: proc(label: cstring, current_value: ^$Enum, allocator := context.temp_allocator) -> bool {
+    items := make([dynamic]cstring, 0, 16, allocator)
+    names := reflect.enum_field_names(Enum)
+    selected: c.int
+    for name, i in names {
+        if int(current_value^) == i {
+            selected = c.int(i)
+        }
+        cs := strings.clone_to_cstring(name, allocator)
+        append(&items, cs)
+    }
+
+    interacted := false
+    if imgui.BeginCombo(label, items[selected]) {
+        for item, i in items {
+            if imgui.Selectable(item) {
+                current_value^ = Enum(i)
+                interacted = true
+            }
+        }
+        imgui.EndCombo()
+    }
+    return interacted
 }
 
 window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfiguration) -> bool {

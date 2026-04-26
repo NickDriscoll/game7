@@ -349,9 +349,6 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                     body.velocity = {}
                 }
             }
-            case .Hovering: {
-                assert(false)
-            }
             case .AlertedBounce: {
                 if body.state == .Grounded {
                     enemy.state = .AlertedCharge
@@ -1041,8 +1038,6 @@ EnemyState :: enum {
     Wandering,
     Resting,
 
-    Hovering,
-
     AlertedBounce,
     AlertedCharge,
 }
@@ -1050,7 +1045,6 @@ ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
     .BrainDead = "Brain Dead",
     .Wandering = "Wandering",
     .Resting = "Resting",
-    .Hovering = "Hovering",
     .AlertedBounce = "Alerted Bounce",
     .AlertedCharge = "Alerted Charge"
 }
@@ -1999,7 +1993,8 @@ new_save_level_file :: proc(
 EditVerb :: enum {
     None = 0,
     Select,
-    PaintCoins
+    PaintCoins,
+    PlaceEnemy
 }
 
 scene_editor :: proc(
@@ -2073,6 +2068,9 @@ scene_editor :: proc(
                 if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
                     game_state.edit_verb = .PaintCoins
                 }
+                if imgui.RadioButton("Place enemy", game_state.edit_verb == .PlaceEnemy) {
+                    game_state.edit_verb = .PlaceEnemy
+                }
             }
             imgui.Separator()
 
@@ -2089,6 +2087,12 @@ scene_editor :: proc(
                         imgui.Text("Selected #%i", c.int(id))
                         tform := &game_state.transforms[id]
                         moved := imgui.DragFloat3("Position", &tform.position, 0.2)
+                        moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
+
+                        ai, ai_ok := &game_state.enemy_ais[id]
+                        if ai_ok {
+                            gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
+                        }
                         
                         mesh, mesh_ok := &game_state.triangle_meshes[id]
                         if mesh_ok && moved {
@@ -2107,6 +2111,9 @@ scene_editor :: proc(
                 case .PaintCoins: {
                     imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)
                     imgui.DragFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
+                }
+                case .PlaceEnemy: {
+
                 }
             }
             imgui.Separator()
