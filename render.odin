@@ -2291,11 +2291,11 @@ load_gltf_static_model :: proc(
     // Compute bounding sphere
     s: Sphere
     {
+        recipricol := 1.0 / f32(len(all_mesh_vertices))
         average: hlsl.float3
         for vertex in all_mesh_vertices {
-            average += hlsl.float3{f32(vertex.x), f32(vertex.y), f32(vertex.z)}
+            average += recipricol * hlsl.float3{f32(vertex.x), f32(vertex.y), f32(vertex.z)}
         }
-        average /= f32(len(all_mesh_vertices))
         s.position = average
 
         for v in all_mesh_vertices {
