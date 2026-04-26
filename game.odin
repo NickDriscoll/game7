@@ -1060,6 +1060,7 @@ DebugVisualizationFlag :: enum {
     ShowPlayerHitSphere,
     ShowPlayerActivityRadius,
     ShowCoinRadius,
+    ShowBoundingSpheres,
 }
 DebugVisualizationFlags :: bit_set[DebugVisualizationFlag]
 
@@ -2023,18 +2024,6 @@ scene_editor :: proc(
                 flag := .ShowPlayerSpawn in game_state.debug_vis_flags
                 if imgui.Checkbox("Show player spawn", &flag) {
                     game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
-    
-    
-                    // game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
-                    // if flag {
-                    //     game_state.debug_models[game_state.player_id] = DebugModelInstance {
-                    //         handle = game_state.sphere_mesh,
-                    //         scale = collision.radius,
-                    //         color = {0.2, 0.0, 1.0, 0.5}
-                    //     }
-                    // } else {
-                    //     delete_key(&game_state.debug_models, game_state.player_id)
-                    // }
                 }
     
                 // resp, ok := game_state.editor_response.(EditorResponse)
@@ -2056,6 +2045,13 @@ scene_editor :: proc(
                 // imgui.EndDisabled()
     
                 imgui.Separator()
+            }
+
+            {
+                b := .ShowBoundingSpheres in game_state.debug_vis_flags
+                if imgui.Checkbox("Show bounding spheres", &b) {
+                    game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
+                }
             }
     
             if imgui.Button("Delete all coins") {
@@ -2091,8 +2087,21 @@ scene_editor :: proc(
                     id, ok := game_state.selected_entity.?
                     if ok {
                         imgui.Text("Selected #%i", c.int(id))
-                    } else {
-                        imgui.Text("Hi")
+                        tform := &game_state.transforms[id]
+                        moved := imgui.DragFloat3("Position", &tform.position, 0.2)
+                        
+                        mesh, mesh_ok := &game_state.triangle_meshes[id]
+                        if mesh_ok && moved {
+                            mmat := get_transform_matrix(tform^)
+                            rebuild_static_triangle_mesh(mesh, mmat)
+                        }
+                        
+                        lookat, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
+                        imgui.BeginDisabled(!lookat_ok)
+                        if imgui.Button("Lock-on") {
+                            lookat.target = id
+                        }
+                        imgui.EndDisabled()
                     }
                 }
                 case .PaintCoins: {

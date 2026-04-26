@@ -526,22 +526,6 @@ main :: proc() {
         }
 
         // Update
-
-        for id, instance in app.game_state.static_models {
-            tform := &app.game_state.transforms[id]
-            model := get_static_model(&app.renderer, instance.handle)
-            pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-            color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
-            selected_id, id_ok := app.game_state.selected_entity.?
-            if id_ok && selected_id == id {
-                color = {0.0, 1.0, 0.0, 0.2}
-            }
-            ddraw := DebugDraw {
-                world_from_model = translation_matrix(pos) * uniform_scaling_matrix(model.bounding_sphere.radius),
-                color = color,
-            }
-            draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
-        }
         
         // Do editor window and verb handling
         scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
@@ -565,7 +549,7 @@ main :: proc() {
                         world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
                         s := Sphere {
                             position = world_space_sphere_pos,
-                            radius = model.bounding_sphere.radius
+                            radius = tform.scale * model.bounding_sphere.radius
                         }
                         t, res := intersect_ray_sphere_t(ray, s)
                         if res == .OutsideHit {
@@ -616,6 +600,25 @@ main :: proc() {
                         }
                     }
                 }
+            }
+        }
+
+        if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
+            for id, instance in app.game_state.static_models {
+                tform := &app.game_state.transforms[id]
+                model := get_static_model(&app.renderer, instance.handle)
+                pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                scale := model.bounding_sphere.radius * tform.scale
+                color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                selected_id, id_ok := app.game_state.selected_entity.?
+                if id_ok && selected_id == id {
+                    color = {0.0, 1.0, 0.0, 0.2}
+                }
+                ddraw := DebugDraw {
+                    world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                    color = color,
+                }
+                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
             }
         }
 
