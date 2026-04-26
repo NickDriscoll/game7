@@ -290,10 +290,11 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     float3 final_color = (glow + reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
-        float fac = smoothstep(0.6, 1.0, 1.0 - dot(face_normal, view_dir));
+        float fac = smoothstep(0.3, 1.0, 1.0 - dot(face_normal, view_dir));
         float uv_space_noise = simplex2D(input.uv + 0.5 * u_data.time);
 
-        final_color = lerp(final_color, uv_space_noise * float3(0.0, 0.0, 1.0), fac);
+        // final_color = lerp(final_color, uv_space_noise * float3(0.0, 0.0, 1.0), fac);
+        final_color += uv_space_noise * float3(0.0, 0.0, 1.0);
     }
 
     if ((u_data.flags & UniformFlag.ColorTriangles) != 0) {
