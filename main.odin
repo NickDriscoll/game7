@@ -559,13 +559,13 @@ main :: proc() {
                             }
                         }
                     }
+                    old_id, exists := app.game_state.selected_entity.?
+                    if exists {
+                        old_m := &app.game_state.static_models[old_id]
+                        old_m.flags -= {.Highlighted}
+                    }
                     if closest_t < math.INF_F32 {
                         log.infof("Selected entity #%v!", closest_id)
-                        old_id, exists := app.game_state.selected_entity.?
-                        if exists {
-                            old_m := &app.game_state.static_models[old_id]
-                            old_m.flags -= {.Highlighted}
-                        }
                         m := &app.game_state.static_models[closest_id]
                         m.flags += {.Highlighted}
                         app.game_state.selected_entity = closest_id
@@ -598,6 +598,28 @@ main :: proc() {
                             new_coin(&app.game_state, coin_pos)
                             app.game_state.last_placed_position = collision_pt
                         }
+                    }
+                }
+            }
+            case .PlaceEnemy: {
+                if app.input_system.mouse_clicked {
+                    dims : [4]f32 = {
+                        cast(f32)app.renderer.viewport_dimensions.offset.x,
+                        cast(f32)app.renderer.viewport_dimensions.offset.y,
+                        cast(f32)app.renderer.viewport_dimensions.extent.width,
+                        cast(f32)app.renderer.viewport_dimensions.extent.height,
+                    }
+                    collision_pt, hit := do_mouse_raycast(
+                        app.game_state,
+                        app.game_state.viewport_camera_id,
+                        app.game_state.triangle_meshes,
+                        app.input_system.mouse_location,
+                        dims
+                    )
+                    if hit {
+                        pos := collision_pt
+                        pos.z += 1.0
+                        new_enemy(&app.game_state, pos, 1.0, .BrainDead)
                     }
                 }
             }
