@@ -288,6 +288,9 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Allocator stats", selected = user_config.flags[.ShowAllocatorStats]) {
                 user_config.flags[.ShowAllocatorStats] = !user_config.flags[.ShowAllocatorStats]
             }
+            if imgui.MenuItem("Audio panel", selected = user_config.flags[.AudioPanel]) {
+                user_config.flags[.AudioPanel] = !user_config.flags[.AudioPanel]
+            }
             if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags[.ShowImguiDemo]) {
                 user_config.flags[.ShowImguiDemo] = !user_config.flags[.ShowImguiDemo]
             }
