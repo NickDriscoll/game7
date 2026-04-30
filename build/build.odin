@@ -108,14 +108,14 @@ main :: proc() {
                 command = {
                     "make",
                     "-C",
-                    ODIN_ROOT + "/../vendor/stb/src"
+                    ODIN_ROOT + "vendor/stb/src"
                 }
             }
             d2 := os.Process_Desc {
                 command = {
                     "make",
                     "-C",
-                    ODIN_ROOT + "/../vendor/cgltf/src"
+                    ODIN_ROOT + "vendor/cgltf/src"
                 }
             }
             process, e := os.process_start(d)
@@ -126,6 +126,9 @@ main :: proc() {
             if e2 != nil {
                 log.errorf("Error compiling odin vendor libs: %v", e2)
             }
+
+            _, _ = os.process_wait(process)
+            _, _ = os.process_wait(process2)
 
             _, err := os.create(BUILT_COMPILER_VENDOR_LIBS_LOCKFILE)
             if err != nil {

@@ -13,4 +13,5 @@ data/source_models/*
 game7
 game7.zip
 imgui.ini
+.built_odin_vendor_libs
 .shadercache
