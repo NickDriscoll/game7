@@ -2012,7 +2012,9 @@ scene_editor :: proc(
 
     show_editor := gui.show_gui && user_config.flags[.SceneEditor]
     if show_editor {
+        defer imgui.End()
         if imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
+
             // Spawn point editor
             {
                 imgui.DragFloat3("Player spawn", &game_state.level_start, 0.1)
@@ -2040,13 +2042,6 @@ scene_editor :: proc(
                 // imgui.EndDisabled()
     
                 imgui.Separator()
-            }
-
-            {
-                b := .ShowBoundingSpheres in game_state.debug_vis_flags
-                if imgui.Checkbox("Show bounding spheres", &b) {
-                    game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
-                }
             }
     
             if imgui.Button("Delete all coins") {
@@ -2083,9 +2078,28 @@ scene_editor :: proc(
                 case .None: {}
                 case .Select: {
                     id, ok := game_state.selected_entity.?
+                    eid := c.int(id)
+
+                    {
+                        b := .ShowBoundingSpheres in game_state.debug_vis_flags
+                        if imgui.Checkbox("Show bounding spheres", &b) {
+                            game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
+                        }
+                    }
+
+                    lookat_controller, lookat_ok := game_state.lookat_controllers[game_state.viewport_camera_id]
+                    imgui.BeginDisabled(!lookat_ok)
+                    if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
+                        new_id := EntityID(eid)
+                        lookat_controller.target = new_id
+                        game_state.selected_entity = new_id
+                    }
+                    imgui.EndDisabled()
+
                     if ok {
                         imgui.Text("Selected #%i", c.int(id))
-                        tform := &game_state.transforms[id]
+                        tform, has_tform := &game_state.transforms[id]
+                        assert(has_tform)
                         moved := imgui.DragFloat3("Position", &tform.position, 0.2)
                         moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
 
@@ -2099,11 +2113,10 @@ scene_editor :: proc(
                             mmat := get_transform_matrix(tform^)
                             rebuild_static_triangle_mesh(mesh, mmat)
                         }
-                        
-                        lookat, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
+
                         imgui.BeginDisabled(!lookat_ok)
                         if imgui.Button("Lock-on") {
-                            lookat.target = id
+                            lookat_controller.target = id
                         }
                         imgui.EndDisabled()
                     }
@@ -2555,7 +2568,6 @@ scene_editor :: proc(
             //     }
             // }
         }
-        imgui.End()
     }
 }
 
