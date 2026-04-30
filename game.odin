@@ -1545,9 +1545,10 @@ new_load_level_file :: proc(
             buffer: []byte,
             head: ^u32,
             string_table_offset: u32,
+            scene_allocator: runtime.Allocator
         ) -> cstring {
             sb: strings.Builder
-            strings.builder_init(&sb, context.temp_allocator)
+            strings.builder_init(&sb, scene_allocator)
 
             // Read offset and length of model string and then load it
             offset := read_thing_from_buffer(buffer, u32, head)
@@ -1563,7 +1564,7 @@ new_load_level_file :: proc(
             comp: T
             when T == TriangleMesh {
                 mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
-                model_path := get_model_path(buffer, head, string_table_offset)
+                model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
                 positions := get_glb_positions(model_path, scene_allocator)
 
                 comp = new_static_triangle_mesh(positions[:], mmat)
@@ -1573,19 +1574,19 @@ new_load_level_file :: proc(
             } else when T == StaticModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
-                model_path := get_model_path(buffer, head, string_table_offset)
+                model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
                 comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
             } else when T == SkinnedModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
-                model_path := get_model_path(buffer, head, string_table_offset)
+                model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
                 comp.handle = load_gltf_skinned_model(gd, renderer, model_path, scene_allocator)
             } else when T == DebugModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
                 comp.scale = read_thing_from_buffer(buffer, f32, head)
-                model_path := get_model_path(buffer, head, string_table_offset)
+                model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
                 comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
             } else {
                 comp = read_thing_from_buffer(buffer, T, head)
