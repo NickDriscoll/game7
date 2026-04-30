@@ -11,6 +11,8 @@ import "core:strings"
 // Stages are one of {vert, frag, comp}
 // Shader entry point should be named "<stage>_main"
 
+BUILT_COMPILER_VENDOR_LIBS_LOCKFILE :: ".built_odin_vendor_libs"
+
 // List of all .slang files with a vertex shader entry point
 VERTEX_SHADERS : []string : {
     "imgui",
@@ -46,6 +48,7 @@ when ODIN_DEBUG {
         "-vet-shadowing",
         //"-vet-unused-imports",
         "-disallow-do",
+        "-define:INCLUDE_PROFILER=true",
     }
 } else {
     ODIN_COMMAND : []string : {
@@ -59,6 +62,7 @@ when ODIN_DEBUG {
         "-disallow-do",
         "-disable-assert",
         "-no-bounds-check",
+        "-define:INCLUDE_PROFILER=true",
     }
 }
 
@@ -66,8 +70,6 @@ SlangProcess :: struct {
     process: os.Process,
     shader_name: string,
 }
-
-// @TODO: Automatically compile stb on Linux platforms
 
 main :: proc() {
     // Parse command-line arguments
@@ -97,11 +99,41 @@ main :: proc() {
         }
     }
     context.logger = log.create_console_logger(log_level)
+    log.infof("starting program build with ODIN_DEBUG==%v...", ODIN_DEBUG)
 
-    when ODIN_DEBUG {
-        log.info("starting program build in debug mode...")
-    } else {
-        log.info("starting program build in release mode...")
+    when ODIN_OS == .Linux {
+        if !os.exists(BUILT_COMPILER_VENDOR_LIBS_LOCKFILE) {
+            log.info("Building odin vendor libraries...")
+            d := os.Process_Desc {
+                command = {
+                    "make",
+                    "-C",
+                    ODIN_ROOT + "/../vendor/stb/src"
+                }
+            }
+            d2 := os.Process_Desc {
+                command = {
+                    "make",
+                    "-C",
+                    ODIN_ROOT + "/../vendor/cgltf/src"
+                }
+            }
+            process, e := os.process_start(d)
+            process2, e2 := os.process_start(d2)
+            if e != nil {
+                log.errorf("Error compiling odin vendor libs: %v", e)
+            }
+            if e2 != nil {
+                log.errorf("Error compiling odin vendor libs: %v", e2)
+            }
+
+            _, err := os.create(BUILT_COMPILER_VENDOR_LIBS_LOCKFILE)
+            if err != nil {
+                log.errorf("Unable to create \"./" + 
+                            BUILT_COMPILER_VENDOR_LIBS_LOCKFILE + 
+                            "\": %v", err)
+            }
+        }
     }
 
     // String builders for formatting input and output path strings
@@ -251,7 +283,7 @@ main :: proc() {
     }
 
     // Wait on the shader compilers
-    log.info("waiting on slangc...")
+    log.infof("waiting on shader compilation for %v shaders...", len(processes))
     for p in processes {
         proc_state, _ := os.process_wait(p.process)
 

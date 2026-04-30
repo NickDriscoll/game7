@@ -49,6 +49,7 @@ delete_static_triangles :: proc(s: ^TriangleMesh) {
 }
 
 positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Triangle {
+    scoped_event(&profiler, "positions_to_triangles")
     FLOATS_PER_TRIANGLE :: 9
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
 
@@ -77,6 +78,7 @@ positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Tri
 }
 
 new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
+    scoped_event(&profiler, "new_static_triangle_mesh")
     FLOATS_PER_TRIANGLE :: 9
 
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
@@ -97,6 +99,7 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
 }
 
 rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
+    scoped_event(&profiler, "rebuild_static_triangle_mesh")
     FLOATS_PER_TRIANGLE :: 9
 
     // For each implicit triangle
@@ -110,6 +113,7 @@ rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hls
 }
 
 copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.allocator) -> TriangleMesh {
+    scoped_event(&profiler, "copy_static_triangle_mesh")
     new_positions := make([]f32, len(collision.local_positions), allocator)
     new_triangles := make([dynamic]Triangle, len(collision.triangles), allocator)
     copy(new_positions, collision.local_positions)
@@ -123,6 +127,7 @@ copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.
 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
+    scoped_event(&profiler, "closest_pt_triangle")
     dot :: hlsl.dot
     //scoped_event(&profiler, "closest_pt_triangle")
 
@@ -188,6 +193,7 @@ closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
     return candidate
 }
 closest_pt_triangle_with_normal :: proc(point: hlsl.float3, tri: Triangle) -> (hlsl.float3, hlsl.float3) {
+    scoped_event(&profiler, "closest_pt_triangle_with_normal")
     dot :: hlsl.dot
     //scoped_event(&profiler, "closest_pt_triangle_with_normal")
 

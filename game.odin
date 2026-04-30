@@ -29,6 +29,7 @@ ENEMY_THROW_SPEED :: 15.0
 DEFAULT_FACING_DIRECTION :: hlsl.float3 {1.0, 0.0, 0.0}
 
 closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
+    scoped_event(&profiler, "closest_pt_terrain")
     candidate: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in terrain {
@@ -91,6 +92,7 @@ intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map
 }
 
 dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
+    scoped_event(&profiler, "dynamic_sphere_vs_terrain_t()")
     closest_t := math.INF_F32
     for _, piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
@@ -110,6 +112,7 @@ do_mouse_raycast :: proc(
     mouse_location: [2]i32,
     viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
+    scoped_event(&profiler, "do_mouse_raycast")
     click_coords := hlsl.uint2 {
         u32(mouse_location.x) - u32(viewport_dimensions[0]),
         u32(mouse_location.y) - u32(viewport_dimensions[1]),
@@ -150,6 +153,7 @@ Transform :: struct {
     scale: f32,
 }
 get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
+    scoped_event(&profiler, "get_transform_matrix")
     scale_mat := scaling_matrix(tform.scale)
     rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
     mat := rot * scale_mat * scaling_matrix(scale)

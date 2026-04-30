@@ -23,6 +23,7 @@ init_profiler :: proc(trace_file: string, allocator := context.allocator) -> Pro
     return profiler
 }
 
+@(disabled=!ODIN_DEBUG)
 quit_profiler :: proc(profiler: ^Profiler) {
     if profiler.spall_ctx.fd != 0 {
         spall.buffer_destroy(&profiler.spall_ctx, &profiler.spall_buffer)
@@ -31,7 +32,9 @@ quit_profiler :: proc(profiler: ^Profiler) {
     }
 }
 
-@(deferred_in=_scoped_end)
+INCLUDE_PROFILER :: #config(INCLUDE_PROFILER, true)
+
+@(disabled=!INCLUDE_PROFILER,deferred_in=_scoped_end)
 scoped_event :: proc(profiler: ^Profiler, label: string) {
     if profiler.spall_ctx.fd != 0 {
         spall._buffer_begin(&profiler.spall_ctx, &profiler.spall_buffer, label)
