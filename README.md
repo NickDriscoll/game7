@@ -27,15 +27,12 @@ Clone the repo and init submodules
 ```
 git clone git@github.com:NickDriscoll/game7.git
 cd game7
-mkdir data/shaders
 git submodule update --init --recursive
 ```
 
-On Linux, install the SDL2 developer libraries and build the `stb` and `cgltf` libraries (packaged with your Odin compiler)
+On Linux, install the SDL2 developer libraries
 ```
 sudo apt install libsdl2-dev
-make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/stb/src"
-make -C "/usr/local/bin/odin-linux-amd64-nightly+2025-09-08/vendor/cgltf/src"
 ```
 
 ### Build on Windows
