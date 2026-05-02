@@ -158,7 +158,7 @@ view_ray :: proc(game_state: GameState, viewport_camera_id: EntityID, mouse_loca
     ray: Ray
     if is_lookat {
         target := &game_state.transforms[lookat_controller.target]
-        ray = lookat_view_ray(tform^, camera^, target.position, click_coords, resolution)
+        ray = lookat_view_ray(tform^, camera^, lookat_controller.current_focal_point, click_coords, resolution)
     } else {
         ray = freecam_view_ray(tform^, camera^, click_coords, resolution)
     }
