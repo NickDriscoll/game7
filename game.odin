@@ -1,5 +1,6 @@
 package main
 
+import "core:reflect"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
@@ -1090,6 +1091,43 @@ LevelBlock :: enum u8 {
     Coins = 6,
 }
 
+delete_entity :: proc(game_state: ^GameState, id: EntityID) {
+    delete_key(&game_state.transforms, id)
+    delete_key(&game_state.transform_deltas, id)
+    delete_key(&game_state.cameras, id)
+    delete_key(&game_state.lookat_controllers, id)
+    delete_key(&game_state.character_controllers, id)
+    delete_key(&game_state.enemy_ais, id)
+    delete_key(&game_state.hovering_enemies, id)
+    delete_key(&game_state.thrown_enemy_ais, id)
+    delete_key(&game_state.spherical_bodies, id)
+    delete_key(&game_state.triangle_meshes, id)
+    delete_key(&game_state.static_models, id)
+    delete_key(&game_state.skinned_models, id)
+    delete_key(&game_state.debug_models, id)
+    delete_key(&game_state.bounding_spheres, id)
+    delete_key(&game_state.parents, id)
+
+    idx_to_delete: Maybe(int)
+    for id2, i in game_state.looping_animations {
+        if id == id2 {
+            idx_to_delete = i
+        }
+    }
+    if idx, ok := idx_to_delete.? ; ok {
+        unordered_remove(&game_state.looping_animations, idx)
+        idx_to_delete = nil
+    }
+    for id2, i in game_state.coins {
+        if id == id2 {
+            idx_to_delete = i
+        }
+    }
+    if idx, ok := idx_to_delete.? ; ok {
+        unordered_remove(&game_state.coins, idx)
+    }
+}
+
 EntityID :: distinct u32
 
 // Megastruct for all game-specific data
@@ -2150,6 +2188,16 @@ scene_editor :: proc(
                             lookat_controller.target = id
                         }
                         imgui.EndDisabled()
+                        imgui.SameLine()
+                        if imgui.Button("Delete") {
+                            // fields := reflect.struct_fields_zipped(GameState)
+                            // for i in 0..<len(fields) {
+                            //     name := fields.name[i]
+                            //     log.infof("%v", name)
+                            // }
+                            delete_entity(game_state, id)
+                            game_state.selected_entity = nil
+                        }
                     }
                 }
                 case .PaintCoins: {
