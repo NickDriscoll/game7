@@ -587,6 +587,32 @@ intersect_ray_triangles :: proc(ray: Ray, tris: TriangleMesh) -> (hlsl.float3, b
     return candidate_point, found
 }
 
+intersect_ray_triangles_with_normal :: proc(ray: Ray, tris: TriangleMesh) -> (hlsl.float3, hlsl.float3, bool) {
+    candidate_point: hlsl.float3
+    candidate_normal: hlsl.float3
+    candidate_distance := math.INF_F32
+    found := false
+    for tri in tris.triangles {
+        point: hlsl.float3
+        ok: bool
+        point, ok = intersect_ray_triangle(ray, tri)
+        if ok {
+            d := hlsl.distance(ray.start, point)
+            if d < candidate_distance {
+                ab := tri.b - tri.a
+                ac := tri.c - tri.a
+                n := hlsl.cross(ab, ac)
+                candidate_point = point
+                candidate_normal = n
+                candidate_distance = d
+                found = true
+            }
+        }
+    }
+
+    return candidate_point, candidate_normal, found
+}
+
 intersect_ray_triangles_t :: proc(ray: Ray, tris: TriangleMesh) -> (f32, bool) {
     candidate_distance := math.INF_F32
     found := false
