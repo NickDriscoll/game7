@@ -1133,11 +1133,11 @@ add_vertex_colors :: proc(
     renderer.colors_head += colors_len
 
     when HandleType == Static_Mesh_Handle {
-        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
+        mesh, _ := hm.get(renderer.cpu_static_meshes, handle)
         gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.color_offset = color_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
         mesh.color_offset = color_start
     } else {
         panic("Invalid arg type")
@@ -1160,11 +1160,11 @@ add_vertex_uvs :: proc(
     renderer.uvs_head += uvs_len
 
     when HandleType == Static_Mesh_Handle {
-        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
+        mesh, _ := hm.get(renderer.cpu_static_meshes, handle)
         gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(&renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
         mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
@@ -1247,7 +1247,7 @@ draw_debug_primtive :: proc(
 ) -> bool {
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1274,7 +1274,7 @@ draw_ps1_static_primitives :: proc(
     scoped_event(&profiler, "draw_ps1_static_primitives")
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1304,7 +1304,7 @@ draw_ps1_static_primitive :: proc(
     scoped_event(&profiler, "draw_ps1_static_primitive")
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1366,7 +1366,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
 
     for skinned_instance in renderer.cpu_skinned_instances {
         renderer.dirty_flags += {.Mesh}
-        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
+        mesh, _ := hm.get(renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
         anim := renderer.animations[skinned_instance.animation_idx]
         anim_t := skinned_instance.animation_time
 
@@ -1532,7 +1532,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
 
             // Queue BLAS rebuilds
             if renderer.do_raytracing {
-                static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
+                static_mesh, _ := hm.get(renderer.cpu_static_meshes, mesh.static_mesh_handle)
 
                 queue_blas_build(
                     gd,
@@ -1599,7 +1599,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
         for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
-            static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
+            static_mesh, _ := hm.get(renderer.cpu_static_meshes, static_instance.mesh_handle)
 
             tform: vk.TransformMatrixKHR
             for row in 0..<3 {
@@ -1802,7 +1802,7 @@ render_scene :: proc(
             for current_instance < len(instances) {
                 scoped_event(&profiler, "Instance loop iteration")
                 current_mesh_handle := instances[current_instance].mesh_handle
-                current_mesh, ok := hm.get(&renderer.cpu_static_meshes, current_mesh_handle)
+                current_mesh, ok := hm.get(renderer.cpu_static_meshes, current_mesh_handle)
                 if !ok {
                     log.error("Unable to get current_mesh")
                 }
@@ -2156,7 +2156,7 @@ StaticModelHandle :: distinct hm.Handle
 SkinnedModelHandle :: distinct hm.Handle
 
 get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^StaticModel {
-    model, res := hm.get(&renderer.loaded_static_models, handle)
+    model, res := hm.get(renderer.loaded_static_models, handle)
     if !res {
         log.error("Unable to get static model.")
     }
@@ -2164,7 +2164,7 @@ get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^Sta
 }
 
 get_skinned_model :: proc(renderer: ^Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
-    model, res := hm.get(&renderer.loaded_skinned_models, handle)
+    model, res := hm.get(renderer.loaded_skinned_models, handle)
     if !res {
         log.error("Unable to get skinned model.")
     }
