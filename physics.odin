@@ -575,6 +575,25 @@ intersect_ray_triangles :: proc(ray: Ray, tris: TriangleMesh) -> (hlsl.float3, b
     return candidate_point, found
 }
 
+intersect_ray_triangles_t :: proc(ray: Ray, tris: TriangleMesh) -> (f32, bool) {
+    candidate_distance := math.INF_F32
+    found := false
+    for tri in tris.triangles {
+        point: hlsl.float3
+        ok: bool
+        _, ok = intersect_ray_triangle(ray, tri)
+        if ok {
+            d := hlsl.distance(ray.start, point)
+            if d < candidate_distance {
+                candidate_distance = d
+                found = true
+            }
+        }
+    }
+
+    return candidate_distance, found
+}
+
 intersect_segment_triangles_t :: proc(segment: LineSegment, tris: TriangleMesh) -> (f32, bool) {
     candidate_t := math.INF_F32
     for tri in tris.triangles {
