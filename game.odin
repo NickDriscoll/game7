@@ -21,7 +21,7 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
-DEFAULT_COMPONENT_MAP_CAPACITY :: 64
+DEFAULT_COMPONENT_MAP_CAPACITY :: 1024
 
 GRAVITY_ACCELERATION : hlsl.float3 : {0.0, 0.0, 2.0 * -9.8}           // m/s^2
 TERMINAL_VELOCITY :: -100000.0                                  // m/s
@@ -89,6 +89,25 @@ intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map
     }
 
     return cand_t, normal, cand_t < math.INF_F32
+}
+
+intersect_segment_terrain_with_normal_and_id :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, EntityID, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain_with_normal_and_id")
+    cand_t := math.INF_F32
+    normal: hlsl.float3
+    cand_id: EntityID
+    for id, piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
+        if ok {
+            if t < cand_t {
+                cand_t = t
+                cand_id = id
+                normal = n
+            }
+        }
+    }
+
+    return cand_t, normal, cand_id, cand_t < math.INF_F32
 }
 
 dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
@@ -574,13 +593,14 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
             transform: ^Transform,
             radius: f32,
             terrain: map[EntityID]TriangleMesh
-        ) -> (collision_normal: hlsl.float3, ok: bool) {
-            segment_collision_t, segment_collision_normal, segment_intersected := intersect_segment_terrain_with_normal(motion_interval, terrain)
+        ) -> (collision_normal: hlsl.float3, id: EntityID, ok: bool) {
+            segment_collision_t, segment_collision_normal, collided_with_id, segment_intersected := intersect_segment_terrain_with_normal_and_id(motion_interval, terrain)
             if segment_intersected {
                 segment_collision := sample_segment(motion_interval, segment_collision_t)
                 transform.position = segment_collision + segment_collision_normal * radius
                 collision_normal = segment_collision_normal
                 ok = true
+                id = collided_with_id
             } else {
                 closest_pt, closest_pt_normal := closest_pt_terrain_with_normal(motion_interval.end, terrain)
                 d := hlsl.distance(motion_interval.end, closest_pt)
@@ -645,7 +665,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         start = transform.position + {0.0, 0.0, 0.0},
                         end = transform.position + {0.0, 0.0, -body.radius - 0.1}
                     }
-                    tolerance_t, normal, okt := intersect_segment_terrain_with_normal(tolerance_segment, game_state.triangle_meshes)
+                    tolerance_t, normal, id_collided_with, okt := intersect_segment_terrain_with_normal_and_id(tolerance_segment, game_state.triangle_meshes)
                     if okt {
                         // The test line segment intersected with the ground
 
@@ -654,6 +674,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                             transform.position = tolerance_point + {0.0, 0.0, body.radius}
                             body.velocity.z = 0.0
                             body.state = .Grounded
+                            game_state.parents[id] = id_collided_with
                         } else {
                             // Floor too steep
                             body.state = .Falling
@@ -670,7 +691,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                     body.velocity.z = TERMINAL_VELOCITY
                 }
 
-                collision_normal, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
+                collision_normal, collided_with_id, ok := simple_continuous_collision_detection(motion_interval, transform, body.radius, game_state.triangle_meshes)
                 if ok {
                     collided_this_frame = true
                     n_dot := hlsl.dot(collision_normal, hlsl.float3{0.0, 0.0, 1.0})
@@ -678,6 +699,7 @@ tick_spherical_bodies :: proc(game_state: ^GameState, dt: f32) {
                         // Floor
                         body.velocity.z = 0.0
                         body.state = .Grounded
+                        game_state.parents[id] = collided_with_id
                     } else if n_dot < -0.1 {
                         // Ceiling
                         body.velocity.z = 0.0
@@ -1095,6 +1117,7 @@ GameState :: struct {
     skinned_models: map[EntityID]SkinnedModelInstance,
     debug_models: map[EntityID]DebugModelInstance,
     bounding_spheres: map[EntityID]Sphere,
+    parents: map[EntityID]EntityID,
 
     // Sometimes we need behavior associated with a group of ids
     // without actually needing to store additional state
@@ -1318,6 +1341,7 @@ gamestate_new_scene :: proc(
     game_state.skinned_models = make(map[EntityID]SkinnedModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.debug_models = make(map[EntityID]DebugModelInstance, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.bounding_spheres = make(map[EntityID]Sphere, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
+    game_state.parents = make(map[EntityID]EntityID, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
 
     game_state.looping_animations = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
     game_state.coins = make([dynamic]EntityID, 0, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -2069,7 +2093,13 @@ scene_editor :: proc(
             }
             imgui.Separator()
 
+            // Clear certain states when verbs are unselected
             if game_state.edit_verb != .Select {
+                old_id, exists := game_state.selected_entity.?
+                if exists {
+                    old_m := &game_state.static_models[old_id]
+                    old_m.flags -= {.Highlighted}
+                }
                 game_state.selected_entity = nil
             }
     
@@ -2087,12 +2117,13 @@ scene_editor :: proc(
                         }
                     }
 
-                    lookat_controller, lookat_ok := game_state.lookat_controllers[game_state.viewport_camera_id]
+                    lookat_controller, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
                     imgui.BeginDisabled(!lookat_ok)
                     if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
                         new_id := EntityID(eid)
                         lookat_controller.target = new_id
                         game_state.selected_entity = new_id
+                        id = new_id
                     }
                     imgui.EndDisabled()
 
