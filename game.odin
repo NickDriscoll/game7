@@ -125,6 +125,38 @@ dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMes
     return closest_t, closest_t < math.INF_F32
 }
 
+do_mouse_raycast_with_normal :: proc(
+    game_state: GameState,
+    viewport_camera_id: EntityID,
+    triangle_meshes: map[EntityID]TriangleMesh,
+    mouse_location: [2]i32,
+    viewport_dimensions: [4]f32
+) -> (hlsl.float3, hlsl.float3, bool) {
+    scoped_event(&profiler, "do_mouse_raycast")
+    click_coords := hlsl.uint2 {
+        u32(mouse_location.x) - u32(viewport_dimensions[0]),
+        u32(mouse_location.y) - u32(viewport_dimensions[1]),
+    }
+    ray := view_ray(game_state, viewport_camera_id, mouse_location, viewport_dimensions)
+
+    tform := &game_state.transforms[viewport_camera_id]
+    collision_pt: hlsl.float3
+    normal: hlsl.float3
+    closest_dist := math.INF_F32
+    for _, &piece in triangle_meshes {
+        candidate, n, ok := intersect_ray_triangles_with_normal(ray, piece)
+        if ok {
+            candidate_dist := hlsl.distance(candidate, tform.position)
+            if candidate_dist < closest_dist {
+                collision_pt = candidate
+                normal = n
+                closest_dist = candidate_dist
+            }
+        }
+    }
+
+    return collision_pt, normal, closest_dist < math.INF_F32
+}
 do_mouse_raycast :: proc(
     game_state: GameState,
     viewport_camera_id: EntityID,
@@ -1324,6 +1356,7 @@ init_gamestate :: proc(
             }
 
             is_cubemap := .D3D11_RESOURCE_MISC_TEXTURECUBE in dds_header.misc_flag
+            assert(is_cubemap)
             image_flags : vk.ImageCreateFlags = {.CUBE_COMPATIBLE} if is_cubemap else {}
             image_format := dxgi_to_vulkan_format(dds_header.dxgi_format)
             image_info := vkw.Image_Create {
@@ -1506,7 +1539,7 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
 }
 
 // Returns the size in bytes of component when serialized
-get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
+get_serialized_size :: proc(renderer: Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
     lil_helper :: proc(string_table: ^StringTable, str: string) -> int {
         // This proc returns the size in bytes of _this_
         // instance of the string in the level file
@@ -1833,7 +1866,7 @@ new_save_level_file :: proc(
         calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
             size := size_of(u32)
             for _, comp in component_map {
-                size += get_serialized_size(renderer, string_table, comp)
+                size += get_serialized_size(renderer^, string_table, comp)
             }
             return size
         }
@@ -1919,7 +1952,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
                 write_thing_to_buffer(buffer, &comp.flags, head)
 
-                model := get_static_model(renderer, comp.handle)
+                model := get_static_model(renderer^, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == SkinnedModelInstance {
@@ -1927,7 +1960,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.flags, head)
                 write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
-                model := get_skinned_model(renderer, comp.handle)
+                model := get_skinned_model(renderer^, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == DebugModelInstance {
@@ -1935,7 +1968,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.color, head)
                 write_thing_to_buffer(buffer, &comp.scale, head)
 
-                model := get_static_model(renderer, comp.handle)
+                model := get_static_model(renderer^, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
             } else {
                 // Directly serialize the component struct
@@ -2055,6 +2088,7 @@ new_save_level_file :: proc(
 EditVerb :: enum {
     None = 0,
     Select,
+    Delete,
     PaintCoins,
     PlaceEnemy
 }
@@ -2121,6 +2155,9 @@ scene_editor :: proc(
                 }
                 if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
                     game_state.edit_verb = .Select
+                }
+                if imgui.RadioButton("Delete", game_state.edit_verb == .Delete) {
+                    game_state.edit_verb = .Delete
                 }
                 if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
                     game_state.edit_verb = .PaintCoins
@@ -2199,6 +2236,10 @@ scene_editor :: proc(
                             game_state.selected_entity = nil
                         }
                     }
+                }
+                case .Delete: {
+                    @static skip_collision := true
+                    imgui.Checkbox("Exempt collision geometry", &skip_collision)
                 }
                 case .PaintCoins: {
                     imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)

@@ -528,46 +528,74 @@ main :: proc() {
         // Update
         
         // Do editor window and verb handling
+        maybe_show_bounding_spheres :: proc(app: ^App) {
+            if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
+                for id, instance in app.game_state.static_models {
+                    tform := &app.game_state.transforms[id]
+                    model := get_static_model(app.renderer, instance.handle)
+                    pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                    scale := model.bounding_sphere.radius * tform.scale
+                    color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                    selected_id, id_ok := app.game_state.selected_entity.?
+                    if id_ok && selected_id == id {
+                        color = {0.0, 1.0, 0.0, 0.2}
+                    }
+                    ddraw := DebugDraw {
+                        world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                        color = color,
+                    }
+                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                }
+            }
+        }
+        get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
+            dims : [4]f32 = {
+                cast(f32)app.renderer.viewport_dimensions.offset.x,
+                cast(f32)app.renderer.viewport_dimensions.offset.y,
+                cast(f32)app.renderer.viewport_dimensions.extent.width,
+                cast(f32)app.renderer.viewport_dimensions.extent.height,
+            }
+            // @TODO: Clean up the view_ray apis
+            ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
+
+            closest_t = math.INF_F32
+            for id, instance in app.game_state.static_models {
+                tri_mesh, has_trimesh := app.game_state.triangle_meshes[id]
+                if filter_terrain && has_trimesh {
+                    continue
+                }
+                if has_trimesh {
+                    t, intersected := intersect_ray_triangles_t(ray, tri_mesh)
+                    if intersected && t < closest_t {
+                        closest_t = t
+                        closest_id = id
+                    }
+                } else {
+                    model := get_static_model(app.renderer, instance.handle)
+                    tform := &app.game_state.transforms[id]
+                    world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                    s := Sphere {
+                        position = world_space_sphere_pos,
+                        radius = tform.scale * model.bounding_sphere.radius
+                    }
+                    t, res := intersect_ray_sphere_t(ray, s)
+                    if res == .OutsideHit {
+                        if closest_t > t {
+                            closest_t = t
+                            closest_id = id
+                        }
+                    }
+                }
+            }
+            return
+        }
         scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
         switch app.game_state.edit_verb {
             case .None: {}
             case .Select: {
                 if app.input_system.mouse_clicked {
-                    dims : [4]f32 = {
-                        cast(f32)app.renderer.viewport_dimensions.offset.x,
-                        cast(f32)app.renderer.viewport_dimensions.offset.y,
-                        cast(f32)app.renderer.viewport_dimensions.extent.width,
-                        cast(f32)app.renderer.viewport_dimensions.extent.height,
-                    }
-                    // @TODO: Clean up the view_ray apis
-                    ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
-                    closest_id: EntityID
-                    closest_t := math.INF_F32
-                    for id, instance in app.game_state.static_models {
-                        tri_mesh, has_trimesh := app.game_state.triangle_meshes[id]
-                        if has_trimesh {
-                            t, intersected := intersect_ray_triangles_t(ray, tri_mesh)
-                            if intersected && t < closest_t {
-                                closest_t = t
-                                closest_id = id
-                            }
-                        } else {
-                            model := get_static_model(&app.renderer, instance.handle)
-                            tform := &app.game_state.transforms[id]
-                            world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                            s := Sphere {
-                                position = world_space_sphere_pos,
-                                radius = tform.scale * model.bounding_sphere.radius
-                            }
-                            t, res := intersect_ray_sphere_t(ray, s)
-                            if res == .OutsideHit {
-                                if closest_t > t {
-                                    closest_t = t
-                                    closest_id = id
-                                }
-                            }
-                        }
-                    }
+                    closest_id, closest_t := get_clicked_entity(app, false)
+                    
                     old_id, exists := app.game_state.selected_entity.?
                     if exists {
                         old_m := &app.game_state.static_models[old_id]
@@ -584,24 +612,40 @@ main :: proc() {
                     }
                 }
 
-                if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
-                    for id, instance in app.game_state.static_models {
-                        tform := &app.game_state.transforms[id]
-                        model := get_static_model(&app.renderer, instance.handle)
-                        pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                        scale := model.bounding_sphere.radius * tform.scale
-                        color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
-                        selected_id, id_ok := app.game_state.selected_entity.?
-                        if id_ok && selected_id == id {
-                            color = {0.0, 1.0, 0.0, 0.2}
-                        }
-                        ddraw := DebugDraw {
-                            world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
-                            color = color,
-                        }
-                        draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                maybe_show_bounding_spheres(&app)
+            }
+            case .Delete: {
+                
+                if app.input_system.mouse_held {
+                    dims : [4]f32 = {
+                        cast(f32)app.renderer.viewport_dimensions.offset.x,
+                        cast(f32)app.renderer.viewport_dimensions.offset.y,
+                        cast(f32)app.renderer.viewport_dimensions.extent.width,
+                        cast(f32)app.renderer.viewport_dimensions.extent.height,
+                    }
+                    collision_pt, n, hit := do_mouse_raycast_with_normal(
+                        app.game_state,
+                        app.game_state.viewport_camera_id,
+                        app.game_state.triangle_meshes,
+                        app.input_system.mouse_location,
+                        dims
+                    )
+                    id, t := get_clicked_entity(app, true)
+                    if t < math.INF_F32 {
+                        delete_entity(&app.game_state, id)
+                    }
+
+                    if hit {
+                        do_point_light(&app.renderer, PointLight {
+                            world_position = collision_pt + 0.001 * n,
+                            intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
+                            color = {1.0, 1.0, 0.8},
+                        })
                     }
                 }
+
+
+                maybe_show_bounding_spheres(&app)
             }
             case .PaintCoins: {
                 if app.input_system.mouse_held {

@@ -1195,7 +1195,7 @@ draw_ps1_static_meshes :: proc(
     draw_data: []StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_meshes")
-    data := get_static_model(r, handle)
+    data := get_static_model(r^, handle)
     for prim, i in data.primitives {
         draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1207,7 +1207,7 @@ draw_ps1_static_mesh :: proc(
     draw_data: StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_mesh")
-    data := get_static_model(r, handle)
+    data := get_static_model(r^, handle)
     for prim in data.primitives {
         draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1220,7 +1220,7 @@ draw_ps1_skinned_mesh :: proc(
     draw_data: ^SkinnedDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_skinned_mesh")
-    data := get_skinned_model(r, handle)
+    data := get_skinned_model(r^, handle)
     draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -1233,7 +1233,7 @@ draw_debug_mesh :: proc(
     handle: StaticModelHandle,
     draw_data: ^DebugDraw
 ) {
-    model := get_static_model(renderer, handle)
+    model := get_static_model(renderer^, handle)
     for prim in model.primitives {
         draw_debug_primtive(gd, renderer, prim.mesh, draw_data)
     }
@@ -2156,7 +2156,7 @@ load_gltf_textures :: proc(gd: ^vkw.GraphicsDevice, gltf_data: ^cgltf.data, allo
 StaticModelHandle :: distinct hm.Handle
 SkinnedModelHandle :: distinct hm.Handle
 
-get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^StaticModel {
+get_static_model :: proc(renderer: Renderer, handle: StaticModelHandle) -> ^StaticModel {
     model, res := hm.get(renderer.loaded_static_models, handle)
     if !res {
         log.error("Unable to get static model.")
@@ -2164,7 +2164,7 @@ get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^Sta
     return model
 }
 
-get_skinned_model :: proc(renderer: ^Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
+get_skinned_model :: proc(renderer: Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
     model, res := hm.get(renderer.loaded_skinned_models, handle)
     if !res {
         log.error("Unable to get skinned model.")
