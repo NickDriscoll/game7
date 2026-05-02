@@ -343,7 +343,7 @@ app_startup :: proc(app: ^App) -> bool {
     return true
 }
 
-@(disabled=!ODIN_DEBUG)
+//@(disabled=!ODIN_DEBUG)
 app_shutdown :: proc(app: ^App) {
     scoped_event(&profiler, "Shutdown")
     log.destroy_console_logger(context.logger)
@@ -463,7 +463,7 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
-        if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
+        if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 2 {
             do_main_loop = false
         }
 
@@ -1063,68 +1063,77 @@ main :: proc() {
         }
 
         // Draw static models
-        for id, model in app.game_state.static_models {
-            tform := &app.game_state.transforms[id]
-
-            mat := get_transform_matrix(tform^)
-            mat[3][0] += model.pos_offset.x
-            mat[3][1] += model.pos_offset.y
-            mat[3][2] += model.pos_offset.z
-            draw := StaticDraw {
-                world_from_model = mat,
-                flags = model.flags
-            }
-            draw_ps1_static_mesh(&app.vgd, &app.renderer, model.handle, draw)
-
-            if .Glowing in model.flags {
-                // Light source
-                l := default_point_light()
-                l.world_position = tform.position
-                l.color = {0.0, 1.0, 0.0}
-                l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
-                do_point_light(&app.renderer, l)
-            }
-        }
-
-        // Draw skinned models
-        for id, model in app.game_state.skinned_models {
-            tform := &app.game_state.transforms[id]
-
-            mat := get_transform_matrix(tform^)
-            mat[3][0] += model.pos_offset.x
-            mat[3][1] += model.pos_offset.y
-            mat[3][2] += model.pos_offset.z
-            draw := SkinnedDraw {
-                world_from_model = mat,
-                anim_idx = model.anim_idx,
-                anim_t = model.anim_t,
-                //flags = model.flags
-            }
-            draw_ps1_skinned_mesh(&app.vgd, &app.renderer, model.handle, &draw)
-
-            if .Glowing in model.flags {
-                // Light source
-                l := default_point_light()
-                l.world_position = tform.position
-                l.color = {0.0, 1.0, 0.0}
-                l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
-                do_point_light(&app.renderer, l)
+        {
+            scoped_event(&profiler, "Draw static models")
+            for id, model in app.game_state.static_models {
+                tform := &app.game_state.transforms[id]
+    
+                mat := get_transform_matrix(tform^)
+                mat[3][0] += model.pos_offset.x
+                mat[3][1] += model.pos_offset.y
+                mat[3][2] += model.pos_offset.z
+                draw := StaticDraw {
+                    world_from_model = mat,
+                    flags = model.flags
+                }
+                draw_ps1_static_mesh(&app.vgd, &app.renderer, model.handle, draw)
+    
+                if .Glowing in model.flags {
+                    // Light source
+                    l := default_point_light()
+                    l.world_position = tform.position
+                    l.color = {0.0, 1.0, 0.0}
+                    l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
+                    do_point_light(&app.renderer, l)
+                }
             }
         }
 
-        // Draw debug models
-        for id, model in app.game_state.debug_models {
-            tform := &app.game_state.transforms[id]
-
-            mat := get_transform_matrix(tform^, model.scale)
-            mat[3][0] += model.pos_offset.x
-            mat[3][1] += model.pos_offset.y
-            mat[3][2] += model.pos_offset.z
-            draw := DebugDraw {
-                world_from_model = mat,
-                color = model.color
+        {
+            scoped_event(&profiler, "Draw skinned models")
+            // Draw skinned models
+            for id, model in app.game_state.skinned_models {
+                tform := &app.game_state.transforms[id]
+    
+                mat := get_transform_matrix(tform^)
+                mat[3][0] += model.pos_offset.x
+                mat[3][1] += model.pos_offset.y
+                mat[3][2] += model.pos_offset.z
+                draw := SkinnedDraw {
+                    world_from_model = mat,
+                    anim_idx = model.anim_idx,
+                    anim_t = model.anim_t,
+                    //flags = model.flags
+                }
+                draw_ps1_skinned_mesh(&app.vgd, &app.renderer, model.handle, &draw)
+    
+                if .Glowing in model.flags {
+                    // Light source
+                    l := default_point_light()
+                    l.world_position = tform.position
+                    l.color = {0.0, 1.0, 0.0}
+                    l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
+                    do_point_light(&app.renderer, l)
+                }
             }
-            draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &draw)
+        }
+
+        {
+            scoped_event(&profiler, "Draw debug models")
+            // Draw debug models
+            for id, model in app.game_state.debug_models {
+                tform := &app.game_state.transforms[id]
+    
+                mat := get_transform_matrix(tform^, model.scale)
+                mat[3][0] += model.pos_offset.x
+                mat[3][1] += model.pos_offset.y
+                mat[3][2] += model.pos_offset.z
+                draw := DebugDraw {
+                    world_from_model = mat,
+                    color = model.color
+                }
+                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &draw)
+            }
         }
 
         // Window update

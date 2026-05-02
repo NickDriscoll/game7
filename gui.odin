@@ -312,8 +312,10 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Debug panel", selected = user_config.flags[.ShowDebugMenu]) {
                 user_config.flags[.ShowDebugMenu] = !user_config.flags[.ShowDebugMenu]
             }
-            if imgui.MenuItem("Allocator stats", selected = user_config.flags[.ShowAllocatorStats]) {
-                user_config.flags[.ShowAllocatorStats] = !user_config.flags[.ShowAllocatorStats]
+            when ODIN_DEBUG {
+                if imgui.MenuItem("Allocator stats", selected = user_config.flags[.ShowAllocatorStats]) {
+                    user_config.flags[.ShowAllocatorStats] = !user_config.flags[.ShowAllocatorStats]
+                }
             }
             if imgui.MenuItem("Dear ImGUI demo", selected = user_config.flags[.ShowImguiDemo]) {
                 user_config.flags[.ShowImguiDemo] = !user_config.flags[.ShowImguiDemo]

@@ -170,6 +170,7 @@ TransformDelta :: struct {
 }
 
 tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
+    scoped_event(&profiler, "tick_transform_deltas")
     for id, &delta in game_state.transform_deltas {
         tform := &game_state.transforms[id]
         tform.position += dt * delta.velocity
@@ -177,6 +178,7 @@ tick_transform_deltas :: proc(game_state: ^GameState, dt: f32) {
 }
 
 tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: f32) {
+    scoped_event(&profiler, "tick_looping_animations")
     for id in game_state.looping_animations {
         instance := &game_state.skinned_models[id]
         instance.anim_t = instance.anim_t + dt
@@ -188,6 +190,7 @@ tick_looping_animations :: proc(game_state: ^GameState, renderer: Renderer, dt: 
 }
 
 tick_coins :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {    
+    scoped_event(&profiler, "tick_coins")
     rot := z_rotate_quaternion(game_state.time)
     z_offset := 0.25 * math.sin(game_state.time)
 
@@ -295,6 +298,7 @@ ENEMY_LUNGE_SPEED :: 20.0
 ENEMY_JUMP_SPEED :: 6.0                 // m/s
 ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
+    scoped_event(&profiler, "tick_enemy_ai")
     char_tform := &game_state.transforms[game_state.player_id]
 
     for id, &enemy in game_state.enemy_ais {
@@ -437,6 +441,7 @@ delete_hovering_enemy :: proc(game_state: ^GameState, id: EntityID) {
 }
 
 tick_hovering_enemies :: proc(game_state: ^GameState, dt: f32) {
+    scoped_event(&profiler, "tick_hovering_enemies")
     for id, enemy in game_state.hovering_enemies {
         transform := &game_state.transforms[id]
         offset := hlsl.float3 {0, 0, 1.5 * math.sin(game_state.time)}
@@ -479,6 +484,7 @@ ThrownEnemyAI :: struct {
 }
 
 tick_thrown_enemies :: proc(game_state: ^GameState) {
+    scoped_event(&profiler, "tick_thrown_enemies")
     to_remove: Maybe(EntityID)
     for id, enemy in game_state.thrown_enemy_ais {
         transform := &game_state.transforms[id]
@@ -716,6 +722,7 @@ CharacterController :: struct {
 }
 
 tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+    scoped_event(&profiler, "tick_character_controllers")
     camera := &game_state.cameras[game_state.viewport_camera_id]
     for id, &char in game_state.character_controllers {
         tform := &game_state.transforms[id]
@@ -991,6 +998,7 @@ DamageEvent :: struct {
 }
 
 tick_damage_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
+    scoped_event(&profiler, "tick_damage_events")
     collision := &game_state.spherical_bodies[game_state.player_id]
     char := &game_state.character_controllers[game_state.player_id]
     invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
