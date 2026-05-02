@@ -544,18 +544,27 @@ main :: proc() {
                     closest_id: EntityID
                     closest_t := math.INF_F32
                     for id, instance in app.game_state.static_models {
-                        tform := &app.game_state.transforms[id]
-                        model := get_static_model(&app.renderer, instance.handle)
-                        world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                        s := Sphere {
-                            position = world_space_sphere_pos,
-                            radius = tform.scale * model.bounding_sphere.radius
-                        }
-                        t, res := intersect_ray_sphere_t(ray, s)
-                        if res == .OutsideHit {
-                            if closest_t > t {
+                        tri_mesh, has_trimesh := app.game_state.triangle_meshes[id]
+                        if has_trimesh {
+                            t, intersected := intersect_ray_triangles_t(ray, tri_mesh)
+                            if intersected && t < closest_t {
                                 closest_t = t
                                 closest_id = id
+                            }
+                        } else {
+                            model := get_static_model(&app.renderer, instance.handle)
+                            tform := &app.game_state.transforms[id]
+                            world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                            s := Sphere {
+                                position = world_space_sphere_pos,
+                                radius = tform.scale * model.bounding_sphere.radius
+                            }
+                            t, res := intersect_ray_sphere_t(ray, s)
+                            if res == .OutsideHit {
+                                if closest_t > t {
+                                    closest_t = t
+                                    closest_id = id
+                                }
                             }
                         }
                     }
@@ -572,6 +581,25 @@ main :: proc() {
                     } else {
                         log.info("No entity selected")
                         app.game_state.selected_entity = nil
+                    }
+                }
+
+                if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
+                    for id, instance in app.game_state.static_models {
+                        tform := &app.game_state.transforms[id]
+                        model := get_static_model(&app.renderer, instance.handle)
+                        pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                        scale := model.bounding_sphere.radius * tform.scale
+                        color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                        selected_id, id_ok := app.game_state.selected_entity.?
+                        if id_ok && selected_id == id {
+                            color = {0.0, 1.0, 0.0, 0.2}
+                        }
+                        ddraw := DebugDraw {
+                            world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                            color = color,
+                        }
+                        draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
                     }
                 }
             }
@@ -622,25 +650,6 @@ main :: proc() {
                         new_enemy(&app.game_state, pos, 1.0, .BrainDead)
                     }
                 }
-            }
-        }
-
-        if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
-            for id, instance in app.game_state.static_models {
-                tform := &app.game_state.transforms[id]
-                model := get_static_model(&app.renderer, instance.handle)
-                pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                scale := model.bounding_sphere.radius * tform.scale
-                color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
-                selected_id, id_ok := app.game_state.selected_entity.?
-                if id_ok && selected_id == id {
-                    color = {0.0, 1.0, 0.0, 0.2}
-                }
-                ddraw := DebugDraw {
-                    world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
-                    color = color,
-                }
-                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
             }
         }
 
