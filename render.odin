@@ -206,7 +206,7 @@ GPUStaticMesh :: struct {
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: Material_Handle,
+    material_handle: MaterialHandle,
     flags: InstanceFlags,
     gpu_mesh_idx: u32,
 }
@@ -250,7 +250,7 @@ SkinnedDraw :: struct {
 CPUSkinnedInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Skinned_Mesh_Handle,
-    material_handle: Material_Handle,
+    material_handle: MaterialHandle,
     animation_time: f32,
     animation_idx: u32,
 }
@@ -276,7 +276,7 @@ GPUBufferDirtyFlags :: bit_set[enum{
 
 Static_Mesh_Handle :: distinct hm.Handle
 Skinned_Mesh_Handle :: distinct hm.Handle
-Material_Handle :: distinct hm.Handle
+MaterialHandle :: distinct hm.Handle
 
 // @TODO: Add good inline documentation for each field of Renderer
 // This is probably the most confusing part of the codebase
@@ -323,7 +323,7 @@ Renderer :: struct {
     skinning_pipeline: vkw.Pipeline_Handle,         // Skinning-in-compute pipeline
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
-    cpu_materials: hm.Handle_Map(Material),
+    materials: hm.Handle_Map(Material),
 
 
     ps1_static_instances: [dynamic]CPUStaticInstance,
@@ -372,7 +372,7 @@ new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
     // Allocator dynamic arrays and handlemaps
     hm.init(&renderer.cpu_static_meshes, allocator)
     hm.init(&renderer.cpu_skinned_meshes, allocator)
-    hm.init(&renderer.cpu_materials, allocator)
+    hm.init(&renderer.materials, allocator)
     renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh, 0, 64, allocator)
     renderer.joint_parents = make([dynamic]u32, 0, 64, allocator)
     renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64, allocator)
@@ -1173,9 +1173,9 @@ add_vertex_uvs :: proc(
     return vkw.sync_write_buffer(gd, renderer.uvs_buffer, uvs, uv_start)
 }
 
-add_material :: proc(r: ^Renderer, new_mat: ^Material) -> Material_Handle {
+add_material :: proc(r: ^Renderer, new_mat: ^Material) -> MaterialHandle {
     r.dirty_flags += {.Material}
-    return Material_Handle(hm.insert(&r.cpu_materials, new_mat^))
+    return MaterialHandle(hm.insert(&r.materials, new_mat^))
 }
 
 do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
@@ -1268,7 +1268,7 @@ draw_ps1_static_primitives :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: Material_Handle,
+    material_handle: MaterialHandle,
     draw_data: []StaticDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_static_primitives")
@@ -1298,7 +1298,7 @@ draw_ps1_static_primitive :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: Material_Handle,
+    material_handle: MaterialHandle,
     draw_data: StaticDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_static_primitive")
@@ -1327,7 +1327,7 @@ draw_ps1_skinned_primitive :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
-    material_handle: Material_Handle,
+    material_handle: MaterialHandle,
     draw_data: ^SkinnedDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_skinned_primitive")
@@ -1770,7 +1770,7 @@ render_scene :: proc(
     // Material buffer
     if .Material in renderer.dirty_flags {
         scoped_event(&profiler, "Material buffer upload")
-        vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.cpu_materials.values[:])
+        vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.materials.values[:])
     }
 
     // Takes the  list of instances and populates the GPU instance buffer
@@ -2083,7 +2083,7 @@ render_scene :: proc(
 
 StaticDrawPrimitive :: struct {
     mesh: Static_Mesh_Handle,
-    material: Material_Handle,
+    material: MaterialHandle,
 }
 
 StaticModel :: struct {
@@ -2170,6 +2170,14 @@ get_skinned_model :: proc(renderer: Renderer, handle: SkinnedModelHandle) -> ^Sk
         log.error("Unable to get skinned model.")
     }
     return model
+}
+
+get_material :: proc(renderer: Renderer, handle: MaterialHandle) -> ^Material {
+    mat, res := hm.get(renderer.materials, handle)
+    if !res {
+        log.error("Unable to get material.")
+    }
+    return mat
 }
 
 load_gltf_static_model :: proc(
@@ -2319,7 +2327,7 @@ load_gltf_static_model :: proc(
 
 SkinnedDrawPrimitive :: struct {
     mesh: Skinned_Mesh_Handle,
-    material: Material_Handle
+    material: MaterialHandle
 }
 
 SkinnedModel :: struct {
@@ -2513,7 +2521,7 @@ load_gltf_skinned_model :: proc(
 
 
             // Now get material data
-            loaded_glb_materials := make([dynamic]Material_Handle, len(gltf_data.materials), context.temp_allocator)
+            loaded_glb_materials := make([dynamic]MaterialHandle, len(gltf_data.materials), context.temp_allocator)
             glb_material := primitive.material
             has_material := glb_material != nil
 
