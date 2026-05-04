@@ -602,12 +602,10 @@ main :: proc() {
                         old_m.flags -= {.Highlighted}
                     }
                     if closest_t < math.INF_F32 {
-                        log.infof("Selected entity #%v!", closest_id)
                         m := &app.game_state.static_models[closest_id]
                         m.flags += {.Highlighted}
                         app.game_state.selected_entity = closest_id
                     } else {
-                        log.info("No entity selected")
                         app.game_state.selected_entity = nil
                     }
                 }
@@ -615,7 +613,6 @@ main :: proc() {
                 maybe_show_bounding_spheres(&app)
             }
             case .Delete: {
-                
                 if app.input_system.mouse_held {
                     dims : [4]f32 = {
                         cast(f32)app.renderer.viewport_dimensions.offset.x,
@@ -630,16 +627,16 @@ main :: proc() {
                         app.input_system.mouse_location,
                         dims
                     )
-                    id, t := get_clicked_entity(app, true)
+                    id, t := get_clicked_entity(app, app.game_state.dont_delete_collision)
                     if t < math.INF_F32 {
                         delete_entity(&app.game_state, id)
                     }
 
                     if hit {
                         do_point_light(&app.renderer, PointLight {
-                            world_position = collision_pt + 0.001 * n,
+                            world_position = collision_pt + 0.01 * n,
                             intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
-                            color = {1.0, 1.0, 0.8},
+                            color = {1.0, 1.0, 0.5},
                         })
                     }
                 }
@@ -744,7 +741,7 @@ main :: proc() {
                     imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
                     imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
                     imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
-                    imgui.SliderFloat("Coin radius", &app.game_state.coin_collision_radius, 0.1, 1.0)
+                    imgui.SliderFloat("Coin radius", &app.game_state.collectable_radius, 0.1, 1.0)
                     if imgui.Button("Reset player") {
                         output_verbs.bools[.PlayerReset] = true
                     }

@@ -1206,7 +1206,7 @@ GameState :: struct {
     sphere_mesh: StaticModelHandle,
 
     coin_mesh: StaticModelHandle,
-    coin_collision_radius: f32,
+    collectable_radius: f32,
 
     enemy_mesh: StaticModelHandle,
 
@@ -1221,6 +1221,7 @@ GameState :: struct {
     last_placed_position: hlsl.float3,
     coin_paint_radius: f32,
     coin_z_offset: f32,
+    dont_delete_collision: bool,
 
     // Global sound effects loaded on init_gamestate()
     bgm_id: uint,
@@ -1259,9 +1260,10 @@ init_gamestate :: proc(
     game_state.exclusive_fullscreen = user_config.flags[.ExclusiveFullscreen]
     game_state.paused = false
     game_state.timescale = 1.0
-    game_state.coin_collision_radius = 0.1
+    game_state.collectable_radius = 0.1
     game_state.coin_paint_radius = 1.0
     game_state.coin_z_offset = 1.0
+    game_state.dont_delete_collision = true
 
     game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -2090,7 +2092,8 @@ EditVerb :: enum {
     Select,
     Delete,
     PaintCoins,
-    PlaceEnemy
+    PlaceEnemy,
+    //PlaceMacGuffen,
 }
 
 scene_editor :: proc(
@@ -2179,8 +2182,9 @@ scene_editor :: proc(
             }
     
             // Per-verb options menu
+            imgui.Text("Edit controls:")
             switch game_state.edit_verb {
-                case .None: {}
+                case .None: { imgui.Text("No edit verb selected.") }
                 case .Select: {
                     id, ok := game_state.selected_entity.?
                     eid := c.int(id)
@@ -2215,9 +2219,28 @@ scene_editor :: proc(
                         }
                         
                         mesh, mesh_ok := &game_state.triangle_meshes[id]
-                        if mesh_ok && moved {
-                            mmat := get_transform_matrix(tform^)
-                            rebuild_static_triangle_mesh(mesh, mmat)
+                        if mesh_ok {
+                            if moved {
+                                mmat := get_transform_matrix(tform^)
+                                rebuild_static_triangle_mesh(mesh, mmat)
+                            }
+                            imgui.Text("Selected collision has %i triangles.", len(mesh.triangles))
+                        }
+
+                        model_instance, model_ok := &game_state.static_models[id]
+                        if model_ok {
+                            model := get_static_model(renderer^, model_instance.handle)
+                            
+                            imgui.Text("Model primitives:")
+                            for prim in model.primitives {
+                                mat := get_material(renderer^, prim.material)
+                                mat_changed := false
+
+                                mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
+                                if mat_changed {
+                                    renderer.dirty_flags += {.Material}
+                                }
+                            }
                         }
 
                         imgui.BeginDisabled(!lookat_ok)
@@ -2238,8 +2261,13 @@ scene_editor :: proc(
                     }
                 }
                 case .Delete: {
-                    @static skip_collision := true
-                    imgui.Checkbox("Exempt collision geometry", &skip_collision)
+                    {
+                        b := .ShowBoundingSpheres in game_state.debug_vis_flags
+                        if imgui.Checkbox("Show bounding spheres", &b) {
+                            game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
+                        }
+                    }
+                    imgui.Checkbox("Don't delete collision geometry", &game_state.dont_delete_collision)
                 }
                 case .PaintCoins: {
                     imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)
