@@ -612,6 +612,9 @@ main :: proc() {
 
                 maybe_show_bounding_spheres(&app)
             }
+            case .AddCollision: {
+
+            }
             case .Delete: {
                 if app.input_system.mouse_held {
                     dims : [4]f32 = {
