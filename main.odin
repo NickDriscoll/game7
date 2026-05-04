@@ -691,7 +691,8 @@ main :: proc() {
                     if hit {
                         pos := collision_pt
                         pos.z += 1.0
-                        new_enemy(&app.game_state, pos, 1.0, .BrainDead)
+                        new_id := new_enemy(&app.game_state, pos, 0.6, .BrainDead)
+                        app.game_state.selected_entity = new_id
                     }
                 }
             }
