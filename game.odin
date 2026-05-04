@@ -1215,6 +1215,7 @@ GameState :: struct {
     // Editor state
     //editor_response: Maybe(EditorResponse),
     edit_verb: EditVerb,
+    previous_edit_verb: EditVerb,
     selected_entity: Maybe(EntityID),
     current_level: string,
     savename_buffer: [1024]c.char,
@@ -2156,28 +2157,34 @@ scene_editor :: proc(
                 imgui.Text("Active edit verb")
                 // @TODO: Use reflection here
                 if imgui.RadioButton("None", game_state.edit_verb == .None) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .None
                 }
                 if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .Select
                 }
                 if imgui.RadioButton("Add collision", game_state.edit_verb == .AddCollision) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .AddCollision
                 }
                 if imgui.RadioButton("Delete", game_state.edit_verb == .Delete) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .Delete
                 }
                 if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .PaintCoins
                 }
                 if imgui.RadioButton("Place enemy", game_state.edit_verb == .PlaceEnemy) {
+                    game_state.previous_edit_verb = game_state.edit_verb
                     game_state.edit_verb = .PlaceEnemy
                 }
             }
             imgui.Separator()
 
             // Clear certain states when verbs are unselected
-            if game_state.edit_verb != .Select {
+            if game_state.edit_verb != .Select && game_state.previous_edit_verb == .Select {
                 old_id, exists := game_state.selected_entity.?
                 if exists {
                     old_m := &game_state.static_models[old_id]
@@ -2185,82 +2192,85 @@ scene_editor :: proc(
                 }
                 game_state.selected_entity = nil
             }
+
+            selected_entity_options :: proc(game_state: ^GameState, renderer: ^Renderer) {
+                id, ok := game_state.selected_entity.?
+                eid := c.int(id)
+
+                lookat_controller, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
+                imgui.BeginDisabled(!lookat_ok)
+                if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
+                    new_id := EntityID(eid)
+                    lookat_controller.target = new_id
+                    game_state.selected_entity = new_id
+                    id = new_id
+                }
+                imgui.EndDisabled()
+
+                if ok {
+                    imgui.Text("Selected #%i", c.int(id))
+                    tform, has_tform := &game_state.transforms[id]
+                    assert(has_tform)
+                    moved := imgui.DragFloat3("Position", &tform.position, 0.2)
+                    moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
+
+                    ai, ai_ok := &game_state.enemy_ais[id]
+                    if ai_ok {
+                        gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
+                    }
+                    
+                    mesh, mesh_ok := &game_state.triangle_meshes[id]
+                    if mesh_ok {
+                        if moved {
+                            mmat := get_transform_matrix(tform^)
+                            rebuild_static_triangle_mesh(mesh, mmat)
+                        }
+                        imgui.Text("Selected collision has %i triangles.", len(mesh.triangles))
+                    }
+
+                    if imgui.CollapsingHeader("Graphics data") {
+                        model_instance, model_ok := &game_state.static_models[id]
+                        if model_ok {
+                            model := get_static_model(renderer^, model_instance.handle)
+                            
+                            imgui.Text("Model primitives:")
+                            for prim in model.primitives {
+                                mat := get_material(renderer^, prim.material)
+                                mat_changed := false
+
+                                mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
+                                if mat_changed {
+                                    renderer.dirty_flags += {.Material}
+                                }
+                            }
+                        }
+                    }
+
+                    imgui.BeginDisabled(!lookat_ok)
+                    if imgui.Button("Lock-on") {
+                        lookat_controller.target = id
+                    }
+                    imgui.EndDisabled()
+                    imgui.SameLine()
+                    if imgui.Button("Delete") {
+                        delete_entity(game_state, id)
+                        game_state.selected_entity = nil
+                    }
+                }
+            }
     
             // Per-verb options menu
             imgui.Text("Edit controls:")
             switch game_state.edit_verb {
                 case .None: { imgui.Text("No edit verb selected.") }
                 case .Select: {
-                    id, ok := game_state.selected_entity.?
-                    eid := c.int(id)
-
                     {
                         b := .ShowBoundingSpheres in game_state.debug_vis_flags
                         if imgui.Checkbox("Show bounding spheres", &b) {
                             game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
                         }
                     }
-
-                    lookat_controller, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
-                    imgui.BeginDisabled(!lookat_ok)
-                    if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
-                        new_id := EntityID(eid)
-                        lookat_controller.target = new_id
-                        game_state.selected_entity = new_id
-                        id = new_id
-                    }
-                    imgui.EndDisabled()
-
-                    if ok {
-                        imgui.Text("Selected #%i", c.int(id))
-                        tform, has_tform := &game_state.transforms[id]
-                        assert(has_tform)
-                        moved := imgui.DragFloat3("Position", &tform.position, 0.2)
-                        moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
-
-                        ai, ai_ok := &game_state.enemy_ais[id]
-                        if ai_ok {
-                            gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
-                        }
-                        
-                        mesh, mesh_ok := &game_state.triangle_meshes[id]
-                        if mesh_ok {
-                            if moved {
-                                mmat := get_transform_matrix(tform^)
-                                rebuild_static_triangle_mesh(mesh, mmat)
-                            }
-                            imgui.Text("Selected collision has %i triangles.", len(mesh.triangles))
-                        }
-
-                        if imgui.CollapsingHeader("Graphics data") {
-                            model_instance, model_ok := &game_state.static_models[id]
-                            if model_ok {
-                                model := get_static_model(renderer^, model_instance.handle)
-                                
-                                imgui.Text("Model primitives:")
-                                for prim in model.primitives {
-                                    mat := get_material(renderer^, prim.material)
-                                    mat_changed := false
-    
-                                    mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
-                                    if mat_changed {
-                                        renderer.dirty_flags += {.Material}
-                                    }
-                                }
-                            }
-                        }
-
-                        imgui.BeginDisabled(!lookat_ok)
-                        if imgui.Button("Lock-on") {
-                            lookat_controller.target = id
-                        }
-                        imgui.EndDisabled()
-                        imgui.SameLine()
-                        if imgui.Button("Delete") {
-                            delete_entity(game_state, id)
-                            game_state.selected_entity = nil
-                        }
-                    }
+                    selected_entity_options(game_state, renderer)
                 }
                 case .AddCollision: {
                     model_strings := make([dynamic]cstring, 0, 64, context.temp_allocator)
@@ -2297,7 +2307,7 @@ scene_editor :: proc(
                     imgui.DragFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
                 }
                 case .PlaceEnemy: {
-
+                    selected_entity_options(game_state, renderer)
                 }
             }
             imgui.Separator()
