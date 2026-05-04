@@ -2091,6 +2091,7 @@ EditVerb :: enum {
     None = 0,
     Select,
     Delete,
+    AddCollision,
     PaintCoins,
     PlaceEnemy,
     //PlaceMacGuffen,
@@ -2101,7 +2102,8 @@ scene_editor :: proc(
     gd: ^vkw.GraphicsDevice,
     renderer: ^Renderer,
     gui: ^ImguiState,
-    user_config: ^UserConfiguration
+    user_config: ^UserConfiguration,
+    scene_allocator := context.allocator
 ) {
     scoped_event(&profiler, "Scene editor update")
 
@@ -2158,6 +2160,9 @@ scene_editor :: proc(
                 }
                 if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
                     game_state.edit_verb = .Select
+                }
+                if imgui.RadioButton("Add collision", game_state.edit_verb == .AddCollision) {
+                    game_state.edit_verb = .AddCollision
                 }
                 if imgui.RadioButton("Delete", game_state.edit_verb == .Delete) {
                     game_state.edit_verb = .Delete
@@ -2227,18 +2232,20 @@ scene_editor :: proc(
                             imgui.Text("Selected collision has %i triangles.", len(mesh.triangles))
                         }
 
-                        model_instance, model_ok := &game_state.static_models[id]
-                        if model_ok {
-                            model := get_static_model(renderer^, model_instance.handle)
-                            
-                            imgui.Text("Model primitives:")
-                            for prim in model.primitives {
-                                mat := get_material(renderer^, prim.material)
-                                mat_changed := false
-
-                                mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
-                                if mat_changed {
-                                    renderer.dirty_flags += {.Material}
+                        if imgui.CollapsingHeader("Graphics data") {
+                            model_instance, model_ok := &game_state.static_models[id]
+                            if model_ok {
+                                model := get_static_model(renderer^, model_instance.handle)
+                                
+                                imgui.Text("Model primitives:")
+                                for prim in model.primitives {
+                                    mat := get_material(renderer^, prim.material)
+                                    mat_changed := false
+    
+                                    mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
+                                    if mat_changed {
+                                        renderer.dirty_flags += {.Material}
+                                    }
                                 }
                             }
                         }
@@ -2250,15 +2257,31 @@ scene_editor :: proc(
                         imgui.EndDisabled()
                         imgui.SameLine()
                         if imgui.Button("Delete") {
-                            // fields := reflect.struct_fields_zipped(GameState)
-                            // for i in 0..<len(fields) {
-                            //     name := fields.name[i]
-                            //     log.infof("%v", name)
-                            // }
                             delete_entity(game_state, id)
                             game_state.selected_entity = nil
                         }
                     }
+                }
+                case .AddCollision: {
+                    model_strings := make([dynamic]cstring, 0, 64, context.temp_allocator)
+                    selected: c.int
+                    if gui_list_files("./data/models", &model_strings, &selected, "Choose model", context.temp_allocator) {
+                        path := fmt.sbprintf(&builder, "./data/models/%v", model_strings[selected])
+                        cpath := strings.to_cstring(&builder)
+                        positions := get_glb_positions(cpath, scene_allocator)
+                        trimesh := new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, scene_allocator)
+                        model := load_gltf_static_model(gd, renderer, cpath, scene_allocator)
+
+                        new_id := gamestate_next_id(game_state)
+                        game_state.transforms[new_id] = {
+                            scale = 1.0
+                        }
+                        game_state.triangle_meshes[new_id] = trimesh
+                        game_state.static_models[new_id] = StaticModelInstance {
+                            handle = model,
+                        }
+                    }
+                    strings.builder_reset(&builder)
                 }
                 case .Delete: {
                     {
