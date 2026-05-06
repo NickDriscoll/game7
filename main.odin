@@ -98,7 +98,7 @@ main :: proc() {
         }
 
         // Start a new Dear ImGUI frame and get an io reference
-        begin_gui(&app.imgui_state)
+        begin_gui(&app.gui)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
         app.renderer.uniforms.time += scaled_dt
@@ -121,9 +121,9 @@ main :: proc() {
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
 
             if output_verbs.bools[.ToggleImgui] {
-                app.imgui_state.show_gui = !app.imgui_state.show_gui
-                app.user_config.flags[.ImguiEnabled] = app.imgui_state.show_gui
-                if app.imgui_state.show_gui {
+                app.gui.show_gui = !app.gui.show_gui
+                app.user_config.flags[.ImguiEnabled] = app.gui.show_gui
+                if app.gui.show_gui {
                     sdl2.SetWindowTitle(app.window.window, TITLE_WITH_IMGUI)
                 } else {
                     sdl2.SetWindowTitle(app.window.window, TITLE_WITHOUT_IMGUI)
@@ -159,7 +159,7 @@ main :: proc() {
         }
 
         {
-            docknode := imgui.DockBuilderGetCentralNode(app.imgui_state.dockspace_id)
+            docknode := imgui.DockBuilderGetCentralNode(app.gui.dockspace_id)
             app.renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
             app.renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
             app.renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
@@ -233,7 +233,7 @@ main :: proc() {
             }
             return
         }
-        scene_editor(&app.game_state, &app.vgd, &app.renderer, &app.imgui_state, &app.user_config)
+        scene_editor(&app)
         switch app.game_state.edit_verb {
             case .None: {}
             case .Select: {
@@ -261,18 +261,10 @@ main :: proc() {
             }
             case .Delete: {
                 if app.input_system.mouse_held {
-                    dims : [4]f32 = {
-                        cast(f32)app.renderer.viewport_dimensions.offset.x,
-                        cast(f32)app.renderer.viewport_dimensions.offset.y,
-                        cast(f32)app.renderer.viewport_dimensions.extent.width,
-                        cast(f32)app.renderer.viewport_dimensions.extent.height,
-                    }
                     collision_pt, n, hit := do_mouse_raycast_with_normal(
                         app.game_state,
-                        app.game_state.viewport_camera_id,
-                        app.game_state.triangle_meshes,
-                        app.input_system.mouse_location,
-                        dims
+                        app.renderer,
+                        app.input_system,
                     )
                     id, t := get_clicked_entity(app, app.game_state.dont_delete_collision)
                     if t < math.INF_F32 {
@@ -293,16 +285,10 @@ main :: proc() {
             }
             case .PaintCoins: {
                 if app.input_system.mouse_held {
-                    dims : [4]f32 = {
-                        cast(f32)app.renderer.viewport_dimensions.offset.x,
-                        cast(f32)app.renderer.viewport_dimensions.offset.y,
-                        cast(f32)app.renderer.viewport_dimensions.extent.width,
-                        cast(f32)app.renderer.viewport_dimensions.extent.height,
-                    }
                     collision_pt, hit := do_mouse_raycast(
                         app.game_state,
+                        app.renderer,
                         app.input_system,
-                        dims
                     )
                     if hit {
                         far_enough_away := hlsl.distance(app.game_state.last_placed_position, collision_pt) >= app.game_state.coin_paint_radius
@@ -317,16 +303,10 @@ main :: proc() {
             }
             case .PlaceEnemy: {
                 if app.input_system.mouse_clicked {
-                    dims : [4]f32 = {
-                        cast(f32)app.renderer.viewport_dimensions.offset.x,
-                        cast(f32)app.renderer.viewport_dimensions.offset.y,
-                        cast(f32)app.renderer.viewport_dimensions.extent.width,
-                        cast(f32)app.renderer.viewport_dimensions.extent.height,
-                    }
                     collision_pt, hit := do_mouse_raycast(
                         app.game_state,
+                        app.renderer,
                         app.input_system,
-                        dims
                     )
                     if hit {
                         pos := collision_pt
@@ -341,7 +321,7 @@ main :: proc() {
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33
         @static move_player := false
-        if app.imgui_state.show_gui && app.user_config.flags[.ShowDebugMenu] {
+        if app.gui.show_gui && app.user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &app.user_config.flags[.ShowDebugMenu]) {
                 scoped_event(&profiler, "Show debug menu")
                 imgui.Text("Frame #%i", app.vgd.frame_count)
@@ -431,8 +411,25 @@ main :: proc() {
         @static show_load_modal := false
         @static show_save_modal := false
         do_fullscreen := false
-        switch gui_main_menu_bar(&app.imgui_state, &app.game_state, &app.user_config) {
+        switch gui_main_menu_bar(&app.gui, &app.game_state, &app.user_config) {
             case .Exit: do_main_loop = false
+            case .NewLevel: {
+                gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, app.per_scene_allocator)
+
+                // Add default collision plane
+                id := gamestate_next_id(&app.game_state)
+                app.game_state.transforms[id] = Transform {
+                    position = {0.0, 0.0, 0.0},
+                    scale = 1.0
+                }
+                {
+                    positions := get_glb_positions("data/models/plane.glb", app.per_scene_allocator)
+                    app.game_state.triangle_meshes[id] = new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, app.per_scene_allocator)
+                }
+                app.game_state.static_models[id] = StaticModelInstance {
+                    handle = app.game_state.plane_mesh,
+                }
+            }
             case .LoadLevel: {
                 show_load_modal = true
             }
@@ -571,7 +568,7 @@ main :: proc() {
             }
         }
 
-        if app.imgui_state.show_gui && app.user_config.flags[.CameraConfig] {
+        if app.gui.show_gui && app.user_config.flags[.CameraConfig] {
             camera_gui(
                 &app.game_state,
                 app.game_state.viewport_camera_id,
@@ -581,22 +578,22 @@ main :: proc() {
             )
         }
 
-        if app.imgui_state.show_gui && app.user_config.flags[.WindowConfig] {
-            app.vgd.resize_window |= window_config(app.imgui_state, &app.window, app.user_config)
+        if app.gui.show_gui && app.user_config.flags[.WindowConfig] {
+            app.vgd.resize_window |= window_config(app.gui, &app.window, app.user_config)
         }
 
-        if app.imgui_state.show_gui && app.user_config.flags[.GraphicsSettings] {
+        if app.gui.show_gui && app.user_config.flags[.GraphicsSettings] {
             graphics_gui(app.vgd, &app.renderer, &app.user_config.flags[.GraphicsSettings])
         }
-        if app.imgui_state.show_gui && app.user_config.flags[.AudioPanel] {
+        if app.gui.show_gui && app.user_config.flags[.AudioPanel] {
             audio_gui(&app.game_state, &app.audio_system, &app.user_config, &app.user_config.flags[.AudioPanel])
         }
         // Input remapping GUI
-        if app.imgui_state.show_gui && app.user_config.flags[.InputConfig] {
+        if app.gui.show_gui && app.user_config.flags[.InputConfig] {
             input_gui(&app.input_system, &app.user_config.flags[.InputConfig])
         }
         // Imgui Demo
-        if app.imgui_state.show_gui && app.user_config.flags[.ShowImguiDemo] {
+        if app.gui.show_gui && app.user_config.flags[.ShowImguiDemo] {
             imgui.ShowDemoWindow(&app.user_config.flags[.ShowImguiDemo])
         }
 
@@ -797,7 +794,7 @@ main :: proc() {
 
         // Memory viewer
         when ODIN_DEBUG {
-            if app.imgui_state.show_gui && app.user_config.flags[.ShowAllocatorStats] {
+            if app.gui.show_gui && app.user_config.flags[.ShowAllocatorStats] {
                 if imgui.Begin("Allocator stats", &app.user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
                     imgui.Text("Total global memory allocated: %i", app.global_track.current_memory_allocated)
@@ -819,16 +816,10 @@ main :: proc() {
             scoped_event(&profiler, "Move player cheat")
             tform := &app.game_state.transforms[app.game_state.player_id]
             col := &app.game_state.spherical_bodies[app.game_state.player_id]
-            dims : [4]f32 = {
-                cast(f32)app.renderer.viewport_dimensions.offset.x,
-                cast(f32)app.renderer.viewport_dimensions.offset.y,
-                cast(f32)app.renderer.viewport_dimensions.extent.width,
-                cast(f32)app.renderer.viewport_dimensions.extent.height,
-            }
             collision_pt, hit := do_mouse_raycast(
                 app.game_state,
+                app.renderer,
                 app.input_system,
-                dims
             )
             if hit {
                 tform.position = collision_pt
@@ -1041,7 +1032,7 @@ main :: proc() {
 
             // Draw Dear Imgui
             framebuffer.color_load_op = .LOAD
-            render_imgui(&app.vgd, gfx_cb_idx, &app.imgui_state, &framebuffer)
+            render_imgui(&app.vgd, gfx_cb_idx, &app.gui, &framebuffer)
 
             // Submit gfx command buffer and present swapchain image
             {
@@ -1052,7 +1043,7 @@ main :: proc() {
                 }
             }
         } else {
-            gui_cancel_frame(&app.imgui_state)
+            gui_cancel_frame(&app.gui)
         }
 
         // End-of-frame cleanup

@@ -51,7 +51,7 @@ App :: struct {
     renderer: Renderer,
     input_system: InputSystem,
     audio_system: AudioSystem,
-    imgui_state: ImguiState,
+    gui: ImguiState,
 
     // There will be two of these in order to support
     // tick-rate/frame-rate independence
@@ -283,8 +283,8 @@ app_startup :: proc(app: ^App) -> bool {
         }
 
         //Dear ImGUI init
-        app.imgui_state = imgui_init(&app.vgd, app.user_config, app.window.resolution)
-        if app.imgui_state.show_gui {
+        app.gui = imgui_init(&app.vgd, app.user_config, app.window.resolution)
+        if app.gui.show_gui {
             sdl2.SetWindowTitle(app.window.window, TITLE_WITH_IMGUI)
         }
 
@@ -328,7 +328,7 @@ app_startup :: proc(app: ^App) -> bool {
 app_shutdown :: proc(app: ^App) {
     scoped_event(&profiler, "Shutdown")
     log.destroy_console_logger(context.logger)
-    gui_cleanup(&app.vgd, &app.imgui_state)
+    gui_cleanup(&app.vgd, &app.gui)
     destroy_audio_system(&app.audio_system)
     {
         scoped_event(&profiler, "Quit Vulkan")
@@ -400,11 +400,12 @@ EditVerb :: enum {
 }
 
 scene_editor :: proc(
-    game_state: ^GameState,
-    gd: ^vkw.GraphicsDevice,
-    renderer: ^Renderer,
-    gui: ^ImguiState,
-    user_config: ^UserConfiguration,
+    app: ^App,
+    // game_state: ^GameState,
+    // gd: ^vkw.GraphicsDevice,
+    // renderer: ^Renderer,
+    // gui: ^ImguiState,
+    // app.user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
     scoped_event(&profiler, "Scene editor update")
@@ -413,17 +414,17 @@ scene_editor :: proc(
     strings.builder_init(&builder, context.temp_allocator)
     io := imgui.GetIO()
 
-    show_editor := gui.show_gui && user_config.flags[.SceneEditor]
+    show_editor := app.gui.show_gui && app.user_config.flags[.SceneEditor]
     if show_editor {
         defer imgui.End()
-        if imgui.Begin("Scene editor", &user_config.flags[.SceneEditor]) {
+        if imgui.Begin("Scene editor", &app.user_config.flags[.SceneEditor]) {
 
             // Spawn point editor
             {
-                imgui.DragFloat3("Player spawn", &game_state.level_start, 0.1)
-                flag := .ShowPlayerSpawn in game_state.debug_vis_flags
+                imgui.DragFloat3("Player spawn", &app.game_state.level_start, 0.1)
+                flag := .ShowPlayerSpawn in app.game_state.debug_vis_flags
                 if imgui.Checkbox("Show player spawn", &flag) {
-                    game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+                    app.game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
                 }
     
                 // resp, ok := game_state.editor_response.(EditorResponse)
@@ -448,8 +449,8 @@ scene_editor :: proc(
             }
     
             if imgui.Button("Delete all coins") {
-                for len(game_state.coins) > 0 {
-                    delete_coin(game_state, 0)
+                for len(app.game_state.coins) > 0 {
+                    delete_coin(&app.game_state, 0)
                 }
             }
     
@@ -457,41 +458,41 @@ scene_editor :: proc(
             {
                 imgui.Text("Active edit verb")
                 // @TODO: Use reflection here
-                if imgui.RadioButton("None", game_state.edit_verb == .None) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .None
+                if imgui.RadioButton("None", app.game_state.edit_verb == .None) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .None
                 }
-                if imgui.RadioButton("Select", game_state.edit_verb == .Select) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .Select
+                if imgui.RadioButton("Select", app.game_state.edit_verb == .Select) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .Select
                 }
-                if imgui.RadioButton("Add collision", game_state.edit_verb == .AddCollision) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .AddCollision
+                if imgui.RadioButton("Add collision", app.game_state.edit_verb == .AddCollision) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .AddCollision
                 }
-                if imgui.RadioButton("Delete", game_state.edit_verb == .Delete) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .Delete
+                if imgui.RadioButton("Delete##1", app.game_state.edit_verb == .Delete) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .Delete
                 }
-                if imgui.RadioButton("Paint coins", game_state.edit_verb == .PaintCoins) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .PaintCoins
+                if imgui.RadioButton("Paint coins", app.game_state.edit_verb == .PaintCoins) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .PaintCoins
                 }
-                if imgui.RadioButton("Place enemy", game_state.edit_verb == .PlaceEnemy) {
-                    game_state.previous_edit_verb = game_state.edit_verb
-                    game_state.edit_verb = .PlaceEnemy
+                if imgui.RadioButton("Place enemy", app.game_state.edit_verb == .PlaceEnemy) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .PlaceEnemy
                 }
             }
             imgui.Separator()
 
             // Clear certain states when verbs are unselected
-            if game_state.edit_verb != .Select && game_state.previous_edit_verb == .Select {
-                old_id, exists := game_state.selected_entity.?
+            if app.game_state.edit_verb != .Select && app.game_state.previous_edit_verb == .Select {
+                old_id, exists := app.game_state.selected_entity.?
                 if exists {
-                    old_m := &game_state.static_models[old_id]
+                    old_m := &app.game_state.static_models[old_id]
                     old_m.flags -= {.Highlighted}
                 }
-                game_state.selected_entity = nil
+                app.game_state.selected_entity = nil
             }
 
             selected_entity_options :: proc(game_state: ^GameState, renderer: ^Renderer) {
@@ -562,16 +563,16 @@ scene_editor :: proc(
     
             // Per-verb options menu
             imgui.Text("Edit controls:")
-            switch game_state.edit_verb {
+            switch app.game_state.edit_verb {
                 case .None: { imgui.Text("No edit verb selected.") }
                 case .Select: {
                     {
-                        b := .ShowBoundingSpheres in game_state.debug_vis_flags
+                        b := .ShowBoundingSpheres in app.game_state.debug_vis_flags
                         if imgui.Checkbox("Show bounding spheres", &b) {
-                            game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
+                            app.game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
                         }
                     }
-                    selected_entity_options(game_state, renderer)
+                    selected_entity_options(&app.game_state, &app.renderer)
                 }
                 case .AddCollision: {
                     model_strings := make([dynamic]cstring, 0, 64, context.temp_allocator)
@@ -581,14 +582,14 @@ scene_editor :: proc(
                         cpath := strings.to_cstring(&builder)
                         positions := get_glb_positions(cpath, scene_allocator)
                         trimesh := new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, scene_allocator)
-                        model := load_gltf_static_model(gd, renderer, cpath, scene_allocator)
+                        model := load_gltf_static_model(&app.vgd, &app.renderer, cpath, scene_allocator)
 
-                        new_id := gamestate_next_id(game_state)
-                        game_state.transforms[new_id] = {
+                        new_id := gamestate_next_id(&app.game_state)
+                        app.game_state.transforms[new_id] = {
                             scale = 1.0
                         }
-                        game_state.triangle_meshes[new_id] = trimesh
-                        game_state.static_models[new_id] = StaticModelInstance {
+                        app.game_state.triangle_meshes[new_id] = trimesh
+                        app.game_state.static_models[new_id] = StaticModelInstance {
                             handle = model,
                         }
                     }
@@ -596,19 +597,19 @@ scene_editor :: proc(
                 }
                 case .Delete: {
                     {
-                        b := .ShowBoundingSpheres in game_state.debug_vis_flags
+                        b := .ShowBoundingSpheres in app.game_state.debug_vis_flags
                         if imgui.Checkbox("Show bounding spheres", &b) {
-                            game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
+                            app.game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
                         }
                     }
-                    imgui.Checkbox("Don't delete collision geometry", &game_state.dont_delete_collision)
+                    imgui.Checkbox("Don't delete collision geometry", &app.game_state.dont_delete_collision)
                 }
                 case .PaintCoins: {
-                    imgui.DragFloat("Coin paint radius", &game_state.coin_paint_radius, 0.0, 50.0)
-                    imgui.DragFloat("Coin z offset", &game_state.coin_z_offset, 0.0, 50.0)
+                    imgui.DragFloat("Coin paint radius", &app.game_state.coin_paint_radius, 0.0, 50.0)
+                    imgui.DragFloat("Coin z offset", &app.game_state.coin_z_offset, 0.0, 50.0)
                 }
                 case .PlaceEnemy: {
-                    selected_entity_options(game_state, renderer)
+                    selected_entity_options(&app.game_state, &app.renderer)
                 }
             }
             imgui.Separator()
