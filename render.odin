@@ -138,14 +138,14 @@ AnimationInterpolation :: enum {
     Linear,
     CubicSpline,
 }
-AnimationKeyFrame :: struct {
-    time: f32,
-    value: hlsl.float4,
-}
 AnimationAspect :: enum {
     Translation,
     Rotation,
     Scale
+}
+AnimationKeyFrame :: struct {
+    time: f32,
+    value: hlsl.float4,
 }
 AnimationChannel :: struct {
     keyframes: [dynamic]AnimationKeyFrame,

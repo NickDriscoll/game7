@@ -200,6 +200,7 @@ begin_gui :: proc(state: ^ImguiState) {
 
 MainMenuBarVerb :: enum {
     None,
+    NewLevel,
     LoadLevel,
     SaveLevel,
     SaveLevelAs,
@@ -224,7 +225,7 @@ gui_main_menu_bar :: proc(
     if imgui.BeginMainMenuBar() {
         if imgui.BeginMenu("File") {
             if imgui.MenuItem("New") {
-
+                retval = .NewLevel
             }
             if imgui.MenuItem("Load") {
                 retval = .LoadLevel

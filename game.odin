@@ -126,20 +126,25 @@ dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMes
 
 do_mouse_raycast_with_normal :: proc(
     game_state: GameState,
-    viewport_camera_id: EntityID,
-    triangle_meshes: map[EntityID]TriangleMesh,
-    mouse_location: [2]i32,
-    viewport_dimensions: [4]f32
+    renderer: Renderer,
+    input_system: InputSystem
 ) -> (hlsl.float3, hlsl.float3, bool) {
     scoped_event(&profiler, "do_mouse_raycast")
+    
+    viewport_dimensions : [4]f32 = {
+        cast(f32)renderer.viewport_dimensions.offset.x,
+        cast(f32)renderer.viewport_dimensions.offset.y,
+        cast(f32)renderer.viewport_dimensions.extent.width,
+        cast(f32)renderer.viewport_dimensions.extent.height,
+    }
 
-    ray := view_ray(game_state, viewport_camera_id, mouse_location, viewport_dimensions)
+    ray := view_ray(game_state, game_state.viewport_camera_id, input_system.mouse_location, viewport_dimensions)
 
-    tform := &game_state.transforms[viewport_camera_id]
+    tform := &game_state.transforms[game_state.viewport_camera_id]
     collision_pt: hlsl.float3
     normal: hlsl.float3
     closest_dist := math.INF_F32
-    for _, &piece in triangle_meshes {
+    for _, piece in game_state.triangle_meshes {
         candidate, n, ok := intersect_ray_triangles_with_normal(ray, piece)
         if ok {
             candidate_dist := hlsl.distance(candidate, tform.position)
@@ -155,19 +160,14 @@ do_mouse_raycast_with_normal :: proc(
 }
 do_mouse_raycast :: proc(
     game_state: GameState,
+    renderer: Renderer,
     input_system: InputSystem,
-    // viewport_camera_id: EntityID,
-    // triangle_meshes: map[EntityID]TriangleMesh,
-    // mouse_location: [2]i32,
-    viewport_dimensions: [4]f32
 ) -> (hlsl.float3, bool) {
     scoped_event(&profiler, "do_mouse_raycast")
     collision_pt, _, hit := do_mouse_raycast_with_normal(
         game_state,
-        game_state.viewport_camera_id,
-        game_state.triangle_meshes,
-        input_system.mouse_location,
-        viewport_dimensions
+        renderer,
+        input_system
     )
     return collision_pt, hit
 }
@@ -1193,6 +1193,7 @@ GameState :: struct {
     collectable_radius: f32,
 
     enemy_mesh: StaticModelHandle,
+    plane_mesh: StaticModelHandle,
 
     debug_vis_flags: DebugVisualizationFlags,
 
@@ -1486,6 +1487,8 @@ gamestate_new_scene :: proc(
     game_state.enemy_mesh = load_gltf_static_model(gd, renderer, "data/models/majoras_moon.glb", scene_allocator)
 
     game_state.coin_mesh = load_gltf_static_model(gd, renderer, "data/models/precursor_orb.glb", scene_allocator)
+
+    game_state.plane_mesh = load_gltf_static_model(gd, renderer, "data/models/plane.glb", scene_allocator)
 }
 
 gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
