@@ -1,12 +1,10 @@
 package main
 
-import "core:text/match"
 import "core:c"
 import "core:fmt"
 import "core:math/linalg/hlsl"
 import "core:log"
 import "core:os"
-import "core:path/filepath"
 import "core:reflect"
 import "core:slice"
 import "core:strings"

@@ -1,11 +1,8 @@
 package main
 
 import "core:math/linalg/hlsl"
-import "core:log"
 import "core:math"
 import "core:os"
-import "core:path/filepath"
-import "core:strings"
 import "core:time"
 
 // angle is in radians
