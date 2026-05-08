@@ -1606,7 +1606,7 @@ new_load_level_file :: proc(
 
     free_all(scene_allocator)
     audio_new_scene(audio_system)
-    new_scene(renderer, scene_allocator)
+    renderer_new_scene(renderer, scene_allocator)
     gamestate_new_scene(game_state, gd, renderer, user_config)
 
     read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
@@ -1668,11 +1668,8 @@ new_load_level_file :: proc(
             when T == TriangleMesh {
                 mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
-                positions := get_glb_positions(model_path, scene_allocator)
 
-                comp = new_static_triangle_mesh(positions[:], mmat)
-                comp.model_matrix = mmat
-                comp.name = filepath.base(string(model_path))
+                comp = load_static_triangle_mesh(string(model_path), mmat, scene_allocator)
 
             } else when T == StaticModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
@@ -1859,10 +1856,14 @@ new_save_level_file :: proc(
         // Size of player spawn position
         final_size += size_of(hlsl.float3)
 
+        bgm_string: string
+        if len(audio_system.music_files) > int(game_state.bgm_id) {
+            bgm_string = audio_system.music_files[game_state.bgm_id].name
+        }
+        
         // Size of bgm pascal string
-        bgm := audio_system.music_files[game_state.bgm_id]
         final_size += size_of(u32)
-        final_size += size_of(byte) * len(bgm.name)
+        final_size += size_of(byte) * len(bgm_string)
 
         // Directional lights count + data
         final_size += size_of(u32)
@@ -1984,9 +1985,11 @@ new_save_level_file :: proc(
     write_thing_to_buffer(output_buffer[:], &game_state.level_start, &write_head)
 
     // Write bgm filename
-    {
+    if len(audio_system.music_files) > int(game_state.bgm_id) {
         bgm := &audio_system.music_files[game_state.bgm_id]
         write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
+    } else {
+        write_string_to_buffer(output_buffer[:], "", &write_head)
     }
 
     // Write directional lights data

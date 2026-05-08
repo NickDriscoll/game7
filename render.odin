@@ -368,7 +368,7 @@ Renderer :: struct {
     viewport_dimensions: vk.Rect2D,
 }
 
-new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
+renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
     // Allocator dynamic arrays and handlemaps
     hm.init(&renderer.cpu_static_meshes, allocator)
     hm.init(&renderer.cpu_skinned_meshes, allocator)
@@ -419,7 +419,7 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
         renderer.scene_TLASes[i].generation = 0xFFFFFFFF
     }
 
-    new_scene(&renderer)
+    renderer_new_scene(&renderer)
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     renderer.depth_format = .D32_SFLOAT
@@ -2572,28 +2572,6 @@ graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bo
             if imgui.CollapsingHeader("Fake cloud settings") {
                 imgui.SliderFloat("Speed", &renderer.uniforms.cloud_speed, 0.0, 0.5)
                 imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
-            }
-
-            if imgui.CollapsingHeader("Directional lights") {
-                for i in 0..<renderer.uniforms.directional_light_count {
-                    light := &renderer.uniforms.directional_lights[i]
-                    imgui.PushIDInt(c.int(i))
-                    imgui.ColorPicker3("Color", &light.color)
-                    imgui.PopID()
-                }
-
-                light_count := &renderer.uniforms.directional_light_count
-                can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
-                imgui.BeginDisabled(can_add)
-                if imgui.Button("Add") {
-                    l := DirectionalLight {
-                        direction = {0.0, 0.0, 1.0},
-                        color = {1.0, 1.0, 1.0},
-                    }
-                    renderer.uniforms.directional_lights[light_count^] = l
-                    light_count^ += 1
-                }
-                imgui.EndDisabled()
             }
 
             {
