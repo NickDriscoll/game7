@@ -47,6 +47,7 @@ App :: struct {
     scene_track: mem.Tracking_Allocator,
     temp_track: mem.Tracking_Allocator,
 
+    // Engine subsystems
     vgd: vkw.GraphicsDevice,
     renderer: Renderer,
     input_system: InputSystem,
@@ -370,7 +371,12 @@ app_shutdown :: proc(app: ^App) {
     quit_profiler(&profiler)
 }
 
-
+new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
+    free_all(scene_allocator)
+    audio_new_scene(&app.audio_system)
+    renderer_new_scene(&app.renderer, scene_allocator)
+    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config)
+}
 
 // EditorResponseType :: enum {
 //     MoveTerrainPiece,
@@ -580,17 +586,17 @@ scene_editor :: proc(
                     if gui_list_files("./data/models", &model_strings, &selected, "Choose model", context.temp_allocator) {
                         path := fmt.sbprintf(&builder, "./data/models/%v", model_strings[selected])
                         cpath := strings.to_cstring(&builder)
-                        positions := get_glb_positions(cpath, scene_allocator)
-                        trimesh := new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, scene_allocator)
-                        model := load_gltf_static_model(&app.vgd, &app.renderer, cpath, scene_allocator)
+                        // positions := get_glb_positions(cpath, scene_allocator)
+                        // trimesh := new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, scene_allocator)
+                        // model := load_gltf_static_model(&app.vgd, &app.renderer, cpath, scene_allocator)
 
                         new_id := gamestate_next_id(&app.game_state)
                         app.game_state.transforms[new_id] = {
                             scale = 1.0
                         }
-                        app.game_state.triangle_meshes[new_id] = trimesh
+                        app.game_state.triangle_meshes[new_id] = load_static_triangle_mesh(path, IDENTITY_MATRIX4x4, scene_allocator)
                         app.game_state.static_models[new_id] = StaticModelInstance {
-                            handle = model,
+                            handle = load_gltf_static_model(&app.vgd, &app.renderer, cpath, scene_allocator),
                         }
                     }
                     strings.builder_reset(&builder)
@@ -613,6 +619,28 @@ scene_editor :: proc(
                 }
             }
             imgui.Separator()
+
+            if imgui.CollapsingHeader("Directional lights") {
+                for i in 0..<app.renderer.uniforms.directional_light_count {
+                    light := &app.renderer.uniforms.directional_lights[i]
+                    imgui.PushIDInt(c.int(i))
+                    imgui.ColorPicker3("Color", &light.color)
+                    imgui.PopID()
+                }
+
+                light_count := &app.renderer.uniforms.directional_light_count
+                can_add := light_count^ >= MAX_DIRECTIONAL_LIGHTS
+                imgui.BeginDisabled(can_add)
+                if imgui.Button("Add") {
+                    l := DirectionalLight {
+                        direction = {0.0, 0.0, 1.0},
+                        color = {1.0, 1.0, 1.0},
+                    }
+                    app.renderer.uniforms.directional_lights[light_count^] = l
+                    light_count^ += 1
+                }
+                imgui.EndDisabled()
+            }
     
             // Entity view
             // {

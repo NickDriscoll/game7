@@ -1,7 +1,10 @@
 package main
 
+import "core:log"
 import "core:math"
 import "core:math/linalg/hlsl"
+import "core:path/filepath"
+import "core:strings"
 
 Sphere :: struct {
     position: hlsl.float3,
@@ -98,6 +101,20 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
     return static_mesh
 }
 
+load_static_triangle_mesh :: proc(path: string, mmat: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
+    cpath, err := strings.clone_to_cstring(path, allocator)
+    if err != nil {
+        log.errorf("Error cloning string to cstring: %v", err)
+    }
+
+    positions := get_glb_positions(cpath, allocator)
+    trimesh := new_static_triangle_mesh(positions[:], mmat, allocator)
+    trimesh.model_matrix = mmat
+    trimesh.name = strings.clone(filepath.base(path), allocator)
+
+    return trimesh
+}
+
 rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
     scoped_event(&profiler, "rebuild_static_triangle_mesh")
     FLOATS_PER_TRIANGLE :: 9
@@ -129,7 +146,6 @@ copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.
 closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
     scoped_event(&profiler, "closest_pt_triangle")
     dot :: hlsl.dot
-    //scoped_event(&profiler, "closest_pt_triangle")
 
     a := tri.a
     b := tri.b

@@ -414,7 +414,8 @@ main :: proc() {
         switch gui_main_menu_bar(&app.gui, &app.game_state, &app.user_config) {
             case .Exit: do_main_loop = false
             case .NewLevel: {
-                gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, app.per_scene_allocator)
+                //gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, app.per_scene_allocator)
+                new_scene(&app, app.per_scene_allocator)
 
                 // Add default collision plane
                 id := gamestate_next_id(&app.game_state)
@@ -422,32 +423,25 @@ main :: proc() {
                     position = {0.0, 0.0, 0.0},
                     scale = 1.0
                 }
-                {
-                    positions := get_glb_positions("data/models/plane.glb", app.per_scene_allocator)
-                    app.game_state.triangle_meshes[id] = new_static_triangle_mesh(positions[:], IDENTITY_MATRIX4x4, app.per_scene_allocator)
-                }
+                app.game_state.triangle_meshes[id] = load_static_triangle_mesh(
+                    "data/models/plane.glb",
+                    IDENTITY_MATRIX4x4,
+                    app.per_scene_allocator
+                )
                 app.game_state.static_models[id] = StaticModelInstance {
                     handle = app.game_state.plane_mesh,
                 }
             }
-            case .LoadLevel: {
-                show_load_modal = true
-            }
+            case .LoadLevel: { show_load_modal = true }
             case .SaveLevel: {
                 sb: strings.Builder
                 strings.builder_init(&sb, context.temp_allocator)
                 path := fmt.sbprintf(&sb, "data/levels/%v.lvl", app.game_state.current_level)
                 save_level_file(&app.game_state, &app.renderer, app.audio_system, path)
             }
-            case .SaveLevelAs: {
-                show_save_modal = true
-            }
-            case .ToggleAlwaysOnTop: {
-                sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop]))
-            }
-            case .ToggleBorderlessFullscreen: {
-                do_fullscreen = true
-            }
+            case .SaveLevelAs: { show_save_modal = true }
+            case .ToggleAlwaysOnTop: { sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop])) }
+            case .ToggleBorderlessFullscreen: { do_fullscreen = true }
             case .ToggleExclusiveFullscreen: {
                 app.game_state.exclusive_fullscreen = !app.game_state.exclusive_fullscreen
                 app.game_state.borderless_fullscreen = false
@@ -1049,13 +1043,9 @@ main :: proc() {
         // End-of-frame cleanup
         {
             scoped_event(&profiler, "End-of-frame cleanup")
+
             // CLear temp allocator for next frame
-            when ODIN_DEBUG {
-                if app.vgd.frame_count % 100 == 0 {
-                    //log.infof("%v bytes of temp allocator used on frame %v", temp_track.current_memory_allocated, app.vgd.frame_count)
-                }
-            }
-            free_all(context.temp_allocator)
+            free_all(app.per_frame_allocator)
 
             // Clear sync info for next frame
             vkw.clear_sync_info(&app.renderer.gfx_sync)
