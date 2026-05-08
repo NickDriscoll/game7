@@ -56,7 +56,8 @@ when ODIN_DEBUG {
         "build",
         ".",
         "-o:speed",
-        "-lto:thin",
+        // "-lto:thin",     // doesn't work on either of my Linux machines
+        "-lto:thin-files",
         "-vet-shadowing",
         //"-vet-unused-imports",
         "-disallow-do",
@@ -64,6 +65,7 @@ when ODIN_DEBUG {
         "-no-bounds-check",
         "-define:INCLUDE_PROFILER=true",
     }
+    
 }
 
 SlangProcess :: struct {
