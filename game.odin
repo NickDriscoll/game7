@@ -1370,6 +1370,8 @@ gamestate_new_scene :: proc(
     user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
+    game_state.current_level = ""
+
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -2042,7 +2044,7 @@ new_save_level_file :: proc(
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
-    //game_state.current_level = path_clone
+    game_state.current_level = path_clone
 
     log.infof("Finished saving level to \"%v\"", path)
 }

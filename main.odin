@@ -78,7 +78,11 @@ main :: proc() {
             tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
             following := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
-            app.user_config.strs[.StartLevel] = app.game_state.current_level
+            if len(app.game_state.current_level) > 0 {
+                app.user_config.strs[.StartLevel] = app.game_state.current_level
+            } else {
+                delete_key(&app.user_config.strs, ConfigKey.StartLevel)
+            }
             update_user_cfg_camera(&app.user_config, tform.position, following, camera^)
             save_user_config(&app.user_config, USER_CONFIG_FILENAME)
             app.user_config.last_saved = app.current_time
@@ -414,7 +418,6 @@ main :: proc() {
         switch gui_main_menu_bar(&app.gui, &app.game_state, &app.user_config) {
             case .Exit: do_main_loop = false
             case .NewLevel: {
-                //gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, app.per_scene_allocator)
                 new_scene(&app, app.per_scene_allocator)
 
                 // Add default collision plane
