@@ -164,7 +164,7 @@ app_startup :: proc(app: ^App) -> bool {
         }
 
         // Load user configuration
-        cfg, config_err := load_user_config(USER_CONFIG_FILENAME)
+        cfg, config_err := load_user_config(USER_CONFIG_FILENAME, app.global_allocator)
         if config_err != nil {
             log.errorf("Failed to load user config: %v", config_err)
         }
@@ -373,9 +373,9 @@ app_shutdown :: proc(app: ^App) {
 
 new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     free_all(scene_allocator)
-    audio_new_scene(&app.audio_system)
+    audio_new_scene(&app.audio_system, scene_allocator)
     renderer_new_scene(&app.renderer, scene_allocator)
-    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config)
+    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, scene_allocator)
 }
 
 // EditorResponseType :: enum {
@@ -407,11 +407,6 @@ EditVerb :: enum {
 
 scene_editor :: proc(
     app: ^App,
-    // game_state: ^GameState,
-    // gd: ^vkw.GraphicsDevice,
-    // renderer: ^Renderer,
-    // gui: ^ImguiState,
-    // app.user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
     scoped_event(&profiler, "Scene editor update")

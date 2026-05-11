@@ -190,18 +190,18 @@ save_default_user_config :: proc(filename: string) {
 
 load_user_config :: proc(filename: string, allocator := context.allocator) -> (UserConfiguration, os.Error) {
     scoped_event(&profiler, "Load user config")
-    user_config, err := raw_load_user_config(filename)
+    user_config, err := _raw_load_user_config(filename)
     if err != nil {
         log.warn("User config file not found. Generating default config...")
         save_default_user_config(filename)
 
-        user_config, err = raw_load_user_config(filename, allocator)
+        user_config, err = _raw_load_user_config(filename, allocator)
     }
 
     return user_config, err
 }
 
-raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, err: os.Error) {
+_raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, err: os.Error) {
     scoped_event(&profiler, "raw_load_user_config")
     file_text: []u8
     {
