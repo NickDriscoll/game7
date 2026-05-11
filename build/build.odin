@@ -58,6 +58,7 @@ when ODIN_DEBUG {
         "-o:speed",
         // "-lto:thin",     // doesn't work on either of my Linux machines
         "-lto:thin-files",
+        "-linker:lld",
         "-vet-shadowing",
         //"-vet-unused-imports",
         "-disallow-do",
