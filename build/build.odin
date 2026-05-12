@@ -51,20 +51,37 @@ when ODIN_DEBUG {
         "-define:INCLUDE_PROFILER=true",
     }
 } else {
-    ODIN_COMMAND : []string : {
-        "odin",
-        "build",
-        ".",
-        "-o:speed",
-        // "-lto:thin",     // doesn't work on either of my Linux machines
-        "-lto:thin-files",
-        "-linker:lld",
-        "-vet-shadowing",
-        //"-vet-unused-imports",
-        "-disallow-do",
-        "-disable-assert",
-        "-no-bounds-check",
-        "-define:INCLUDE_PROFILER=true",
+    when ODIN_OS == .Windows {
+        ODIN_COMMAND : []string : {
+            "odin",
+            "build",
+            ".",
+            "-o:speed",
+            // "-lto:thin",     // doesn't work on either of my Linux machines
+            "-lto:thin-files",
+            "-linker:lld",
+            "-vet-shadowing",
+            //"-vet-unused-imports",
+            "-disallow-do",
+            "-disable-assert",
+            "-no-bounds-check",
+            "-define:INCLUDE_PROFILER=true",
+        }
+    } else when ODIN_OS == .Linux {
+        ODIN_COMMAND : []string : {
+            "odin",
+            "build",
+            ".",
+            "-o:speed",
+            // "-lto:thin",     // doesn't work on either of my Linux machines
+            "-lto:thin-files",
+            "-vet-shadowing",
+            //"-vet-unused-imports",
+            "-disallow-do",
+            "-disable-assert",
+            "-no-bounds-check",
+            "-define:INCLUDE_PROFILER=true",
+        }
     }
     
 }
