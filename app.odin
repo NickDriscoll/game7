@@ -401,6 +401,7 @@ EditVerb :: enum {
     Select,
     Delete,
     AddCollision,
+    EditDirectionalLights,
     PaintCoins,
     PlaceEnemy,
     //PlaceMacGuffen,
@@ -471,6 +472,10 @@ scene_editor :: proc(
                 if imgui.RadioButton("Add collision", app.game_state.edit_verb == .AddCollision) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .AddCollision
+                }
+                if imgui.RadioButton("Edit directional lights", app.game_state.edit_verb == .EditDirectionalLights) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .EditDirectionalLights
                 }
                 if imgui.RadioButton("Delete##1", app.game_state.edit_verb == .Delete) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
@@ -597,6 +602,60 @@ scene_editor :: proc(
                     }
                     strings.builder_reset(&builder)
                 }
+                case .EditDirectionalLights: {
+                    disabled := app.renderer.directional_light_count == MAX_DIRECTIONAL_LIGHTS
+                    imgui.BeginDisabled(disabled)
+                    label : cstring = "Add new directional light"
+                    if disabled {
+                        label = "Can't add any more directional lights"
+                    }
+                    if imgui.Button(label) {
+                        ratio := f32(app.renderer.directional_light_count) / MAX_DIRECTIONAL_LIGHTS
+                        app.renderer.directional_light_count += 1
+                        app.renderer.directional_lights[app.renderer.directional_light_count - 1] = {
+                            pitch = -math.PI / 4.0,
+                            yaw = 2.0 * math.PI * ratio,
+                            color = {1.0, 1.0, 1.0}
+                        }
+                    }
+                    imgui.EndDisabled()
+                    imgui.Separator()
+
+                    to_delete: Maybe(int)
+                    for i in 0..<app.renderer.directional_light_count {
+                        light := &app.renderer.directional_lights[i]
+
+                        imgui.PushIDInt(c.int(i))
+                        if imgui.Button("Delete this light") {
+                            to_delete = int(i)
+                        }
+                        imgui.DragFloat("Yaw angle", &light.yaw, 0.05)
+                        imgui.DragFloat("Pitch angle", &light.pitch, 0.05)
+                        if imgui.CollapsingHeader("Color picker") { imgui.ColorPicker3("Light color", &light.color) }
+                        imgui.Separator()
+
+                        for light.pitch > 2.0 * math.PI {
+                            light.pitch -= 2.0 * math.PI
+                        }
+                        for light.pitch < -2.0 * math.PI {
+                            light.pitch += 2.0 * math.PI
+                        }
+                        for light.yaw < 0.0 {
+                            light.yaw += 2.0 * math.PI
+                        }
+                        for light.yaw > 2.0 * math.PI {
+                            light.yaw -= 2.0 * math.PI
+                        }
+
+                        imgui.PopID()
+                    }
+
+                    if del_idx, ok := to_delete.?; ok {
+                        count := app.renderer.directional_light_count
+                        app.renderer.directional_lights[del_idx] = app.renderer.directional_lights[count - 1]
+                        app.renderer.directional_light_count -= 1
+                    }
+                }
                 case .Delete: {
                     {
                         b := .ShowBoundingSpheres in app.game_state.debug_vis_flags
@@ -615,61 +674,6 @@ scene_editor :: proc(
                 }
             }
             imgui.Separator()
-
-            if imgui.CollapsingHeader("Directional lights") {
-                disabled := app.renderer.directional_light_count == MAX_DIRECTIONAL_LIGHTS
-                imgui.BeginDisabled(disabled)
-                label : cstring = "Add new directional light"
-                if disabled {
-                    label = "Can't add any more directional lights"
-                }
-                if imgui.Button(label) {
-                    ratio := f32(app.renderer.directional_light_count) / MAX_DIRECTIONAL_LIGHTS
-                    app.renderer.directional_light_count += 1
-                    app.renderer.directional_lights[app.renderer.directional_light_count - 1] = {
-                        pitch = -math.PI / 4.0,
-                        yaw = 2.0 * math.PI * ratio,
-                        color = {1.0, 1.0, 1.0}
-                    }
-                }
-                imgui.EndDisabled()
-                imgui.Separator()
-
-                to_delete: Maybe(int)
-                for i in 0..<app.renderer.directional_light_count {
-                    light := &app.renderer.directional_lights[i]
-
-                    imgui.PushIDInt(c.int(i))
-                    if imgui.Button("Delete this light") {
-                        to_delete = int(i)
-                    }
-                    imgui.DragFloat("Yaw angle", &light.yaw, 0.05)
-                    imgui.DragFloat("Pitch angle", &light.pitch, 0.05)
-                    if imgui.CollapsingHeader("Color picker") { imgui.ColorPicker3("Light color", &light.color) }
-                    imgui.Separator()
-
-                    for light.pitch > 2.0 * math.PI {
-                        light.pitch -= 2.0 * math.PI
-                    }
-                    for light.pitch < -2.0 * math.PI {
-                        light.pitch += 2.0 * math.PI
-                    }
-                    for light.yaw < 0.0 {
-                        light.yaw += 2.0 * math.PI
-                    }
-                    for light.yaw > 2.0 * math.PI {
-                        light.yaw -= 2.0 * math.PI
-                    }
-
-                    imgui.PopID()
-                }
-
-                if del_idx, ok := to_delete.?; ok {
-                    count := app.renderer.directional_light_count
-                    app.renderer.directional_lights[del_idx] = app.renderer.directional_lights[count - 1]
-                    app.renderer.directional_light_count -= 1
-                }
-            }
     
             // Entity view
             // {

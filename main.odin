@@ -240,6 +240,7 @@ main :: proc() {
         scene_editor(&app)
         switch app.game_state.edit_verb {
             case .None: {}
+            case .EditDirectionalLights: {}
             case .Select: {
                 if app.input_system.mouse_clicked {
                     closest_id, closest_t := get_clicked_entity(app, false)
