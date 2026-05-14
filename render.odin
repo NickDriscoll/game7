@@ -39,7 +39,13 @@ NULL_OFFSET :: 0xFFFFFFFF
 
 FRAMES_IN_FLIGHT :: 2
 
-DirectionalLight :: struct {
+NewDirectionalLight :: struct {
+    pitch: f32,
+    yaw: f32,
+    color: hlsl.float3,
+}
+
+GPUDirectionalLight :: struct {
     direction: hlsl.float3,
     _pad0: f32,
     color: hlsl.float3,
@@ -102,7 +108,7 @@ UniformBuffer :: struct {
 
     view_position: hlsl.float4,
 
-    directional_lights: [MAX_DIRECTIONAL_LIGHTS]DirectionalLight,
+    directional_lights: [MAX_DIRECTIONAL_LIGHTS]GPUDirectionalLight,
     point_lights: [MAX_POINT_LIGHTS]PointLight,
 
     directional_light_count: u32,
@@ -333,6 +339,9 @@ Renderer :: struct {
     gpu_static_instances: [dynamic]GPUInstance,
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
+    // Directional lights
+    directional_lights: [MAX_DIRECTIONAL_LIGHTS]NewDirectionalLight,
+    directional_light_count: u32,
 
     // Per-frame shader uniforms
     uniforms: UniformBuffer,
@@ -1884,6 +1893,19 @@ render_scene :: proc(
         0.0, 0.0, 0.0, 1.0
     }
 
+    // Update GPU directional lights
+    {
+        renderer.uniforms.directional_light_count += renderer.directional_light_count
+        for light, i in renderer.directional_lights {
+            dir := linalg.quaternion_from_euler_angle_z(light.yaw) * linalg.quaternion_from_euler_angle_y(light.pitch)
+            d := linalg.quaternion128_mul_vector3(dir, DEFAULT_FACING_DIRECTION)
+            renderer.uniforms.directional_lights[i] = GPUDirectionalLight {
+                direction = d,
+                color = light.color
+            }
+        }
+    }
+
     // Update instances buffer
     {
         scoped_event(&profiler, "Instance buffer upload")
@@ -2074,6 +2096,7 @@ render_scene :: proc(
 
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
+        renderer.uniforms.directional_light_count = 0
         renderer.uniforms.point_light_count = 0
     }
 }
