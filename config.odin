@@ -189,95 +189,95 @@ save_default_user_config :: proc(filename: string) {
 }
 
 load_user_config :: proc(filename: string, allocator := context.allocator) -> (UserConfiguration, os.Error) {
+    raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, err: os.Error) {
+        scoped_event(&profiler, "raw_load_user_config")
+        file_text: []u8
+        {
+            scoped_event(&profiler, "Read entire config file")
+            file_text = os.read_entire_file_from_path(filename, allocator = context.temp_allocator) or_return
+        }
+
+        u := init_user_config(allocator)
+
+        sc: scanner.Scanner
+        scanner.init(&sc, string(file_text))
+        log.debugf("Using scanner: %#v", sc)
+
+        // Consume tokens in groups of three
+        // key, =, value
+        key_tok := scanner.scan(&sc)
+        key_str := scanner.token_text(&sc)
+        for key_tok != scanner.EOF {
+            scoped_event(&profiler, "Token scan iteration")
+
+            // Map string to key
+            key: Maybe(ConfigKey)
+            for k, e in CONFIG_KEY_STRINGS {
+                if k == key_str {
+                    key = e
+                }
+            }
+            assert(key != nil)
+
+            scanner.scan(&sc)
+            eq_tok := scanner.token_text(&sc)
+            if eq_tok != "=" {
+                log.errorf("Expected '=', found \"%v\"", eq_tok)
+            }
+
+            negative_number := false
+            scanner.scan(&sc)
+            val_tok := scanner.token_text(&sc)
+            if val_tok == "-" {
+                negative_number = true
+                scanner.scan(&sc)
+                val_tok = scanner.token_text(&sc)
+            }
+            if val_tok == "true" {
+                u.flags[key.?] = true
+            }
+            else if val_tok == "false" {
+                u.flags[key.?] = false
+            }
+            else if strings.contains(val_tok, ".") {
+                i : f64 = -1 if negative_number else 1
+                f, ok := strconv.parse_f64(val_tok)
+                u.floats[key.?] = i * f
+                if !ok {
+                    log.error("")
+                }
+            }
+            else {
+                i, oki := strconv.parse_i64(val_tok)
+                if oki {
+                    u.ints[key.?] = i64(i)
+                } else {
+                    its, err := strings.intern_get(&u._interner, val_tok)
+                    if err != nil {
+                        log.errorf("Error interning config string: %v", err)
+                    }
+                    u.strs[key.?] = its
+                }
+            }
+
+
+            key_tok = scanner.scan(&sc)
+            key_str = scanner.token_text(&sc)
+        }
+
+        return u, nil
+    }
+
     scoped_event(&profiler, "Load user config")
-    user_config, err := _raw_load_user_config(filename)
+    user_config, err := raw_load_user_config(filename)
     if err != nil {
         log.warn("User config file not found. Generating default config...")
         save_default_user_config(filename)
 
-        user_config, err = _raw_load_user_config(filename, allocator)
+        user_config, err = raw_load_user_config(filename, allocator)
     }
 
     return user_config, err
-}
-
-_raw_load_user_config :: proc(filename: string, allocator := context.allocator) -> (c: UserConfiguration, err: os.Error) {
-    scoped_event(&profiler, "raw_load_user_config")
-    file_text: []u8
-    {
-        scoped_event(&profiler, "Read entire config file")
-        file_text = os.read_entire_file_from_path(filename, allocator = context.temp_allocator) or_return
-    }
-
-    u := init_user_config(allocator)
-
-    sc: scanner.Scanner
-    scanner.init(&sc, string(file_text))
-    log.debugf("Using scanner: %#v", sc)
-
-    // Consume tokens in groups of three
-    // key, =, value
-    key_tok := scanner.scan(&sc)
-    key_str := scanner.token_text(&sc)
-    for key_tok != scanner.EOF {
-        scoped_event(&profiler, "Token scan iteration")
-
-        // Map string to key
-        key: Maybe(ConfigKey)
-        for k, e in CONFIG_KEY_STRINGS {
-            if k == key_str {
-                key = e
-            }
-        }
-        assert(key != nil)
-
-        scanner.scan(&sc)
-        eq_tok := scanner.token_text(&sc)
-        if eq_tok != "=" {
-            log.errorf("Expected '=', found \"%v\"", eq_tok)
-        }
-
-        negative_number := false
-        scanner.scan(&sc)
-        val_tok := scanner.token_text(&sc)
-        if val_tok == "-" {
-            negative_number = true
-            scanner.scan(&sc)
-            val_tok = scanner.token_text(&sc)
-        }
-        if val_tok == "true" {
-            u.flags[key.?] = true
-        }
-        else if val_tok == "false" {
-            u.flags[key.?] = false
-        }
-        else if strings.contains(val_tok, ".") {
-            i : f64 = -1 if negative_number else 1
-            f, ok := strconv.parse_f64(val_tok)
-            u.floats[key.?] = i * f
-            if !ok {
-                log.error("")
-            }
-        }
-        else {
-            i, oki := strconv.parse_i64(val_tok)
-            if oki {
-                u.ints[key.?] = i64(i)
-            } else {
-                its, err := strings.intern_get(&u._interner, val_tok)
-                if err != nil {
-                    log.errorf("Error interning config string: %v", err)
-                }
-                u.strs[key.?] = its
-            }
-        }
-
-
-        key_tok = scanner.scan(&sc)
-        key_str = scanner.token_text(&sc)
-    }
-
-    return u, nil
 }
 
 update_user_cfg_camera :: proc(s: ^UserConfiguration, position: hlsl.float3, following: bool, camera: FreecamController) {

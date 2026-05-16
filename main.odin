@@ -242,7 +242,7 @@ main :: proc() {
             case .None: {}
             case .EditDirectionalLights: {}
             case .Select: {
-                if app.input_system.mouse_clicked {
+                if .MouseClicked in app.input_system.state_flags {
                     closest_id, closest_t := get_clicked_entity(app, false)
                     
                     old_id, exists := app.game_state.selected_entity.?
@@ -265,7 +265,7 @@ main :: proc() {
 
             }
             case .Delete: {
-                if app.input_system.mouse_held {
+                if .MouseHeld in app.input_system.state_flags {
                     collision_pt, n, hit := do_mouse_raycast_with_normal(
                         app.game_state,
                         app.renderer,
@@ -289,7 +289,7 @@ main :: proc() {
                 maybe_show_bounding_spheres(&app)
             }
             case .PaintCoins: {
-                if app.input_system.mouse_held {
+                if .MouseHeld in app.input_system.state_flags {
                     collision_pt, hit := do_mouse_raycast(
                         app.game_state,
                         app.renderer,
@@ -307,7 +307,7 @@ main :: proc() {
                 }
             }
             case .PlaceEnemy: {
-                if app.input_system.mouse_clicked {
+                if .MouseClicked in app.input_system.state_flags {
                     collision_pt, hit := do_mouse_raycast(
                         app.game_state,
                         app.renderer,
@@ -824,7 +824,7 @@ main :: proc() {
                 tform.position.z += col.radius
             }
 
-            if app.input_system.mouse_clicked {
+            if .MouseClicked in app.input_system.state_flags {
                 move_player = false
             }
         }
