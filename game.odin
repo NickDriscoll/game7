@@ -1799,19 +1799,22 @@ new_load_level_file :: proc(
     return true
 }
 
-_reencode_level_files :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, temp_allocator := context.temp_allocator) {
+_reencode_level_file :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, level_name: string, temp_allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb, temp_allocator)
 
+    out_path := fmt.sbprintf(&sb, "data/levels/%v_new.lvl", level_name)
+    save_level_file(game_state, renderer, audio, out_path, temp_allocator)
+}
+
+_reencode_level_files :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, temp_allocator := context.temp_allocator) {
     w: os.Walker
     os.walker_init_path(&w, "data/levels")
 	defer os.walker_destroy(&w)
 
     for info in os.walker_walk(&w) {
-        out_path := fmt.sbprintf(&sb, "data/levels/%v_new.lvl", os.stem(info.name))
-
-        save_level_file(game_state, renderer, audio, out_path, temp_allocator)
-        strings.builder_reset(&sb)
+        _reencode_level_file(game_state, renderer, audio, os.stem(info.name), temp_allocator)
+        
     }
 }
 

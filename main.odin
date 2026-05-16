@@ -393,7 +393,11 @@ main :: proc() {
                     app.game_state.timescale = 1.0
                 }
 
-                if imgui.Button("Re-encode level files") {
+                if imgui.Button("Re-encode this level file") {
+                    _reencode_level_file(&app.game_state, &app.renderer, app.audio_system, app.game_state.current_level, app.per_frame_allocator)
+                }
+
+                if imgui.Button("Re-encode all level files") {
                     _reencode_level_files(&app.game_state, &app.renderer, app.audio_system, app.per_frame_allocator)
                 }
 
