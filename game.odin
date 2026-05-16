@@ -1799,6 +1799,22 @@ new_load_level_file :: proc(
     return true
 }
 
+_reencode_level_files :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, temp_allocator := context.temp_allocator) {
+    sb: strings.Builder
+    strings.builder_init(&sb, temp_allocator)
+
+    w: os.Walker
+    os.walker_init_path(&w, "data/levels")
+	defer os.walker_destroy(&w)
+
+    for info in os.walker_walk(&w) {
+        out_path := fmt.sbprintf(&sb, "data/levels/%v_new.lvl", os.stem(info.name))
+
+        save_level_file(game_state, renderer, audio, out_path, temp_allocator)
+        strings.builder_reset(&sb)
+    }
+}
+
 save_level_file :: new_save_level_file
 
 // Strings in the StringTable are written back-to-back when serialized
@@ -1850,12 +1866,12 @@ new_save_level_file :: proc(
     path: string,
     temp_allocator := context.temp_allocator
 ) {
-
-    // Idea: For each entity, store id followed by component mask followed by component data
-    // Better idea: Just store components along with their ids
-
-
-    calc_level_file_size :: proc(game_state: GameState, renderer: ^Renderer, audio_system: AudioSystem, string_table: ^StringTable) -> u32 {
+    calc_level_file_size :: proc(
+        game_state: GameState,
+        renderer: ^Renderer,
+        audio_system: AudioSystem,
+        string_table: ^StringTable
+    ) -> u32 {
         calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
             size := size_of(u32)
             for _, comp in component_map {
@@ -1887,7 +1903,7 @@ new_save_level_file :: proc(
 
         // Directional lights count + data
         final_size += size_of(u32)
-        final_size += size_of(GPUDirectionalLight) * int(renderer.uniforms.directional_light_count)
+        final_size += size_of(NewDirectionalLight) * int(renderer.directional_light_count)
 
         // Component data + counts
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
@@ -2014,10 +2030,10 @@ new_save_level_file :: proc(
 
     // Write directional lights data
     {
-        count := renderer.uniforms.directional_light_count
+        count := renderer.directional_light_count
         write_thing_to_buffer(output_buffer[:], &count, &write_head)
         for i in 0..<count {
-            light := &renderer.uniforms.directional_lights[i]
+            light := &renderer.directional_lights[i]
             write_thing_to_buffer(output_buffer[:], light, &write_head)
         }
     }
