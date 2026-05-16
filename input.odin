@@ -72,6 +72,13 @@ RemapInput :: struct #raw_union {
     axis: sdl2.GameControllerAxis,
 }
 
+InputStateFlag :: enum {
+    MouseClicked,
+    MouseHeld,
+    CurrentlyRemapping
+}
+InputStateFlags :: bit_set[InputStateFlag; u32]
+
 InputSystem :: struct {
     // For the purposes of simple remapping, user code is expected to maintain
     // these maps for the same lifetime as the input system
@@ -88,12 +95,14 @@ InputSystem :: struct {
     axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32,
     stick_sensitivities: [len(ControllerStickAxis)]f32,
 
+    state_flags: InputStateFlags,
+
     mouse_location: [2]i32,
-    mouse_clicked: bool,
-    mouse_held: bool,
+    // mouse_clicked: bool,
+    // mouse_held: bool,
 
     input_being_remapped: RemapInput,
-    currently_remapping: bool,
+    //currently_remapping: bool,
 
     controller_one: ^sdl2.GameController,
 }
@@ -172,7 +181,7 @@ poll_sdl2_events :: proc(
     outputs.floats = make(map[VerbType]f32, 16, allocator)
     outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
 
-    state.mouse_clicked = false
+    state.state_flags ~= {.MouseClicked}
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
@@ -219,21 +228,21 @@ poll_sdl2_events :: proc(
                 sc := event.key.keysym.scancode
 
                 // Handle key remapping here
-                if state.currently_remapping {
+                if .CurrentlyRemapping in state.state_flags {
                     verb, ok := state.key_mappings[state.input_being_remapped.key]
                     if ok {
                         existing_verb, key_exists := state.key_mappings[sc]
                         if key_exists {
                             log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
                             state.input_being_remapped.key = nil
-                            state.currently_remapping = false
+                            state.state_flags -= {.CurrentlyRemapping}
                             continue
                         }
 
                         state.key_mappings[sc] = verb
                         delete_key(state.key_mappings, state.input_being_remapped.key)
                         state.input_being_remapped.key = nil
-                        state.currently_remapping = false
+                        state.state_flags -= {.CurrentlyRemapping}
                         continue
                     }
                 }
@@ -276,8 +285,8 @@ poll_sdl2_events :: proc(
                     outputs.int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
                 }
                 if event.button.button == sdl2.BUTTON_LEFT {
-                    state.mouse_clicked = true
-                    state.mouse_held = true
+                    state.state_flags += {.MouseClicked}
+                    state.state_flags += {.MouseHeld}
                 }
             }
             case .MOUSEBUTTONUP: {
@@ -291,7 +300,7 @@ poll_sdl2_events :: proc(
                     outputs.int2s[verbtype] = {0, 0}
                 }
                 if event.button.button == sdl2.BUTTON_LEFT {
-                    state.mouse_held = false
+                    state.state_flags -= {.MouseHeld}
                 }
             }
             case .MOUSEMOTION: {
@@ -336,21 +345,21 @@ poll_sdl2_events :: proc(
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
                 // Handle button remapping here
-                if state.currently_remapping {
+                if .CurrentlyRemapping in state.state_flags {
                     verb, ok := state.button_mappings[state.input_being_remapped.button]
                     if ok {
                         existing_verb, button_exists := state.button_mappings[button]
                         if button_exists {
                             log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
                             state.input_being_remapped.key = nil
-                            state.currently_remapping = false
+                            state.state_flags -= {.CurrentlyRemapping}
                             continue
                         }
 
                         state.button_mappings[button] = verb
                         delete_key(state.button_mappings, state.input_being_remapped.button)
                         state.input_being_remapped.button = nil
-                        state.currently_remapping = false
+                        state.state_flags -= {.CurrentlyRemapping}
                         continue
                     }
                 }
@@ -489,16 +498,16 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
             imgui.Text(vs)
 
             imgui.TableNextColumn()
-            if s.currently_remapping && remap_value^ == key {
+            if .CurrentlyRemapping in s.state_flags && remap_value^ == key {
                 if imgui.Button(rebind_text) {
                     s.input_being_remapped.key = nil
-                    s.currently_remapping = false
+                    s.state_flags -= {.CurrentlyRemapping}
                 }
             } else {
                 ks := build_cstring(key, sb, allocator)
                 if imgui.Button(ks, {button_width, 0.0}) {
                     remap_value^ = key
-                    s.currently_remapping = true
+                    s.state_flags += {.CurrentlyRemapping}
                 }
             }
         }

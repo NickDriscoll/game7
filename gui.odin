@@ -374,8 +374,8 @@ gui_list_files :: proc(path: string, list_items: ^[dynamic]cstring, selected_ite
 }
 
 gui_dropdown_enum :: proc(label: cstring, current_value: ^$Enum, allocator := context.temp_allocator) -> bool {
-    items := make([dynamic]cstring, 0, 16, allocator)
     names := reflect.enum_field_names(Enum)
+    items := make([dynamic]cstring, 0, len(names), allocator)
     selected: c.int
     for name, i in names {
         if int(current_value^) == i {
