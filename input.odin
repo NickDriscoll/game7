@@ -181,7 +181,7 @@ poll_sdl2_events :: proc(
     outputs.floats = make(map[VerbType]f32, 16, allocator)
     outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
 
-    state.state_flags ~= {.MouseClicked}
+    state.state_flags -= {.MouseClicked}
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
