@@ -1089,7 +1089,6 @@ ENEMY_STATE_CSTRINGS :: [EnemyState]cstring {
 }
 
 DebugVisualizationFlag :: enum {
-    ShowPlayerSpawn,
     ShowPlayerHitSphere,
     ShowPlayerActivityRadius,
     ShowCoinRadius,
@@ -1743,10 +1742,10 @@ new_load_level_file :: proc(
         count := read_thing_from_buffer(lvl_data, u32, &read_head)
         renderer.directional_light_count = count
         for i in 0..<count {
-            light := read_thing_from_buffer(lvl_data, GPUDirectionalLight, &read_head)
+            light := read_thing_from_buffer(lvl_data, NewDirectionalLight, &read_head)
             renderer.directional_lights[i] = NewDirectionalLight {
-                yaw = 0.0,
-                pitch = 0.0,
+                yaw = light.yaw,
+                pitch = light.pitch,
                 color = light.color
             }
         }

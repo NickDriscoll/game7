@@ -404,6 +404,7 @@ EditVerb :: enum {
     EditDirectionalLights,
     PaintCoins,
     PlaceEnemy,
+    PlacePlayerSpawn,
     //PlaceMacGuffen,
 }
 
@@ -425,28 +426,17 @@ scene_editor :: proc(
             // Spawn point editor
             {
                 imgui.DragFloat3("Player spawn", &app.game_state.level_start, 0.1)
-                flag := .ShowPlayerSpawn in app.game_state.debug_vis_flags
-                if imgui.Checkbox("Show player spawn", &flag) {
-                    app.game_state.debug_vis_flags ~= {.ShowPlayerSpawn}
+
+                @static draw_spawn := false
+                imgui.Checkbox("Show player spawn", &draw_spawn)
+                if draw_spawn {
+                    mmat := translation_matrix(app.game_state.level_start) * uniform_scaling_matrix(0.2)
+                    ddraw := DebugDraw {
+                        world_from_model = mmat,
+                        color = {0.0, 1.0, 0.0, 0.4}
+                    }
+                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
                 }
-    
-                // resp, ok := game_state.editor_response.(EditorResponse)
-                // disable := false
-                // move_text : cstring = "Move player spawn"
-                // if ok {
-                //     if resp.type == .MovePlayerSpawn {
-                //         disable = true
-                //         move_text = "Moving player spawn..."
-                //     }
-                // }
-                // imgui.BeginDisabled(disable)
-                // if imgui.Button(move_text) {
-                //     game_state.editor_response = EditorResponse {
-                //         type = .MovePlayerSpawn,
-                //         index = 0
-                //     }
-                // }
-                // imgui.EndDisabled()
     
                 imgui.Separator()
             }
@@ -459,7 +449,7 @@ scene_editor :: proc(
     
             // Edit verb selection
             {
-                imgui.Text("Active edit verb")
+                imgui.Text("Active edit verb:")
                 // @TODO: Use reflection here
                 if imgui.RadioButton("None", app.game_state.edit_verb == .None) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
@@ -488,6 +478,10 @@ scene_editor :: proc(
                 if imgui.RadioButton("Place enemy", app.game_state.edit_verb == .PlaceEnemy) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .PlaceEnemy
+                }
+                if imgui.RadioButton("Place player spawn", app.game_state.edit_verb == .PlacePlayerSpawn) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .PlacePlayerSpawn
                 }
             }
             imgui.Separator()
@@ -671,6 +665,9 @@ scene_editor :: proc(
                 }
                 case .PlaceEnemy: {
                     selected_entity_options(&app.game_state, &app.renderer)
+                }
+                case .PlacePlayerSpawn: {
+                    imgui.Text("Click on the terrain to place player spawn.")
                 }
             }
             imgui.Separator()
