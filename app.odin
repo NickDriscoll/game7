@@ -404,7 +404,7 @@ EditVerb :: enum {
     EditDirectionalLights,
     PaintCoins,
     PlaceEnemy,
-    PlacePlayerSpawn,
+    EditPlayerSpawn,
     //PlaceMacGuffen,
 }
 
@@ -424,22 +424,22 @@ scene_editor :: proc(
         if imgui.Begin("Scene editor", &app.user_config.flags[.SceneEditor]) {
 
             // Spawn point editor
-            {
-                imgui.DragFloat3("Player spawn", &app.game_state.level_start, 0.1)
+            // {
+            //     imgui.DragFloat3("Player spawn", &app.game_state.level_start, 0.1)
 
-                @static draw_spawn := false
-                imgui.Checkbox("Show player spawn", &draw_spawn)
-                if draw_spawn {
-                    mmat := translation_matrix(app.game_state.level_start) * uniform_scaling_matrix(0.2)
-                    ddraw := DebugDraw {
-                        world_from_model = mmat,
-                        color = {0.0, 1.0, 0.0, 0.4}
-                    }
-                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
-                }
+            //     @static draw_spawn := false
+            //     imgui.Checkbox("Show player spawn", &draw_spawn)
+            //     if draw_spawn {
+            //         mmat := translation_matrix(app.game_state.level_start) * uniform_scaling_matrix(0.2)
+            //         ddraw := DebugDraw {
+            //             world_from_model = mmat,
+            //             color = {0.0, 1.0, 0.0, 0.4}
+            //         }
+            //         draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+            //     }
     
-                imgui.Separator()
-            }
+            //     imgui.Separator()
+            // }
     
             if imgui.Button("Delete all coins") {
                 for len(app.game_state.coins) > 0 {
@@ -467,6 +467,10 @@ scene_editor :: proc(
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .EditDirectionalLights
                 }
+                if imgui.RadioButton("Edit player spawn", app.game_state.edit_verb == .EditPlayerSpawn) {
+                    app.game_state.previous_edit_verb = app.game_state.edit_verb
+                    app.game_state.edit_verb = .EditPlayerSpawn
+                }
                 if imgui.RadioButton("Delete##1", app.game_state.edit_verb == .Delete) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .Delete
@@ -478,10 +482,6 @@ scene_editor :: proc(
                 if imgui.RadioButton("Place enemy", app.game_state.edit_verb == .PlaceEnemy) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .PlaceEnemy
-                }
-                if imgui.RadioButton("Place player spawn", app.game_state.edit_verb == .PlacePlayerSpawn) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .PlacePlayerSpawn
                 }
             }
             imgui.Separator()
@@ -563,6 +563,7 @@ scene_editor :: proc(
             }
     
             // Per-verb options menu
+            @static draw_spawn := false
             imgui.Text("Edit controls:")
             switch app.game_state.edit_verb {
                 case .None: { imgui.Text("No edit verb selected.") }
@@ -666,8 +667,33 @@ scene_editor :: proc(
                 case .PlaceEnemy: {
                     selected_entity_options(&app.game_state, &app.renderer)
                 }
-                case .PlacePlayerSpawn: {
+                case .EditPlayerSpawn: {
                     imgui.Text("Click on the terrain to place player spawn.")
+                    
+                    imgui.DragFloat3("Set player spawn", &app.game_state.level_start, 0.1)
+
+                    imgui.Checkbox("Show player spawn", &draw_spawn)
+                    if draw_spawn {
+                        mmat := translation_matrix(app.game_state.level_start) * uniform_scaling_matrix(0.2)
+                        ddraw := DebugDraw {
+                            world_from_model = mmat,
+                            color = {0.0, 1.0, 0.0, 0.4}
+                        }
+                        draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                    }
+
+                    label : cstring = "Move player spawn"
+                    moving := .MovePlayerSpawn in app.game_state.edit_flags
+                    if moving {
+                        label = "Moving player spawn..."
+                    }
+                    imgui.BeginDisabled(moving)
+                    if imgui.Button(label) {
+                        app.game_state.edit_flags ~= {.MovePlayerSpawn}
+                    }
+                    imgui.EndDisabled()
+        
+                    imgui.Separator()
                 }
             }
             imgui.Separator()

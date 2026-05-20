@@ -1096,6 +1096,11 @@ DebugVisualizationFlag :: enum {
 }
 DebugVisualizationFlags :: bit_set[DebugVisualizationFlag]
 
+EditFlag :: enum {
+    MovePlayerSpawn
+}
+EditFlags :: bit_set[EditFlag; u32]
+
 LevelBlock :: enum u8 {
     Terrain = 0,
     StaticScenery = 1,
@@ -1195,6 +1200,7 @@ GameState :: struct {
     plane_mesh: StaticModelHandle,
 
     debug_vis_flags: DebugVisualizationFlags,
+    edit_flags: EditFlags,
 
     // Editor state
     //editor_response: Maybe(EditorResponse),

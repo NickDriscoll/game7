@@ -321,16 +321,18 @@ main :: proc() {
                     }
                 }
             }
-            case .PlacePlayerSpawn: {
-                collision_pt, hit := do_mouse_raycast(
-                    app.game_state,
-                    app.renderer,
-                    app.input_system,
-                )
-                if hit {
-                    app.game_state.level_start = collision_pt
-                    if .MouseClicked in app.input_system.state_flags {
-                        app.game_state.edit_verb = .None
+            case .EditPlayerSpawn: {
+                if .MovePlayerSpawn in app.game_state.edit_flags {
+                    collision_pt, hit := do_mouse_raycast(
+                        app.game_state,
+                        app.renderer,
+                        app.input_system,
+                    )
+                    if hit && !io.WantCaptureMouse {
+                        app.game_state.level_start = collision_pt
+                        if .MouseClicked in app.input_system.state_flags {
+                            app.game_state.edit_flags -= {.MovePlayerSpawn}
+                        }
                     }
                 }
             }
