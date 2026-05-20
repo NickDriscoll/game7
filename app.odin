@@ -422,25 +422,6 @@ scene_editor :: proc(
     if show_editor {
         defer imgui.End()
         if imgui.Begin("Scene editor", &app.user_config.flags[.SceneEditor]) {
-
-            // Spawn point editor
-            // {
-            //     imgui.DragFloat3("Player spawn", &app.game_state.level_start, 0.1)
-
-            //     @static draw_spawn := false
-            //     imgui.Checkbox("Show player spawn", &draw_spawn)
-            //     if draw_spawn {
-            //         mmat := translation_matrix(app.game_state.level_start) * uniform_scaling_matrix(0.2)
-            //         ddraw := DebugDraw {
-            //             world_from_model = mmat,
-            //             color = {0.0, 1.0, 0.0, 0.4}
-            //         }
-            //         draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
-            //     }
-    
-            //     imgui.Separator()
-            // }
-    
             if imgui.Button("Delete all coins") {
                 for len(app.game_state.coins) > 0 {
                     delete_coin(&app.game_state, 0)
@@ -514,6 +495,7 @@ scene_editor :: proc(
                     imgui.Text("Selected #%i", c.int(id))
                     tform, has_tform := &game_state.transforms[id]
                     assert(has_tform)
+                    old_tform := tform^
                     moved := imgui.DragFloat3("Position", &tform.position, 0.2)
                     moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
 
@@ -525,6 +507,16 @@ scene_editor :: proc(
                     mesh, mesh_ok := &game_state.triangle_meshes[id]
                     if mesh_ok {
                         if moved {
+                            delta := Transform {
+                                position = tform.position - old_tform.position,
+                                rotation = tform.rotation - old_tform.rotation,
+                                scale = tform.scale - old_tform.scale,
+                            }
+                            children := get_entity_children(game_state^, id, context.temp_allocator)
+                            for child in children {
+                                apply_transform_delta(game_state, child, delta)
+                            }
+
                             mmat := get_transform_matrix(tform^)
                             rebuild_static_triangle_mesh(mesh, mmat)
                         }

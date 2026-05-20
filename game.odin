@@ -128,7 +128,7 @@ do_mouse_raycast_with_normal :: proc(
     game_state: GameState,
     renderer: Renderer,
     input_system: InputSystem
-) -> (hlsl.float3, hlsl.float3, bool) {
+) -> (hlsl.float3, hlsl.float3, EntityID, bool) {
     scoped_event(&profiler, "do_mouse_raycast")
     
     viewport_dimensions : [4]f32 = {
@@ -144,7 +144,8 @@ do_mouse_raycast_with_normal :: proc(
     collision_pt: hlsl.float3
     normal: hlsl.float3
     closest_dist := math.INF_F32
-    for _, piece in game_state.triangle_meshes {
+    collision_id: EntityID
+    for id, piece in game_state.triangle_meshes {
         candidate, n, ok := intersect_ray_triangles_with_normal(ray, piece)
         if ok {
             candidate_dist := hlsl.distance(candidate, tform.position)
@@ -152,24 +153,25 @@ do_mouse_raycast_with_normal :: proc(
                 collision_pt = candidate
                 normal = n
                 closest_dist = candidate_dist
+                collision_id = id
             }
         }
     }
 
-    return collision_pt, normal, closest_dist < math.INF_F32
+    return collision_pt, normal, collision_id, closest_dist < math.INF_F32
 }
 do_mouse_raycast :: proc(
     game_state: GameState,
     renderer: Renderer,
     input_system: InputSystem,
-) -> (hlsl.float3, bool) {
+) -> (hlsl.float3, EntityID, bool) {
     scoped_event(&profiler, "do_mouse_raycast")
-    collision_pt, _, hit := do_mouse_raycast_with_normal(
+    collision_pt, _, id, hit := do_mouse_raycast_with_normal(
         game_state,
         renderer,
         input_system
     )
-    return collision_pt, hit
+    return collision_pt, id, hit
 }
 
 Transform :: struct {
@@ -228,7 +230,7 @@ tick_coins :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
     }
 }
 
-new_coin :: proc(game_state: ^GameState, position: hlsl.float3) {
+new_coin :: proc(game_state: ^GameState, position: hlsl.float3) -> EntityID {
     id := gamestate_next_id(game_state)
 
     game_state.transforms[id] = Transform {
@@ -241,6 +243,8 @@ new_coin :: proc(game_state: ^GameState, position: hlsl.float3) {
         flags = {}
     }
     append(&game_state.coins, id)
+
+    return id
 }
 
 delete_coin :: proc(game_state: ^GameState, idx: int) {
@@ -1040,11 +1044,6 @@ DebugModelInstance :: struct {
     scale: f32,
 }
 
-// BoundingSphere :: struct {
-//     sphere: Sphere,
-    
-// }
-
 DamageEvent :: struct {
 
 }
@@ -1148,6 +1147,26 @@ delete_entity :: proc(game_state: ^GameState, id: EntityID) {
     }
 }
 
+get_entity_children :: proc(game_state: GameState, id: EntityID, allocator := context.allocator) -> [dynamic]EntityID {
+    kids := make([dynamic]EntityID, 0, 64, allocator)
+
+    for child_id, parent_id in game_state.parents {
+        if id == parent_id {
+            append(&kids, child_id)
+        }
+    }
+
+    return kids
+}
+
+apply_transform_delta :: proc(game_state: ^GameState, id: EntityID, tform_delta: Transform) {
+    tform, ok := &game_state.transforms[id]
+    assert(ok)
+
+    tform.position += tform_delta.position
+    tform.scale += tform_delta.scale
+}
+
 EntityID :: distinct u32
 
 // Megastruct for all game-specific data
@@ -1203,7 +1222,6 @@ GameState :: struct {
     edit_flags: EditFlags,
 
     // Editor state
-    //editor_response: Maybe(EditorResponse),
     edit_verb: EditVerb,
     previous_edit_verb: EditVerb,
     selected_entity: Maybe(EntityID),

@@ -266,7 +266,7 @@ main :: proc() {
             }
             case .Delete: {
                 if .MouseHeld in app.input_system.state_flags {
-                    collision_pt, n, hit := do_mouse_raycast_with_normal(
+                    collision_pt, n, _, hit := do_mouse_raycast_with_normal(
                         app.game_state,
                         app.renderer,
                         app.input_system,
@@ -290,7 +290,7 @@ main :: proc() {
             }
             case .PaintCoins: {
                 if .MouseHeld in app.input_system.state_flags {
-                    collision_pt, hit := do_mouse_raycast(
+                    collision_pt, collided_id, hit := do_mouse_raycast(
                         app.game_state,
                         app.renderer,
                         app.input_system,
@@ -300,15 +300,16 @@ main :: proc() {
                         if far_enough_away {
                             coin_pos := collision_pt
                             coin_pos.z += app.game_state.coin_z_offset
-                            new_coin(&app.game_state, coin_pos)
+                            new_coin_id := new_coin(&app.game_state, coin_pos)
                             app.game_state.last_placed_position = collision_pt
+                            app.game_state.parents[new_coin_id] = collided_id
                         }
                     }
                 }
             }
             case .PlaceEnemy: {
                 if .MouseClicked in app.input_system.state_flags {
-                    collision_pt, hit := do_mouse_raycast(
+                    collision_pt, _, hit := do_mouse_raycast(
                         app.game_state,
                         app.renderer,
                         app.input_system,
@@ -323,7 +324,7 @@ main :: proc() {
             }
             case .EditPlayerSpawn: {
                 if .MovePlayerSpawn in app.game_state.edit_flags {
-                    collision_pt, hit := do_mouse_raycast(
+                    collision_pt, _, hit := do_mouse_raycast(
                         app.game_state,
                         app.renderer,
                         app.input_system,
@@ -618,201 +619,6 @@ main :: proc() {
             imgui.ShowDemoWindow(&app.user_config.flags[.ShowImguiDemo])
         }
 
-        // Handle current editor state
-        // {
-        //     move_positionable :: proc(
-        //         game_state: ^GameState,
-        //         input_system: InputSystem,
-        //         viewport_dimensions: vk.Rect2D,
-        //         position: ^hlsl.float3
-        //     ) -> bool {
-        //         collision_pt: hlsl.float3
-        //         hit := false
-        //         io := imgui.GetIO()
-        //         if !io.WantCaptureMouse {
-        //             dims : [4]f32 = {
-        //                 cast(f32)viewport_dimensions.offset.x,
-        //                 cast(f32)viewport_dimensions.offset.y,
-        //                 cast(f32)viewport_dimensions.extent.width,
-        //                 cast(f32)viewport_dimensions.extent.height,
-        //             }
-        //             collision_pt, hit = do_mouse_raycast(
-        //                 game_state.viewport_camera,
-        //                 game_state.triangle_meshes,
-        //                 input_system.mouse_location,
-        //                 dims
-        //             )
-        //             if hit {
-        //                 position^ = collision_pt
-        //             }
-
-        //             if input_system.mouse_clicked {
-        //                 game_state.editor_response = nil
-        //             }
-        //         }
-        //         return hit
-        //     }
-
-        //     pick_path :: proc(
-        //         modal_title: cstring,
-        //         path: string,
-        //         builder: ^strings.Builder,
-        //         resp: ^Maybe(EditorResponse)
-        //     ) -> (cstring, bool) {
-        //         result: cstring
-        //         ok := false
-
-        //         imgui.OpenPopup(modal_title)
-        //         center := imgui.GetMainViewport().Size / 2.0
-        //         imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
-        //         imgui.SetNextWindowSize(imgui.GetMainViewport().Size - 200.0)
-
-        //         if imgui.BeginPopupModal(modal_title, nil, {.NoMove,.NoResize}) {
-        //             selected_item: c.int
-        //             list_items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-        //             if gui_list_files(path, &list_items, &selected_item, "models") {
-        //                 fmt.sbprintf(builder, "%v/%v", path, list_items[selected_item])
-        //                 path_cstring, _ := strings.to_cstring(builder)
-
-        //                 result = path_cstring
-        //                 ok = true
-        //                 resp^ = nil
-        //                 imgui.CloseCurrentPopup()
-        //             }
-        //             imgui.Separator()
-        //             if imgui.Button("Return") {
-        //                 resp^ = nil
-        //                 imgui.CloseCurrentPopup()
-        //             }
-        //             imgui.EndPopup()
-        //         }
-        //         strings.builder_reset(builder)
-        //         return result, ok
-        //     }
-
-        //     resp, edit_ok := game_state.editor_response.(EditorResponse)
-        //     if edit_ok {
-        //         builder: strings.Builder
-        //         strings.builder_init(&builder, context.temp_allocator)
-        //         #partial switch resp.type {
-        //             case .AddTerrainPiece: {
-        //                 path, ok := pick_path("Add terrain piece", "data/models", &builder, &game_state.editor_response)
-        //                 if ok {
-        //                     position := hlsl.float3 {}
-        //                     rotation := quaternion128 {}
-        //                     scale : f32 = 1.0
-        //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-        //                     model := load_gltf_static_model(&app.vgd, &renderer, path)
-
-        //                     positions := get_glb_positions(path)
-        //                     collision := new_static_triangle_mesh(positions[:], mmat)
-
-        //                     id := gamestate_next_id(&game_state)
-        //                     game_state.triangle_meshes[id] = collision
-        //                     game_state.transforms[id] = Transform {
-        //                         position = position,
-        //                         rotation = rotation,
-        //                         scale = scale
-        //                     }
-        //                     game_state.static_models[id] = model
-
-        //                     // append(&game_state.terrain_pieces, TerrainPiece {
-        //                     //     collision = collision,
-        //                     //     position = position,
-        //                     //     rotation = rotation,
-        //                     //     scale = scale,
-        //                     //     model = model,
-        //                     // })
-        //                 }
-        //             }
-        //             case .AddStaticScenery: {
-        //                 path, ok := pick_path("Add static scenery", "data/models", &builder, &game_state.editor_response)
-        //                 if ok {
-        //                     position := hlsl.float3 {}
-        //                     rotation := quaternion128 {}
-        //                     scale : f32 = 1.0
-        //                     mmat := translation_matrix(position) * linalg.to_matrix4(rotation) * uniform_scaling_matrix(scale)
-        //                     model := load_gltf_static_model(&app.vgd, &renderer, path)
-
-        //                     append(&game_state.static_scenery, StaticScenery {
-        //                         position = position,
-        //                         rotation = rotation,
-        //                         scale = scale,
-        //                         model = model,
-        //                     })
-        //                 }
-        //             }
-        //             case .AddAnimatedScenery: {
-        //                 path, ok := pick_path("Add animated scenery", "data/models", &builder, &game_state.editor_response)
-        //                 if ok {
-        //                     model := load_gltf_skinned_model(&app.vgd, &renderer, path, scene_allocator)
-        //                     position := hlsl.float3 {}
-        //                     rotation := quaternion128 {}
-        //                     scale : f32 = 1.0
-        //                     append(&game_state.animated_scenery, AnimatedScenery {
-        //                         position = position,
-        //                         rotation = rotation,
-        //                         scale = scale,
-        //                         model = model,
-        //                         anim_speed = 1.0,
-        //                     })
-        //                 }
-        //             }
-        //             case .MoveTerrainPiece: {
-        //                 position := &game_state.terrain_pieces[resp.index].position
-        //                 move_positionable(
-        //                     &game_state,
-        //                     input_system,
-        //                     renderer.viewport_dimensions,
-        //                     position
-        //                 )
-        //             }
-        //             case .MoveStaticScenery: {
-        //                 position := &game_state.static_scenery[resp.index].position
-        //                 move_positionable(
-        //                     &game_state,
-        //                     input_system,
-        //                     renderer.viewport_dimensions,
-        //                     position
-        //                 )
-        //             }
-        //             case .MoveAnimatedScenery: {
-        //                 position := &game_state.animated_scenery[resp.index].position
-        //                 move_positionable(
-        //                     &game_state,
-        //                     input_system,
-        //                     renderer.viewport_dimensions,
-        //                     position
-        //                 )
-        //             }
-        //             case .MoveEnemy: {
-        //                 enemy := &game_state.enemies[resp.index]
-        //                 if move_positionable(
-        //                     &game_state,
-        //                     input_system,
-        //                     renderer.viewport_dimensions,
-        //                     &enemy.position
-        //                 ) {
-        //                     e := &game_state.enemies[resp.index]
-        //                     e.velocity = {}
-        //                     e.position.z += 1.0
-        //                     e.home_position = enemy.position
-        //                 }
-        //             }
-        //             case .MoveCoin: {
-        //                 coin := &game_state.coins[resp.index]
-        //                 if move_positionable(&game_state, input_system, renderer.viewport_dimensions, &coin.position) {
-        //                     coin.position.z += 1.0
-        //                 }
-        //             }
-        //             case .MovePlayerSpawn: {
-        //                 move_positionable(&game_state, input_system, renderer.viewport_dimensions, &game_state.character_start)
-        //             }
-        //             case: {}
-        //         }
-        //     }
-        // }
-
         // Memory viewer
         when ODIN_DEBUG {
             if app.gui.show_gui && app.user_config.flags[.ShowAllocatorStats] {
@@ -837,7 +643,7 @@ main :: proc() {
             scoped_event(&profiler, "Move player cheat")
             tform := &app.game_state.transforms[app.game_state.player_id]
             col := &app.game_state.spherical_bodies[app.game_state.player_id]
-            collision_pt, hit := do_mouse_raycast(
+            collision_pt, _, hit := do_mouse_raycast(
                 app.game_state,
                 app.renderer,
                 app.input_system,
