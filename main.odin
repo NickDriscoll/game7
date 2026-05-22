@@ -892,7 +892,7 @@ main :: proc() {
                 app.current_time,
                 time.Duration(MILLISECONDS_TO_NANOSECONDS * minimum_frametime)
             )
-            sleep_duration := time.diff(time.now(), min_time)
+            sleep_duration := max(0.0, time.diff(time.now(), min_time))
             time.sleep(sleep_duration)
         }
     }
