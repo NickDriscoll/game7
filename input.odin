@@ -23,6 +23,7 @@ VerbType :: enum {
     MinimizeWindow,
     FocusWindow,
 
+    NewLevel,
     ShowLoadLevel,
 
     MouseMotion,

@@ -445,21 +445,6 @@ main :: proc() {
             case .Exit: do_main_loop = false
             case .NewLevel: {
                 new_scene(&app, app.per_scene_allocator)
-
-                // Add default collision plane
-                id := gamestate_next_id(&app.game_state)
-                app.game_state.transforms[id] = Transform {
-                    position = {0.0, 0.0, 0.0},
-                    scale = 1.0
-                }
-                app.game_state.triangle_meshes[id] = load_static_triangle_mesh(
-                    "data/models/plane.glb",
-                    IDENTITY_MATRIX4x4,
-                    app.per_scene_allocator
-                )
-                app.game_state.static_models[id] = StaticModelInstance {
-                    handle = app.game_state.plane_mesh,
-                }
             }
             case .LoadLevel: { show_load_modal = true }
             case .SaveLevel: {
@@ -495,6 +480,10 @@ main :: proc() {
                 app.vgd.resize_window = true
             }
             case .None: {}
+        }
+
+        if output_verbs.bools[.NewLevel] {
+            new_scene(&app, app.per_scene_allocator)
         }
 
         if output_verbs.bools[.ShowLoadLevel] {

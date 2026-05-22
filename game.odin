@@ -1310,6 +1310,7 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
 
+        game_state.ctrl_key_mappings[.N] = .NewLevel
         game_state.ctrl_key_mappings[.L] = .ShowLoadLevel
 
         game_state.button_mappings[.A] = .PlayerJump

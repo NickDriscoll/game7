@@ -376,28 +376,29 @@ app_shutdown :: proc(app: ^App) {
 }
 
 new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
+    vkw.device_wait_idle(&app.vgd)
+
     free_all(scene_allocator)
     audio_new_scene(&app.audio_system, scene_allocator)
     renderer_new_scene(&app.renderer, scene_allocator)
     gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, scene_allocator)
-}
+    app.game_state.selected_entity = nil
 
-// EditorResponseType :: enum {
-//     MoveTerrainPiece,
-//     MoveStaticScenery,
-//     MoveAnimatedScenery,
-//     MoveEnemy,
-//     MoveCoin,
-//     MovePlayerSpawn,
-//     AddTerrainPiece,
-//     AddStaticScenery,
-//     AddAnimatedScenery,
-//     AddCoin
-// }
-// EditorResponse :: struct {
-//     type: EditorResponseType,
-//     index: u32
-// }
+    // Add default collision plane
+    id := gamestate_next_id(&app.game_state)
+    app.game_state.transforms[id] = Transform {
+        position = {0.0, 0.0, 0.0},
+        scale = 1.0
+    }
+    app.game_state.triangle_meshes[id] = load_static_triangle_mesh(
+        "data/models/plane.glb",
+        IDENTITY_MATRIX4x4,
+        app.per_scene_allocator
+    )
+    app.game_state.static_models[id] = StaticModelInstance {
+        handle = app.game_state.plane_mesh,
+    }
+}
 
 EditVerb :: enum {
     None = 0,
@@ -432,46 +433,55 @@ scene_editor :: proc(
             }
     
             // Edit verb selection
+            verb_changed := false
             {
                 imgui.Text("Active edit verb:")
                 // @TODO: Use reflection here
                 if imgui.RadioButton("None", app.game_state.edit_verb == .None) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .None
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Select", app.game_state.edit_verb == .Select) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .Select
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Add collision", app.game_state.edit_verb == .AddCollision) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .AddCollision
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Edit directional lights", app.game_state.edit_verb == .EditDirectionalLights) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .EditDirectionalLights
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Edit player spawn", app.game_state.edit_verb == .EditPlayerSpawn) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .EditPlayerSpawn
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Delete##1", app.game_state.edit_verb == .Delete) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .Delete
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Paint coins", app.game_state.edit_verb == .PaintCoins) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .PaintCoins
+                    verb_changed = true
                 }
                 if imgui.RadioButton("Place enemy", app.game_state.edit_verb == .PlaceEnemy) {
                     app.game_state.previous_edit_verb = app.game_state.edit_verb
                     app.game_state.edit_verb = .PlaceEnemy
+                    verb_changed = true
                 }
             }
             imgui.Separator()
 
             // Clear certain states when verbs are unselected
-            if app.game_state.edit_verb != .Select && app.game_state.previous_edit_verb == .Select {
+            if verb_changed {
                 old_id, exists := app.game_state.selected_entity.?
                 if exists {
                     old_m := &app.game_state.static_models[old_id]
@@ -497,7 +507,10 @@ scene_editor :: proc(
                 if ok {
                     imgui.Text("Selected #%i", c.int(id))
                     tform, has_tform := &game_state.transforms[id]
-                    assert(has_tform)
+                    if !has_tform {
+                        // Entity must have been deleted
+                        return
+                    }
                     old_tform := tform^
                     moved := imgui.DragFloat3("Position", &tform.position, 0.2)
                     moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
