@@ -23,6 +23,8 @@ VerbType :: enum {
     MinimizeWindow,
     FocusWindow,
 
+    ShowLoadLevel,
+
     MouseMotion,
     MouseMotionRel,
     ToggleMouseLook,
@@ -75,6 +77,7 @@ RemapInput :: struct #raw_union {
 InputStateFlag :: enum {
     MouseClicked,
     MouseHeld,
+    CtrlHeld,
     CurrentlyRemapping
 }
 InputStateFlags :: bit_set[InputStateFlag; u32]
@@ -83,6 +86,7 @@ InputSystem :: struct {
     // For the purposes of simple remapping, user code is expected to maintain
     // these maps for the same lifetime as the input system
     key_mappings: ^map[sdl2.Scancode]VerbType,
+    ctrl_key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: ^map[u8]VerbType,
     button_mappings: ^map[sdl2.GameControllerButton]VerbType,
     wheel_mappings: map[u32]VerbType,
@@ -98,11 +102,8 @@ InputSystem :: struct {
     state_flags: InputStateFlags,
 
     mouse_location: [2]i32,
-    // mouse_clicked: bool,
-    // mouse_held: bool,
 
     input_being_remapped: RemapInput,
-    //currently_remapping: bool,
 
     controller_one: ^sdl2.GameController,
 }
@@ -254,7 +255,14 @@ poll_sdl2_events :: proc(
                     continue
                 }
 
-                verbtype, found := state.key_mappings[sc]
+                verbtype: VerbType
+                found: bool
+                if .CtrlHeld in state.state_flags {
+                    verbtype, found = state.ctrl_key_mappings[sc]
+                } else {
+                    verbtype, found = state.key_mappings[sc]
+                }
+
                 if found {
                     outputs.bools[verbtype] = true
                 } else {
@@ -382,6 +390,13 @@ poll_sdl2_events :: proc(
     io.KeyCtrl = imgui.IsKeyDown(.LeftCtrl) || imgui.IsKeyDown(.RightCtrl)
     io.KeyShift = imgui.IsKeyDown(.LeftShift) || imgui.IsKeyDown(.RightShift)
     io.KeyAlt = imgui.IsKeyDown(.LeftAlt) || imgui.IsKeyDown(.RightAlt)
+
+    // Set input system mod keys
+    if io.KeyCtrl {
+        state.state_flags += {.CtrlHeld}
+    } else {
+        state.state_flags -= {.CtrlHeld} 
+    }
 
     // Poll controller axes and emit appropriate verbs
     {

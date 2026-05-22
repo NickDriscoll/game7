@@ -1206,6 +1206,7 @@ GameState :: struct {
     // User input mapping structs
     freecam_key_mappings : map[sdl2.Scancode]VerbType,
     character_key_mappings: map[sdl2.Scancode]VerbType,
+    ctrl_key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
 
@@ -1276,6 +1277,7 @@ init_gamestate :: proc(
 
     game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
+    game_state.ctrl_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
     game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
@@ -1307,6 +1309,8 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.F] = .FullscreenHotkey
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
+
+        game_state.ctrl_key_mappings[.L] = .ShowLoadLevel
 
         game_state.button_mappings[.A] = .PlayerJump
         game_state.button_mappings[.X] = .PlayerShoot

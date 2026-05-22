@@ -237,6 +237,7 @@ main :: proc() {
             }
             return
         }
+        // @TODO: Have scene_editor() return the edit verb?
         scene_editor(&app)
         switch app.game_state.edit_verb {
             case .None: {}
@@ -494,6 +495,10 @@ main :: proc() {
                 app.vgd.resize_window = true
             }
             case .None: {}
+        }
+
+        if output_verbs.bools[.ShowLoadLevel] {
+            show_load_modal = true
         }
 
         if output_verbs.bools[.FullscreenHotkey] {
