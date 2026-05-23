@@ -509,6 +509,7 @@ scene_editor :: proc(
                     tform, has_tform := &game_state.transforms[id]
                     if !has_tform {
                         // Entity must have been deleted
+                        game_state.selected_entity = nil
                         return
                     }
                     old_tform := tform^
