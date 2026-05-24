@@ -119,7 +119,7 @@ SoundEffect :: struct {
 }
 
 SoundEffectPlayback :: struct {
-    idx: uint,
+    idx: int,
     read_head: i32,
 }
 
@@ -209,44 +209,67 @@ toggle_device_playback :: proc(audio_system: ^AudioSystem, playing: bool) {
     sdl2.PauseAudioDevice(audio_system.device_id, sdl2.bool(!playing))
 }
 
-load_sound_effect :: proc(audio_system: ^AudioSystem, path: cstring, global_allocator: runtime.Allocator) -> (uint, bool) {
+load_sound_effect :: proc(
+    audio_system: ^AudioSystem,
+    path: cstring,
+    global_allocator := context.allocator,
+    temp_allocator := context.temp_allocator
+) -> (int, bool) {
     scoped_event(&profiler, "load_sound_effect")
-    err: vorbis.Error
-    file := vorbis.open_filename(path, &err, nil)
-    if err != nil {
-        log.errorf("Error loading sound effect: %v", err)
-        return 0, false
-    }
-
-    file_info := vorbis.get_info(file)
-
-    // Assumption is that sound effects will be mono
-    assert(file_info.channels == 1, "Sound effects must be mono.")
-
-    if file_info.sample_rate != c.uint(audio_system.spec.freq) {
-        log.warnf("Audio file \"%v\" sample rate (%v Hz) doesn't match audio spec (%v Hz)", path, file_info.sample_rate, audio_system.spec.freq)
-    }
-
-    sound_effect := SoundEffect {
-        samples = make([dynamic]f32, global_allocator),
-        name = filepath.stem(strings.clone_from_cstring(path, global_allocator))
-    }
-    temp_sample_buffer: [44100]f32 
-    sample_head : i32 = 0
-    samples_read := vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
-    for samples_read > 0 {
-        resize(&sound_effect.samples, sample_head + samples_read)
-        mem.copy_non_overlapping(raw_data(sound_effect.samples), &temp_sample_buffer, int(samples_read * size_of(f32)))
-        sample_head += samples_read
-        samples_read = vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
-    }
-    append(&audio_system.sound_effects, sound_effect)
-    idx : uint = len(audio_system.sound_effects) - 1
-
-    return idx, true
+    paths : [1]cstring = {path}
+    indices, ok := load_sound_effects(audio_system, paths[:], global_allocator, temp_allocator)
+    return indices[0], ok
 }
 
-play_sound_effect :: proc(audio_system: ^AudioSystem, i: uint) {
+load_sound_effects :: proc(
+    audio_system: ^AudioSystem,
+    paths: []cstring,
+    allocator := context.allocator,
+    temp_allocator := context.temp_allocator
+) -> (indices: [dynamic]int, ok: bool) {
+    scoped_event(&profiler, "load_sound_effects")
+
+    indices = make([dynamic]int, 0, len(paths), temp_allocator)
+
+    for path in paths {
+        err: vorbis.Error
+        file := vorbis.open_filename(path, &err, nil)
+        if err != nil {
+            log.errorf("Error loading sound effect: %v", err)
+            return {}, false
+        }
+
+        file_info := vorbis.get_info(file)
+
+        // Assumption is that sound effects will be mono
+        assert(file_info.channels == 1, "Sound effects must be mono.")
+
+        if file_info.sample_rate != c.uint(audio_system.spec.freq) {
+            log.warnf("Audio file \"%v\" sample rate (%v Hz) doesn't match audio spec (%v Hz)", path, file_info.sample_rate, audio_system.spec.freq)
+        }
+
+        sound_effect := SoundEffect {
+            samples = make([dynamic]f32, allocator),
+            name = filepath.stem(strings.clone_from_cstring(path, allocator))
+        }
+        temp_sample_buffer := make([dynamic]f32, 44000, temp_allocator) 
+        sample_head : i32 = 0
+        samples_read := vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
+        for samples_read > 0 {
+            resize(&sound_effect.samples, sample_head + samples_read)
+            mem.copy_non_overlapping(raw_data(sound_effect.samples), &temp_sample_buffer[0], int(samples_read * size_of(f32)))
+            sample_head += samples_read
+            samples_read = vorbis.get_samples_float_interleaved(file, 1, &temp_sample_buffer[0], max(c.int))
+        }
+        append(&audio_system.sound_effects, sound_effect)
+        idx : int = len(audio_system.sound_effects) - 1
+        append(&indices, idx)
+    }
+
+    return indices, true
+}
+
+play_sound_effect :: proc(audio_system: ^AudioSystem, i: int) {
     scoped_event(&profiler, "play_sound_effect")
     append(&audio_system.playing_sound_effects, SoundEffectPlayback {
         idx = i,
@@ -254,7 +277,7 @@ play_sound_effect :: proc(audio_system: ^AudioSystem, i: uint) {
     })
 }
 
-open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, bool) {
+open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (int, bool) {
     playback: FilePlayback
     playback.name = filepath.stem(strings.clone_from_cstring(path))
 
@@ -274,7 +297,7 @@ open_music_file :: proc(audio_system: ^AudioSystem, path: cstring) -> (uint, boo
     return len(audio_system.music_files) - 1, true
 }
 
-close_music_file :: proc(audio_system: ^AudioSystem, idx: uint) {
+close_music_file :: proc(audio_system: ^AudioSystem, idx: int) {
     if len(audio_system.music_files) > int(idx) {
         unordered_remove(&audio_system.music_files, idx)
     }
@@ -356,7 +379,7 @@ audio_gui :: proc(
             imgui.PushIDInt(c.int(i))
             gui_print_value(&builder, "Name", fx.name)
             if imgui.Button("Play") {
-                play_sound_effect(audio_system, uint(i))
+                play_sound_effect(audio_system, i)
             }
 
             imgui.PopID()

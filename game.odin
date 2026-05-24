@@ -1113,11 +1113,11 @@ GameState :: struct {
     savename_buffer: [1024]c.char,
 
     // Global sound effects loaded on init_gamestate()
-    bgm_id: uint,
-    jump_sound: uint,
-    shoot_sound: uint,
-    coin_sound: uint,
-    ow_sound: uint,
+    bgm_id: int,
+    jump_sound: int,
+    shoot_sound: int,
+    coin_sound: int,
+    ow_sound: int,
 
     camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
@@ -1229,6 +1229,21 @@ init_gamestate :: proc(
         game_state.ow_sound = idx
     }
 
+    idxs, ok := load_sound_effects(
+        audio_system,
+        {"data/audio/boing.ogg", "data/audio/shoot.ogg", "data/audio/orb_final.ogg", "data/audio/ow.ogg"},
+        global_allocator,
+        context.temp_allocator
+    )
+    if !ok {
+        log.error("Error loading sound effects.")
+    }
+
+    game_state.jump_sound = idxs[0]
+    game_state.shoot_sound = idxs[1]
+    game_state.coin_sound = idxs[2]
+    game_state.ow_sound = idxs[3]
+
     // Load skybox
     {
         scoped_event(&profiler, "Load skybox")
@@ -1238,8 +1253,8 @@ init_gamestate :: proc(
 
         if image_err == nil {
             // Read DDS header
-            dds_header, ok := dds_load_header(file_bytes)
-            if !ok {
+            dds_header, dds_ok := dds_load_header(file_bytes)
+            if !dds_ok {
                 log.error("Unable to read DDS header")
             }
 
