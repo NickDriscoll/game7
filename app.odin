@@ -110,8 +110,6 @@ app_startup :: proc(app: ^App) -> bool {
         log.destroy_console_logger(context.logger)
     }
 
-    app.app_options += {.LimitCPU}
-
     // Set up global allocator
     app.global_allocator = runtime.heap_allocator()
     when ODIN_DEBUG {
