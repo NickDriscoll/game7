@@ -1200,35 +1200,6 @@ init_gamestate :: proc(
 
     game_state.rng_seed = time.now()._nsec
 
-    {
-        idx, ok := load_sound_effect(audio_system, "data/audio/boing.ogg", global_allocator)
-        if !ok {
-            log.error("Failed to load sound effect")
-        }
-        game_state.jump_sound = idx
-    }
-    {
-        idx, ok := load_sound_effect(audio_system, "data/audio/shoot.ogg", global_allocator)
-        if !ok {
-            log.error("Failed to load sound effect")
-        }
-        game_state.shoot_sound = idx
-    }
-    {
-        idx, ok := load_sound_effect(audio_system, "data/audio/orb_final.ogg", global_allocator)
-        if !ok {
-            log.error("Failed to load sound effect")
-        }
-        game_state.coin_sound = idx
-    }
-    {
-        idx, ok := load_sound_effect(audio_system, "data/audio/ow.ogg", global_allocator)
-        if !ok {
-            log.error("Failed to load sound effect")
-        }
-        game_state.ow_sound = idx
-    }
-
     idxs, ok := load_sound_effects(
         audio_system,
         {"data/audio/boing.ogg", "data/audio/shoot.ogg", "data/audio/orb_final.ogg", "data/audio/ow.ogg"},
