@@ -1439,7 +1439,7 @@ gamestate_new_scene :: proc(
             acceleration = {},
             deceleration_speed = 0.1,
             move_speed = 7.0,
-            sprint_speed = 14.0,
+            sprint_speed = 10.0,
             jump_speed = 10.0,
             bullet_travel_time = 0.144,
             health = CHARACTER_MAX_HEALTH,
