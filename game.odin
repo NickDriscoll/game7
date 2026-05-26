@@ -1065,6 +1065,36 @@ tick_damage_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
     }
 }
 
+MovedEntityEvent :: struct {
+    id: EntityID,
+    old_tform: Transform,
+}
+
+tick_moved_entity :: proc(game_state: ^GameState) {
+    scoped_event(&profiler, "tick_moved_entity")
+
+    for event in game_state.moved_collision {
+        tform, ok := &game_state.transforms[event.id]
+        assert(ok)
+
+        delta := Transform {
+            position = tform.position - event.old_tform.position,
+            rotation = tform.rotation - event.old_tform.rotation,
+            scale = tform.scale - event.old_tform.scale,
+        }
+        children := get_entity_children(game_state^, event.id, context.temp_allocator)
+        for child in children {
+            apply_transform_delta(game_state, child, delta)
+        }
+
+        mesh, mesh_ok := &game_state.triangle_meshes[event.id]
+        if mesh_ok {
+            mmat := get_transform_matrix(tform^)
+            rebuild_static_triangle_mesh(mesh, mmat)
+        }
+    }
+}
+
 CollisionState :: enum {
     Grounded,
     Falling
@@ -1094,11 +1124,6 @@ DebugVisualizationFlag :: enum {
     ShowBoundingSpheres,
 }
 DebugVisualizationFlags :: bit_set[DebugVisualizationFlag]
-
-EditFlag :: enum {
-    MovePlayerSpawn
-}
-EditFlags :: bit_set[EditFlag; u32]
 
 LevelBlock :: enum u8 {
     Terrain = 0,
@@ -1202,6 +1227,7 @@ GameState :: struct {
     coins: [dynamic]EntityID,
 
     character_damage_events: [dynamic]DamageEvent,
+    moved_collision: [dynamic]MovedEntityEvent,
 
     // User input mapping structs
     freecam_key_mappings : map[sdl2.Scancode]VerbType,
@@ -1528,8 +1554,6 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
     }
 
     if do_this_frame {
-        // Recreate per-frame dynamic allocations
-        game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
 
         // Advance game_state by dt seconds
         tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
@@ -1541,6 +1565,10 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Re
         tick_enemy_ai(game_state, audio_system, dt)
         tick_hovering_enemies(game_state, dt)
         tick_damage_events(game_state, audio_system)
+        tick_moved_entity(game_state)
+        // Recreate per-frame dynamic allocations
+        game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
+        game_state.moved_collision = make([dynamic]MovedEntityEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
     }
 }
 
@@ -1828,7 +1856,6 @@ _reencode_level_files :: proc(game_state: ^GameState, renderer: ^Renderer, audio
 
     for info in os.walker_walk(&w) {
         _reencode_level_file(game_state, renderer, audio, os.stem(info.name), temp_allocator)
-        
     }
 }
 

@@ -398,6 +398,12 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     }
 }
 
+EditFlag :: enum {
+    MovePlayerSpawn,
+    MoveSelectedEntity
+}
+EditFlags :: bit_set[EditFlag; u32]
+
 EditVerb :: enum {
     None = 0,
     Select,
@@ -514,6 +520,17 @@ scene_editor :: proc(
                     moved := imgui.DragFloat3("Position", &tform.position, 0.2)
                     moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
 
+                    moving_something := .MoveSelectedEntity in game_state.edit_flags
+                    imgui.BeginDisabled(moving_something)
+                    label : cstring = "Move"
+                    if moving_something {
+                        label = "Moving..."
+                    }
+                    if imgui.Button(label) {
+                        game_state.edit_flags += {.MoveSelectedEntity}
+                    }
+                    imgui.EndDisabled()
+
                     ai, ai_ok := &game_state.enemy_ais[id]
                     if ai_ok {
                         gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
@@ -522,18 +539,11 @@ scene_editor :: proc(
                     mesh, mesh_ok := &game_state.triangle_meshes[id]
                     if mesh_ok {
                         if moved {
-                            delta := Transform {
-                                position = tform.position - old_tform.position,
-                                rotation = tform.rotation - old_tform.rotation,
-                                scale = tform.scale - old_tform.scale,
+                            event := MovedEntityEvent {
+                                id = id,
+                                old_tform = old_tform
                             }
-                            children := get_entity_children(game_state^, id, context.temp_allocator)
-                            for child in children {
-                                apply_transform_delta(game_state, child, delta)
-                            }
-
-                            mmat := get_transform_matrix(tform^)
-                            rebuild_static_triangle_mesh(mesh, mmat)
+                            append(&game_state.moved_collision, event)
                         }
                         imgui.Text("Selected collision has %i triangles.", len(mesh.triangles))
                     }

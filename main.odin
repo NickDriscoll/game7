@@ -194,6 +194,24 @@ main :: proc() {
                     }
                     draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
                 }
+
+                for id, instance in app.game_state.skinned_models {
+                    tform := &app.game_state.transforms[id]
+                    model := get_skinned_model(app.renderer, instance.handle)
+                    pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                    scale := model.bounding_sphere.radius * tform.scale
+                    color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                    selected_id, id_ok := app.game_state.selected_entity.?
+                    if id_ok && selected_id == id {
+                        color = {0.0, 1.0, 0.0, 0.2}
+                    }
+                    ddraw := DebugDraw {
+                        world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                        color = color,
+                    }
+                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+
+                }
             }
         }
         get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
@@ -243,7 +261,8 @@ main :: proc() {
             case .None: {}
             case .EditDirectionalLights: {}
             case .Select: {
-                if .MouseClicked in app.input_system.state_flags {
+                moving := .MoveSelectedEntity in app.game_state.edit_flags
+                if !moving && .MouseClicked in app.input_system.state_flags {
                     closest_id, closest_t := get_clicked_entity(app, false)
                     
                     old_id, exists := app.game_state.selected_entity.?
@@ -342,7 +361,6 @@ main :: proc() {
 
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33
-        @static move_player := false
         if app.gui.show_gui && app.user_config.flags[.ShowDebugMenu] {
             if imgui.Begin("Hacking window", &app.user_config.flags[.ShowDebugMenu]) {
                 scoped_event(&profiler, "Show debug menu")
@@ -392,13 +410,16 @@ main :: proc() {
                         output_verbs.bools[.PlayerReset] = true
                     }
                     imgui.SameLine()
-                    imgui.BeginDisabled(move_player)
+
+                    moving_something := .MoveSelectedEntity in app.game_state.edit_flags
+                    imgui.BeginDisabled(moving_something)
                     move_text : cstring = "Move player"
-                    if move_player {
+                    if moving_something && app.game_state.selected_entity.? == app.game_state.player_id {
                         move_text = "Moving player..."
                     }
                     if imgui.Button(move_text) {
-                        move_player = true
+                        app.game_state.selected_entity = app.game_state.player_id
+                        app.game_state.edit_flags += {.MoveSelectedEntity}
                     }
                     imgui.EndDisabled()
                 }
@@ -630,27 +651,36 @@ main :: proc() {
             }
         }
 
-        game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
+        // Move entity
+        if .MoveSelectedEntity in app.game_state.edit_flags && !io.WantCaptureMouse {
+            scoped_event(&profiler, "Move entity")
 
-        // Move player hackiness
-        if move_player && !io.WantCaptureMouse {
-            scoped_event(&profiler, "Move player cheat")
-            tform := &app.game_state.transforms[app.game_state.player_id]
-            col := &app.game_state.spherical_bodies[app.game_state.player_id]
+            id, ok := app.game_state.selected_entity.?
+            assert(ok)
+
+            tform := &app.game_state.transforms[id]
             collision_pt, _, hit := do_mouse_raycast(
                 app.game_state,
                 app.renderer,
                 app.input_system,
             )
             if hit {
+                old_tform := tform^
                 tform.position = collision_pt
-                tform.position.z += col.radius
+                event := MovedEntityEvent {
+                    id = id,
+                    old_tform = old_tform
+                }
+                append(&app.game_state.moved_collision, event)
             }
 
+
             if .MouseClicked in app.input_system.state_flags {
-                move_player = false
+                app.game_state.edit_flags -= {.MoveSelectedEntity}
             }
         }
+
+        game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
         // Camera update
         {
