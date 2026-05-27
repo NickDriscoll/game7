@@ -488,8 +488,15 @@ scene_editor :: proc(
             if verb_changed {
                 old_id, exists := app.game_state.selected_entity.?
                 if exists {
-                    old_m := &app.game_state.static_models[old_id]
-                    old_m.flags -= {.Highlighted}
+                    static_m, has_static := &app.game_state.static_models[old_id]
+                    if has_static {
+                        static_m.flags -= {.Highlighted}
+                    }
+
+                    skinned_m, has_skinned := &app.game_state.skinned_models[old_id]
+                    if has_skinned {
+                        skinned_m.flags -= {.Highlighted}
+                    }
                 }
                 app.game_state.selected_entity = nil
             }
