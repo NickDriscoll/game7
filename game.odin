@@ -1838,6 +1838,10 @@ new_load_level_file :: proc(
     }
     game_state.current_level = path_clone
 
+    // Move player to spawn
+    tform := &game_state.transforms[game_state.player_id]
+    tform.position = game_state.level_start
+
     return true
 }
 
