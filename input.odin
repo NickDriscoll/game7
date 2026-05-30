@@ -13,8 +13,6 @@ import "vendor:sdl2"
 
 import imgui "odin-imgui"
 
-AXIS_DEADZONE :: 0.1
-
 VerbType :: enum {
     Quit,
 
@@ -100,6 +98,8 @@ InputSystem :: struct {
     axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32,
     stick_sensitivities: [len(ControllerStickAxis)]f32,
 
+    control_stick_deadzone: f32,
+
     state_flags: InputStateFlags,
 
     mouse_location: [2]i32,
@@ -144,6 +144,7 @@ init_input_system :: proc(
         deadzone_sticks = {.Left,.Right},
         axis_sensitivities = axis_sensitivities,
         stick_sensitivities = stick_sensitivities,
+        control_stick_deadzone = 0.15,
     }
 }
 
@@ -413,7 +414,7 @@ poll_sdl2_events :: proc(
                 y = -y
             }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
+            if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
                 sensitivity := state.stick_sensitivities[ControllerStickAxis.Left]
                 outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
             }
@@ -432,7 +433,7 @@ poll_sdl2_events :: proc(
                 y = -y
             }
             dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in state.deadzone_sticks || dist > AXIS_DEADZONE {
+            if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
                 sensitivity := state.stick_sensitivities[ControllerStickAxis.Right]
                 outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
             }   
@@ -449,7 +450,7 @@ poll_sdl2_events :: proc(
                 continue
             }
             abval := math.abs(val)
-            if ax in state.deadzone_axes && abval <= AXIS_DEADZONE {
+            if ax in state.deadzone_axes && abval <= state.control_stick_deadzone {
                 continue
             }
             if ax in state.reverse_axes {
@@ -626,6 +627,8 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
         i : u32 = 0
         sensitivity_sliders("Axis sensitivities", s.axis_sensitivities[:], &sb, &i, allocator)
         sensitivity_sliders("Stick sensitivities", s.stick_sensitivities[:], &sb, &i, allocator)
+
+        imgui.SliderFloat("Axis deadzone", &s.control_stick_deadzone, 0.0, 0.5)
     }
     imgui.End()
 }
