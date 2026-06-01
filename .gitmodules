@@ -10,3 +10,4 @@
 [submodule "odin-imgui"]
 	path = odin-imgui
 	url = git@github.com:NickDriscoll/odin-imgui.git
+	ignore = dirty
