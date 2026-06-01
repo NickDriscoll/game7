@@ -1248,17 +1248,6 @@ GameState :: struct {
     debug_vis_flags: DebugVisualizationFlags,
     edit_flags: EditFlags,
 
-    // Editor state
-    edit_verb: EditVerb,
-    previous_edit_verb: EditVerb,
-    selected_entity: Maybe(EntityID),
-    current_level: string,
-    savename_buffer: [1024]c.char,
-    last_placed_position: hlsl.float3,
-    coin_paint_radius: f32,
-    coin_z_offset: f32,
-    dont_delete_collision: bool,
-
     // Global sound effects loaded on init_gamestate()
     bgm_id: int,
     jump_sound: int,
@@ -1297,9 +1286,6 @@ init_gamestate :: proc(
     game_state.paused = false
     game_state.timescale = 1.0
     game_state.collectable_radius = 0.1
-    game_state.coin_paint_radius = 1.0
-    game_state.coin_z_offset = 1.0
-    game_state.dont_delete_collision = true
 
     game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -1424,8 +1410,6 @@ gamestate_new_scene :: proc(
     user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
-    game_state.current_level = ""
-
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1629,19 +1613,20 @@ LEVEL_FILE_MAGIC_STRING :: "katawari"
 load_level_file :: new_load_level_file
 
 new_load_level_file :: proc(
-    gd: ^vkw.GraphicsDevice,
-    renderer: ^Renderer,
-    audio_system: ^AudioSystem,
-    game_state: ^GameState,
-    user_config: ^UserConfiguration,
+    app: ^App,
+    // gd: ^vkw.GraphicsDevice,
+    // renderer: ^Renderer,
+    // audio_system: ^AudioSystem,
+    // game_state: ^GameState,
+    // user_config: ^UserConfiguration,
     path: string,
     scene_allocator := context.allocator
 ) -> bool {
     // Audio lock while loading level data
-    sdl2.LockAudioDevice(audio_system.device_id)
-    defer sdl2.UnlockAudioDevice(audio_system.device_id)
+    sdl2.LockAudioDevice(app.audio_system.device_id)
+    defer sdl2.UnlockAudioDevice(app.audio_system.device_id)
 
-    vkw.device_wait_idle(gd)
+    vkw.device_wait_idle(&app.vgd)
 
     read_head : u32 = 0
 
@@ -1663,9 +1648,9 @@ new_load_level_file :: proc(
     }
 
     free_all(scene_allocator)
-    audio_new_scene(audio_system)
-    renderer_new_scene(renderer, scene_allocator)
-    gamestate_new_scene(game_state, gd, renderer, user_config)
+    audio_new_scene(&app.audio_system)
+    renderer_new_scene(&app.renderer, scene_allocator)
+    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config)
 
     read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
         thing: type
@@ -1783,24 +1768,24 @@ new_load_level_file :: proc(
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
 
     // Read player spawn position
-    game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
+    app.game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
 
     // Read bgm name
     {
         bgm_name := read_string_from_buffer(lvl_data, &read_head)
         fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
         path := strings.to_cstring(&path_builder)
-        game_state.bgm_id, _ = open_music_file(audio_system, path)
+        app.game_state.bgm_id, _ = open_music_file(&app.audio_system, path)
         strings.builder_reset(&path_builder)
     }
 
     // Read directional light data
     {
         count := read_thing_from_buffer(lvl_data, u32, &read_head)
-        renderer.directional_light_count = count
+        app.renderer.directional_light_count = count
         for i in 0..<count {
             light := read_thing_from_buffer(lvl_data, NewDirectionalLight, &read_head)
-            renderer.directional_lights[i] = NewDirectionalLight {
+            app.renderer.directional_lights[i] = NewDirectionalLight {
                 yaw = light.yaw,
                 pitch = light.pitch,
                 color = light.color
@@ -1809,57 +1794,57 @@ new_load_level_file :: proc(
     }
 
     // Read components in order
-    read_component_map(gd, renderer, lvl_data, &game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(gd, renderer, lvl_data, &game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
 
     // Read stateless entities
-    game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
-    game_state.coins = read_stateless_entities(lvl_data, &read_head)
+    app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
+    app.game_state.coins = read_stateless_entities(lvl_data, &read_head)
 
     // Should have read entire buffer
     assert(read_head == string_table_offset)
 
-    game_state._next_id = largest_saved_entity_id + 1
+    app.game_state._next_id = largest_saved_entity_id + 1
 
     path_base := filepath.stem(path)
     path_clone, err := strings.clone(path_base, scene_allocator)
     if err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
-    game_state.current_level = path_clone
+    app.current_level = path_clone
 
     // Move player to spawn
-    tform := &game_state.transforms[game_state.player_id]
-    tform.position = game_state.level_start
+    tform := &app.game_state.transforms[app.game_state.player_id]
+    tform.position = app.game_state.level_start
 
     return true
 }
 
-_reencode_level_file :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, level_name: string, temp_allocator := context.temp_allocator) {
+_reencode_level_file :: proc(app: ^App, level_name: string, temp_allocator := context.temp_allocator) {
     sb: strings.Builder
     strings.builder_init(&sb, temp_allocator)
 
     out_path := fmt.sbprintf(&sb, "data/levels/%v_new.lvl", level_name)
-    save_level_file(game_state, renderer, audio, out_path, temp_allocator)
+    save_level_file(app, out_path, temp_allocator)
 }
 
-_reencode_level_files :: proc(game_state: ^GameState, renderer: ^Renderer, audio: AudioSystem, temp_allocator := context.temp_allocator) {
+_reencode_level_files :: proc(app: ^App, temp_allocator := context.temp_allocator) {
     w: os.Walker
     os.walker_init_path(&w, "data/levels")
 	defer os.walker_destroy(&w)
 
     for info in os.walker_walk(&w) {
-        _reencode_level_file(game_state, renderer, audio, os.stem(info.name), temp_allocator)
+        _reencode_level_file(app, os.stem(info.name), temp_allocator)
     }
 }
 
@@ -1908,9 +1893,10 @@ write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^
 }
 
 new_save_level_file :: proc(
-    game_state: ^GameState,
-    renderer: ^Renderer,
-    audio_system: AudioSystem,
+    app: ^App,
+    // game_state: ^GameState,
+    // renderer: ^Renderer,
+    // audio_system: AudioSystem,
     path: string,
     temp_allocator := context.temp_allocator
 ) {
@@ -2052,7 +2038,7 @@ new_save_level_file :: proc(
 
     // Set up intermediate buffer for gathering file data
     string_table := string_table_init(64, temp_allocator)
-    total_size := calc_level_file_size(game_state^, renderer, audio_system, &string_table)
+    total_size := calc_level_file_size(app.game_state, &app.renderer, app.audio_system, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
@@ -2066,11 +2052,11 @@ new_save_level_file :: proc(
     }
 
     // Write player spawn position
-    write_thing_to_buffer(output_buffer[:], &game_state.level_start, &write_head)
+    write_thing_to_buffer(output_buffer[:], &app.game_state.level_start, &write_head)
 
     // Write bgm filename
-    if len(audio_system.music_files) > int(game_state.bgm_id) {
-        bgm := &audio_system.music_files[game_state.bgm_id]
+    if len(app.audio_system.music_files) > int(app.game_state.bgm_id) {
+        bgm := &app.audio_system.music_files[app.game_state.bgm_id]
         write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
     } else {
         write_string_to_buffer(output_buffer[:], "", &write_head)
@@ -2078,31 +2064,31 @@ new_save_level_file :: proc(
 
     // Write directional lights data
     {
-        count := renderer.directional_light_count
+        count := app.renderer.directional_light_count
         write_thing_to_buffer(output_buffer[:], &count, &write_head)
         for i in 0..<count {
-            light := &renderer.directional_lights[i]
+            light := &app.renderer.directional_lights[i]
             write_thing_to_buffer(output_buffer[:], light, &write_head)
         }
     }
 
     // Write components to file
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.transforms, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.transform_deltas, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.cameras, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.lookat_controllers, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.enemy_ais, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.hovering_enemies, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.thrown_enemy_ais, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.spherical_bodies, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.triangle_meshes, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.static_models, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.skinned_models, &write_head)
-    write_component_map(renderer, &string_table, output_buffer[:], game_state.debug_models, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transforms, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transform_deltas, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.cameras, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.lookat_controllers, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.enemy_ais, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.hovering_enemies, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.thrown_enemy_ais, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.spherical_bodies, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.triangle_meshes, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.static_models, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.skinned_models, &write_head)
+    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
-    write_stateless_entities(output_buffer[:], game_state.looping_animations[:], &write_head)
-    write_stateless_entities(output_buffer[:], game_state.coins[:], &write_head)
+    write_stateless_entities(output_buffer[:], app.game_state.looping_animations[:], &write_head)
+    write_stateless_entities(output_buffer[:], app.game_state.coins[:], &write_head)
 
     write_string_table_to_buffer(output_buffer[:], string_table, &write_head)
 
@@ -2126,7 +2112,7 @@ new_save_level_file :: proc(
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
     }
-    game_state.current_level = path_clone
+    app.current_level = path_clone
 
     log.infof("Finished saving level to \"%v\"", path)
 }

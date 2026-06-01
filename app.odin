@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 
 import "core:c"
+import "core:container/queue"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -18,6 +19,13 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
+UndoEditPlayerSpawn :: struct {
+    old_pos: hlsl.float3,
+}
+
+UndoCommand :: union {
+    UndoEditPlayerSpawn
+}
 
 Window :: struct {
     position: [2]i32,
@@ -60,6 +68,17 @@ App :: struct {
     game_state: GameState,
 
     app_options: AppOptions,
+
+    // Editor state
+    edit_verb: EditVerb,
+    previous_edit_verb: EditVerb,
+    selected_entity: Maybe(EntityID),
+    current_level: string,
+    savename_buffer: [1024]c.char,
+    last_placed_position: hlsl.float3,
+    coin_paint_radius: f32,
+    coin_z_offset: f32,
+    dont_delete_collision: bool,
 
     current_time: time.Time,
     previous_time: time.Time,
@@ -306,7 +325,7 @@ app_startup :: proc(app: ^App) -> bool {
             sb: strings.Builder
             strings.builder_init(&sb, app.per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-            load_level_file(&app.vgd, &app.renderer, &app.audio_system, &app.game_state, &app.user_config, start_path)
+            load_level_file(app, start_path)
         }
 
         // Init input system
@@ -323,6 +342,10 @@ app_startup :: proc(app: ^App) -> bool {
         app.previous_time = time.time_add(app.current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         app.saved_mouse_coords = hlsl.int2 {0, 0}
     }
+
+    app.coin_paint_radius = 1.0
+    app.coin_z_offset = 1.0
+    app.dont_delete_collision = true
 
     return true
 }
@@ -380,7 +403,8 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     audio_new_scene(&app.audio_system, scene_allocator)
     renderer_new_scene(&app.renderer, scene_allocator)
     gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config, scene_allocator)
-    app.game_state.selected_entity = nil
+    app.selected_entity = nil
+    app.current_level = ""
 
     // Add default collision plane
     id := gamestate_next_id(&app.game_state)
@@ -402,7 +426,7 @@ EditFlag :: enum {
     MovePlayerSpawn,
     MoveSelectedEntity
 }
-EditFlags :: bit_set[EditFlag; u32]
+EditFlags :: bit_set[EditFlag]
 
 EditVerb :: enum {
     None = 0,
@@ -414,6 +438,16 @@ EditVerb :: enum {
     PlaceEnemy,
     EditPlayerSpawn,
     //PlaceMacGuffen,
+}
+@rodata EDIT_VERB_STRINGS : [EditVerb]cstring = {
+    .None = "None",
+    .Select = "Select",
+    .Delete = "Delete Entity",
+    .AddCollision = "Add Collision",
+    .EditDirectionalLights = "Edit directional lights",
+    .PaintCoins = "Paint coins",
+    .PlaceEnemy = "Place Enemy",
+    .EditPlayerSpawn = "Move player spawn"
 }
 
 scene_editor :: proc(
@@ -430,6 +464,17 @@ scene_editor :: proc(
     if show_editor {
         defer imgui.End()
         if imgui.Begin("Scene editor", &app.user_config.flags[.SceneEditor]) {
+            {
+                @static b := false
+                imgui.Checkbox("I acknowledge that the undo feature is very WIP", &b)
+                imgui.BeginDisabled(!b)
+                if imgui.Button("Undo") {
+    
+                }
+                imgui.EndDisabled()
+                imgui.Separator()
+            }
+
             if imgui.Button("Delete all coins") {
                 for len(app.game_state.coins) > 0 {
                     delete_coin(&app.game_state, 0)
@@ -440,53 +485,19 @@ scene_editor :: proc(
             verb_changed := false
             {
                 imgui.Text("Active edit verb:")
-                // @TODO: Use reflection here
-                if imgui.RadioButton("None", app.game_state.edit_verb == .None) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .None
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Select", app.game_state.edit_verb == .Select) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .Select
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Add collision", app.game_state.edit_verb == .AddCollision) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .AddCollision
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Edit directional lights", app.game_state.edit_verb == .EditDirectionalLights) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .EditDirectionalLights
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Edit player spawn", app.game_state.edit_verb == .EditPlayerSpawn) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .EditPlayerSpawn
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Delete##1", app.game_state.edit_verb == .Delete) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .Delete
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Paint coins", app.game_state.edit_verb == .PaintCoins) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .PaintCoins
-                    verb_changed = true
-                }
-                if imgui.RadioButton("Place enemy", app.game_state.edit_verb == .PlaceEnemy) {
-                    app.game_state.previous_edit_verb = app.game_state.edit_verb
-                    app.game_state.edit_verb = .PlaceEnemy
-                    verb_changed = true
+                for label, verb in EDIT_VERB_STRINGS {
+                    if imgui.RadioButton(label, app.edit_verb == verb) {
+                        app.previous_edit_verb = app.edit_verb
+                        app.edit_verb = verb
+                        verb_changed = true
+                    }
                 }
             }
             imgui.Separator()
 
             // Clear certain states when verbs are unselected
             if verb_changed {
-                old_id, exists := app.game_state.selected_entity.?
+                old_id, exists := app.selected_entity.?
                 if exists {
                     static_m, has_static := &app.game_state.static_models[old_id]
                     if has_static {
@@ -498,11 +509,11 @@ scene_editor :: proc(
                         skinned_m.flags -= {.Highlighted}
                     }
                 }
-                app.game_state.selected_entity = nil
+                app.selected_entity = nil
             }
 
-            selected_entity_options :: proc(game_state: ^GameState, renderer: ^Renderer) {
-                id, ok := game_state.selected_entity.?
+            selected_entity_options :: proc(game_state: ^GameState, renderer: ^Renderer, selected_entity: ^Maybe(EntityID)) {
+                id, ok := selected_entity.?
                 eid := c.int(id)
 
                 lookat_controller, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
@@ -510,7 +521,7 @@ scene_editor :: proc(
                 if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
                     new_id := EntityID(eid)
                     lookat_controller.target = new_id
-                    game_state.selected_entity = new_id
+                    selected_entity^ = new_id
                     id = new_id
                 }
                 imgui.EndDisabled()
@@ -520,7 +531,7 @@ scene_editor :: proc(
                     tform, has_tform := &game_state.transforms[id]
                     if !has_tform {
                         // Entity must have been deleted
-                        game_state.selected_entity = nil
+                        selected_entity^ = nil
                         return
                     }
                     old_tform := tform^
@@ -581,7 +592,7 @@ scene_editor :: proc(
                     imgui.SameLine()
                     if imgui.Button("Delete") {
                         delete_entity(game_state, id)
-                        game_state.selected_entity = nil
+                        selected_entity^ = nil
                     }
                 }
             }
@@ -589,7 +600,7 @@ scene_editor :: proc(
             // Per-verb options menu
             @static draw_spawn := false
             imgui.Text("Edit controls:")
-            switch app.game_state.edit_verb {
+            switch app.edit_verb {
                 case .None: { imgui.Text("No edit verb selected.") }
                 case .Select: {
                     {
@@ -598,7 +609,7 @@ scene_editor :: proc(
                             app.game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
                         }
                     }
-                    selected_entity_options(&app.game_state, &app.renderer)
+                    selected_entity_options(&app.game_state, &app.renderer, &app.selected_entity)
                 }
                 case .AddCollision: {
                     model_strings := make([dynamic]cstring, 0, 64, context.temp_allocator)
@@ -682,14 +693,14 @@ scene_editor :: proc(
                             app.game_state.debug_vis_flags ~= {.ShowBoundingSpheres}
                         }
                     }
-                    imgui.Checkbox("Don't delete collision geometry", &app.game_state.dont_delete_collision)
+                    imgui.Checkbox("Don't delete collision geometry", &app.dont_delete_collision)
                 }
                 case .PaintCoins: {
-                    imgui.DragFloat("Coin paint radius", &app.game_state.coin_paint_radius, 0.0, 50.0)
-                    imgui.DragFloat("Coin z offset", &app.game_state.coin_z_offset, 0.0, 50.0)
+                    imgui.DragFloat("Coin paint radius", &app.coin_paint_radius, 0.0, 50.0)
+                    imgui.DragFloat("Coin z offset", &app.coin_z_offset, 0.0, 50.0)
                 }
                 case .PlaceEnemy: {
-                    selected_entity_options(&app.game_state, &app.renderer)
+                    selected_entity_options(&app.game_state, &app.renderer, &app.selected_entity)
                 }
                 case .EditPlayerSpawn: {
                     imgui.Text("Click on the terrain to place player spawn.")
@@ -721,6 +732,189 @@ scene_editor :: proc(
                 }
             }
             imgui.Separator()
+        }
+    }
+        
+    // Do editor window and verb handling
+    maybe_show_bounding_spheres :: proc(app: ^App) {
+        if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
+            for id, instance in app.game_state.static_models {
+                tform := &app.game_state.transforms[id]
+                model := get_static_model(app.renderer, instance.handle)
+                pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                scale := model.bounding_sphere.radius * tform.scale
+                color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                selected_id, id_ok := app.selected_entity.?
+                if id_ok && selected_id == id {
+                    color = {0.0, 1.0, 0.0, 0.2}
+                }
+                ddraw := DebugDraw {
+                    world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                    color = color,
+                }
+                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+            }
+
+            for id, instance in app.game_state.skinned_models {
+                tform := &app.game_state.transforms[id]
+                model := get_skinned_model(app.renderer, instance.handle)
+                pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                scale := model.bounding_sphere.radius * tform.scale
+                color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
+                selected_id, id_ok := app.selected_entity.?
+                if id_ok && selected_id == id {
+                    color = {0.0, 1.0, 0.0, 0.2}
+                }
+                ddraw := DebugDraw {
+                    world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
+                    color = color,
+                }
+                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+
+            }
+        }
+    }
+    get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
+        dims : [4]f32 = {
+            cast(f32)app.renderer.viewport_dimensions.offset.x,
+            cast(f32)app.renderer.viewport_dimensions.offset.y,
+            cast(f32)app.renderer.viewport_dimensions.extent.width,
+            cast(f32)app.renderer.viewport_dimensions.extent.height,
+        }
+        // @TODO: Clean up the view_ray apis
+        ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
+
+        closest_t = math.INF_F32
+        for id, instance in app.game_state.static_models {
+            tri_mesh, has_trimesh := app.game_state.triangle_meshes[id]
+            if filter_terrain && has_trimesh {
+                continue
+            }
+            if has_trimesh {
+                t, intersected := intersect_ray_triangles_t(ray, tri_mesh)
+                if intersected && t < closest_t {
+                    closest_t = t
+                    closest_id = id
+                }
+            } else {
+                model := get_static_model(app.renderer, instance.handle)
+                tform := &app.game_state.transforms[id]
+                world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
+                s := Sphere {
+                    position = world_space_sphere_pos,
+                    radius = tform.scale * model.bounding_sphere.radius
+                }
+                t, res := intersect_ray_sphere_t(ray, s)
+                if res == .OutsideHit {
+                    if closest_t > t {
+                        closest_t = t
+                        closest_id = id
+                    }
+                }
+            }
+        }
+        return
+    }
+    
+    switch app.edit_verb {
+        case .None: {}
+        case .EditDirectionalLights: {}
+        case .Select: {
+            moving := .MoveSelectedEntity in app.game_state.edit_flags
+            if !moving && .MouseClicked in app.input_system.state_flags {
+                closest_id, closest_t := get_clicked_entity(app^, false)
+                
+                old_id, exists := app.selected_entity.?
+                if exists {
+                    old_m := &app.game_state.static_models[old_id]
+                    old_m.flags -= {.Highlighted}
+                }
+                if closest_t < math.INF_F32 {
+                    m := &app.game_state.static_models[closest_id]
+                    m.flags += {.Highlighted}
+                    app.selected_entity = closest_id
+                } else {
+                    app.selected_entity = nil
+                }
+            }
+
+            maybe_show_bounding_spheres(app)
+        }
+        case .AddCollision: {
+
+        }
+        case .Delete: {
+            if .MouseHeld in app.input_system.state_flags {
+                collision_pt, n, _, hit := do_mouse_raycast_with_normal(
+                    app.game_state,
+                    app.renderer,
+                    app.input_system,
+                )
+                id, t := get_clicked_entity(app^, app.dont_delete_collision)
+                if t < math.INF_F32 {
+                    delete_entity(&app.game_state, id)
+                }
+
+                if hit {
+                    do_point_light(&app.renderer, PointLight {
+                        world_position = collision_pt + 0.01 * n,
+                        intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
+                        color = {1.0, 1.0, 0.5},
+                    })
+                }
+            }
+
+
+            maybe_show_bounding_spheres(app)
+        }
+        case .PaintCoins: {
+            if .MouseHeld in app.input_system.state_flags {
+                collision_pt, collided_id, hit := do_mouse_raycast(
+                    app.game_state,
+                    app.renderer,
+                    app.input_system,
+                )
+                if hit {
+                    far_enough_away := hlsl.distance(app.last_placed_position, collision_pt) >= app.coin_paint_radius
+                    if far_enough_away {
+                        coin_pos := collision_pt
+                        coin_pos.z += app.coin_z_offset
+                        new_coin_id := new_coin(&app.game_state, coin_pos)
+                        app.last_placed_position = collision_pt
+                        app.game_state.parents[new_coin_id] = collided_id
+                    }
+                }
+            }
+        }
+        case .PlaceEnemy: {
+            if .MouseClicked in app.input_system.state_flags {
+                collision_pt, _, hit := do_mouse_raycast(
+                    app.game_state,
+                    app.renderer,
+                    app.input_system,
+                )
+                if hit {
+                    pos := collision_pt
+                    pos.z += 1.0
+                    new_id := new_enemy(&app.game_state, pos, 0.6, .BrainDead)
+                    app.selected_entity = new_id
+                }
+            }
+        }
+        case .EditPlayerSpawn: {
+            if .MovePlayerSpawn in app.game_state.edit_flags {
+                collision_pt, _, hit := do_mouse_raycast(
+                    app.game_state,
+                    app.renderer,
+                    app.input_system,
+                )
+                if hit && !io.WantCaptureMouse {
+                    app.game_state.level_start = collision_pt
+                    if .MouseClicked in app.input_system.state_flags {
+                        app.game_state.edit_flags -= {.MovePlayerSpawn}
+                    }
+                }
+            }
         }
     }
 }

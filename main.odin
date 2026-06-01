@@ -78,8 +78,8 @@ main :: proc() {
             tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
             following := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
-            if len(app.game_state.current_level) > 0 {
-                app.user_config.strs[.StartLevel] = app.game_state.current_level
+            if len(app.current_level) > 0 {
+                app.user_config.strs[.StartLevel] = app.current_level
             } else {
                 delete_key(&app.user_config.strs, ConfigKey.StartLevel)
             }
@@ -96,7 +96,7 @@ main :: proc() {
                 strings.builder_init(&builder, context.temp_allocator)
                 fmt.sbprintf(&builder, "data/levels/%v", level)
                 path := strings.to_string(builder)
-                load_level_file(&app.vgd, &app.renderer, &app.audio_system, &app.game_state, &app.user_config, path)
+                load_level_file(&app, path)
                 app.load_new_level = nil
             }
         }
@@ -174,190 +174,7 @@ main :: proc() {
         }
 
         // Update
-        
-        // Do editor window and verb handling
-        maybe_show_bounding_spheres :: proc(app: ^App) {
-            if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
-                for id, instance in app.game_state.static_models {
-                    tform := &app.game_state.transforms[id]
-                    model := get_static_model(app.renderer, instance.handle)
-                    pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                    scale := model.bounding_sphere.radius * tform.scale
-                    color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
-                    selected_id, id_ok := app.game_state.selected_entity.?
-                    if id_ok && selected_id == id {
-                        color = {0.0, 1.0, 0.0, 0.2}
-                    }
-                    ddraw := DebugDraw {
-                        world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
-                        color = color,
-                    }
-                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
-                }
-
-                for id, instance in app.game_state.skinned_models {
-                    tform := &app.game_state.transforms[id]
-                    model := get_skinned_model(app.renderer, instance.handle)
-                    pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                    scale := model.bounding_sphere.radius * tform.scale
-                    color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
-                    selected_id, id_ok := app.game_state.selected_entity.?
-                    if id_ok && selected_id == id {
-                        color = {0.0, 1.0, 0.0, 0.2}
-                    }
-                    ddraw := DebugDraw {
-                        world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
-                        color = color,
-                    }
-                    draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
-
-                }
-            }
-        }
-        get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
-            dims : [4]f32 = {
-                cast(f32)app.renderer.viewport_dimensions.offset.x,
-                cast(f32)app.renderer.viewport_dimensions.offset.y,
-                cast(f32)app.renderer.viewport_dimensions.extent.width,
-                cast(f32)app.renderer.viewport_dimensions.extent.height,
-            }
-            // @TODO: Clean up the view_ray apis
-            ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
-
-            closest_t = math.INF_F32
-            for id, instance in app.game_state.static_models {
-                tri_mesh, has_trimesh := app.game_state.triangle_meshes[id]
-                if filter_terrain && has_trimesh {
-                    continue
-                }
-                if has_trimesh {
-                    t, intersected := intersect_ray_triangles_t(ray, tri_mesh)
-                    if intersected && t < closest_t {
-                        closest_t = t
-                        closest_id = id
-                    }
-                } else {
-                    model := get_static_model(app.renderer, instance.handle)
-                    tform := &app.game_state.transforms[id]
-                    world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
-                    s := Sphere {
-                        position = world_space_sphere_pos,
-                        radius = tform.scale * model.bounding_sphere.radius
-                    }
-                    t, res := intersect_ray_sphere_t(ray, s)
-                    if res == .OutsideHit {
-                        if closest_t > t {
-                            closest_t = t
-                            closest_id = id
-                        }
-                    }
-                }
-            }
-            return
-        }
-        // @TODO: Have scene_editor() return the edit verb?
         scene_editor(&app)
-        switch app.game_state.edit_verb {
-            case .None: {}
-            case .EditDirectionalLights: {}
-            case .Select: {
-                moving := .MoveSelectedEntity in app.game_state.edit_flags
-                if !moving && .MouseClicked in app.input_system.state_flags {
-                    closest_id, closest_t := get_clicked_entity(app, false)
-                    
-                    old_id, exists := app.game_state.selected_entity.?
-                    if exists {
-                        old_m := &app.game_state.static_models[old_id]
-                        old_m.flags -= {.Highlighted}
-                    }
-                    if closest_t < math.INF_F32 {
-                        m := &app.game_state.static_models[closest_id]
-                        m.flags += {.Highlighted}
-                        app.game_state.selected_entity = closest_id
-                    } else {
-                        app.game_state.selected_entity = nil
-                    }
-                }
-
-                maybe_show_bounding_spheres(&app)
-            }
-            case .AddCollision: {
-
-            }
-            case .Delete: {
-                if .MouseHeld in app.input_system.state_flags {
-                    collision_pt, n, _, hit := do_mouse_raycast_with_normal(
-                        app.game_state,
-                        app.renderer,
-                        app.input_system,
-                    )
-                    id, t := get_clicked_entity(app, app.game_state.dont_delete_collision)
-                    if t < math.INF_F32 {
-                        delete_entity(&app.game_state, id)
-                    }
-
-                    if hit {
-                        do_point_light(&app.renderer, PointLight {
-                            world_position = collision_pt + 0.01 * n,
-                            intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
-                            color = {1.0, 1.0, 0.5},
-                        })
-                    }
-                }
-
-
-                maybe_show_bounding_spheres(&app)
-            }
-            case .PaintCoins: {
-                if .MouseHeld in app.input_system.state_flags {
-                    collision_pt, collided_id, hit := do_mouse_raycast(
-                        app.game_state,
-                        app.renderer,
-                        app.input_system,
-                    )
-                    if hit {
-                        far_enough_away := hlsl.distance(app.game_state.last_placed_position, collision_pt) >= app.game_state.coin_paint_radius
-                        if far_enough_away {
-                            coin_pos := collision_pt
-                            coin_pos.z += app.game_state.coin_z_offset
-                            new_coin_id := new_coin(&app.game_state, coin_pos)
-                            app.game_state.last_placed_position = collision_pt
-                            app.game_state.parents[new_coin_id] = collided_id
-                        }
-                    }
-                }
-            }
-            case .PlaceEnemy: {
-                if .MouseClicked in app.input_system.state_flags {
-                    collision_pt, _, hit := do_mouse_raycast(
-                        app.game_state,
-                        app.renderer,
-                        app.input_system,
-                    )
-                    if hit {
-                        pos := collision_pt
-                        pos.z += 1.0
-                        new_id := new_enemy(&app.game_state, pos, 0.6, .BrainDead)
-                        app.game_state.selected_entity = new_id
-                    }
-                }
-            }
-            case .EditPlayerSpawn: {
-                if .MovePlayerSpawn in app.game_state.edit_flags {
-                    collision_pt, _, hit := do_mouse_raycast(
-                        app.game_state,
-                        app.renderer,
-                        app.input_system,
-                    )
-                    if hit && !io.WantCaptureMouse {
-                        app.game_state.level_start = collision_pt
-                        if .MouseClicked in app.input_system.state_flags {
-                            app.game_state.edit_flags -= {.MovePlayerSpawn}
-                        }
-                    }
-                }
-            }
-        }
 
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33
@@ -414,11 +231,11 @@ main :: proc() {
                     moving_something := .MoveSelectedEntity in app.game_state.edit_flags
                     imgui.BeginDisabled(moving_something)
                     move_text : cstring = "Move player"
-                    if moving_something && app.game_state.selected_entity.? == app.game_state.player_id {
+                    if moving_something && app.selected_entity.? == app.game_state.player_id {
                         move_text = "Moving player..."
                     }
                     if imgui.Button(move_text) {
-                        app.game_state.selected_entity = app.game_state.player_id
+                        app.selected_entity = app.game_state.player_id
                         app.game_state.edit_flags += {.MoveSelectedEntity}
                     }
                     imgui.EndDisabled()
@@ -432,11 +249,11 @@ main :: proc() {
                 }
 
                 if imgui.Button("Re-encode this level file") {
-                    _reencode_level_file(&app.game_state, &app.renderer, app.audio_system, app.game_state.current_level, app.per_frame_allocator)
+                    _reencode_level_file(&app, app.current_level, app.per_frame_allocator)
                 }
 
                 if imgui.Button("Re-encode all level files") {
-                    _reencode_level_files(&app.game_state, &app.renderer, app.audio_system, app.per_frame_allocator)
+                    _reencode_level_files(&app, app.per_frame_allocator)
                 }
 
                 {
@@ -462,7 +279,7 @@ main :: proc() {
         @static show_load_modal := false
         @static show_save_modal := false
         do_fullscreen := false
-        switch gui_main_menu_bar(&app.gui, &app.game_state, &app.user_config) {
+        switch gui_main_menu_bar(&app) {
             case .Exit: do_main_loop = false
             case .NewLevel: {
                 new_scene(&app, app.per_scene_allocator)
@@ -471,8 +288,8 @@ main :: proc() {
             case .SaveLevel: {
                 sb: strings.Builder
                 strings.builder_init(&sb, context.temp_allocator)
-                path := fmt.sbprintf(&sb, "data/levels/%v.lvl", app.game_state.current_level)
-                save_level_file(&app.game_state, &app.renderer, app.audio_system, path)
+                path := fmt.sbprintf(&sb, "data/levels/%v.lvl", app.current_level)
+                save_level_file(&app, path)
             }
             case .SaveLevelAs: { show_save_modal = true }
             case .ToggleAlwaysOnTop: { sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop])) }
@@ -582,11 +399,11 @@ main :: proc() {
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
-                imgui.InputText("Level savename", cstring(&app.game_state.savename_buffer[0]), len(app.game_state.savename_buffer))
+                imgui.InputText("Level savename", cstring(&app.savename_buffer[0]), len(app.savename_buffer))
                 if imgui.Button("Save") {
-                    s := strings.string_from_null_terminated_ptr(&app.game_state.savename_buffer[0], len(app.game_state.savename_buffer))
+                    s := strings.string_from_null_terminated_ptr(&app.savename_buffer[0], len(app.savename_buffer))
                     level_savename = fmt.sbprintf(&builder, "data/levels/%v", s)
-                    app.game_state.savename_buffer[0] = 0
+                    app.savename_buffer[0] = 0
                     show_save_modal = false
                     imgui.CloseCurrentPopup()
                 }
@@ -598,7 +415,7 @@ main :: proc() {
                 }
 
                 if len(level_savename) > 0 {
-                    save_level_file(&app.game_state, &app.renderer, app.audio_system, level_savename)
+                    save_level_file(&app, level_savename)
                 }
 
                 imgui.EndPopup()
@@ -655,7 +472,7 @@ main :: proc() {
         if .MoveSelectedEntity in app.game_state.edit_flags && !io.WantCaptureMouse {
             scoped_event(&profiler, "Move entity")
 
-            id, ok := app.game_state.selected_entity.?
+            id, ok := app.selected_entity.?
             assert(ok)
 
             tform := &app.game_state.transforms[id]
