@@ -7,3 +7,6 @@
 [submodule "openxr_odin"]
 	path = openxr_odin
 	url = https://github.com/cshenton/openxr_odin.git
+[submodule "odin-imgui"]
+	path = odin-imgui
+	url = git@github.com:NickDriscoll/odin-imgui.git

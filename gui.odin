@@ -52,14 +52,24 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.ConfigFlags += {.DockingEnable}
 
     // Create font atlas and upload its texture data
-    font_data: ^c.uchar
-    width: c.int
-    height: c.int
-    imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)        
+    // font_data: ^c.uchar
+    // width: c.int
+    // height: c.int
+    // imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)
+    imgui.FontAtlas_AddFontDefaultBitmap(io.Fonts)
+    font_data := io.Fonts.TexData.Pixels
+    width := io.Fonts.TexData.Width
+    height := io.Fonts.TexData.Height
+
+    format := vk.Format.R8G8B8A8_SRGB
+    if io.Fonts.TexData.BytesPerPixel == 1 {
+        format = .R8_SRGB
+    }
+
     info := vkw.Image_Create {
         flags = nil,
         image_type = .D2,
-        format = .R8G8B8A8_SRGB,
+        format = format,
         extent = {
             width = u32(width),
             height = u32(height),
@@ -83,7 +93,8 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     // Free CPU-side texture data
     imgui.FontAtlas_ClearTexData(io.Fonts)
 
-    imgui.FontAtlas_SetTexID(io.Fonts, hm.handle_to_rawptr(imgui_state.font_atlas))
+    imgui.TextureData_SetTexID(io.Fonts.TexData, hm.handle_to_u64(imgui_state.font_atlas))
+    imgui.TextureData_SetStatus(io.Fonts.TexData, .OK)
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -551,7 +562,7 @@ render_imgui :: proc(
                 },
             })
 
-            tex_handle := hm.rawptr_to_handle(cmd.TextureId)
+            tex_handle := hm.rawptr_to_handle(cast(rawptr)cast(uintptr)cmd.TexRef._TexData.TexID)
             vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &ImguiPushConstants {
                 font_idx = tex_handle.index,
                 sampler = .Point,
