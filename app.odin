@@ -466,7 +466,7 @@ scene_editor :: proc(
         if imgui.Begin("Scene editor", &app.user_config.flags[.SceneEditor]) {
             {
                 @static b := false
-                imgui.Checkbox("I acknowledge that the undo feature is very WIP", &b)
+                imgui.Checkbox("I acknowledge that the undo feature is very broken", &b)
                 imgui.BeginDisabled(!b)
                 if imgui.Button("Undo") {
     
@@ -734,8 +734,7 @@ scene_editor :: proc(
             imgui.Separator()
         }
     }
-        
-    // Do editor window and verb handling
+
     maybe_show_bounding_spheres :: proc(app: ^App) {
         if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
             for id, instance in app.game_state.static_models {

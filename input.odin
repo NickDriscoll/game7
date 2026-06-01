@@ -76,6 +76,7 @@ RemapInput :: struct #raw_union {
 InputStateFlag :: enum {
     MouseClicked,
     MouseHeld,
+    MouseReleased,
     CtrlHeld,
     CurrentlyRemapping
 }
@@ -184,7 +185,7 @@ poll_sdl2_events :: proc(
     outputs.floats = make(map[VerbType]f32, 16, allocator)
     outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
 
-    state.state_flags -= {.MouseClicked}
+    state.state_flags -= {.MouseClicked,.MouseReleased}
 
     // Reference to Dear ImGUI io struct
     io := imgui.GetIO()
@@ -311,6 +312,7 @@ poll_sdl2_events :: proc(
                 }
                 if event.button.button == sdl2.BUTTON_LEFT {
                     state.state_flags -= {.MouseHeld}
+                    state.state_flags += {.MouseReleased}
                 }
             }
             case .MOUSEMOTION: {
