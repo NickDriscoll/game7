@@ -52,50 +52,8 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.ConfigFlags += {.DockingEnable}
     io.BackendFlags += {.RendererHasTextures}
 
-    // Create font atlas and upload its texture data
-    // font_data: ^c.uchar
-    // width: c.int
-    // height: c.int
-    // imgui.FontAtlas_GetTexDataAsRGBA32(io.Fonts, &font_data, &width, &height)
+    // Create font atlas
     imgui.FontAtlas_AddFontDefaultBitmap(io.Fonts)
-    font_data := io.Fonts.TexData.Pixels
-    width := io.Fonts.TexData.Width
-    height := io.Fonts.TexData.Height
-
-    format := vk.Format.R8G8B8A8_SRGB
-    if io.Fonts.TexData.BytesPerPixel == 1 {
-        format = .R8_SRGB
-    }
-
-    info := vkw.Image_Create {
-        flags = nil,
-        image_type = .D2,
-        format = format,
-        extent = {
-            width = u32(width),
-            height = u32(height),
-            depth = 1,
-        },
-        has_mipmaps = false,
-        array_layers = 1,
-        samples = {._1},
-        tiling = .OPTIMAL,
-        usage = {.SAMPLED,.TRANSFER_DST},
-        alloc_flags = nil,
-        name = "Dear ImGUI font atlas",
-    }
-    font_bytes_slice := slice.from_ptr(font_data, int(width * height * 4))
-    ok: bool
-    imgui_state.font_atlas, ok = vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
-    if !ok {
-        log.error("Failed to upload imgui font atlas data.")
-    }
-
-    // Free CPU-side texture data
-    imgui.FontAtlas_Clear(io.Fonts)
-
-    imgui.TextureData_SetTexID(io.Fonts.TexData, hm.handle_to_u64(imgui_state.font_atlas))
-    imgui.TextureData_SetStatus(io.Fonts.TexData, .OK)
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -498,14 +456,86 @@ render_imgui :: proc(
 
     tex_count := draw_data.Textures.Size
     for i in 0..<tex_count {
-        tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i))
+        tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i * size_of(imgui.TextureData)))
         
         switch tex.Status {
-            case .OK: { log.warn("Imgui says texture ok.") }
-            case .Destroyed: { log.warn("Imgui says texture is destroyed.") }
-            case .WantCreate: { log.warn("Imgui wants texture created") }
-            case .WantUpdates: { log.warn("Imgui wants texture updated") }
-            case .WantDestroy: { log.warn("Imgui wants texture destroyed.") }
+            case .OK: { 
+                log.debugf("Imgui says texture ok: %#v", tex)
+            }
+            case .Destroyed: {
+                log.debugf("Imgui says texture is destroyed: %#v", tex)
+            }
+            case .WantCreate: {
+                log.debugf("Imgui wants texture created: %#v", tex)
+                data := tex.Pixels
+                width := tex.Width
+                height := tex.Height
+
+                format := vk.Format.R8G8B8A8_SRGB
+                if io.Fonts.TexData.BytesPerPixel == 1 {
+                    format = .R8_SRGB
+                }
+
+                info := vkw.Image_Create {
+                    flags = nil,
+                    image_type = .D2,
+                    format = format,
+                    extent = {
+                        width = u32(width),
+                        height = u32(height),
+                        depth = 1,
+                    },
+                    has_mipmaps = false,
+                    array_layers = 1,
+                    samples = {._1},
+                    tiling = .OPTIMAL,
+                    usage = {.SAMPLED,.TRANSFER_DST},
+                    alloc_flags = nil,
+                    name = "Dear ImGUI font atlas",
+                }
+                font_bytes_slice := slice.from_ptr(data, int(width * height * tex.BytesPerPixel))
+                ok: bool
+                imgui_state.font_atlas, ok = vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
+                if !ok {
+                    log.error("Failed to upload imgui font atlas data.")
+                }
+
+                // Free CPU-side texture data
+                imgui.FontAtlas_ClearFonts(io.Fonts)
+
+                imgui.TextureData_SetTexID(io.Fonts.TexData, hm.handle_to_u64(imgui_state.font_atlas))
+                imgui.TextureData_SetStatus(io.Fonts.TexData, .OK)
+            }
+            case .WantUpdates: {
+                log.debugf("Imgui wants texture updated: %#v", tex)
+
+                update_rect := vk.Rect2D {
+                    offset = {
+                        x = i32(tex.UpdateRect.x),
+                        y = i32(tex.UpdateRect.y),
+                    },
+                    extent = {
+                        width = u32(tex.UpdateRect.w),
+                        height = u32(tex.UpdateRect.h)
+                    }
+                }
+                pixels_slice := slice.from_ptr(tex.Pixels, int(tex.Width * tex.Height * tex.BytesPerPixel))
+                vkw.sync_update_image_data(gd, vkw.Texture_Handle(hm.u64_to_handle(tex.TexID)), update_rect, pixels_slice)
+
+                // Free CPU-side texture data
+                imgui.FontAtlas_ClearFonts(io.Fonts)
+
+                imgui.TextureData_SetStatus(tex, .OK)
+            }
+            case .WantDestroy: {
+                log.debugf("Imgui wants texture destroyed: %#v", tex)
+
+                handle := hm.u64_to_handle(tex.TexID)
+                vkw.delete_image(gd, vkw.Texture_Handle(handle))
+
+                tex.UnusedFrames = i32(gd.frames_in_flight)
+                imgui.TextureData_SetStatus(tex, .Destroyed)
+            }
         }
     }
 
