@@ -50,6 +50,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.DisplaySize.x = f32(resolution.x)
     io.DisplaySize.y = f32(resolution.y)
     io.ConfigFlags += {.DockingEnable}
+    io.BackendFlags += {.RendererHasTextures}
 
     // Create font atlas and upload its texture data
     // font_data: ^c.uchar
@@ -91,7 +92,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     }
 
     // Free CPU-side texture data
-    imgui.FontAtlas_ClearTexData(io.Fonts)
+    imgui.FontAtlas_Clear(io.Fonts)
 
     imgui.TextureData_SetTexID(io.Fonts.TexData, hm.handle_to_u64(imgui_state.font_atlas))
     imgui.TextureData_SetStatus(io.Fonts.TexData, .OK)
@@ -495,6 +496,19 @@ render_imgui :: proc(
 
     draw_data := imgui.GetDrawData()
 
+    tex_count := draw_data.Textures.Size
+    for i in 0..<tex_count {
+        tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i))
+        
+        switch tex.Status {
+            case .OK: { log.warn("Imgui says texture ok.") }
+            case .Destroyed: { log.warn("Imgui says texture is destroyed.") }
+            case .WantCreate: { log.warn("Imgui wants texture created") }
+            case .WantUpdates: { log.warn("Imgui wants texture updated") }
+            case .WantDestroy: { log.warn("Imgui wants texture destroyed.") }
+        }
+    }
+
     // Temp buffers for collecting imgui vertices/indices from all cmd lists
     vertex_staging := make(
         [dynamic]imgui.DrawVert,
@@ -518,7 +532,7 @@ render_imgui :: proc(
 
     if !vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, imgui_state.index_buffer) {
         log.error("Failed to get imgui index buffer")  
-    } 
+    }
     vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, imgui_state.pipeline)
     vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
@@ -544,7 +558,7 @@ render_imgui :: proc(
 
         // Record commands into command buffer
         cmds := slice.from_ptr(cmd_list.CmdBuffer.Data, int(cmd_list.CmdBuffer.Size))
-        for cmd in cmds {
+        for &cmd in cmds {
             // Have to clamp offsets to 0 as the x and y components
             // can be -1 for some freaking reason
             sc_offsetx := max(0, cmd.ClipRect.x)
@@ -562,9 +576,9 @@ render_imgui :: proc(
                 },
             })
 
-            tex_handle := hm.rawptr_to_handle(cast(rawptr)cast(uintptr)cmd.TexRef._TexData.TexID)
+            tex_handle := imgui.DrawCmd_GetTexID(&cmd)
             vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &ImguiPushConstants {
-                font_idx = tex_handle.index,
+                font_idx = u32(tex_handle),
                 sampler = .Point,
                 vertex_offset = cmd.VtxOffset + global_vtx_offset + local_vtx_offset,
                 uniform_data = uniform_buf.address + vk.DeviceAddress(in_flight_frame * size_of(ImguiUniforms)),
