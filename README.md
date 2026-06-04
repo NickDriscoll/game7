@@ -30,9 +30,10 @@ cd game7
 git submodule update --init --recursive
 ```
 
-On Linux, install the SDL2 developer libraries
+On Linux, install the SDL2 developer libraries and libc++-19 for imgui
 ```
 sudo apt install libsdl2-dev
+sudo apt install libc++-19-dev
 ```
 
 ### Build on Windows
