@@ -668,13 +668,10 @@ main :: proc() {
             // Sync point where we wait if there are already 2 frames in the gfx queue
             {
                 scoped_event(&profiler, "CPU wait on GPU")
-                vkw.wait_frames_in_flight(&app.vgd, app.renderer.gfx_timeline)
+                vkw.wait_frames_in_flight(&app.vgd)
             }
 
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
-
-            // Increment timeline semaphore upon command buffer completion
-            vkw.add_signal_op(&app.vgd, &app.renderer.gfx_sync, app.renderer.gfx_timeline, app.vgd.frame_count + 1)
 
             // Acquire swapchain image and try to handle result
             swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&app.vgd, gfx_cb_idx, &app.renderer.gfx_sync)

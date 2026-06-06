@@ -457,7 +457,6 @@ render_imgui :: proc(
     tex_count := draw_data.Textures.Size
     for i in 0..<tex_count {
         tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i * size_of(imgui.TextureData)))
-        
         switch tex.Status {
             case .OK: { 
                 log.debugf("Imgui says texture ok: %#v", tex)
@@ -501,10 +500,10 @@ render_imgui :: proc(
                 }
 
                 // Free CPU-side texture data
-                imgui.FontAtlas_ClearFonts(io.Fonts)
+                //imgui.FontAtlas_ClearTexData(io.Fonts)
 
-                imgui.TextureData_SetTexID(io.Fonts.TexData, hm.handle_to_u64(imgui_state.font_atlas))
-                imgui.TextureData_SetStatus(io.Fonts.TexData, .OK)
+                imgui.TextureData_SetTexID(tex, hm.handle_to_u64(imgui_state.font_atlas))
+                imgui.TextureData_SetStatus(tex, .OK)
             }
             case .WantUpdates: {
                 log.debugf("Imgui wants texture updated: %#v", tex)
@@ -520,10 +519,17 @@ render_imgui :: proc(
                     }
                 }
                 pixels_slice := slice.from_ptr(tex.Pixels, int(tex.Width * tex.Height * tex.BytesPerPixel))
-                vkw.sync_update_image_data(gd, vkw.Texture_Handle(hm.u64_to_handle(tex.TexID)), update_rect, pixels_slice)
+                vkw.sync_update_image_data(
+                    gd,
+                    vkw.Texture_Handle(hm.u64_to_handle(tex.TexID)),
+                    update_rect,
+                    0,
+                    0,
+                    pixels_slice
+                )
 
                 // Free CPU-side texture data
-                imgui.FontAtlas_ClearFonts(io.Fonts)
+                //imgui.FontAtlas_ClearTexData(io.Fonts)
 
                 imgui.TextureData_SetStatus(tex, .OK)
             }
@@ -564,7 +570,6 @@ render_imgui :: proc(
         log.error("Failed to get imgui index buffer")  
     }
     vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, imgui_state.pipeline)
-    vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
 

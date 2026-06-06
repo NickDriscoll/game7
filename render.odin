@@ -363,7 +363,6 @@ Renderer :: struct {
     loaded_skinned_models: hm.Handle_Map(SkinnedModel),
 
     // Sync primitives
-    gfx_timeline: vkw.Semaphore_Handle,
     compute_timeline: vkw.Semaphore_Handle,
     gfx_sync: vkw.SyncInfo,
     compute_sync: vkw.SyncInfo,
@@ -432,16 +431,6 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     renderer.depth_format = .D32_SFLOAT
-
-    // Create graphics timeline semaphore
-    {
-        info := vkw.Semaphore_Info {
-            type = .TIMELINE,
-            init_value = 0,
-            name = "GFX Timeline",
-        }
-        renderer.gfx_timeline = vkw.create_semaphore(gd, &info)
-    }
 
     // Create compute timeline semaphore
     {
@@ -1595,9 +1584,6 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
     // Increment compute timeline semaphore when compute skinning is finished
     vkw.add_signal_op(gd, &renderer.compute_sync, renderer.compute_timeline, gd.frame_count + 1)
 
-    // Have graphics queue wait on compute skinning timeline semaphore
-    vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
-
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
 }
 
@@ -1716,6 +1702,9 @@ render_scene :: proc(
 
     // Do compute skinning work
     compute_skinning(gd, renderer)
+
+    // Have graphics queue wait on compute skinning timeline semaphore
+    vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
 
     // Barrier for BLAS builds
     if renderer.do_raytracing {
@@ -1927,9 +1916,8 @@ render_scene :: proc(
         // Clear dirty flags after checking them
         renderer.dirty_flags = {}
 
-        // Bind global index buffer and descriptor set
+        // Bind global index buffer
         vkw.cmd_bind_index_buffer(gd, gfx_cb_idx, renderer.index_buffer)
-        vkw.cmd_bind_gfx_descriptor_set(gd, gfx_cb_idx)
 
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
