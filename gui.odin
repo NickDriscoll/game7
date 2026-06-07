@@ -53,7 +53,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.BackendFlags += {.RendererHasTextures}
 
     // Create font atlas
-    imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
+    default_font := imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -406,7 +406,8 @@ setup_imgui_textures :: proc(
     tex_count := draw_data.Textures.Size
     log.debugf("Dear ImGUI texture processing on frame #%v", gd.frame_count)
     for i in 0..<tex_count {
-        tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i * size_of(imgui.TextureData)))
+        tex := (cast(^^imgui.TextureData)(uintptr(draw_data.Textures.Data) + uintptr(i * size_of(^imgui.TextureData))))^
+
         switch tex.Status {
             case .OK: {}
             case .Destroyed: {
@@ -465,7 +466,10 @@ setup_imgui_textures :: proc(
                         height = u32(tex.UpdateRect.h)
                     }
                 }
+
+                // @TODO Should copy subrect out of tex.Pixels instead of making vkw.sync_update_image_data() have weird semantics
                 pixels_slice := slice.from_ptr(tex.Pixels, int(tex.Width * tex.Height * tex.BytesPerPixel))
+
                 vkw.sync_update_image_data(
                     gd,
                     vkw.Texture_Handle(hm.u64_to_handle(tex.TexID)),
