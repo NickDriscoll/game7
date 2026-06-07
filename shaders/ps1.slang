@@ -170,8 +170,9 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         color_sample = textures[material.color_texture].Sample(samplers[sampler_idx], input.uv);
     }
 
+    float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
     if ((u_data.flags & UniformFlag.Unlit) != 0) {
-        return float4(color_sample.rgb, 1.0);
+        return float4(material_albedo, 1.0);
     }
 
     // These terms represent the incoming light at a point
@@ -284,8 +285,6 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     if ((u_data.flags & UniformFlag.VisualizeDirectSpecular) != 0) {
         return float4(specular_contribution, 1.0);
     }
-
-    float3 material_albedo = vtx_color.rgb * color_sample.rgb * material.base_color.rgb;
 
     float3 final_color = (glow + reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
 
