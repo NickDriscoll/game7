@@ -1324,6 +1324,8 @@ init_gamestate :: proc(
 
         game_state.ctrl_key_mappings[.N] = .NewLevel
         game_state.ctrl_key_mappings[.L] = .ShowLoadLevel
+        game_state.ctrl_key_mappings[.MINUS] = .ImguiScaleDown
+        game_state.ctrl_key_mappings[.EQUALS] = .ImguiScaleUp
 
         game_state.button_mappings[.A] = .PlayerJump
         game_state.button_mappings[.X] = .PlayerShoot

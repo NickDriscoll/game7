@@ -114,7 +114,7 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.bools[.Quit]
 
-        if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 2 {
+        if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             do_main_loop = false
         }
 
@@ -175,6 +175,13 @@ main :: proc() {
 
         // Update
         scene_editor(&app)
+
+        if output_verbs.bools[.ImguiScaleDown] {
+            imgui.GetStyle().FontScaleMain -= 0.2
+        }
+        if output_verbs.bools[.ImguiScaleUp] {
+            imgui.GetStyle().FontScaleMain += 0.2
+        }
 
         // Misc imgui window for testing
         @static minimum_frametime : c.int = 33
@@ -325,7 +332,7 @@ main :: proc() {
         }
 
         if output_verbs.bools[.ShowLoadLevel] {
-            show_load_modal = true
+            show_load_modal = !show_load_modal
         }
 
         if output_verbs.bools[.FullscreenHotkey] {

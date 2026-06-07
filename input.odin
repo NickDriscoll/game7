@@ -29,6 +29,8 @@ VerbType :: enum {
     ToggleMouseLook,
 
     ToggleImgui,
+    ImguiScaleUp,
+    ImguiScaleDown,
 
     Resume,
     FrameAdvance,
@@ -59,6 +61,11 @@ VerbType :: enum {
     PlayerTranslateRight,
     PlayerTranslateBack,
     PlayerTranslateForward,
+}
+
+Verb :: struct {
+    ty: VerbType,
+    allow_repeat: bool,
 }
 
 ControllerStickAxis :: enum {
@@ -93,6 +100,8 @@ InputSystem :: struct {
     axis_mappings: map[sdl2.GameControllerAxis]VerbType,
     stick_mappings: map[ControllerStickAxis]VerbType,
 
+    allow_repeat_keys: map[sdl2.Scancode]bool,
+
     reverse_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_axes: bit_set[sdl2.GameControllerAxis],
     deadzone_sticks: bit_set[ControllerStickAxis],
@@ -118,6 +127,7 @@ init_input_system :: proc(
     axis_mappings := make(map[sdl2.GameControllerAxis]VerbType, 64)
     stick_mappings := make(map[ControllerStickAxis]VerbType, 64)
     wheel_mappings := make(map[u32]VerbType, 64)
+    allow_repeat_keys := make(map[sdl2.Scancode]bool, 64)
     axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32 = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
     stick_sensitivities: [len(ControllerStickAxis)]f32 = {1.0, 1.0}
 
@@ -133,6 +143,9 @@ init_input_system :: proc(
     stick_mappings[.Left] = .PlayerTranslate
     stick_mappings[.Right] = .RotateCamera
 
+    allow_repeat_keys[.EQUALS] = true
+    allow_repeat_keys[.MINUS] = true
+
     return InputSystem {
         key_mappings = init_key_bindings,
         mouse_mappings = init_mouse_bindings,
@@ -140,6 +153,7 @@ init_input_system :: proc(
         wheel_mappings = wheel_mappings,
         axis_mappings = axis_mappings,
         stick_mappings = stick_mappings,
+        allow_repeat_keys = allow_repeat_keys,
         reverse_axes = {.LEFTY},
         deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
         deadzone_sticks = {.Left,.Right},
@@ -224,12 +238,13 @@ poll_sdl2_events :: proc(
                 }
             }
             case .KEYDOWN: {
+                sc := event.key.keysym.scancode
+
                 // Just ignore if it's a repeat event
-                if event.key.repeat > 0 {
+                if !state.allow_repeat_keys[sc] && event.key.repeat > 0 {
                     continue
                 }
 
-                sc := event.key.keysym.scancode
 
                 // Handle key remapping here
                 if .CurrentlyRemapping in state.state_flags {
@@ -253,20 +268,20 @@ poll_sdl2_events :: proc(
 
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
 
-                // Do nothing if Dear ImGUI wants keyboard input
-                if io.WantCaptureKeyboard {
-                    continue
-                }
-
                 verbtype: VerbType
-                found: bool
+                mapping_found: bool
                 if .CtrlHeld in state.state_flags {
-                    verbtype, found = state.ctrl_key_mappings[sc]
-                } else {
-                    verbtype, found = state.key_mappings[sc]
+                    verbtype, mapping_found = state.ctrl_key_mappings[sc]
                 }
 
-                if found {
+                // Only dispatch regular key mappings if Dear ImGUI doesn't wants keyboard input
+                if !io.WantCaptureKeyboard {
+                    if !mapping_found {
+                        verbtype, mapping_found = state.key_mappings[sc]
+                    }
+                    
+                }
+                if mapping_found {
                     outputs.bools[verbtype] = true
                 } else {
                     log.debugf("Unbound keypress: %v", event.key.keysym.scancode)
@@ -274,11 +289,6 @@ poll_sdl2_events :: proc(
             }
             case .KEYUP: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
-
-                // Do nothing if Dear ImGUI wants keyboard input
-                if io.WantCaptureKeyboard {
-                    continue
-                }
 
                 verbtype, found := state.key_mappings[event.key.keysym.scancode]
                 if found {

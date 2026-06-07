@@ -51,9 +51,11 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.DisplaySize.y = f32(resolution.y)
     io.ConfigFlags += {.DockingEnable}
     io.BackendFlags += {.RendererHasTextures}
+    io.ConfigDpiScaleFonts = true
 
     // Create font atlas
     default_font := imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
+    imgui.GetStyle().FontSizeBase = 16
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
