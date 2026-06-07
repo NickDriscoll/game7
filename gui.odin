@@ -31,7 +31,7 @@ ImguiUniforms :: struct {
 
 ImguiState :: struct {
     ctxt: ^imgui.Context,
-    font_atlas: vkw.Texture_Handle,
+    //font_atlas: vkw.Texture_Handle,
     vertex_buffer: vkw.Buffer_Handle,
     index_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
@@ -390,31 +390,11 @@ window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfigur
     return resize
 }
 
-// Once-per-frame call to update imgui vtx/idx/uniform buffers
-// and record imgui draw commands into current frame's command buffer
-render_imgui :: proc(
+// Call this before beginning a vkw gfx command buffer
+setup_imgui_textures :: proc(
     gd: ^vkw.GraphicsDevice,
-    gfx_cb_idx: vkw.CommandBuffer_Index,
     imgui_state: ^ImguiState,
-    framebuffer: ^vkw.Framebuffer
 ) {
-    scoped_event(&profiler, "render_imgui")
-    imgui.EndFrame()
-    in_flight_frame := gd.frame_count % u64(gd.frames_in_flight)
-
-    // Update uniform buffer
-
-    io := imgui.GetIO()
-    uniforms: ImguiUniforms
-    uniforms.clip_from_screen = {
-        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    }
-    u_slice := slice.from_ptr(&uniforms, 1)
-    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice, u32(in_flight_frame))
-
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
     {
@@ -422,39 +402,11 @@ render_imgui :: proc(
         imgui.Render()
     }
 
-    // Insert a barrier to sync ImGUI's color attachment write
-    // With the previous color attachment write
-    // The assumption here is that ImGUI rendering will be
-    // at or near the end of the chain
-    {
-        swapchain_color_attachment, _ := vkw.get_image(gd, framebuffer.color_images[0])
-        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
-            {
-                {
-                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                    src_access_mask = {.COLOR_ATTACHMENT_WRITE},
-                    dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
-                    dst_access_mask = {.COLOR_ATTACHMENT_READ},
-                    old_layout = .COLOR_ATTACHMENT_OPTIMAL, // No layout transition happens with this barrier
-                    new_layout = .COLOR_ATTACHMENT_OPTIMAL,
-                    src_queue_family = gd.gfx_queue_family,
-                    dst_queue_family = gd.gfx_queue_family,
-                    image = swapchain_color_attachment.image,
-                    subresource_range = vk.ImageSubresourceRange {
-                        aspectMask = {.COLOR},
-                        baseMipLevel = 0,
-                        levelCount = 1,
-                        baseArrayLayer = 0,
-                        layerCount = 1
-                    }
-                }
-            }
-        )
-    }
-
+    io := imgui.GetIO()
     draw_data := imgui.GetDrawData()
 
     tex_count := draw_data.Textures.Size
+    log.debugf("Dear ImGUI texture processing on frame #%v", gd.frame_count)
     for i in 0..<tex_count {
         tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i * size_of(imgui.TextureData)))
         switch tex.Status {
@@ -493,8 +445,7 @@ render_imgui :: proc(
                     name = "Dear ImGUI font atlas",
                 }
                 font_bytes_slice := slice.from_ptr(data, int(width * height * tex.BytesPerPixel))
-                ok: bool
-                imgui_state.font_atlas, ok = vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
+                tex_handle, ok := vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
                 if !ok {
                     log.error("Failed to upload imgui font atlas data.")
                 }
@@ -502,7 +453,7 @@ render_imgui :: proc(
                 // Free CPU-side texture data
                 //imgui.FontAtlas_ClearTexData(io.Fonts)
 
-                imgui.TextureData_SetTexID(tex, hm.handle_to_u64(imgui_state.font_atlas))
+                imgui.TextureData_SetTexID(tex, hm.handle_to_u64(tex_handle))
                 imgui.TextureData_SetStatus(tex, .OK)
             }
             case .WantUpdates: {
@@ -544,6 +495,66 @@ render_imgui :: proc(
             }
         }
     }
+}
+
+// Once-per-frame call to update imgui vtx/idx/uniform buffers
+// and record imgui draw commands into current frame's command buffer
+render_imgui :: proc(
+    gd: ^vkw.GraphicsDevice,
+    gfx_cb_idx: vkw.CommandBuffer_Index,
+    imgui_state: ^ImguiState,
+    framebuffer: ^vkw.Framebuffer
+) {
+    scoped_event(&profiler, "render_imgui")
+    in_flight_frame := gd.frame_count % u64(gd.frames_in_flight)
+
+    // Update uniform buffer
+
+    io := imgui.GetIO()
+    uniforms: ImguiUniforms
+    uniforms.clip_from_screen = {
+        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
+        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    }
+    u_slice := slice.from_ptr(&uniforms, 1)
+    vkw.sync_write_buffer(gd, imgui_state.uniform_buffer, u_slice, u32(in_flight_frame))
+
+    // Insert a barrier to sync ImGUI's color attachment write
+    // With the previous color attachment write
+    // The assumption here is that ImGUI rendering will be
+    // at or near the end of the chain
+    {
+        swapchain_color_attachment, _ := vkw.get_image(gd, framebuffer.color_images[0])
+        cb := gd.gfx_command_buffers[gfx_cb_idx]
+        vkw.cmd_gfx_pipeline_barriers(gd, cb, {},
+            {
+                {
+                    src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    src_access_mask = {.COLOR_ATTACHMENT_WRITE},
+                    dst_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
+                    dst_access_mask = {.COLOR_ATTACHMENT_READ},
+                    old_layout = .COLOR_ATTACHMENT_OPTIMAL, // No layout transition happens with this barrier
+                    new_layout = .COLOR_ATTACHMENT_OPTIMAL,
+                    src_queue_family = gd.gfx_queue_family,
+                    dst_queue_family = gd.gfx_queue_family,
+                    image = swapchain_color_attachment.image,
+                    subresource_range = vk.ImageSubresourceRange {
+                        aspectMask = {.COLOR},
+                        baseMipLevel = 0,
+                        levelCount = 1,
+                        baseArrayLayer = 0,
+                        layerCount = 1
+                    }
+                }
+            }
+        )
+    }
+
+    draw_data := imgui.GetDrawData()
+    assert(draw_data.TotalVtxCount < MAX_IMGUI_VERTICES)
+    assert(draw_data.TotalIdxCount < MAX_IMGUI_INDICES)
 
     // Temp buffers for collecting imgui vertices/indices from all cmd lists
     vertex_staging := make(
