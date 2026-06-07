@@ -506,7 +506,7 @@ main :: proc() {
             tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
             lookat_controller, is_lookat := &app.game_state.lookat_controllers[app.game_state.viewport_camera_id]
-            current_view_from_world: hlsl.float4x4 
+            current_view_from_world: hlsl.float4x4
             if is_lookat {
                 lookat_camera_update(&app.game_state, output_verbs, app.game_state.viewport_camera_id, dt)
                 current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
@@ -533,7 +533,7 @@ main :: proc() {
             scoped_event(&profiler, "Draw static models")
             for id, model in app.game_state.static_models {
                 tform := &app.game_state.transforms[id]
-    
+
                 mat := get_transform_matrix(tform^)
                 mat[3][0] += model.pos_offset.x
                 mat[3][1] += model.pos_offset.y
@@ -543,7 +543,7 @@ main :: proc() {
                     flags = model.flags
                 }
                 draw_ps1_static_mesh(&app.vgd, &app.renderer, model.handle, draw)
-    
+
                 if .Glowing in model.flags {
                     // Light source
                     l := default_point_light()
@@ -560,7 +560,7 @@ main :: proc() {
             // Draw skinned models
             for id, model in app.game_state.skinned_models {
                 tform := &app.game_state.transforms[id]
-    
+
                 mat := get_transform_matrix(tform^)
                 mat[3][0] += model.pos_offset.x
                 mat[3][1] += model.pos_offset.y
@@ -572,7 +572,7 @@ main :: proc() {
                     //flags = model.flags
                 }
                 draw_ps1_skinned_mesh(&app.vgd, &app.renderer, model.handle, &draw)
-    
+
                 if .Glowing in model.flags {
                     // Light source
                     l := default_point_light()
@@ -589,7 +589,7 @@ main :: proc() {
             // Draw debug models
             for id, model in app.game_state.debug_models {
                 tform := &app.game_state.transforms[id]
-    
+
                 mat := get_transform_matrix(tform^, model.scale)
                 mat[3][0] += model.pos_offset.x
                 mat[3][1] += model.pos_offset.y
@@ -670,6 +670,9 @@ main :: proc() {
                 scoped_event(&profiler, "CPU wait on GPU")
                 vkw.wait_frames_in_flight(&app.vgd)
             }
+
+            // Pre-command-buffer-recording work for imgui
+            setup_imgui_textures(&app.vgd, &app.gui)
 
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
 

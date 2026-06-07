@@ -1707,12 +1707,13 @@ render_scene :: proc(
     vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
 
     // Barrier for BLAS builds
+    cb := gd.gfx_command_buffers[gfx_cb_idx]
     if renderer.do_raytracing {
         scoped_event(&profiler, "Build BLASes + barrier")
         vb, _ := vkw.get_buffer(gd, renderer.positions_buffer)
         ib, _ := vkw.get_buffer(gd, renderer.index_buffer)
 
-        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {
+        vkw.cmd_gfx_pipeline_barriers(gd, cb, {
             {
                 src_stage_mask = {.TRANSFER},
                 src_access_mask = {.TRANSFER_WRITE},
@@ -1921,7 +1922,7 @@ render_scene :: proc(
 
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
-        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {}, {
+        vkw.cmd_gfx_pipeline_barriers(gd, cb, {}, {
             vkw.Image_Barrier {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
                 src_access_mask = {.MEMORY_WRITE},
@@ -2020,7 +2021,7 @@ render_scene :: proc(
 
         // Transition internal framebuffer to be sampled from
         depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
-        vkw.cmd_gfx_pipeline_barriers(gd, gfx_cb_idx, {},
+        vkw.cmd_gfx_pipeline_barriers(gd, cb, {},
             {
                 {
                     src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
