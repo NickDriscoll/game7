@@ -53,7 +53,7 @@ imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, reso
     io.BackendFlags += {.RendererHasTextures}
 
     // Create font atlas
-    imgui.FontAtlas_AddFontDefaultBitmap(io.Fonts)
+    imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -486,7 +486,7 @@ setup_imgui_textures :: proc(
                 handle := hm.u64_to_handle(tex.TexID)
                 vkw.delete_image(gd, vkw.Texture_Handle(handle))
 
-                tex.UnusedFrames = i32(gd.frames_in_flight)
+                //tex.UnusedFrames = i32(gd.frames_in_flight)
                 imgui.TextureData_SetTexID(tex, 0)
                 imgui.TextureData_SetStatus(tex, .Destroyed)
             }
