@@ -402,17 +402,13 @@ setup_imgui_textures :: proc(
         imgui.Render()
     }
 
-    io := imgui.GetIO()
     draw_data := imgui.GetDrawData()
-
     tex_count := draw_data.Textures.Size
     log.debugf("Dear ImGUI texture processing on frame #%v", gd.frame_count)
     for i in 0..<tex_count {
         tex := cast(^imgui.TextureData)(uintptr(draw_data.Textures.Data^) + uintptr(i * size_of(imgui.TextureData)))
         switch tex.Status {
-            case .OK: { 
-                log.debugf("Imgui says texture ok: %#v", tex)
-            }
+            case .OK: {}
             case .Destroyed: {
                 log.debugf("Imgui says texture is destroyed: %#v", tex)
             }
@@ -423,7 +419,7 @@ setup_imgui_textures :: proc(
                 height := tex.Height
 
                 format := vk.Format.R8G8B8A8_SRGB
-                if io.Fonts.TexData.BytesPerPixel == 1 {
+                if tex.BytesPerPixel == 1 {
                     format = .R8_SRGB
                 }
 
@@ -491,6 +487,7 @@ setup_imgui_textures :: proc(
                 vkw.delete_image(gd, vkw.Texture_Handle(handle))
 
                 tex.UnusedFrames = i32(gd.frames_in_flight)
+                imgui.TextureData_SetTexID(tex, 0)
                 imgui.TextureData_SetStatus(tex, .Destroyed)
             }
         }
@@ -656,7 +653,6 @@ render_imgui :: proc(
 
 gui_cancel_frame :: proc(imgui_state: ^ImguiState) {
     imgui.EndFrame()
-    imgui.Render()
 }
 
 gui_cleanup :: proc(vgd: ^vkw.GraphicsDevice, is: ^ImguiState) {

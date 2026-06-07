@@ -665,14 +665,14 @@ main :: proc() {
                 app.vgd.resize_window = false
             }
 
+            // Pre-command-buffer-recording work for imgui
+            setup_imgui_textures(&app.vgd, &app.gui)
+
             // Sync point where we wait if there are already 2 frames in the gfx queue
             {
                 scoped_event(&profiler, "CPU wait on GPU")
                 vkw.wait_frames_in_flight(&app.vgd)
             }
-
-            // Pre-command-buffer-recording work for imgui
-            setup_imgui_textures(&app.vgd, &app.gui)
 
             gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
 
