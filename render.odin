@@ -545,43 +545,41 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
         log.debugf("Allocated %v MB of VRAM for render_state.uniform_buffer", f32(info.size) / 1024 / 1024)
     }
 
-    // Initialize the buffer pointers in the uniforms struct
+    // Initialize the buffer pointers
     {
-        mesh_buffer, _ := vkw.get_buffer(gd, renderer.static_mesh_buffer)
-        material_buffer, _ := vkw.get_buffer(gd, renderer.material_buffer)
-        instance_buffer, _ := vkw.get_buffer(gd, renderer.instance_buffer)
-        position_buffer, _ := vkw.get_buffer(gd, renderer.positions_buffer)
-        uv_buffer, _ := vkw.get_buffer(gd, renderer.uvs_buffer)
-        color_buffer, _ := vkw.get_buffer(gd, renderer.colors_buffer)
-        joint_ids_buffer, _ := vkw.get_buffer(gd, renderer.joint_ids_buffer)
-        joint_weights_buffer, _ := vkw.get_buffer(gd, renderer.joint_weights_buffer)
-        joint_matrices_buffer, _ := vkw.get_buffer(gd, renderer.joint_matrices_buffer)
+        buffers : []vkw.Buffer_Handle = {
+            renderer.static_mesh_buffer,
+            renderer.material_buffer,
+            renderer.instance_buffer,
+            renderer.positions_buffer,
+            renderer.uvs_buffer,
+            renderer.colors_buffer,
+            renderer.joint_ids_buffer,
+            renderer.joint_weights_buffer,
+            renderer.joint_matrices_buffer,
+        }
+        pointers : []^vk.DeviceAddress = {
+            &renderer.uniforms.mesh_ptr,
+            &renderer.uniforms.material_ptr,
+            &renderer.uniforms.instance_ptr,
+            &renderer.uniforms.position_ptr,
+            &renderer.uniforms.uv_ptr,
+            &renderer.uniforms.color_ptr,
+            &renderer.uniforms.joint_id_ptr,
+            &renderer.uniforms.joint_weight_ptr,
+            &renderer.uniforms.joint_mats_ptr,
+        }
+        assert(len(buffers) == len(pointers))
+
+        for i in 0..<len(buffers) {
+            buffer := buffers[i]
+            ptr := pointers[i]
+            b, ok := vkw.get_buffer(gd, buffer)
+            assert(ok)
+            ptr^ = b.address
+        }
 
         indices_buffer, _ := vkw.get_buffer(gd, renderer.index_buffer)
-
-        uniform_buffer, _ := vkw.get_buffer(gd, renderer.uniform_buffer)
-        log.debugf("uniform_buffer base pointer == 0x%X", uniform_buffer.address)
-
-        log.debugf("mesh_buffer base pointer == 0x%X", mesh_buffer.address)
-        log.debugf("material_buffer base pointer == 0x%X", material_buffer.address)
-        log.debugf("instance_buffer base pointer == 0x%X", instance_buffer.address)
-        log.debugf("position_buffer base pointer == 0x%X", position_buffer.address)
-        log.debugf("uv_buffer base pointer == 0x%X", uv_buffer.address)
-        log.debugf("color_buffer base pointer == 0x%X", color_buffer.address)
-        log.debugf("joint_ids_buffer base pointer == 0x%X", joint_ids_buffer.address)
-        log.debugf("joint_weights_buffer base pointer == 0x%X", joint_weights_buffer.address)
-        log.debugf("joint_matrices_buffer base pointer == 0x%X", joint_matrices_buffer.address)
-
-        renderer.uniforms.mesh_ptr = mesh_buffer.address
-        renderer.uniforms.material_ptr = material_buffer.address
-        renderer.uniforms.instance_ptr = instance_buffer.address
-        renderer.uniforms.position_ptr = position_buffer.address
-        renderer.uniforms.uv_ptr = uv_buffer.address
-        renderer.uniforms.color_ptr = color_buffer.address
-        renderer.uniforms.joint_id_ptr = joint_ids_buffer.address
-        renderer.uniforms.joint_weight_ptr = joint_weights_buffer.address
-        renderer.uniforms.joint_mats_ptr = joint_matrices_buffer.address
-
         renderer.indices_ptr = indices_buffer.address
     }
 
