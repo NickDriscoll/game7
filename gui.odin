@@ -380,7 +380,6 @@ window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfigur
             for mode, i in modes {
                 if imgui.Selectable(mode) {
                     item = i32(i)
-                    log.info("bazinga")
                     window.present_mode = vk.PresentModeKHR(item)
                     resize = true
                 }

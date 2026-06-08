@@ -45,3 +45,12 @@ sudo apt install libc++-19-dev
 ```
 ./linux_build.sh debug
 ```
+
+### Dependencies
+    - Odin standard library
+    - SDL2
+    - Vulkan
+    - Vulkan Memory Allocator
+    - Dear ImGUI
+    - cgltf
+    - 

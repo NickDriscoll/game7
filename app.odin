@@ -230,7 +230,6 @@ app_startup :: proc(app: ^App) -> bool {
                     y := app.user_config.ints[.WindowHeight]
                     app.window.resolution = {u32(x), u32(y)}
                 }
-                app.window.present_mode = .FIFO
             }
 
             // Determine SDL window flags
