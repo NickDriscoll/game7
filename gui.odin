@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:math/linalg/hlsl"
 import "core:log"
+import "core:mem"
 import "core:os"
 import "core:reflect"
 import "core:slice"
@@ -396,6 +397,7 @@ window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfigur
 setup_imgui_textures :: proc(
     gd: ^vkw.GraphicsDevice,
     imgui_state: ^ImguiState,
+    temp_allocator := context.temp_allocator
 ) {
     // This ends the current imgui frame until
     // the next call to imgui.NewFrame()
@@ -469,8 +471,21 @@ setup_imgui_textures :: proc(
                     }
                 }
 
-                // @TODO Should copy subrect out of tex.Pixels instead of making vkw.sync_update_image_data() have weird semantics
-                pixels_slice := slice.from_ptr(tex.Pixels, int(tex.Width * tex.Height * tex.BytesPerPixel))
+                tex_handle := vkw.Texture_Handle(hm.u64_to_handle(tex.TexID))
+                tex_image, exok := vkw.get_image(gd, tex_handle)
+                assert(exok)
+
+                // tex.Pixels points to the whole image, so we need to manually
+                // pick out the rows referred to by update_rect to copy to the image
+                format_pixel_size := vkw.vk_format_pixel_size(tex_image.format)
+                upload_pitch := int(update_rect.extent.width) * format_pixel_size
+                subrect_pixels := make([dynamic]byte, upload_pitch * int(update_rect.extent.height), temp_allocator)
+                for y in 0..<int(update_rect.extent.height) {
+                    current_row := y + int(update_rect.offset.y)
+                    in_ptr := cast(^byte)(uintptr(tex.Pixels) + uintptr(format_pixel_size * ((current_row * int(tex_image.extent.width)) + int(update_rect.offset.x))))
+                    sp := &subrect_pixels[y * upload_pitch]
+                    mem.copy_non_overlapping(sp, in_ptr, upload_pitch)
+                }
 
                 vkw.sync_update_image_data(
                     gd,
@@ -478,7 +493,7 @@ setup_imgui_textures :: proc(
                     update_rect,
                     0,
                     0,
-                    pixels_slice
+                    subrect_pixels[:]
                 )
 
                 // Free CPU-side texture data
