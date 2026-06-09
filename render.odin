@@ -629,10 +629,10 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
             color_images = color_images,
             depth_image = depth_handle,
             resolution = screen_size,
-            // clear_color = {0.1568627, 0.443137, 0.9176471, 1.0},
-            // color_load_op = .CLEAR,
+            //clear_color = {0.1568627, 0.443137, 0.9176471, 1.0},
+            clear_color = {0.0, 0.0, 0.0, 1.0},
+            color_load_op = .CLEAR,
             depth_load_op = .CLEAR,
-            color_load_op = .DONT_CARE,
         }
     }
 
@@ -735,7 +735,6 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
 
         // Postprocessing pass info
 
-        swapchain_format := vk.Format.B8G8R8A8_SRGB
         postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
         postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
@@ -769,7 +768,7 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
             },
             colorblend_state = vkw.default_colorblend_state(),
             renderpass_state = vkw.PipelineRenderpass_Info {
-                color_attachment_formats = {swapchain_format},
+                color_attachment_formats = {gd.swapchain_format},
                 depth_attachment_format = nil,
             },
             name = "PostFX pipeline"

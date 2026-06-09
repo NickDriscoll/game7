@@ -101,8 +101,6 @@ main :: proc() {
             }
         }
 
-        // Start a new Dear ImGUI frame and get an io reference
-        begin_gui(&app.gui)
         io := imgui.GetIO()
         io.DeltaTime = last_frame_dt
         app.renderer.uniforms.time += scaled_dt
@@ -161,6 +159,9 @@ main :: proc() {
             }
 
         }
+        
+        // Begin new Dear ImGUI frame
+        begin_gui(&app.gui)
 
         {
             docknode := imgui.DockBuilderGetCentralNode(app.gui.dockspace_id)
