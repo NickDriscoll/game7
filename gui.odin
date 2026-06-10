@@ -539,7 +539,7 @@ render_imgui :: proc(
     {
         swapchain_color_attachment, _ := vkw.get_image(gd, framebuffer.color_images[0])
         cb := gd.gfx_command_buffers[gfx_cb_idx]
-        vkw.cmd_gfx_pipeline_barriers(gd, cb, {},
+        vkw.cmd_pipeline_barriers(gd, cb, {},
             {
                 {
                     src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
