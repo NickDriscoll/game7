@@ -57,7 +57,7 @@ App :: struct {
     temp_track: mem.Tracking_Allocator,
 
     // Engine subsystems
-    vgd: vkw.GraphicsDevice,
+    vgd: vkw.VulkanGraphicsDevice,
     renderer: Renderer,
     input_system: InputSystem,
     audio_system: AudioSystem,

@@ -641,9 +641,10 @@ main :: proc() {
         }
 
         // Render
-        if !window_minimized {
+        cancel_frame := window_minimized
+        graphics: if !cancel_frame {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
-            full_swapchain_remake :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
+            full_swapchain_remake :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 scoped_event(&profiler, "full_swapchain_remake")
                 io := imgui.GetIO()
 
@@ -682,19 +683,26 @@ main :: proc() {
                 vkw.wait_frames_in_flight(&app.vgd)
             }
 
-            gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
-
             // Acquire swapchain image and try to handle result
-            swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&app.vgd, gfx_cb_idx, &app.renderer.gfx_sync)
+            swapchain_image_idx, acquire_result := vkw.acquire_swapchain_image(&app.vgd, &app.renderer.gfx_sync)
             #partial switch acquire_result {
                 case .SUCCESS: {}
                 case .SUBOPTIMAL_KHR, .ERROR_OUT_OF_DATE_KHR: {
-                    full_swapchain_remake(&app.vgd, &app.renderer, &app.user_config, app.window)
+                    app.vgd.resize_window = true
+                    cancel_frame = true
+                    break graphics
                 }
                 case: {
                     log.errorf("Swapchain image acquire failed: %v", acquire_result)
+                    cancel_frame = true
+                    break graphics
                 }
             }
+
+            gfx_cb_idx := vkw.begin_gfx_command_buffer(&app.vgd)
+
+            // Define execution and memory dependencies surrounding swapchain image acquire
+            vkw.swapchain_acquire_dependencies(&app.vgd, &app.renderer.gfx_sync, swapchain_image_idx)
 
             framebuffer := swapchain_framebuffer(&app.vgd, swapchain_image_idx, app.window.resolution)
 
@@ -715,10 +723,13 @@ main :: proc() {
                 scoped_event(&profiler, "Submit to gfx queue and present")
                 present_res := vkw.submit_gfx_and_present(&app.vgd, gfx_cb_idx, &app.renderer.gfx_sync, &swapchain_image_idx)
                 if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
-                    full_swapchain_remake(&app.vgd, &app.renderer, &app.user_config, app.window)
+                    app.vgd.resize_window = true
                 }
             }
-        } else {
+            
+        }
+
+        if cancel_frame {
             gui_cancel_frame(&app.gui)
         }
 

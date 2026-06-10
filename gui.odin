@@ -41,7 +41,7 @@ ImguiState :: struct {
     dockspace_id: u32,
 }
 
-imgui_init :: proc(gd: ^vkw.GraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
+imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
     scoped_event(&profiler, "ImGUI init")
     imgui_state: ImguiState
     imgui_state.show_gui = user_config.flags[.ImguiEnabled]
@@ -394,7 +394,7 @@ window_config :: proc(im: ImguiState, window: ^Window, user_config: UserConfigur
 
 // Call this before beginning a vkw gfx command buffer
 setup_imgui_textures :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     imgui_state: ^ImguiState,
     temp_allocator := context.temp_allocator
 ) {
@@ -450,9 +450,6 @@ setup_imgui_textures :: proc(
                     log.error("Failed to upload imgui font atlas data.")
                 }
 
-                // Free CPU-side texture data
-                //imgui.FontAtlas_ClearTexData(io.Fonts)
-
                 imgui.TextureData_SetTexID(tex, hm.handle_to_u64(tex_handle))
                 imgui.TextureData_SetStatus(tex, .OK)
             }
@@ -495,9 +492,6 @@ setup_imgui_textures :: proc(
                     subrect_pixels[:]
                 )
 
-                // Free CPU-side texture data
-                //imgui.FontAtlas_ClearTexData(io.Fonts)
-
                 imgui.TextureData_SetStatus(tex, .OK)
             }
             case .WantDestroy: {
@@ -517,7 +511,7 @@ setup_imgui_textures :: proc(
 // Once-per-frame call to update imgui vtx/idx/uniform buffers
 // and record imgui draw commands into current frame's command buffer
 render_imgui :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     imgui_state: ^ImguiState,
     framebuffer: ^vkw.Framebuffer
@@ -675,7 +669,7 @@ gui_cancel_frame :: proc(imgui_state: ^ImguiState) {
     imgui.EndFrame()
 }
 
-gui_cleanup :: proc(vgd: ^vkw.GraphicsDevice, is: ^ImguiState) {
+gui_cleanup :: proc(vgd: ^vkw.VulkanGraphicsDevice, is: ^ImguiState) {
     imgui.DestroyContext(is.ctxt)
 }
 

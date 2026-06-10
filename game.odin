@@ -772,7 +772,7 @@ CharacterController :: struct {
     enemy_type: EnemyType,
 }
 
-tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
     camera := &game_state.cameras[game_state.viewport_camera_id]
     for id, &char in game_state.character_controllers {
@@ -1272,7 +1272,7 @@ GameState :: struct {
 }
 
 init_gamestate :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     audio_system: ^AudioSystem,
     user_config: ^UserConfiguration,
@@ -1407,7 +1407,7 @@ init_gamestate :: proc(
 
 gamestate_new_scene :: proc(
     game_state: ^GameState,
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     user_config: ^UserConfiguration,
     scene_allocator := context.allocator
@@ -1526,7 +1526,7 @@ gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
     return EntityID(r)
 }
 
-game_tick :: proc(game_state: ^GameState, gd: ^vkw.GraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "GameState tick")
 
     // Determine if we're simulating a tick of game logic this frame
@@ -1677,7 +1677,7 @@ new_load_level_file :: proc(
     }
 
     read_component_map :: proc(
-        gd: ^vkw.GraphicsDevice,
+        gd: ^vkw.VulkanGraphicsDevice,
         renderer: ^Renderer,
         buffer: []byte,
         components: ^map[EntityID]$T,

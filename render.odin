@@ -418,7 +418,7 @@ new_frame :: proc(renderer: ^Renderer) {
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
-init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt: bool) -> Renderer {
+init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, want_rt: bool) -> Renderer {
     scoped_event(&profiler, "Initialize renderer")
 
     renderer: Renderer
@@ -840,7 +840,7 @@ init_renderer :: proc(gd: ^vkw.GraphicsDevice, screen_size: hlsl.uint2, want_rt:
     return renderer
 }
 
-resize_framebuffers :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
+resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, renderer.main_framebuffer.color_images[0])
     vkw.delete_image(gd, renderer.main_framebuffer.depth_image)
 
@@ -899,7 +899,7 @@ resize_framebuffers :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer, screen
     }
 }
 
-swapchain_framebuffer :: proc(gd: ^vkw.GraphicsDevice, swapchain_idx: u32, resolution: [2]u32) -> vkw.Framebuffer {
+swapchain_framebuffer :: proc(gd: ^vkw.VulkanGraphicsDevice, swapchain_idx: u32, resolution: [2]u32) -> vkw.Framebuffer {
     fb: vkw.Framebuffer
     fb.color_images[0] = gd.swapchain_images[swapchain_idx]
     fb.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
@@ -911,7 +911,7 @@ swapchain_framebuffer :: proc(gd: ^vkw.GraphicsDevice, swapchain_idx: u32, resol
 }
 
 queue_blas_build :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: Renderer,
     position_start: u32,
     positions_len: u32,
@@ -977,7 +977,7 @@ queue_blas_build :: proc(
 }
 
 create_static_mesh :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     positions: []half4,
     indices: []u16
@@ -1032,7 +1032,7 @@ create_static_mesh :: proc(
 }
 
 create_skinned_mesh :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     positions: [][4]f16,
     indices: []u16,
@@ -1115,7 +1115,7 @@ create_skinned_mesh :: proc(
 }
 
 add_vertex_colors :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: $HandleType,
     colors: []hlsl.float4
@@ -1142,7 +1142,7 @@ add_vertex_colors :: proc(
 }
 
 add_vertex_uvs :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: $HandleType,
     uvs: []hlsl.float2
@@ -1184,7 +1184,7 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
 }
 
 draw_ps1_static_meshes :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: StaticModelHandle,
     draw_data: []StaticDraw,
@@ -1196,7 +1196,7 @@ draw_ps1_static_meshes :: proc(
     }
 }
 draw_ps1_static_mesh :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: StaticModelHandle,
     draw_data: StaticDraw,
@@ -1209,7 +1209,7 @@ draw_ps1_static_mesh :: proc(
 }
 
 draw_ps1_skinned_mesh :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: SkinnedModelHandle,
     draw_data: ^SkinnedDraw,
@@ -1223,7 +1223,7 @@ draw_ps1_skinned_mesh :: proc(
 }
 
 draw_debug_mesh :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: StaticModelHandle,
     draw_data: ^DebugDraw
@@ -1235,7 +1235,7 @@ draw_debug_mesh :: proc(
 }
 
 draw_debug_primtive :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     draw_data: ^DebugDraw
@@ -1260,7 +1260,7 @@ draw_debug_primtive :: proc(
 
 // User code calls this to queue up draw calls
 draw_ps1_static_primitives :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: MaterialHandle,
@@ -1290,7 +1290,7 @@ draw_ps1_static_primitives :: proc(
     return true
 }
 draw_ps1_static_primitive :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: MaterialHandle,
@@ -1319,7 +1319,7 @@ draw_ps1_static_primitive :: proc(
 }
 
 draw_ps1_skinned_primitive :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
     material_handle: MaterialHandle,
@@ -1348,7 +1348,7 @@ ComputeSkinningPushConstants :: struct {
     joint_transforms: vk.DeviceAddress,
     max_vtx_id: u32,
 }
-compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
+compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
     scoped_event(&profiler, "compute_skinning")
 
     // Loop over each skinned instance in order to produce 
@@ -1584,7 +1584,7 @@ compute_skinning :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
     vkw.submit_compute_command_buffer(gd, comp_cb_idx, &renderer.compute_sync)
 }
 
-build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
+build_scene_TLAS :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
     scoped_event(&profiler, "build_scene_TLAS")
     // Recreate scene TLAS
     if renderer.do_raytracing {
@@ -1690,7 +1690,7 @@ build_scene_TLAS :: proc(gd: ^vkw.GraphicsDevice, renderer: ^Renderer) {
 // This is called once per frame to sync buffers with the GPU
 // and record the relevant commands into the frame's command buffer
 render_scene :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     gfx_cb_idx: vkw.CommandBuffer_Index,
     renderer: ^Renderer,
     framebuffer: ^vkw.Framebuffer,
@@ -1772,7 +1772,7 @@ render_scene :: proc(
     // Takes the  list of instances and populates the GPU instance buffer
     // as well as the draw call buffer
     add_draw_instances :: proc(
-        gd: ^vkw.GraphicsDevice,
+        gd: ^vkw.VulkanGraphicsDevice,
         renderer: ^Renderer,
         instances: []$T,
         first_instance: int,
@@ -2117,7 +2117,7 @@ gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     return idx
 }
 
-load_gltf_textures :: proc(gd: ^vkw.GraphicsDevice, gltf_data: ^cgltf.data, allocator := context.temp_allocator) -> [dynamic]vkw.Texture_Handle {
+load_gltf_textures :: proc(gd: ^vkw.VulkanGraphicsDevice, gltf_data: ^cgltf.data, allocator := context.temp_allocator) -> [dynamic]vkw.Texture_Handle {
     loaded_glb_images := make([dynamic]vkw.Texture_Handle, len(gltf_data.textures), allocator)
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
@@ -2190,7 +2190,7 @@ get_material :: proc(renderer: Renderer, handle: MaterialHandle) -> ^Material {
 }
 
 load_gltf_static_model :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     path: cstring,
     allocator := context.allocator
@@ -2347,7 +2347,7 @@ SkinnedModel :: struct {
 }
 
 load_gltf_skinned_model :: proc(
-    gd: ^vkw.GraphicsDevice,
+    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     path: cstring,
     allocator := context.allocator
@@ -2597,7 +2597,7 @@ load_gltf_skinned_model :: proc(
 
 
 
-graphics_gui :: proc(gd: vkw.GraphicsDevice, renderer: ^Renderer, do_window: ^bool) {
+graphics_gui :: proc(gd: vkw.VulkanGraphicsDevice, renderer: ^Renderer, do_window: ^bool) {
     if do_window^ {
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
