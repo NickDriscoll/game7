@@ -105,8 +105,6 @@ main :: proc() {
         io.DeltaTime = last_frame_dt
         app.renderer.uniforms.time += scaled_dt
 
-        new_frame(&app.renderer)
-
         output_verbs := poll_sdl2_events(&app.input_system)
 
         // Quit if user wants it
@@ -159,20 +157,12 @@ main :: proc() {
             }
 
         }
-        
+
         // Begin new Dear ImGUI frame
         begin_gui(&app.gui)
 
-        {
-            docknode := imgui.DockBuilderGetCentralNode(app.gui.dockspace_id)
-            app.renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
-            app.renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
-            app.renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
-            app.renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
-
-            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
-            camera.aspect_ratio = docknode.Size.x / docknode.Size.y
-        }
+        docknode := imgui.DockBuilderGetCentralNode(app.gui.dockspace_id)
+        new_frame(&app.renderer, docknode)
 
         // Update
         scene_editor(&app)
@@ -513,6 +503,7 @@ main :: proc() {
 
             tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
+            camera.aspect_ratio = vkw.get_framebuffer_aspect_ratio(app.renderer.main_framebuffer)
             lookat_controller, is_lookat := &app.game_state.lookat_controllers[app.game_state.viewport_camera_id]
             current_view_from_world: hlsl.float4x4
             if is_lookat {

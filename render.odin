@@ -416,11 +416,16 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
 }
 
 // Per-frame work that needs to happen at the beginning of the frame
-new_frame :: proc(renderer: ^Renderer) {
+new_frame :: proc(renderer: ^Renderer, docknode: ^imgui.DockNode) {
     renderer.ps1_static_instances = make([dynamic]CPUStaticInstance, allocator = context.temp_allocator)
     renderer.debug_static_instances = make([dynamic]DebugStaticInstance, allocator = context.temp_allocator)
     renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
+
+    renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
+    renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
+    renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
+    renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
 }
 
 init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer {
@@ -2071,14 +2076,37 @@ render_scene :: proc(
             }
         )
 
-        // vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-        //     x = 0.0,
-        //     y = 0.0,
-        //     width = f32(framebuffer_resolution.x),
-        //     height = f32(framebuffer_resolution.y),
-        //     minDepth = 0.0,
-        //     maxDepth = 1.0
-        // }})
+        // Set viewport to scale 
+
+        {
+            internal_aspect_ratio := vkw.get_framebuffer_aspect_ratio(renderer.main_framebuffer)
+            vp := renderer.viewport_dimensions
+            vp_aspect := f32(vp.extent.width) / f32(vp.extent.height)
+            horizontal_dominates := vp_aspect >= internal_aspect_ratio
+            x, y, width, height: f32
+            if horizontal_dominates {
+                y = cast(f32)vp.offset.y
+                height = cast(f32)vp.extent.height
+                width = height * internal_aspect_ratio
+                x = f32(vp.extent.width) / 2.0 - width / 2.0
+                x += cast(f32)vp.offset.x
+            } else {
+                x = cast(f32)vp.offset.x
+                width = cast(f32)vp.extent.width
+                height = width / internal_aspect_ratio
+                y = cast(f32)vp.extent.height / 2.0 - height / 2.0
+                y += cast(f32)vp.offset.y
+            }
+            v := vkw.Viewport {
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                minDepth = 0.0,
+                maxDepth = 1.0
+            }
+            vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {v})
+        }
 
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
