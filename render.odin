@@ -2175,8 +2175,7 @@ render_scene :: proc(
             }
         )
 
-        // Set viewport to scale 
-
+        // Set viewport to scale
         {
             internal_aspect_ratio := vkw.get_framebuffer_aspect_ratio(renderer.main_framebuffer)
             vp := renderer.viewport_dimensions

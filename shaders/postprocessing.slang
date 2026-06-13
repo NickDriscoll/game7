@@ -221,8 +221,12 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput input) {
-    float2 uv = input.uv;
-    float2 sample_pos = uv;
+    // Extract resolution from clip_from_screen matrix
+    float2 framebuffer_resolution;
+    framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
+    framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
+
+    float2 sample_pos = input.uv;
     sample_pos += u_data.distortion_strength * 
         float2(
             my_noise(input.uv + 0.5 * u_data.time),
