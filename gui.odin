@@ -592,6 +592,17 @@ render_imgui :: proc(
 
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
+    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {
+        {
+            x = 0.0,
+            y = 0.0,
+            width = f32(framebuffer.resolution.x),
+            height = f32(framebuffer.resolution.y),
+            minDepth = 0.0,
+            maxDepth = 1.0
+        }
+    })
+
     imgui_vertex_buffer, ok := vkw.get_buffer(gd, imgui_state.vertex_buffer)
     if !ok {
         log.error("Failed to get imgui vertex buffer")
@@ -603,6 +614,7 @@ render_imgui :: proc(
     vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, imgui_state.pipeline)
 
     uniform_buf, ok2 := vkw.get_buffer(gd, imgui_state.uniform_buffer)
+    assert(ok2)
 
     // Compute a fixed vertex/index offset based on frame index
     // so that the CPU doesn't overwrite vertex data for a frame currently
@@ -687,7 +699,7 @@ gui_cleanup :: proc(vgd: ^vkw.VulkanGraphicsDevice, is: ^ImguiState) {
 // Translated from imgui_demo.cpp
 HelpMarker :: proc(desc: cstring) {
     imgui.TextDisabled("(?)")
-    if (imgui.BeginItemTooltip()) {
+    if imgui.BeginItemTooltip() {
         imgui.PushTextWrapPos(imgui.GetFontSize() * 35.0)
         imgui.TextUnformatted(desc)
         imgui.PopTextWrapPos()
@@ -817,6 +829,7 @@ SDL2ToImGuiKey :: proc(keycode: sdl2.Scancode) -> imgui.Key {
         case .F24: return imgui.Key.F24
         case .AC_BACK: return imgui.Key.AppBack
         case .AC_FORWARD: return imgui.Key.AppForward
+        case: {assert(false, "Unhandled key.")}
     }
     return imgui.Key.None
 }
