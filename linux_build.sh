@@ -12,4 +12,5 @@ if [ $mode = "debug" ]; then
     odin run ./build/build.odin -file -debug -- -l $build_log_level
 else
     odin run ./build/build.odin -file -- -l $build_log_level
+    strip game7
 fi
