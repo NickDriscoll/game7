@@ -85,7 +85,6 @@ UserConfiguration :: struct {
     strs: map[ConfigKey]string,
 
     last_saved: time.Time,
-    autosave: bool,
 
     _interner: strings.Intern,
 }
@@ -99,7 +98,6 @@ init_user_config :: proc(allocator := context.allocator) -> UserConfiguration {
 
     strings.intern_init(&cfg._interner, allocator = allocator)
     cfg.last_saved = time.now()
-    cfg.autosave = true
 
     return cfg
 }

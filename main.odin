@@ -73,7 +73,7 @@ main :: proc() {
         app.game_state.time += scaled_dt
 
         // Save user configuration every 100ms
-        if app.user_config.autosave && time.diff(app.user_config.last_saved, app.current_time) >= 100_000_000 {
+        if app.user_config.flags[.ConfigAutosave] && time.diff(app.user_config.last_saved, app.current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
             tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
             camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
@@ -658,7 +658,7 @@ main :: proc() {
                 if !vkw.resize_window(gd, info) {
                     log.error("Failed to resize window")
                 }
-                resize_framebuffers(gd, renderer, window.resolution)
+                //resize_framebuffers(gd, renderer, window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {
                     user_config.ints[.WindowWidth] = i64(window.resolution.x)
@@ -677,7 +677,7 @@ main :: proc() {
             // Pre-command-buffer-recording work for imgui
             setup_imgui_textures(&app.vgd, &app.gui)
 
-            // Sync point where we wait if there are already 2 frames in the gfx queue
+            // Sync point where we wait if there are already N frames in the gfx queue
             {
                 scoped_event(&profiler, "CPU wait on GPU")
                 vkw.wait_frames_in_flight(&app.vgd)
@@ -693,9 +693,7 @@ main :: proc() {
                     break graphics
                 }
                 case: {
-                    log.errorf("Swapchain image acquire failed: %v", acquire_result)
-                    cancel_frame = true
-                    break graphics
+                    assert(false, "Unreachable code reached")
                 }
             }
 
