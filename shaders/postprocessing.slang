@@ -223,8 +223,9 @@ VertexOutput vertex_main(uint idx: SV_VertexID) {
 float4 fragment_main(VertexOutput input) {
     // Extract resolution from clip_from_screen matrix
     float2 framebuffer_resolution;
-    framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
-    framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
+    // framebuffer_resolution.x = 2.0 / u_data.clip_from_screen[0][0];
+    // framebuffer_resolution.y = 2.0 / u_data.clip_from_screen[1][1];
+    framebuffer_resolution = { 640.0, 480.0 };
 
     float2 sample_pos = input.uv;
     sample_pos += u_data.distortion_strength * 
