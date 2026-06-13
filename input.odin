@@ -397,6 +397,9 @@ poll_sdl2_events :: proc(
                     outputs.bools[verbtype] = false
                 }
             }
+            case: {
+                log.debugf("Unhandled SDL2 event: %v", event.type)
+            }
         }
     }
 

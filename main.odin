@@ -642,7 +642,7 @@ main :: proc() {
 
         // Render
         cancel_frame := window_minimized
-        graphics: if !cancel_frame {
+        render: if !cancel_frame {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
             full_swapchain_remake :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {
                 scoped_event(&profiler, "full_swapchain_remake")
@@ -690,7 +690,7 @@ main :: proc() {
                 case .SUBOPTIMAL_KHR, .ERROR_OUT_OF_DATE_KHR: {
                     app.vgd.resize_window = true
                     cancel_frame = true
-                    break graphics
+                    break render
                 }
                 case: {
                     assert(false, "Unreachable code reached")

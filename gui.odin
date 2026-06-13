@@ -581,6 +581,15 @@ render_imgui :: proc(
         allocator = context.temp_allocator,
     )
 
+    vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+        x = 0.0,
+        y = 0.0,
+        width = f32(framebuffer.resolution.x),
+        height = f32(framebuffer.resolution.y),
+        minDepth = 0.0,
+        maxDepth = 1.0
+    }})
+
     vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
 
     imgui_vertex_buffer, ok := vkw.get_buffer(gd, imgui_state.vertex_buffer)
