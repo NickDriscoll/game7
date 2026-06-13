@@ -297,7 +297,7 @@ app_startup :: proc(app: ^App) -> bool {
         context.allocator = app.per_scene_allocator
 
         // Initialize the renderer
-        app.renderer = init_renderer(&app.vgd, app.window.resolution, want_rt)
+        app.renderer = init_renderer(&app.vgd, want_rt)
         if !app.renderer.do_raytracing {
             log.warn("Raytracing features are not supported by your GPU.")
         }
@@ -363,28 +363,28 @@ app_shutdown :: proc(app: ^App) {
     sdl2.Quit()
     
     if len(app.global_track.allocation_map) > 0 {
-        fmt.eprintf("=== %v allocations not freed from global allocator: ===\n", len(app.global_track.allocation_map))
+        log.debugf("=== %v allocations not freed from global allocator: ===\n", len(app.global_track.allocation_map))
         for _, entry in app.global_track.allocation_map {
-            fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+            log.debugf("- %v bytes @ %v\n", entry.size, entry.location)
         }
     }
     if len(app.global_track.bad_free_array) > 0 {
-        fmt.eprintf("=== %v incorrect frees from global allocator: ===\n", len(app.global_track.bad_free_array))
+        log.debugf("=== %v incorrect frees from global allocator: ===\n", len(app.global_track.bad_free_array))
         for entry in app.global_track.bad_free_array {
-            fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+            log.debugf("- %p @ %v\n", entry.memory, entry.location)
         }
     }
     
     if len(app.scene_track.allocation_map) > 0 {
-        fmt.eprintf("=== %v allocations not freed from scene allocator: ===\n", len(app.scene_track.allocation_map))
+        log.debugf("=== %v allocations not freed from scene allocator: ===\n", len(app.scene_track.allocation_map))
         for _, entry in app.scene_track.allocation_map {
-            fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+            log.debugf("- %v bytes @ %v\n", entry.size, entry.location)
         }
     }
     if len(app.scene_track.bad_free_array) > 0 {
-        fmt.eprintf("=== %v incorrect frees from scene allocator: ===\n", len(app.scene_track.bad_free_array))
+        log.debugf("=== %v incorrect frees from scene allocator: ===\n", len(app.scene_track.bad_free_array))
         for entry in app.scene_track.bad_free_array {
-            fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+            log.debugf("- %p @ %v\n", entry.memory, entry.location)
         }
     }
 
@@ -774,10 +774,10 @@ scene_editor :: proc(
     }
     get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
         dims : [4]f32 = {
-            cast(f32)app.renderer.viewport_dimensions.offset.x,
-            cast(f32)app.renderer.viewport_dimensions.offset.y,
-            cast(f32)app.renderer.viewport_dimensions.extent.width,
-            cast(f32)app.renderer.viewport_dimensions.extent.height,
+            cast(f32)app.renderer.swapchain_dimensions.offset.x,
+            cast(f32)app.renderer.swapchain_dimensions.offset.y,
+            cast(f32)app.renderer.swapchain_dimensions.extent.width,
+            cast(f32)app.renderer.swapchain_dimensions.extent.height,
         }
         // @TODO: Clean up the view_ray apis
         ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
