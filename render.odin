@@ -34,6 +34,11 @@ MAX_UNIQUE_MODELS :: 4096
 MAX_DIRECTIONAL_LIGHTS :: 4
 MAX_POINT_LIGHTS :: 8
 
+FRAMEBUFFER_DIMENSIONS :: [2]u32 {640, 480}
+FB_WIDTH :: FRAMEBUFFER_DIMENSIONS.x
+FB_HEIGHT :: FRAMEBUFFER_DIMENSIONS.y
+FB_ASPECT_RATIO :: f32(FRAMEBUFFER_DIMENSIONS.x) / f32(FRAMEBUFFER_DIMENSIONS.y)
+
 // @TODO: Just make this zero somehow
 NULL_OFFSET :: 0xFFFFFFFF
 
@@ -418,7 +423,7 @@ new_frame :: proc(renderer: ^Renderer) {
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 }
 
-init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, want_rt: bool) -> Renderer {
+init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer {
     scoped_event(&profiler, "Initialize renderer")
 
     renderer: Renderer
@@ -590,8 +595,8 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, wa
             image_type = .D2,
             format = .R8G8B8A8_UNORM,
             extent = {
-                width = screen_size.x,
-                height = screen_size.y,
+                width = FB_WIDTH,
+                height = FB_HEIGHT,
                 depth = 1,
             },
             has_mipmaps = false,
@@ -609,8 +614,8 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, wa
             image_type = .D2,
             format = renderer.depth_format,
             extent = {
-                width = screen_size.x,
-                height = screen_size.y,
+                width = FB_WIDTH,
+                height = FB_HEIGHT,
                 depth = 1
             },
             has_mipmaps = false,
@@ -628,7 +633,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, wa
         renderer.main_framebuffer = {
             color_images = color_images,
             depth_image = depth_handle,
-            resolution = screen_size,
+            resolution = FRAMEBUFFER_DIMENSIONS,
             //clear_color = {0.1568627, 0.443137, 0.9176471, 1.0},
             clear_color = {0.0, 0.0, 0.0, 1.0},
             color_load_op = .CLEAR,
@@ -840,7 +845,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, screen_size: hlsl.uint2, wa
     return renderer
 }
 
-resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
+_resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
     vkw.delete_image(gd, renderer.main_framebuffer.color_images[0])
     vkw.delete_image(gd, renderer.main_framebuffer.depth_image)
 
@@ -1944,12 +1949,16 @@ render_scene :: proc(
         // Begin renderpass into main internal rendertarget
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
 
-        framebuffer_resolution := renderer.main_framebuffer.resolution
+        //framebuffer_resolution := renderer.main_framebuffer.resolution
         vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-            x = cast(f32)renderer.viewport_dimensions.offset.x,
-            y = cast(f32)renderer.viewport_dimensions.offset.y,
-            width = cast(f32)renderer.viewport_dimensions.extent.width,
-            height = cast(f32)renderer.viewport_dimensions.extent.height,
+            // x = cast(f32)renderer.viewport_dimensions.offset.x,
+            // y = cast(f32)renderer.viewport_dimensions.offset.y,
+            // width = cast(f32)renderer.viewport_dimensions.extent.width,
+            // height = cast(f32)renderer.viewport_dimensions.extent.height,
+            x = 0.0,
+            y = 0.0,
+            width = cast(f32)FB_WIDTH,
+            height = cast(f32)FB_HEIGHT,
             minDepth = 0.0,
             maxDepth = 1.0
         }})
@@ -1960,8 +1969,10 @@ render_scene :: proc(
                     y = 0
                 },
                 extent = vk.Extent2D {
-                    width = u32(framebuffer_resolution.x),
-                    height = u32(framebuffer_resolution.y),
+                    // width = u32(framebuffer_resolution.x),
+                    // height = u32(framebuffer_resolution.y),
+                    width = framebuffer.resolution.x,
+                    height = framebuffer.resolution.y
                 }
             }
         })
@@ -2060,14 +2071,14 @@ render_scene :: proc(
             }
         )
 
-        vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-            x = 0.0,
-            y = 0.0,
-            width = f32(framebuffer_resolution.x),
-            height = f32(framebuffer_resolution.y),
-            minDepth = 0.0,
-            maxDepth = 1.0
-        }})
+        // vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+        //     x = 0.0,
+        //     y = 0.0,
+        //     width = f32(framebuffer_resolution.x),
+        //     height = f32(framebuffer_resolution.y),
+        //     minDepth = 0.0,
+        //     maxDepth = 1.0
+        // }})
 
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
