@@ -454,13 +454,21 @@ main :: proc() {
             if app.gui.show_gui && app.user_config.flags[.ShowAllocatorStats] {
                 if imgui.Begin("Allocator stats", &app.user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
-                    imgui.Text("Total global memory allocated: %i", app.global_track.current_memory_allocated)
-                    imgui.Text("Peak global memory allocated: %i", app.global_track.peak_memory_allocated)
+
+                    global_allocated_bytes := app.global_track.current_memory_allocated
+                    global_peak_bytes := app.global_track.peak_memory_allocated
+                    imgui.Text("Total global memory allocated: %fMB", f32(global_allocated_bytes) / 1024 / 1024)
+                    imgui.Text("Peak global memory allocated: %i", global_peak_bytes)
                     imgui.Separator()
+
+                    scene_allocated_bytes := app.scene_track.current_memory_allocated
+                    scene_peak_bytes := app.scene_track.peak_memory_allocated
                     imgui.Text("Per-scene allocator stats")
-                    imgui.Text("Total per-scene memory allocated: %i", app.scene_track.current_memory_allocated)
-                    imgui.Text("Peak per-scene memory allocated: %i", app.scene_track.peak_memory_allocated)
+                    imgui.Text("Total per-scene memory allocated: %i", scene_allocated_bytes)
+                    imgui.Text("Peak per-scene memory allocated: %i", scene_peak_bytes)
                     imgui.Separator()
+
+                    //@TODO: Add temp allocator stats
                 }
                 imgui.End()
             }

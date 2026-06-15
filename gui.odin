@@ -405,6 +405,22 @@ setup_imgui_textures :: proc(
         imgui.Render()
     }
 
+    image_premultiply_alpha :: proc(bytes_slice: []byte, bytes_per_pixel: int) {
+        for i := 0; i < len(bytes_slice); i += bytes_per_pixel {
+            pixel := hlsl.float4 {
+                f32(bytes_slice[i]) / 255.0,
+                f32(bytes_slice[i + 1]) / 255.0,
+                f32(bytes_slice[i + 2]) / 255.0,
+                f32(bytes_slice[i + 3]) / 255.0,
+            }
+            pixel.rgb *= pixel.a
+            bytes_slice[i] = byte(pixel.r * 255)
+            bytes_slice[i + 1] = byte(pixel.g * 255)
+            bytes_slice[i + 2] = byte(pixel.b * 255)
+            bytes_slice[i + 3] = byte(pixel.a * 255)
+        }
+    }
+
     draw_data := imgui.GetDrawData()
     tex_count := draw_data.Textures.Size
     log.debugf("Dear ImGUI texture processing on frame #%v", gd.frame_count)
@@ -445,6 +461,10 @@ setup_imgui_textures :: proc(
                     name = "Dear ImGUI font atlas",
                 }
                 font_bytes_slice := slice.from_ptr(data, int(width * height * tex.BytesPerPixel))
+
+                // Premultiply alpha
+                image_premultiply_alpha(font_bytes_slice, int(tex.BytesPerPixel))
+
                 tex_handle, ok := vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
                 if !ok {
                     log.error("Failed to upload imgui font atlas data.")
@@ -473,7 +493,7 @@ setup_imgui_textures :: proc(
 
                 // tex.Pixels points to the whole image, so we need to manually
                 // pick out the rows referred to by update_rect to copy to the image
-                format_pixel_size := vkw.vk_format_pixel_size(tex_image.format)
+                format_pixel_size := int(tex.BytesPerPixel)
                 upload_pitch := int(update_rect.extent.width) * format_pixel_size
                 subrect_pixels := make([dynamic]byte, upload_pitch * int(update_rect.extent.height), temp_allocator)
                 for y in 0..<int(update_rect.extent.height) {
@@ -482,6 +502,9 @@ setup_imgui_textures :: proc(
                     sp := &subrect_pixels[y * upload_pitch]
                     mem.copy_non_overlapping(sp, in_ptr, upload_pitch)
                 }
+
+                // Premultiply alpha
+                image_premultiply_alpha(subrect_pixels[:], format_pixel_size)
 
                 vkw.sync_update_image_data(
                     gd,

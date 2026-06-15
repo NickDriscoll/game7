@@ -19,7 +19,7 @@ struct ImguiUniforms {
 [[vk::push_constant]]
 cbuffer PushConstants
 {
-    uint font_idx;
+    uint texture_idx;
     uint sampler_idx;
     uint imgui_vertex_offset;
     ImguiUniforms *u_data;
@@ -43,6 +43,11 @@ ImguiVertexOutput vertex_main(uint id: SV_VertexID) {
 }
 
 [shader("fragment")]
-float4 fragment_main(ImguiVertexOutput input) {
-    return input.color * textures[font_idx].Sample(samplers[sampler_idx], input.uv);
+float4 fragment_main(ImguiVertexOutput vertex) {
+    // float4 sample = textures[texture_idx].Sample(samplers[sampler_idx], vertex.uv);
+    // float3 final_color = (vertex.color.rgb * vertex.color.a) * sample.rgb;// * sample.a;
+    // float final_alpha = sample.a * vertex.color.a;
+    // return float4(final_color, final_alpha);
+    vertex.color.rgb *= vertex.color.a;
+    return vertex.color * textures[texture_idx].Sample(samplers[sampler_idx], vertex.uv);
 }
