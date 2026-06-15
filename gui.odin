@@ -413,7 +413,7 @@ setup_imgui_textures :: proc(
                 f32(bytes_slice[i + 2]) / 255.0,
                 f32(bytes_slice[i + 3]) / 255.0,
             }
-            pixel.rgb *= pixel.a
+            pixel *= pixel.a
             bytes_slice[i] = byte(pixel.r * 255)
             bytes_slice[i + 1] = byte(pixel.g * 255)
             bytes_slice[i + 2] = byte(pixel.b * 255)
