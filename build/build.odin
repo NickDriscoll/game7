@@ -12,6 +12,7 @@ import "core:strings"
 // Shader entry point should be named "<stage>_main"
 
 BUILT_COMPILER_VENDOR_LIBS_LOCKFILE :: ".built_odin_vendor_libs"
+BUILT_ODIN_IMGUI_LOCKFILE :: ".built_odin_imgui"
 
 // List of all .slang files with a vertex shader entry point
 VERTEX_SHADERS : []string : {
@@ -305,6 +306,26 @@ main :: proc() {
         }
     }
 
+    // Build odin-imgui
+    imgui_python_process: os.Process
+    if !os.exists(BUILT_ODIN_IMGUI_LOCKFILE) {
+        python_command := os.Process_Desc {
+            command = {
+                "python",
+                "build.py",
+            },
+        }
+
+        os.change_directory("./odin-imgui")
+        p, error := os.process_start(python_command)
+        if error != nil {
+            log.errorf("Error launching python: %#v", error)
+            return
+        }
+        imgui_python_process = p
+        os.change_directory("..")
+    }
+
     // Wait on the shader compilers
     log.infof("waiting on shader compilation for %v shaders...", len(processes))
     for p in processes {
@@ -318,6 +339,20 @@ main :: proc() {
                 p.shader_name
             )
             return
+        }
+    }
+
+    // Wait on odin-imgui build
+    if !os.exists(BUILT_ODIN_IMGUI_LOCKFILE) {
+        log.info("waiting on odin-imgui build...")
+        p_state, _ := os.process_wait(imgui_python_process)
+        if p_state.exit_code != 0 {
+            log.errorf("odin-imgui build returned with code %v", p_state.exit_code)
+        } else {
+            _, err := os.create(BUILT_ODIN_IMGUI_LOCKFILE)
+            if err != nil {
+                log.errorf("Creating odin-imgui lockfile failed with %v", err)
+            }
         }
     }
 
