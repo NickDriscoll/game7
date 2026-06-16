@@ -292,6 +292,8 @@ MaterialHandle :: distinct hm.Handle
 // @TODO: Add good inline documentation for each field of Renderer
 // This is probably the most confusing part of the codebase
 Renderer :: struct {
+    vgd: ^vkw.VulkanGraphicsDevice,              // Pointer to the graphics device
+
     index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
     indices_head: u32,
     indices_ptr: vk.DeviceAddress,
@@ -436,6 +438,8 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
     for i in 0..<vkw.TOTAL_TLAS_DESCRIPTORS {
         renderer.scene_TLASes[i].generation = 0xFFFFFFFF
     }
+
+    renderer.vgd = gd
 
     renderer_new_scene(&renderer)
 

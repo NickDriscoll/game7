@@ -535,80 +535,6 @@ main :: proc() {
             app.renderer.uniforms.view_position.a = 1.0
         }
 
-        // Draw static models
-        {
-            scoped_event(&profiler, "Draw static models")
-            for id, model in app.game_state.static_models {
-                tform := &app.game_state.transforms[id]
-
-                mat := get_transform_matrix(tform^)
-                mat[3][0] += model.pos_offset.x
-                mat[3][1] += model.pos_offset.y
-                mat[3][2] += model.pos_offset.z
-                draw := StaticDraw {
-                    world_from_model = mat,
-                    flags = model.flags
-                }
-                draw_ps1_static_mesh(&app.vgd, &app.renderer, model.handle, draw)
-
-                if .Glowing in model.flags {
-                    // Light source
-                    l := default_point_light()
-                    l.world_position = tform.position
-                    l.color = {0.0, 1.0, 0.0}
-                    l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
-                    do_point_light(&app.renderer, l)
-                }
-            }
-        }
-
-        {
-            scoped_event(&profiler, "Draw skinned models")
-            // Draw skinned models
-            for id, model in app.game_state.skinned_models {
-                tform := &app.game_state.transforms[id]
-
-                mat := get_transform_matrix(tform^)
-                mat[3][0] += model.pos_offset.x
-                mat[3][1] += model.pos_offset.y
-                mat[3][2] += model.pos_offset.z
-                draw := SkinnedDraw {
-                    world_from_model = mat,
-                    anim_idx = model.anim_idx,
-                    anim_t = model.anim_t,
-                    //flags = model.flags
-                }
-                draw_ps1_skinned_mesh(&app.vgd, &app.renderer, model.handle, &draw)
-
-                if .Glowing in model.flags {
-                    // Light source
-                    l := default_point_light()
-                    l.world_position = tform.position
-                    l.color = {0.0, 1.0, 0.0}
-                    l.intensity = light_flicker(app.game_state.rng_seed, app.game_state.time)
-                    do_point_light(&app.renderer, l)
-                }
-            }
-        }
-
-        {
-            scoped_event(&profiler, "Draw debug models")
-            // Draw debug models
-            for id, model in app.game_state.debug_models {
-                tform := &app.game_state.transforms[id]
-
-                mat := get_transform_matrix(tform^, model.scale)
-                mat[3][0] += model.pos_offset.x
-                mat[3][1] += model.pos_offset.y
-                mat[3][2] += model.pos_offset.z
-                draw := DebugDraw {
-                    world_from_model = mat,
-                    color = model.color
-                }
-                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &draw)
-            }
-        }
-
         // Window update
         {
             scoped_event(&profiler, "Window update")
@@ -628,11 +554,10 @@ main :: proc() {
 
         audio_tick(&app.audio_system)
 
-        @static window_minimized := false
         {
             value, ok := output_verbs.bools[.MinimizeWindow]
             if ok {
-                window_minimized = value
+                app.window.minimized = value
                 if !value {
                     app.vgd.resize_window = true
                 }
@@ -640,7 +565,7 @@ main :: proc() {
         }
 
         // Render
-        cancel_frame := window_minimized
+        cancel_frame := app.window.minimized
         render: if !cancel_frame {
             scoped_event(&profiler, "Everything from remaking the window to presenting the swapchain")
             full_swapchain_remake :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, user_config: ^UserConfiguration, window: Window) {

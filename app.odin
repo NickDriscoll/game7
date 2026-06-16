@@ -32,8 +32,8 @@ Window :: struct {
     resolution: [2]u32,
     display_resolution: [2]u32,
     present_mode: vk.PresentModeKHR,
-    flags: sdl2.WindowFlags,
     window: ^sdl2.Window,
+    minimized: bool,
 }
 
 AppOption :: enum {
@@ -233,11 +233,11 @@ app_startup :: proc(app: ^App) -> bool {
             }
 
             // Determine SDL window flags
-            app.window.flags = {.VULKAN,.RESIZABLE}
+            flags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
             if app.user_config.flags[.ExclusiveFullscreen] {
-                app.window.flags += {.FULLSCREEN}
+                flags += {.FULLSCREEN}
             } else if app.user_config.flags[.BorderlessFullscreen] {
-                app.window.flags += {.BORDERLESS}
+                flags += {.BORDERLESS}
             }
 
             // Determine SDL window position
@@ -257,7 +257,7 @@ app_startup :: proc(app: ^App) -> bool {
                 app.window.position.y,
                 i32(app.window.resolution.x),
                 i32(app.window.resolution.y),
-                app.window.flags
+                flags
             )
             sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop]))
         }

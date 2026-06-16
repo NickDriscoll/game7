@@ -858,6 +858,8 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphi
                     collision.velocity.xy += char.deceleration_speed * to_zero
                 }
                 collision.velocity.xy += char.acceleration.xy
+
+                // Limit velocity magnitude to this_frame_move_speed
                 if math.abs(hlsl.length(collision.velocity.xy)) > this_frame_move_speed {
                     collision.velocity.xy = this_frame_move_speed * hlsl.normalize(collision.velocity.xy)
                 }
@@ -1092,6 +1094,79 @@ tick_moved_entity :: proc(game_state: ^GameState) {
             mmat := get_transform_matrix(tform^)
             rebuild_static_triangle_mesh(mesh, mmat)
         }
+    }
+}
+
+draw_static_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
+    scoped_event(&profiler, "Draw static models")
+    for id, model in game_state.static_models {
+        tform := &game_state.transforms[id]
+
+        mat := get_transform_matrix(tform^)
+        mat[3][0] += model.pos_offset.x
+        mat[3][1] += model.pos_offset.y
+        mat[3][2] += model.pos_offset.z
+        draw := StaticDraw {
+            world_from_model = mat,
+            flags = model.flags
+        }
+        draw_ps1_static_mesh(renderer.vgd, renderer, model.handle, draw)
+
+        if .Glowing in model.flags {
+            // Light source
+            l := default_point_light()
+            l.world_position = tform.position
+            l.color = {0.0, 1.0, 0.0}
+            l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+            do_point_light(renderer, l)
+        }
+    }
+}
+
+draw_skinned_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
+    scoped_event(&profiler, "Draw skinned models")
+    // Draw skinned models
+    for id, model in game_state.skinned_models {
+        tform := &game_state.transforms[id]
+
+        mat := get_transform_matrix(tform^)
+        mat[3][0] += model.pos_offset.x
+        mat[3][1] += model.pos_offset.y
+        mat[3][2] += model.pos_offset.z
+        draw := SkinnedDraw {
+            world_from_model = mat,
+            anim_idx = model.anim_idx,
+            anim_t = model.anim_t,
+            //flags = model.flags
+        }
+        draw_ps1_skinned_mesh(renderer.vgd, renderer, model.handle, &draw)
+
+        if .Glowing in model.flags {
+            // Light source
+            l := default_point_light()
+            l.world_position = tform.position
+            l.color = {0.0, 1.0, 0.0}
+            l.intensity = light_flicker(game_state.rng_seed, game_state.time)
+            do_point_light(renderer, l)
+        }
+    }
+}
+
+draw_debug_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
+    scoped_event(&profiler, "Draw debug models")
+    // Draw debug models
+    for id, model in game_state.debug_models {
+        tform := &game_state.transforms[id]
+
+        mat := get_transform_matrix(tform^, model.scale)
+        mat[3][0] += model.pos_offset.x
+        mat[3][1] += model.pos_offset.y
+        mat[3][2] += model.pos_offset.z
+        draw := DebugDraw {
+            world_from_model = mat,
+            color = model.color
+        }
+        draw_debug_mesh(renderer.vgd, renderer, game_state.sphere_mesh, &draw)
     }
 }
 
@@ -1552,10 +1627,15 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
         tick_hovering_enemies(game_state, dt)
         tick_damage_events(game_state, audio_system)
         tick_moved_entity(game_state)
-        // Recreate per-frame dynamic allocations
-        game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
-        game_state.moved_collision = make([dynamic]MovedEntityEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
+
+        // Draw commands
+        draw_static_models(game_state, renderer)
+        draw_skinned_models(game_state, renderer)
+        draw_debug_models(game_state, renderer)
     }
+    // Recreate per-frame dynamic allocations
+    game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
+    game_state.moved_collision = make([dynamic]MovedEntityEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
 }
 
 // Returns the size in bytes of component when serialized
@@ -2162,9 +2242,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     yawmat := yaw_rotation_matrix(-camera.yaw)
     pos_offset := lookat_controller.distance * hlsl.normalize(yawmat * hlsl.normalize(pitchmat * HEMISPHERE_START_POS))
 
-    // Camera follow point chases player
-    // target_pt := char.collision.position
-    // game_state.camera_follow_point = exponential_smoothing(game_state.camera_follow_point, target_pt, game_state.camera_follow_speed, dt)
+    // Camera follow point chases target
     lookat_controller.current_focal_point = exponential_smoothing(
         lookat_controller.current_focal_point,
         target.position,

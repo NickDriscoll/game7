@@ -1,0 +1,13 @@
+List of things to fix with the code:
+    - app_startup(): Can probably move window fullscreen handling out of the window creation code
+    - init_vulkan(): What did I mean with "// Set this handle to invalid so that it will be lazily allocated"?
+    - render.odin: I should really make a GPUBumpAllocator or something bc there's a lot of manual management of "renderer.*_head" variables
+    - render.odin: Vertex positions really shouldn't be half4, can I change it to half3?
+    - init_gamestate(): Skybox texture is currently hardcoded. We want to add it to the level file
+    - General: We should prefer reading from memory-mapped files instead of filling a buffer in memory with their contents
+    - We need to manually free Vulkan resources before doing free_all(scene_allocator)
+    - Figure out what to do about vkw.Image_Create.has_mipmaps
+    - Instead of transforming collision meshes into world space, just transform collision sphere into meshes model space
+    - Make level file format block-based instead of having it be so rigid
+    - Use Odin's core handlemap type. Mine sucks and iteration is broken which is causing some bugs.
+    - 
