@@ -30,8 +30,9 @@ cd game7
 git submodule update --init --recursive
 ```
 
-On Linux, install the SDL2 developer libraries and libc++-19 for imgui
+On Linux, install clang, the SDL2 developer libraries, and libc++-19 for imgui
 ```
+sudo apt install clang
 sudo apt install libsdl2-dev
 sudo apt install libc++-19-dev
 ```
@@ -47,10 +48,11 @@ sudo apt install libc++-19-dev
 ```
 
 ### Dependencies
-    - Odin standard library
-    - SDL2
-    - Vulkan
-    - Vulkan Memory Allocator
-    - Dear ImGUI
-    - cgltf
-    - 
+- Odin standard library
+- SDL2
+- Vulkan 1.3
+- desktop_vulkan_wrapper (My personal Vulkan helper lib)
+- Dear ImGUI
+- cgltf
+- stb_image
+- stb_vorbis
