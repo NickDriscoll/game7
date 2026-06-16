@@ -413,11 +413,10 @@ setup_imgui_textures :: proc(
                 f32(bytes_slice[i + 2]) / 255.0,
                 f32(bytes_slice[i + 3]) / 255.0,
             }
-            pixel *= pixel.a
-            bytes_slice[i] = byte(pixel.r * 255)
-            bytes_slice[i + 1] = byte(pixel.g * 255)
-            bytes_slice[i + 2] = byte(pixel.b * 255)
-            bytes_slice[i + 3] = byte(pixel.a * 255)
+            new_pixel := pixel.rgb * pixel.a
+            bytes_slice[i] = byte(new_pixel.r * 255.0)
+            bytes_slice[i + 1] = byte(new_pixel.g * 255.0)
+            bytes_slice[i + 2] = byte(new_pixel.b * 255.0)
         }
     }
 
@@ -463,7 +462,7 @@ setup_imgui_textures :: proc(
                 font_bytes_slice := slice.from_ptr(data, int(width * height * tex.BytesPerPixel))
 
                 // Premultiply alpha
-                image_premultiply_alpha(font_bytes_slice, int(tex.BytesPerPixel))
+                //image_premultiply_alpha(font_bytes_slice, int(tex.BytesPerPixel))
 
                 tex_handle, ok := vkw.sync_create_image_with_data(gd, &info, font_bytes_slice)
                 if !ok {
@@ -504,7 +503,7 @@ setup_imgui_textures :: proc(
                 }
 
                 // Premultiply alpha
-                image_premultiply_alpha(subrect_pixels[:], format_pixel_size)
+                //image_premultiply_alpha(subrect_pixels[:], format_pixel_size)
 
                 vkw.sync_update_image_data(
                     gd,

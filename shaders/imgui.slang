@@ -44,23 +44,11 @@ ImguiVertexOutput vertex_main(uint id: SV_VertexID) {
 
 [shader("fragment")]
 float4 fragment_main(ImguiVertexOutput vertex) {
-    // float4 sample = textures[texture_idx].Sample(samplers[sampler_idx], vertex.uv);
-    // float3 final_color = (vertex.color.rgb * vertex.color.a) * sample.rgb;// * sample.a;
-    // float final_alpha = sample.a * vertex.color.a;
-    // return float4(final_color, final_alpha);
-    float4 premultiplied_vertex_color = vertex.color * vertex.color.a;
-    return premultiplied_vertex_color * textures[texture_idx].Sample(samplers[sampler_idx], vertex.uv);
+    float4 sample = textures[texture_idx].Sample(samplers[sampler_idx], vertex.uv);
+
+    // @TODO: Should be able to premultiply texture data on the CPU,
+    // but it doesn't look right even though it should be equivalent to the following
+    float alpha = sample.a * vertex.color.a;
+    float3 color = vertex.color.rgb * sample.rgb * alpha;
+    return float4(color, alpha);
 }
-
-/*
-old:
-    texel := v_color.rgba * sample.rgba;
-    FB = texel * texel.a + FB * (1.0 - texel.a);
-
-new:
-    sample_data := float4(sample.rgb * sample.a, sample.a);
-    v_color := float4(v_color.rgb * v_color.a, v_color.a);
-    texel := sample_data * v_color;
-    FB = texel + FB * (1.0 - texel.a);
-
-*/
