@@ -436,7 +436,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
     renderer: Renderer
     renderer.do_raytracing = want_rt && (.Raytracing in gd.support_flags)
     for i in 0..<vkw.TOTAL_TLAS_DESCRIPTORS {
-        renderer.scene_TLASes[i].generation = 0xFFFFFFFF
+        renderer.scene_TLASes[i].gen = 0xFFFFFFFF
     }
 
     renderer.vgd = gd
@@ -916,7 +916,7 @@ _resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer,
 swapchain_framebuffer :: proc(gd: ^vkw.VulkanGraphicsDevice, swapchain_idx: u32, resolution: [2]u32) -> vkw.Framebuffer {
     fb: vkw.Framebuffer
     fb.color_images[0] = gd.swapchain_images[swapchain_idx]
-    fb.depth_image = {generation = NULL_OFFSET, index = NULL_OFFSET}
+    fb.depth_image = {gen = NULL_OFFSET, idx = NULL_OFFSET}
     fb.resolution.x = resolution.x
     fb.resolution.y = resolution.y
     fb.color_load_op = .CLEAR
@@ -1142,11 +1142,11 @@ add_vertex_colors :: proc(
     renderer.colors_head += colors_len
 
     when HandleType == Static_Mesh_Handle {
-        mesh, _ := hm.get(renderer.cpu_static_meshes, handle)
+        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
         gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.color_offset = color_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(&renderer.cpu_skinned_meshes, handle) or_return
         mesh.color_offset = color_start
     } else {
         panic("Invalid arg type")
@@ -1169,11 +1169,11 @@ add_vertex_uvs :: proc(
     renderer.uvs_head += uvs_len
 
     when HandleType == Static_Mesh_Handle {
-        mesh, _ := hm.get(renderer.cpu_static_meshes, handle)
+        mesh, _ := hm.get(&renderer.cpu_static_meshes, handle)
         gpu_mesh := &renderer.gpu_static_meshes[mesh.gpu_mesh_idx]
         gpu_mesh.uv_offset = uv_start
     } else when HandleType == Skinned_Mesh_Handle {
-        mesh := hm.get(renderer.cpu_skinned_meshes, hm.Handle(handle)) or_return
+        mesh := hm.get(&renderer.cpu_skinned_meshes, handle) or_return
         mesh.uv_offset = uv_start
     } else {
         panic("Invalid arg type")
@@ -1204,7 +1204,7 @@ draw_ps1_static_meshes :: proc(
     draw_data: []StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_meshes")
-    data := get_static_model(r^, handle)
+    data := get_static_model(r, handle)
     for prim, i in data.primitives {
         draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1216,7 +1216,7 @@ draw_ps1_static_mesh :: proc(
     draw_data: StaticDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_static_mesh")
-    data := get_static_model(r^, handle)
+    data := get_static_model(r, handle)
     for prim in data.primitives {
         draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
     }
@@ -1229,7 +1229,7 @@ draw_ps1_skinned_mesh :: proc(
     draw_data: ^SkinnedDraw,
 ) {
     scoped_event(&profiler, "draw_ps1_skinned_mesh")
-    data := get_skinned_model(r^, handle)
+    data := get_skinned_model(r, handle)
     draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
         draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
@@ -1242,7 +1242,7 @@ draw_debug_mesh :: proc(
     handle: StaticModelHandle,
     draw_data: ^DebugDraw
 ) {
-    model := get_static_model(renderer^, handle)
+    model := get_static_model(renderer, handle)
     for prim in model.primitives {
         draw_debug_primtive(gd, renderer, prim.mesh, draw_data)
     }
@@ -1256,7 +1256,7 @@ draw_debug_primtive :: proc(
 ) -> bool {
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1283,7 +1283,7 @@ draw_ps1_static_primitives :: proc(
     scoped_event(&profiler, "draw_ps1_static_primitives")
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1313,7 +1313,7 @@ draw_ps1_static_primitive :: proc(
     scoped_event(&profiler, "draw_ps1_static_primitive")
     renderer.dirty_flags += {.Instance,.Draw}
 
-    mesh, ok := hm.get(renderer.cpu_static_meshes, mesh_handle)
+    mesh, ok := hm.get(&renderer.cpu_static_meshes, mesh_handle)
     if !ok {
         log.warn("Unable to get static mesh from handle.")
         return false
@@ -1375,7 +1375,7 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
 
     for skinned_instance in renderer.cpu_skinned_instances {
         renderer.dirty_flags += {.Mesh}
-        mesh, _ := hm.get(renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
+        mesh, _ := hm.get(&renderer.cpu_skinned_meshes, skinned_instance.mesh_handle)
         anim := renderer.animations[skinned_instance.animation_idx]
         anim_t := skinned_instance.animation_time
 
@@ -1541,7 +1541,7 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
 
             // Queue BLAS rebuilds
             if renderer.do_raytracing {
-                static_mesh, _ := hm.get(renderer.cpu_static_meshes, mesh.static_mesh_handle)
+                static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
 
                 queue_blas_build(
                     gd,
@@ -1606,7 +1606,7 @@ build_scene_TLAS :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
         for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
-            static_mesh, _ := hm.get(renderer.cpu_static_meshes, static_instance.mesh_handle)
+            static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
 
             tform: vk.TransformMatrixKHR
             for row in 0..<3 {
@@ -1659,7 +1659,7 @@ build_scene_TLAS :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
                 type = .TOP_LEVEL,
                 flags = nil,
                 mode = .BUILD,
-                src = { index = 0xFFFFFFFF },
+                src = { idx = 0xFFFFFFFF },
                 // dst = 0,
                 geometries = geos,
                 prim_counts = prim_counts,
@@ -1750,17 +1750,17 @@ render_scene :: proc(
     }
 
     // Set static mesh BLAS counters back to zero for TLAS building
-    for &mesh in renderer.cpu_static_meshes.values {
+    hm.iterate_callback(&renderer.cpu_static_meshes, nil, proc(mesh: ^CPUStaticMesh, handle: hm.Handle, _: rawptr) {
         mesh.current_blas_head = 0
-    }
+    })
 
     // Recreate scene TLAS
     build_scene_TLAS(gd, renderer)
 
     // Set static mesh BLAS counters back to zero for next frame
-    for &mesh in renderer.cpu_static_meshes.values {
+    hm.iterate_callback(&renderer.cpu_static_meshes, nil, proc(mesh: ^CPUStaticMesh, handle: hm.Handle, _: rawptr) {
         mesh.current_blas_head = 0
-    }
+    })
 
     uniforms_offset := u32(gd.frame_count) % gd.frames_in_flight
 
@@ -1781,7 +1781,13 @@ render_scene :: proc(
     // Material buffer
     if .Material in renderer.dirty_flags {
         scoped_event(&profiler, "Material buffer upload")
-        vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.materials.values[:])
+        mats := make([dynamic]Material, 0, hm.len(renderer.materials), context.temp_allocator)
+        hm.iterate_callback(&renderer.materials, &mats, proc(mat: ^Material, _: hm.Handle, userdata: rawptr) {
+            mats := cast(^[dynamic]Material)userdata
+            append(mats, mat^)
+        })
+
+        vkw.sync_write_buffer(gd, renderer.material_buffer, mats[:])
     }
 
     // Takes the  list of instances and populates the GPU instance buffer
@@ -1800,7 +1806,7 @@ render_scene :: proc(
 
             // Sort instances by mesh handle
             slice.sort_by(instances, proc(i, j: T) -> bool {
-                return i.mesh_handle.index < j.mesh_handle.index
+                return i.mesh_handle.idx < j.mesh_handle.idx
             })
 
             // With the understanding that these instances are already sorted by
@@ -1813,7 +1819,7 @@ render_scene :: proc(
             for current_instance < len(instances) {
                 scoped_event(&profiler, "Instance loop iteration")
                 current_mesh_handle := instances[current_instance].mesh_handle
-                current_mesh, ok := hm.get(renderer.cpu_static_meshes, current_mesh_handle)
+                current_mesh, ok := hm.get(&renderer.cpu_static_meshes, current_mesh_handle)
                 if !ok {
                     log.error("Unable to get current_mesh")
                 }
@@ -1832,7 +1838,7 @@ render_scene :: proc(
 
                     material_idx : u32 = 0
                     when T == CPUStaticInstance {
-                        material_idx = inst.material_handle.index
+                        material_idx = inst.material_handle.idx
                     }
 
                     color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
@@ -2116,7 +2122,7 @@ render_scene :: proc(
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
-            color_target = renderer.main_framebuffer.color_images[0].index,
+            color_target = renderer.main_framebuffer.color_images[0].idx,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
             uniforms_address = uniform_buf.address
         })
@@ -2209,24 +2215,24 @@ load_gltf_textures :: proc(gd: ^vkw.VulkanGraphicsDevice, gltf_data: ^cgltf.data
 StaticModelHandle :: distinct hm.Handle
 SkinnedModelHandle :: distinct hm.Handle
 
-get_static_model :: proc(renderer: Renderer, handle: StaticModelHandle) -> ^StaticModel {
-    model, res := hm.get(renderer.loaded_static_models, handle)
+get_static_model :: proc(renderer: ^Renderer, handle: StaticModelHandle) -> ^StaticModel {
+    model, res := hm.get(&renderer.loaded_static_models, handle)
     if !res {
         log.error("Unable to get static model.")
     }
     return model
 }
 
-get_skinned_model :: proc(renderer: Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
-    model, res := hm.get(renderer.loaded_skinned_models, handle)
+get_skinned_model :: proc(renderer: ^Renderer, handle: SkinnedModelHandle) -> ^SkinnedModel {
+    model, res := hm.get(&renderer.loaded_skinned_models, handle)
     if !res {
         log.error("Unable to get skinned model.")
     }
     return model
 }
 
-get_material :: proc(renderer: Renderer, handle: MaterialHandle) -> ^Material {
-    mat, res := hm.get(renderer.materials, handle)
+get_material :: proc(renderer: ^Renderer, handle: MaterialHandle) -> ^Material {
+    mat, res := hm.get(&renderer.materials, handle)
     if !res {
         log.error("Unable to get material.")
     }
@@ -2244,12 +2250,32 @@ load_gltf_static_model :: proc(
     spath := string(path)
     glb_filename := filepath.base(spath)
 
-    for model, i in renderer.loaded_static_models.values {
-        if model.name == glb_filename {
-            // Early out if this glb is already loaded
-            return StaticModelHandle(renderer.loaded_static_models.handles[i])
+    // Iterate over loaded models and early-out if we've already loaded this one
+    {
+        MyData :: struct {
+            glb_filename: string,
+            early_out: Maybe(StaticModelHandle),
+        }
+        w := MyData {
+            glb_filename = glb_filename,
+        }
+        hm.iterate_callback(&renderer.loaded_static_models, &w, proc(model: ^StaticModel, h: hm.Handle, userdata: rawptr) {
+            w := cast(^MyData)userdata
+            if model.name == w.glb_filename {
+                w.early_out = StaticModelHandle(h)
+            }
+        })
+        handle, ok := w.early_out.?
+        if ok {
+            return handle
         }
     }
+    // for model, i in renderer.loaded_static_models.values {
+    //     if model.name == glb_filename {
+    //         // Early out if this glb is already loaded
+    //         return StaticModelHandle(renderer.loaded_static_models.handles[i])
+    //     }
+    // }
 
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
@@ -2323,7 +2349,7 @@ load_gltf_static_model :: proc(
             has_material := glb_material != nil
 
             bindless_image_idx := vkw.Texture_Handle {
-                index = NULL_OFFSET
+                idx = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
                 tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
@@ -2336,7 +2362,7 @@ load_gltf_static_model :: proc(
                 base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
             }
             material := Material {
-                color_texture = bindless_image_idx.index,
+                color_texture = bindless_image_idx.idx,
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
@@ -2401,12 +2427,32 @@ load_gltf_skinned_model :: proc(
     spath := string(path)
     glb_filename := filepath.base(spath)
 
-    for model, i in renderer.loaded_static_models.values {
-        if model.name == glb_filename {
-            // Early out if this glb is already loaded
-            return SkinnedModelHandle(renderer.loaded_static_models.handles[i])
+    // Iterate over loaded models and early-out if we've already loaded this one
+    {
+        MyData :: struct {
+            glb_filename: string,
+            early_out: Maybe(SkinnedModelHandle),
+        }
+        w := MyData {
+            glb_filename = glb_filename,
+        }
+        hm.iterate_callback(&renderer.loaded_skinned_models, &w, proc(model: ^SkinnedModel, h: hm.Handle, userdata: rawptr) {
+            w := cast(^MyData)userdata
+            if model.name == w.glb_filename {
+                w.early_out = SkinnedModelHandle(h)
+            }
+        })
+        handle, ok := w.early_out.?
+        if ok {
+            return handle
         }
     }
+    // for model, i in renderer.loaded_static_models.values {
+    //     if model.name == glb_filename {
+    //         // Early out if this glb is already loaded
+    //         return SkinnedModelHandle(renderer.loaded_static_models.handles[i])
+    //     }
+    // }
 
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
@@ -2583,7 +2629,7 @@ load_gltf_skinned_model :: proc(
             has_material := glb_material != nil
 
             bindless_image_idx := vkw.Texture_Handle {
-                index = NULL_OFFSET
+                idx = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
                 tex := glb_material.pbr_metallic_roughness.base_color_texture.texture
@@ -2596,7 +2642,7 @@ load_gltf_skinned_model :: proc(
                 base_color = hlsl.float4(glb_material.pbr_metallic_roughness.base_color_factor)
             }
             material := Material {
-                color_texture = bindless_image_idx.index,
+                color_texture = bindless_image_idx.idx,
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
@@ -2641,7 +2687,7 @@ load_gltf_skinned_model :: proc(
 
 
 
-graphics_gui :: proc(gd: vkw.VulkanGraphicsDevice, renderer: ^Renderer, do_window: ^bool) {
+graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
     if do_window^ {
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
@@ -2683,21 +2729,32 @@ graphics_gui :: proc(gd: vkw.VulkanGraphicsDevice, renderer: ^Renderer, do_windo
             imgui.Separator()
 
             if imgui.CollapsingHeader("Loaded images") {
-                for i in 0..<len(gd.images.values) {
-                    fmt.sbprintf(&sb, "Image at #%v", i)
-                    cs, _ := strings.to_cstring(&sb)
-                    imgui.Text("%s", cs)
-                    strings.builder_reset(&sb)
-
-                    image := &gd.images.values[i]
+                hm.iterate_callback(&renderer.vgd.images, nil, proc(image: ^vkw.Image, h: hm.Handle, userdata: rawptr) {
+                    imgui.Text("Not final whatsoever")
                     as := f32(image.extent.width) / f32(image.extent.height)
                     height := f32(clamp(image.extent.height, 128, 512))
                     width := as * height
                     tref := imgui.TextureRef {
-                        _TexID = imgui.TextureID(uintptr(i))
+                        _TexID = imgui.TextureID(uintptr(h.idx))
                     }
                     imgui.Image(tref, {width, height})
-                }
+                })
+
+                // for i in 0..<len(gd.images.values) {
+                //     fmt.sbprintf(&sb, "Image at #%v", i)
+                //     cs, _ := strings.to_cstring(&sb)
+                //     imgui.Text("%s", cs)
+                //     strings.builder_reset(&sb)
+
+                //     image := &gd.images.values[i]
+                //     as := f32(image.extent.width) / f32(image.extent.height)
+                //     height := f32(clamp(image.extent.height, 128, 512))
+                //     width := as * height
+                //     tref := imgui.TextureRef {
+                //         _TexID = imgui.TextureID(uintptr(i))
+                //     }
+                //     imgui.Image(tref, {width, height})
+                // }
             }
         }
         imgui.End()

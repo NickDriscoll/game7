@@ -568,11 +568,11 @@ scene_editor :: proc(
                     if imgui.CollapsingHeader("Graphics data") {
                         model_instance, model_ok := &game_state.static_models[id]
                         if model_ok {
-                            model := get_static_model(renderer^, model_instance.handle)
+                            model := get_static_model(renderer, model_instance.handle)
                             
                             imgui.Text("Model primitives:")
                             for prim in model.primitives {
-                                mat := get_material(renderer^, prim.material)
+                                mat := get_material(renderer, prim.material)
                                 mat_changed := false
 
                                 mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)
@@ -738,7 +738,7 @@ scene_editor :: proc(
         if .ShowBoundingSpheres in app.game_state.debug_vis_flags {
             for id, instance in app.game_state.static_models {
                 tform := &app.game_state.transforms[id]
-                model := get_static_model(app.renderer, instance.handle)
+                model := get_static_model(&app.renderer, instance.handle)
                 pos := instance.pos_offset + tform.position + model.bounding_sphere.position
                 scale := model.bounding_sphere.radius * tform.scale
                 color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
@@ -755,7 +755,7 @@ scene_editor :: proc(
 
             for id, instance in app.game_state.skinned_models {
                 tform := &app.game_state.transforms[id]
-                model := get_skinned_model(app.renderer, instance.handle)
+                model := get_skinned_model(&app.renderer, instance.handle)
                 pos := instance.pos_offset + tform.position + model.bounding_sphere.position
                 scale := model.bounding_sphere.radius * tform.scale
                 color := hlsl.float4{1.0, 1.0, 0.0, 0.2}
@@ -772,7 +772,7 @@ scene_editor :: proc(
             }
         }
     }
-    get_clicked_entity :: proc(app: App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
+    get_clicked_entity :: proc(app: ^App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
         dims : [4]f32 = {
             cast(f32)app.renderer.viewport_dimensions.offset.x,
             cast(f32)app.renderer.viewport_dimensions.offset.y,
@@ -795,7 +795,7 @@ scene_editor :: proc(
                     closest_id = id
                 }
             } else {
-                model := get_static_model(app.renderer, instance.handle)
+                model := get_static_model(&app.renderer, instance.handle)
                 tform := &app.game_state.transforms[id]
                 world_space_sphere_pos := instance.pos_offset + tform.position + model.bounding_sphere.position
                 s := Sphere {
@@ -820,7 +820,7 @@ scene_editor :: proc(
         case .Select: {
             moving := .MoveSelectedEntity in app.game_state.edit_flags
             if !moving && .MouseClicked in app.input_system.state_flags {
-                closest_id, closest_t := get_clicked_entity(app^, false)
+                closest_id, closest_t := get_clicked_entity(app, false)
                 
                 old_id, exists := app.selected_entity.?
                 if exists {
@@ -848,7 +848,7 @@ scene_editor :: proc(
                     app.renderer,
                     app.input_system,
                 )
-                id, t := get_clicked_entity(app^, app.dont_delete_collision)
+                id, t := get_clicked_entity(app, app.dont_delete_collision)
                 if t < math.INF_F32 {
                     delete_entity(&app.game_state, id)
                 }

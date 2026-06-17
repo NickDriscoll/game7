@@ -1472,7 +1472,7 @@ init_gamestate :: proc(
             image_handle, create_ok := vkw.sync_create_image_with_data(gd, &image_info, image_bytes[:])
 
             if create_ok {
-                renderer.uniforms.skybox_idx = image_handle.index
+                renderer.uniforms.skybox_idx = image_handle.idx
             }
         }
     }
@@ -1639,10 +1639,11 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
 }
 
 // Returns the size in bytes of component when serialized
-get_serialized_size :: proc(renderer: Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
+get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
     lil_helper :: proc(string_table: ^StringTable, str: string) -> int {
         // This proc returns the size in bytes of _this_
         // instance of the string in the level file
+        // u32 offset + length
         size := 2 * size_of(u32)
         seen_it := str in string_table.string_map
         if !seen_it {
@@ -1991,7 +1992,7 @@ new_save_level_file :: proc(
         calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
             size := size_of(u32)
             for _, comp in component_map {
-                size += get_serialized_size(renderer^, string_table, comp)
+                size += get_serialized_size(renderer, string_table, comp)
             }
             return size
         }
@@ -2081,7 +2082,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
                 write_thing_to_buffer(buffer, &comp.flags, head)
 
-                model := get_static_model(renderer^, comp.handle)
+                model := get_static_model(renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == SkinnedModelInstance {
@@ -2089,7 +2090,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.flags, head)
                 write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
-                model := get_skinned_model(renderer^, comp.handle)
+                model := get_skinned_model(renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == DebugModelInstance {
@@ -2097,7 +2098,7 @@ new_save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.color, head)
                 write_thing_to_buffer(buffer, &comp.scale, head)
 
-                model := get_static_model(renderer^, comp.handle)
+                model := get_static_model(renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
             } else {
                 // Directly serialize the component struct

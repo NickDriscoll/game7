@@ -435,7 +435,7 @@ main :: proc() {
         }
 
         if app.gui.show_gui && app.user_config.flags[.GraphicsSettings] {
-            graphics_gui(app.vgd, &app.renderer, &app.user_config.flags[.GraphicsSettings])
+            graphics_gui(&app.renderer, &app.user_config.flags[.GraphicsSettings])
         }
         if app.gui.show_gui && app.user_config.flags[.AudioPanel] {
             audio_gui(&app.game_state, &app.audio_system, &app.user_config, &app.user_config.flags[.AudioPanel])
