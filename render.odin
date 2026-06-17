@@ -317,7 +317,7 @@ Renderer :: struct {
     // Global GPU buffer of mesh metadata
     // i.e. offsets into the vertex attribute buffers
     static_mesh_buffer: vkw.Buffer_Handle,
-    cpu_static_meshes: hm.Handle_Map(CPUStaticMesh),
+    cpu_static_meshes: hm.HandleMap(CPUStaticMesh),
     gpu_static_meshes: [dynamic]GPUStaticMesh,
     //mesh_raytracing_datas: [dynamic]MeshRaytracingData,
 
@@ -325,7 +325,7 @@ Renderer :: struct {
     do_raytracing: bool,
 
     // Separate global mesh buffer for skinned meshes
-    cpu_skinned_meshes: hm.Handle_Map(CPUSkinnedMesh),
+    cpu_skinned_meshes: hm.HandleMap(CPUSkinnedMesh),
 
     // Animation data
     joint_matrices_buffer: vkw.Buffer_Handle,       // Contains joints for each _instance_ of a skin
@@ -336,7 +336,7 @@ Renderer :: struct {
     skinning_pipeline: vkw.Pipeline_Handle,         // Skinning-in-compute pipeline
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
-    materials: hm.Handle_Map(Material),
+    materials: hm.HandleMap(Material),
 
 
     ps1_static_instances: [dynamic]CPUStaticInstance,
@@ -366,8 +366,8 @@ Renderer :: struct {
     draw_buffer: vkw.Buffer_Handle,             // Global GPU buffer of indirect draw args
 
 
-    loaded_static_models: hm.Handle_Map(StaticModel),
-    loaded_skinned_models: hm.Handle_Map(SkinnedModel),
+    loaded_static_models: hm.HandleMap(StaticModel),
+    loaded_skinned_models: hm.HandleMap(SkinnedModel),
 
     // Sync primitives
     compute_timeline: vkw.Semaphore_Handle,
