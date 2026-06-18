@@ -572,7 +572,7 @@ scene_editor :: proc(
                             
                             imgui.Text("Model primitives:")
                             for prim in model.primitives {
-                                mat := get_material(renderer, prim.material)
+                                mat := renderer.materials[prim.material]
                                 mat_changed := false
 
                                 mat_changed |= imgui.ColorPicker4("Material base color", &mat.base_color)

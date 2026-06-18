@@ -13,6 +13,7 @@ import "core:slice"
 import "core:strings"
 import "vendor:cgltf"
 import stbi "vendor:stb/image"
+
 import hm "desktop_vulkan_wrapper/handlemap"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
@@ -217,7 +218,7 @@ GPUStaticMesh :: struct {
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: MaterialHandle,
+    material_handle: int,
     flags: InstanceFlags,
     gpu_mesh_idx: u32,
 }
@@ -261,7 +262,7 @@ SkinnedDraw :: struct {
 CPUSkinnedInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Skinned_Mesh_Handle,
-    material_handle: MaterialHandle,
+    material_handle: int,
     animation_time: f32,
     animation_idx: u32,
 }
@@ -287,7 +288,6 @@ GPUBufferDirtyFlags :: bit_set[enum{
 
 Static_Mesh_Handle :: distinct hm.Handle
 Skinned_Mesh_Handle :: distinct hm.Handle
-MaterialHandle :: distinct hm.Handle
 
 // @TODO: Add good inline documentation for each field of Renderer
 // This is probably the most confusing part of the codebase
@@ -336,7 +336,7 @@ Renderer :: struct {
     skinning_pipeline: vkw.Pipeline_Handle,         // Skinning-in-compute pipeline
 
     material_buffer: vkw.Buffer_Handle,             // Global GPU buffer of materials
-    materials: hm.HandleMap(Material),
+    materials: [dynamic]Material,
 
 
     ps1_static_instances: [dynamic]CPUStaticInstance,
@@ -387,7 +387,7 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
     // Allocator dynamic arrays and handlemaps
     hm.init(&renderer.cpu_static_meshes, allocator)
     hm.init(&renderer.cpu_skinned_meshes, allocator)
-    hm.init(&renderer.materials, allocator)
+    renderer.materials = make([dynamic]Material, 0, 64, allocator)
     renderer.gpu_static_meshes = make([dynamic]GPUStaticMesh, 0, 64, allocator)
     renderer.joint_parents = make([dynamic]u32, 0, 64, allocator)
     renderer.inverse_bind_matrices = make([dynamic]hlsl.float4x4, 0, 64, allocator)
@@ -1182,9 +1182,10 @@ add_vertex_uvs :: proc(
     return vkw.sync_write_buffer(gd, renderer.uvs_buffer, uvs, uv_start)
 }
 
-add_material :: proc(r: ^Renderer, new_mat: ^Material) -> MaterialHandle {
+add_material :: proc(r: ^Renderer, new_mat: ^Material) -> int {
     r.dirty_flags += {.Material}
-    return MaterialHandle(hm.insert(&r.materials, new_mat^))
+    append(&r.materials, new_mat^)
+    return len(r.materials) - 1
 }
 
 do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
@@ -1277,7 +1278,7 @@ draw_ps1_static_primitives :: proc(
     gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: MaterialHandle,
+    material_handle: int,
     draw_data: []StaticDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_static_primitives")
@@ -1307,7 +1308,7 @@ draw_ps1_static_primitive :: proc(
     gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: MaterialHandle,
+    material_handle: int,
     draw_data: StaticDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_static_primitive")
@@ -1336,7 +1337,7 @@ draw_ps1_skinned_primitive :: proc(
     gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
-    material_handle: MaterialHandle,
+    material_handle: int,
     draw_data: ^SkinnedDraw,
 ) -> bool {
     scoped_event(&profiler, "draw_ps1_skinned_primitive")
@@ -1781,13 +1782,7 @@ render_scene :: proc(
     // Material buffer
     if .Material in renderer.dirty_flags {
         scoped_event(&profiler, "Material buffer upload")
-        mats := make([dynamic]Material, 0, hm.len(renderer.materials), context.temp_allocator)
-        hm.iterate_callback(&renderer.materials, &mats, proc(mat: ^Material, _: hm.Handle, userdata: rawptr) {
-            mats := cast(^[dynamic]Material)userdata
-            append(mats, mat^)
-        })
-
-        vkw.sync_write_buffer(gd, renderer.material_buffer, mats[:])
+        vkw.sync_write_buffer(gd, renderer.material_buffer, renderer.materials[:])
     }
 
     // Takes the  list of instances and populates the GPU instance buffer
@@ -1838,7 +1833,7 @@ render_scene :: proc(
 
                     material_idx : u32 = 0
                     when T == CPUStaticInstance {
-                        material_idx = inst.material_handle.idx
+                        material_idx = u32(inst.material_handle)
                     }
 
                     color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
@@ -2142,7 +2137,7 @@ render_scene :: proc(
 
 StaticDrawPrimitive :: struct {
     mesh: Static_Mesh_Handle,
-    material: MaterialHandle,
+    material: int,
 }
 
 StaticModel :: struct {
@@ -2229,14 +2224,6 @@ get_skinned_model :: proc(renderer: ^Renderer, handle: SkinnedModelHandle) -> ^S
         log.error("Unable to get skinned model.")
     }
     return model
-}
-
-get_material :: proc(renderer: ^Renderer, handle: MaterialHandle) -> ^Material {
-    mat, res := hm.get(&renderer.materials, handle)
-    if !res {
-        log.error("Unable to get material.")
-    }
-    return mat
 }
 
 load_gltf_static_model :: proc(
@@ -2366,11 +2353,11 @@ load_gltf_static_model :: proc(
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
-            material_handle := add_material(renderer, &material)
+            material_idx := add_material(renderer, &material)
 
             append(&draw_primitives, StaticDrawPrimitive {
                 mesh = mesh_handle,
-                material = material_handle
+                material = material_idx
             })
         }
     }
@@ -2405,7 +2392,7 @@ load_gltf_static_model :: proc(
 
 SkinnedDrawPrimitive :: struct {
     mesh: Skinned_Mesh_Handle,
-    material: MaterialHandle
+    material: int
 }
 
 SkinnedModel :: struct {
@@ -2624,7 +2611,6 @@ load_gltf_skinned_model :: proc(
 
 
             // Now get material data
-            loaded_glb_materials := make([dynamic]MaterialHandle, len(gltf_data.materials), context.temp_allocator)
             glb_material := primitive.material
             has_material := glb_material != nil
 
@@ -2646,11 +2632,11 @@ load_gltf_skinned_model :: proc(
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Aniso16),
                 base_color = base_color
             }
-            material_handle := add_material(renderer, &material)
+            material_idx := add_material(renderer, &material)
 
             draw_primitives[i] = SkinnedDrawPrimitive {
                 mesh = mesh_handle,
-                material = material_handle
+                material = material_idx
             }
         }
     }
