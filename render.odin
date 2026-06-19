@@ -11,6 +11,7 @@ import "core:math/noise"
 import "core:mem"
 import "core:slice"
 import "core:strings"
+import "base:runtime"
 import "vendor:cgltf"
 import stbi "vendor:stb/image"
 
@@ -2677,46 +2678,53 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
     if do_window^ {
         sb: strings.Builder
         strings.builder_init(&sb, context.temp_allocator)
+        defer imgui.End()
         if imgui.Begin("Graphics settings", do_window) {
             if imgui.CollapsingHeader("Fake cloud settings") {
                 imgui.SliderFloat("Speed", &renderer.uniforms.cloud_speed, 0.0, 0.5)
                 imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
             }
 
-            {
-                flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
-                    b := flag in flags
-                    sb: strings.Builder
-                    strings.builder_init(&sb, context.temp_allocator)
-                    fmt.sbprintf(&sb, "%v", flag)
-                    cs, _ := strings.to_cstring(&sb)
-                    if disabled {
-                        imgui.BeginDisabled()
-                    }
-                    if imgui.Checkbox(cs, &b) {
-                        flags^ ~= {flag}
-                        return true
-                    }
-                    if disabled {
-                        imgui.EndDisabled()
-                    }
-                    return false
+            
+            flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
+                b := flag in flags
+                sb: strings.Builder
+                strings.builder_init(&sb, context.temp_allocator)
+                fmt.sbprintf(&sb, "%v", flag)
+                cs, _ := strings.to_cstring(&sb)
+                if disabled {
+                    imgui.BeginDisabled()
                 }
-
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.ColorTriangles)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.CRTShader)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeFaceNormals)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeVertexColors)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
-                flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
+                if imgui.Checkbox(cs, &b) {
+                    flags^ ~= {flag}
+                    return true
+                }
+                if disabled {
+                    imgui.EndDisabled()
+                }
+                return false
             }
+
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.ColorTriangles)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.Reflections, !renderer.do_raytracing)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.CRTShader)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeFaceNormals)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeVertexColors)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
+            flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
+            
             imgui.Separator()
 
             if imgui.CollapsingHeader("Loaded images") {
                 hm.iterate_callback(&renderer.vgd.images, nil, proc(image: ^vkw.Image, h: hm.Handle, userdata: rawptr) {
-                    imgui.Text("Not final whatsoever")
+                    sb: strings.Builder
+                    strings.builder_init(&sb, context.temp_allocator)
+                    fmt.sbprintf(&sb, "Image at #%v", h.idx)
+                    cs, err := strings.to_cstring(&sb)
+                    assert(err == nil)
+                    imgui.Text("%s", cs)
+                    strings.builder_reset(&sb)
                     as := f32(image.extent.width) / f32(image.extent.height)
                     height := f32(clamp(image.extent.height, 128, 512))
                     width := as * height
@@ -2725,24 +2733,7 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
                     }
                     imgui.Image(tref, {width, height})
                 })
-
-                // for i in 0..<len(gd.images.values) {
-                //     fmt.sbprintf(&sb, "Image at #%v", i)
-                //     cs, _ := strings.to_cstring(&sb)
-                //     imgui.Text("%s", cs)
-                //     strings.builder_reset(&sb)
-
-                //     image := &gd.images.values[i]
-                //     as := f32(image.extent.width) / f32(image.extent.height)
-                //     height := f32(clamp(image.extent.height, 128, 512))
-                //     width := as * height
-                //     tref := imgui.TextureRef {
-                //         _TexID = imgui.TextureID(uintptr(i))
-                //     }
-                //     imgui.Image(tref, {width, height})
-                // }
             }
         }
-        imgui.End()
     }
 }
