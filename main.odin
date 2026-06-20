@@ -17,10 +17,10 @@ import vkw "desktop_vulkan_wrapper"
 USER_CONFIG_FILENAME :: "user.cfg"
 
 TITLE_WITHOUT_IMGUI :: "KataWARi"
-TITLE_WITH_IMGUI :: "KataWARi -- Press ESC to hide developer GUI"
+TITLE_WITH_IMGUI :: TITLE_WITHOUT_IMGUI + " -- Press ESC to hide developer GUI"
 DEFAULT_RESOLUTION :: hlsl.uint2 {1280, 720}
 
-MAXIMUM_FRAME_DT :: 1.0 / 30.0
+MAXIMUM_TICK_DT :: 1.0 / 30.0
 
 SECONDS_TO_NANOSECONDS :: 1_000_000_000
 MILLISECONDS_TO_NANOSECONDS :: 1_000_000
@@ -65,7 +65,7 @@ main :: proc() {
         app.current_time = time.now()
         nanosecond_dt := time.diff(app.previous_time, app.current_time)
         last_frame_dt := f32(nanosecond_dt / 1000) / 1_000_000
-        dt := min(last_frame_dt, MAXIMUM_FRAME_DT)
+        dt := min(last_frame_dt, MAXIMUM_TICK_DT)
         scaled_dt := app.game_state.timescale * dt
         app.previous_time = app.current_time
 

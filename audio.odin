@@ -340,12 +340,13 @@ audio_gui :: proc(
         if imgui.SliderFloat("SFX volume", &audio_system.sfx_volume, 0.0, 5.0) {
             user_config.floats[.SFXVolume] = f64(audio_system.sfx_volume)
         }
-        imgui.SliderFloat("Audio playback speed", &audio_system.speed_scale, 0.1, MAX_PLAYBACK_SCALE)
+        imgui.Separator()
 
-        imgui.SameLine()
-        if imgui.Button("Reset") {
+        if imgui.Button("Reset playback speed") {
             audio_system.speed_scale = 1.0
         }
+        imgui.SameLine()
+        imgui.SliderFloat("Audio playback speed", &audio_system.speed_scale, 0.1, MAX_PLAYBACK_SCALE)
         imgui.Separator()
 
         imgui.SliderFloat("Tone frequency", &audio_system.tone_freq, 20.0, 2400.0)
@@ -354,11 +355,13 @@ audio_gui :: proc(
 
         @static selected_item : c.int = 0
         items := make([dynamic]cstring, 0, 16, context.temp_allocator)
-        if gui_dropdown_files("data/audio", &items, &selected_item, "Choose bgm") {
+        if gui_dropdown_files("data/audio", &items, &selected_item, "Choose bgm", context.temp_allocator) {
             close_music_file(audio_system, game_state.bgm_id)
             fmt.sbprintf(&builder, "data/audio/%v", items[selected_item])
             c, _ := strings.to_cstring(&builder)
-            game_state.bgm_id, _ = open_music_file(audio_system, c)
+            ok: bool
+            game_state.bgm_id, ok = open_music_file(audio_system, c)
+            assert(ok)
             strings.builder_reset(&builder)
         }
 

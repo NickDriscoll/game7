@@ -384,7 +384,50 @@ Renderer :: struct {
     viewport_dimensions: vk.Rect2D,
 }
 
+renderer_free_resources :: proc(renderer: ^Renderer) {
+
+    // --------------- Free rendering resources from last scene ---------------
+    vkw.delete_all_acceleration_structures(renderer.vgd)
+    for i in 0..<vkw.TOTAL_TLAS_DESCRIPTORS {
+        renderer.scene_TLASes[i].gen = 0xFFFFFFFF
+    }
+
+    hm.iterate_callback(
+        &renderer.loaded_static_models,
+        renderer,
+        proc(
+            model: ^StaticModel,
+            h: hm.Handle,
+            userdata: rawptr
+        ) {
+            renderer := cast(^Renderer)userdata
+            for handle in model.images {
+                ok := vkw.delete_image(renderer.vgd, handle)
+                assert(ok)
+            }
+        }
+    )
+    hm.iterate_callback(
+        &renderer.loaded_skinned_models,
+        renderer,
+        proc(
+            model: ^SkinnedModel,
+            h: hm.Handle,
+            userdata: rawptr
+        ) {
+            renderer := cast(^Renderer)userdata
+            for handle in model.images {
+                ok := vkw.delete_image(renderer.vgd, handle)
+                assert(ok)
+            }
+        }
+    )
+}
+
 renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) {
+
+    // --------------- Now load new scene data ---------------
+
     // Allocator dynamic arrays and handlemaps
     hm.init(&renderer.cpu_static_meshes, allocator)
     hm.init(&renderer.cpu_skinned_meshes, allocator)
@@ -435,12 +478,8 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
     scoped_event(&profiler, "Initialize renderer")
 
     renderer: Renderer
-    renderer.do_raytracing = want_rt && (.Raytracing in gd.support_flags)
-    for i in 0..<vkw.TOTAL_TLAS_DESCRIPTORS {
-        renderer.scene_TLASes[i].gen = 0xFFFFFFFF
-    }
-
     renderer.vgd = gd
+    renderer.do_raytracing = want_rt && (.Raytracing in gd.support_flags)
 
     renderer_new_scene(&renderer)
 
@@ -638,7 +677,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
-        color_images: [vkw.MAX_FRAMEBUFFER_COLOR_IMAGES]vkw.Texture_Handle
+        color_images: [vkw.MAX_FRAMEBUFFER_COLOR_IMAGES]vkw.Image_Handle
         color_images[0] = color_target_handle
         renderer.main_framebuffer = {
             color_images = color_images,
@@ -901,7 +940,7 @@ _resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer,
         }
         depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
-        color_images: [8]vkw.Texture_Handle
+        color_images: [8]vkw.Image_Handle
         color_images[0] = color_target_handle
         renderer.main_framebuffer = {
             color_images = color_images,
@@ -2143,6 +2182,7 @@ StaticDrawPrimitive :: struct {
 
 StaticModel :: struct {
     primitives: [dynamic]StaticDrawPrimitive,
+    images: [dynamic]vkw.Image_Handle,
     bounding_sphere: Sphere,
     name: string,
 }
@@ -2163,8 +2203,8 @@ gltf_node_idx :: proc(nodes: []^cgltf.node, n: ^cgltf.node) -> u32 {
     return idx
 }
 
-load_gltf_textures :: proc(gd: ^vkw.VulkanGraphicsDevice, gltf_data: ^cgltf.data, allocator := context.temp_allocator) -> [dynamic]vkw.Texture_Handle {
-    loaded_glb_images := make([dynamic]vkw.Texture_Handle, len(gltf_data.textures), allocator)
+load_gltf_textures :: proc(gd: ^vkw.VulkanGraphicsDevice, gltf_data: ^cgltf.data, allocator := context.allocator) -> [dynamic]vkw.Image_Handle {
+    loaded_glb_images := make([dynamic]vkw.Image_Handle, len(gltf_data.textures), allocator)
     for glb_texture, i in gltf_data.textures {
         glb_image := glb_texture.image_
         assert(glb_image.buffer_view != nil, "Image must be embedded inside .glb")
@@ -2258,12 +2298,6 @@ load_gltf_static_model :: proc(
             return handle
         }
     }
-    // for model, i in renderer.loaded_static_models.values {
-    //     if model.name == glb_filename {
-    //         // Early out if this glb is already loaded
-    //         return StaticModelHandle(renderer.loaded_static_models.handles[i])
-    //     }
-    // }
 
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
@@ -2277,7 +2311,7 @@ load_gltf_static_model :: proc(
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
 
-    loaded_glb_images := load_gltf_textures(gd, gltf_data)
+    loaded_glb_images := load_gltf_textures(gd, gltf_data, allocator)
 
     primitive_count := 0
     for mesh in gltf_data.meshes {
@@ -2336,7 +2370,7 @@ load_gltf_static_model :: proc(
             glb_material := primitive.material
             has_material := glb_material != nil
 
-            bindless_image_idx := vkw.Texture_Handle {
+            bindless_image_idx := vkw.Image_Handle {
                 idx = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
@@ -2385,6 +2419,7 @@ load_gltf_static_model :: proc(
     cloned_name, _ := strings.clone(glb_filename, allocator)
     handle := hm.insert(&renderer.loaded_static_models, StaticModel {
         primitives = draw_primitives,
+        images = loaded_glb_images,
         bounding_sphere = s,
         name = cloned_name
     })
@@ -2398,6 +2433,7 @@ SkinnedDrawPrimitive :: struct {
 
 SkinnedModel :: struct {
     primitives: [dynamic]SkinnedDrawPrimitive,
+    images: [dynamic]vkw.Image_Handle,
     first_animation_idx: u32,
     first_joint_idx: u32,
     bounding_sphere: Sphere, // based on bind pose
@@ -2405,7 +2441,6 @@ SkinnedModel :: struct {
 }
 
 load_gltf_skinned_model :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     path: cstring,
     allocator := context.allocator
@@ -2435,12 +2470,6 @@ load_gltf_skinned_model :: proc(
             return handle
         }
     }
-    // for model, i in renderer.loaded_static_models.values {
-    //     if model.name == glb_filename {
-    //         // Early out if this glb is already loaded
-    //         return SkinnedModelHandle(renderer.loaded_static_models.handles[i])
-    //     }
-    // }
 
     gltf_data, res := cgltf.parse_file({}, path)
     if res != .success {
@@ -2454,7 +2483,7 @@ load_gltf_skinned_model :: proc(
         log.errorf("Failed to load glTF buffers\nerror: %v", path, res)
     }
 
-    loaded_glb_images := load_gltf_textures(gd, gltf_data)
+    loaded_glb_images := load_gltf_textures(renderer.vgd, gltf_data)
 
     // Load inverse bind matrices
     joint_count: u32
@@ -2594,7 +2623,7 @@ load_gltf_skinned_model :: proc(
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
             mesh_handle := create_skinned_mesh(
-                gd,
+                renderer.vgd,
                 renderer,
                 position_data[:],
                 index_data[:],
@@ -2604,10 +2633,10 @@ load_gltf_skinned_model :: proc(
                 first_joint_idx
             )
             if len(color_data) > 0 {
-                add_vertex_colors(gd, renderer, mesh_handle, color_data[:])
+                add_vertex_colors(renderer.vgd, renderer, mesh_handle, color_data[:])
             }
             if len(uv_data) > 0 {
-                add_vertex_uvs(gd, renderer, mesh_handle, uv_data[:])
+                add_vertex_uvs(renderer.vgd, renderer, mesh_handle, uv_data[:])
             }
 
 
@@ -2615,7 +2644,7 @@ load_gltf_skinned_model :: proc(
             glb_material := primitive.material
             has_material := glb_material != nil
 
-            bindless_image_idx := vkw.Texture_Handle {
+            bindless_image_idx := vkw.Image_Handle {
                 idx = NULL_OFFSET
             }
             if has_material && glb_material.pbr_metallic_roughness.base_color_texture.texture != nil {
@@ -2664,6 +2693,7 @@ load_gltf_skinned_model :: proc(
     cloned_name, _ := strings.clone(glb_filename, allocator)
     handle := hm.insert(&renderer.loaded_skinned_models, SkinnedModel {
         primitives = draw_primitives,
+        images = loaded_glb_images,
         first_animation_idx = first_anim_idx,
         first_joint_idx = first_joint_idx,
         bounding_sphere = s,
@@ -2671,8 +2701,6 @@ load_gltf_skinned_model :: proc(
     })
     return SkinnedModelHandle(handle)
 }
-
-
 
 graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
     if do_window^ {
@@ -2685,7 +2713,7 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
                 imgui.SliderFloat("Scale", &renderer.uniforms.cloud_scale, 0.0, 2.0)
             }
 
-            
+
             flag_checkbox :: proc(flags: ^bit_set[$T], flag: T, disabled := false) -> bool {
                 b := flag in flags
                 sb: strings.Builder
@@ -2713,7 +2741,7 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
-            
+
             imgui.Separator()
 
             if imgui.CollapsingHeader("Loaded images") {

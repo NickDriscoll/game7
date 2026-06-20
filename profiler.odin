@@ -9,9 +9,8 @@ Profiler :: struct {
     do_tracing: bool
 }
 
-init_profiler :: proc(trace_file: string, allocator := context.allocator) -> Profiler {
-    profiler: Profiler
-
+@(disabled=!INCLUDE_PROFILER)
+init_profiler :: proc(profiler: ^Profiler, trace_file: string, allocator := context.allocator) {
     spall_ok := false
     profiler.spall_ctx, spall_ok = spall.context_create(trace_file)
     if !spall_ok {
@@ -19,8 +18,6 @@ init_profiler :: proc(trace_file: string, allocator := context.allocator) -> Pro
     }
     buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE, allocator = allocator)
     profiler.spall_buffer = spall.buffer_create(buffer_backing, 0)
-
-    return profiler
 }
 
 @(disabled=!ODIN_DEBUG)

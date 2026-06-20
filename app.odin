@@ -96,7 +96,7 @@ app_startup :: proc(app: ^App) -> bool {
     {
         context.logger = log.create_console_logger(log_level)
         argc := len(os.args)
-        i := 0
+        i := 1  // Start at one to skip executable path arg
         for i < len(os.args) {
             arg := os.args[i]
             if arg == "--log-level" || arg == "-l" {
@@ -123,6 +123,8 @@ app_startup :: proc(app: ^App) -> bool {
                 }
             } else if arg == "-nort" {
                 want_rt = false
+            } else {
+                log.warnf("Unrecognized argument: %v", arg)
             }
             i += 1
         }
@@ -139,7 +141,7 @@ app_startup :: proc(app: ^App) -> bool {
     context.allocator = app.global_allocator
 
     if .PerfProfile in app.app_options {
-        profiler = init_profiler(profile_name, app.global_allocator)
+        init_profiler(&profiler, profile_name, app.global_allocator)
     }
     scoped_event(&profiler, "App startup")
 
@@ -298,7 +300,7 @@ app_startup :: proc(app: ^App) -> bool {
 
         // Initialize the renderer
         app.renderer = init_renderer(&app.vgd, want_rt)
-        if !app.renderer.do_raytracing {
+        if !app.renderer.do_raytracing && want_rt {
             log.warn("Raytracing features are not supported by your GPU.")
         }
 
@@ -361,7 +363,7 @@ app_shutdown :: proc(app: ^App) {
     }
     sdl2.DestroyWindow(app.window.window)
     sdl2.Quit()
-    
+
     if len(app.global_track.allocation_map) > 0 {
         log.debugf("=== %v allocations not freed from global allocator: ===\n", len(app.global_track.allocation_map))
         for _, entry in app.global_track.allocation_map {
@@ -374,7 +376,7 @@ app_shutdown :: proc(app: ^App) {
             log.debugf("- %p @ %v\n", entry.memory, entry.location)
         }
     }
-    
+
     if len(app.scene_track.allocation_map) > 0 {
         log.debugf("=== %v allocations not freed from scene allocator: ===\n", len(app.scene_track.allocation_map))
         for _, entry in app.scene_track.allocation_map {
@@ -398,6 +400,8 @@ app_shutdown :: proc(app: ^App) {
 new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     vkw.device_wait_idle(&app.vgd)
 
+    // Have to free rendering resources before scene_allocator is reset
+    renderer_free_resources(&app.renderer)
     free_all(scene_allocator)
     audio_new_scene(&app.audio_system, scene_allocator)
     renderer_new_scene(&app.renderer, scene_allocator)
@@ -468,7 +472,7 @@ scene_editor :: proc(
                 imgui.Checkbox("I acknowledge that the undo feature is very broken", &b)
                 imgui.BeginDisabled(!b)
                 if imgui.Button("Undo") {
-    
+
                 }
                 imgui.EndDisabled()
                 imgui.Separator()
@@ -479,7 +483,7 @@ scene_editor :: proc(
                     delete_coin(&app.game_state, 0)
                 }
             }
-    
+
             // Edit verb selection
             verb_changed := false
             {
@@ -552,7 +556,7 @@ scene_editor :: proc(
                     if ai_ok {
                         gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
                     }
-                    
+
                     mesh, mesh_ok := &game_state.triangle_meshes[id]
                     if mesh_ok {
                         if moved {
@@ -569,7 +573,7 @@ scene_editor :: proc(
                         model_instance, model_ok := &game_state.static_models[id]
                         if model_ok {
                             model := get_static_model(renderer, model_instance.handle)
-                            
+
                             imgui.Text("Model primitives:")
                             for prim in model.primitives {
                                 mat := renderer.materials[prim.material]
@@ -595,7 +599,7 @@ scene_editor :: proc(
                     }
                 }
             }
-    
+
             // Per-verb options menu
             @static draw_spawn := false
             imgui.Text("Edit controls:")
@@ -703,7 +707,7 @@ scene_editor :: proc(
                 }
                 case .EditPlayerSpawn: {
                     imgui.Text("Click on the terrain to place player spawn.")
-                    
+
                     imgui.DragFloat3("Set player spawn", &app.game_state.level_start, 0.1)
 
                     imgui.Checkbox("Show player spawn", &draw_spawn)
@@ -726,7 +730,7 @@ scene_editor :: proc(
                         app.game_state.edit_flags ~= {.MovePlayerSpawn}
                     }
                     imgui.EndDisabled()
-        
+
                     imgui.Separator()
                 }
             }
@@ -813,7 +817,7 @@ scene_editor :: proc(
         }
         return
     }
-    
+
     switch app.edit_verb {
         case .None: {}
         case .EditDirectionalLights: {}
@@ -821,7 +825,7 @@ scene_editor :: proc(
             moving := .MoveSelectedEntity in app.game_state.edit_flags
             if !moving && .MouseClicked in app.input_system.state_flags {
                 closest_id, closest_t := get_clicked_entity(app, false)
-                
+
                 old_id, exists := app.selected_entity.?
                 if exists {
                     old_m := &app.game_state.static_models[old_id]

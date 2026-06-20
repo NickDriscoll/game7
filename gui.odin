@@ -486,7 +486,7 @@ setup_imgui_textures :: proc(
                     }
                 }
 
-                tex_handle := vkw.Texture_Handle(hm.u64_to_handle(tex.TexID))
+                tex_handle := vkw.Image_Handle(hm.u64_to_handle(tex.TexID))
                 tex_image, exok := vkw.get_image(gd, tex_handle)
                 assert(exok)
 
@@ -507,7 +507,7 @@ setup_imgui_textures :: proc(
 
                 vkw.sync_update_image_data(
                     gd,
-                    vkw.Texture_Handle(hm.u64_to_handle(tex.TexID)),
+                    vkw.Image_Handle(hm.u64_to_handle(tex.TexID)),
                     update_rect,
                     0,
                     0,
@@ -520,7 +520,7 @@ setup_imgui_textures :: proc(
                 log.debugf("Imgui wants texture destroyed: %#v", tex)
 
                 handle := hm.u64_to_handle(tex.TexID)
-                vkw.delete_image(gd, vkw.Texture_Handle(handle))
+                vkw.delete_image(gd, vkw.Image_Handle(handle))
 
                 //tex.UnusedFrames = i32(gd.frames_in_flight)
                 imgui.TextureData_SetTexID(tex, 0)

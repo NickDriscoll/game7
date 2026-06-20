@@ -28,152 +28,6 @@ TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
 DEFAULT_FACING_DIRECTION :: hlsl.float3 {1.0, 0.0, 0.0}
 
-closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
-    scoped_event(&profiler, "closest_pt_terrain")
-    candidate: hlsl.float3
-    closest_dist := math.INF_F32
-    for _, &piece in terrain {
-        p := closest_pt_triangles(point, &piece)
-        d := hlsl.distance(point, p)
-        if d < closest_dist {
-            candidate = p
-            closest_dist = d
-        }
-    }
-    return candidate
-}
-closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
-    scoped_event(&profiler, "closest_pt_terrain_with_normal")
-    candidate: hlsl.float3
-    cn: hlsl.float3
-    closest_dist := math.INF_F32
-    for _, piece in terrain {
-        p, n := closest_pt_triangles_with_normal(point, piece)
-        d := hlsl.distance(point, p)
-        if d < closest_dist {
-            candidate = p
-            closest_dist = d
-            cn = n
-        }
-    }
-    return candidate, cn
-}
-
-intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain")
-    cand_t := math.INF_F32
-    for _, &piece in terrain {
-        t, ok := intersect_segment_triangles_t(segment, piece)
-        if ok {
-            if t < cand_t {
-                cand_t = t
-            }
-        }
-    }
-
-    return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
-}
-
-intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain_with_normal")
-    cand_t := math.INF_F32
-    normal: hlsl.float3
-    for _, piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
-        if ok {
-            if t < cand_t {
-                cand_t = t
-                normal = n
-            }
-        }
-    }
-
-    return cand_t, normal, cand_t < math.INF_F32
-}
-
-intersect_segment_terrain_with_normal_and_id :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain_with_normal_and_id")
-    cand_t := math.INF_F32
-    normal: hlsl.float3
-    cand_id: EntityID
-    for id, piece in terrain {
-        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
-        if ok {
-            if t < cand_t {
-                cand_t = t
-                cand_id = id
-                normal = n
-            }
-        }
-    }
-
-    return cand_t, normal, cand_id, cand_t < math.INF_F32
-}
-
-dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
-    scoped_event(&profiler, "dynamic_sphere_vs_terrain_t()")
-    closest_t := math.INF_F32
-    for _, piece in terrain {
-        t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
-        if ok3 {
-            if t < closest_t {
-                closest_t = t
-            }
-        }
-    }
-    return closest_t, closest_t < math.INF_F32
-}
-
-do_mouse_raycast_with_normal :: proc(
-    game_state: GameState,
-    renderer: Renderer,
-    input_system: InputSystem
-) -> (hlsl.float3, hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "do_mouse_raycast")
-    
-    viewport_dimensions : [4]f32 = {
-        cast(f32)renderer.viewport_dimensions.offset.x,
-        cast(f32)renderer.viewport_dimensions.offset.y,
-        cast(f32)renderer.viewport_dimensions.extent.width,
-        cast(f32)renderer.viewport_dimensions.extent.height,
-    }
-
-    ray := view_ray(game_state, game_state.viewport_camera_id, input_system.mouse_location, viewport_dimensions)
-
-    tform := &game_state.transforms[game_state.viewport_camera_id]
-    collision_pt: hlsl.float3
-    normal: hlsl.float3
-    closest_dist := math.INF_F32
-    collision_id: EntityID
-    for id, piece in game_state.triangle_meshes {
-        candidate, n, ok := intersect_ray_triangles_with_normal(ray, piece)
-        if ok {
-            candidate_dist := hlsl.distance(candidate, tform.position)
-            if candidate_dist < closest_dist {
-                collision_pt = candidate
-                normal = n
-                closest_dist = candidate_dist
-                collision_id = id
-            }
-        }
-    }
-
-    return collision_pt, normal, collision_id, closest_dist < math.INF_F32
-}
-do_mouse_raycast :: proc(
-    game_state: GameState,
-    renderer: Renderer,
-    input_system: InputSystem,
-) -> (hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "do_mouse_raycast")
-    collision_pt, _, id, hit := do_mouse_raycast_with_normal(
-        game_state,
-        renderer,
-        input_system
-    )
-    return collision_pt, id, hit
-}
-
 Transform :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
@@ -1276,7 +1130,7 @@ GameState :: struct {
 
     // Scene/Level data
     level_start: hlsl.float3,
-    skybox_texture: vkw.Texture_Handle,
+    skybox_texture: vkw.Image_Handle,
 
     // Data-oriented tables
     _next_id: u32,                   // Components with the same id are associated with one another
@@ -1487,6 +1341,8 @@ gamestate_new_scene :: proc(
     user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
+
+
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
     game_state.transforms = make(map[EntityID]Transform, DEFAULT_COMPONENT_MAP_CAPACITY, scene_allocator)
@@ -1540,7 +1396,7 @@ gamestate_new_scene :: proc(
         skinned_model: SkinnedModelHandle
         {
             path : cstring = "data/models/CesiumMan.glb"
-            skinned_model = load_gltf_skinned_model(gd, renderer, path, scene_allocator)
+            skinned_model = load_gltf_skinned_model(renderer, path, scene_allocator)
         }
         game_state.skinned_models[id] = SkinnedModelInstance {
             handle = skinned_model,
@@ -1697,11 +1553,6 @@ load_level_file :: new_load_level_file
 
 new_load_level_file :: proc(
     app: ^App,
-    // gd: ^vkw.GraphicsDevice,
-    // renderer: ^Renderer,
-    // audio_system: ^AudioSystem,
-    // game_state: ^GameState,
-    // user_config: ^UserConfiguration,
     path: string,
     scene_allocator := context.allocator
 ) -> bool {
@@ -1726,10 +1577,12 @@ new_load_level_file :: proc(
     // Read magic string
     magic := read_string_from_buffer(lvl_data, &read_head)
     if magic != LEVEL_FILE_MAGIC_STRING {
-        log.errorf("%v has wrong magic string.", path)
+        log.errorf("%v has wrong magic string. Aborting level load.", path)
         return false
     }
 
+    // Have to free rendering resources before scene_allocator is reset
+    renderer_free_resources(&app.renderer)
     free_all(scene_allocator)
     audio_new_scene(&app.audio_system)
     renderer_new_scene(&app.renderer, scene_allocator)
@@ -1787,7 +1640,7 @@ new_load_level_file :: proc(
             return strings.to_cstring(&sb)
         }
 
-        for i in 0..<count {
+        for _ in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
 
             comp: T
@@ -1807,7 +1660,7 @@ new_load_level_file :: proc(
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
-                comp.handle = load_gltf_skinned_model(gd, renderer, model_path, scene_allocator)
+                comp.handle = load_gltf_skinned_model(renderer, model_path, scene_allocator)
             } else when T == DebugModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
@@ -1977,9 +1830,6 @@ write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^
 
 new_save_level_file :: proc(
     app: ^App,
-    // game_state: ^GameState,
-    // renderer: ^Renderer,
-    // audio_system: AudioSystem,
     path: string,
     temp_allocator := context.temp_allocator
 ) {
@@ -2013,7 +1863,7 @@ new_save_level_file :: proc(
         if len(audio_system.music_files) > int(game_state.bgm_id) {
             bgm_string = audio_system.music_files[game_state.bgm_id].name
         }
-        
+
         // Size of bgm pascal string
         final_size += size_of(u32)
         final_size += size_of(byte) * len(bgm_string)

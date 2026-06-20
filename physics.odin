@@ -819,3 +819,150 @@ dynamic_sphere_vs_triangles :: proc(s: Sphere, tris: TriangleMesh, motion_interv
     }
     return d + t * (motion_interval.end - motion_interval.start), found
 }
+
+
+closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
+    scoped_event(&profiler, "closest_pt_terrain")
+    candidate: hlsl.float3
+    closest_dist := math.INF_F32
+    for _, &piece in terrain {
+        p := closest_pt_triangles(point, &piece)
+        d := hlsl.distance(point, p)
+        if d < closest_dist {
+            candidate = p
+            closest_dist = d
+        }
+    }
+    return candidate
+}
+closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
+    scoped_event(&profiler, "closest_pt_terrain_with_normal")
+    candidate: hlsl.float3
+    cn: hlsl.float3
+    closest_dist := math.INF_F32
+    for _, piece in terrain {
+        p, n := closest_pt_triangles_with_normal(point, piece)
+        d := hlsl.distance(point, p)
+        if d < closest_dist {
+            candidate = p
+            closest_dist = d
+            cn = n
+        }
+    }
+    return candidate, cn
+}
+
+intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain")
+    cand_t := math.INF_F32
+    for _, &piece in terrain {
+        t, ok := intersect_segment_triangles_t(segment, piece)
+        if ok {
+            if t < cand_t {
+                cand_t = t
+            }
+        }
+    }
+
+    return segment.start + cand_t * (segment.end - segment.start), cand_t < math.INF_F32
+}
+
+intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain_with_normal")
+    cand_t := math.INF_F32
+    normal: hlsl.float3
+    for _, piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
+        if ok {
+            if t < cand_t {
+                cand_t = t
+                normal = n
+            }
+        }
+    }
+
+    return cand_t, normal, cand_t < math.INF_F32
+}
+
+intersect_segment_terrain_with_normal_and_id :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, EntityID, bool) {
+    scoped_event(&profiler, "intersect_segment_terrain_with_normal_and_id")
+    cand_t := math.INF_F32
+    normal: hlsl.float3
+    cand_id: EntityID
+    for id, piece in terrain {
+        t, n, ok := intersect_segment_triangles_t_with_normal(segment, piece)
+        if ok {
+            if t < cand_t {
+                cand_t = t
+                cand_id = id
+                normal = n
+            }
+        }
+    }
+
+    return cand_t, normal, cand_id, cand_t < math.INF_F32
+}
+
+dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
+    scoped_event(&profiler, "dynamic_sphere_vs_terrain_t()")
+    closest_t := math.INF_F32
+    for _, piece in terrain {
+        t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
+        if ok3 {
+            if t < closest_t {
+                closest_t = t
+            }
+        }
+    }
+    return closest_t, closest_t < math.INF_F32
+}
+
+do_mouse_raycast_with_normal :: proc(
+    game_state: GameState,
+    renderer: Renderer,
+    input_system: InputSystem
+) -> (hlsl.float3, hlsl.float3, EntityID, bool) {
+    scoped_event(&profiler, "do_mouse_raycast")
+    
+    viewport_dimensions : [4]f32 = {
+        cast(f32)renderer.viewport_dimensions.offset.x,
+        cast(f32)renderer.viewport_dimensions.offset.y,
+        cast(f32)renderer.viewport_dimensions.extent.width,
+        cast(f32)renderer.viewport_dimensions.extent.height,
+    }
+
+    ray := view_ray(game_state, game_state.viewport_camera_id, input_system.mouse_location, viewport_dimensions)
+
+    tform := &game_state.transforms[game_state.viewport_camera_id]
+    collision_pt: hlsl.float3
+    normal: hlsl.float3
+    closest_dist := math.INF_F32
+    collision_id: EntityID
+    for id, piece in game_state.triangle_meshes {
+        candidate, n, ok := intersect_ray_triangles_with_normal(ray, piece)
+        if ok {
+            candidate_dist := hlsl.distance(candidate, tform.position)
+            if candidate_dist < closest_dist {
+                collision_pt = candidate
+                normal = n
+                closest_dist = candidate_dist
+                collision_id = id
+            }
+        }
+    }
+
+    return collision_pt, normal, collision_id, closest_dist < math.INF_F32
+}
+do_mouse_raycast :: proc(
+    game_state: GameState,
+    renderer: Renderer,
+    input_system: InputSystem,
+) -> (hlsl.float3, EntityID, bool) {
+    scoped_event(&profiler, "do_mouse_raycast")
+    collision_pt, _, id, hit := do_mouse_raycast_with_normal(
+        game_state,
+        renderer,
+        input_system
+    )
+    return collision_pt, id, hit
+}
