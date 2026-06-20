@@ -251,30 +251,34 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Camera", selected = camera_config) {
                 app.user_config.flags[.CameraConfig] = !app.user_config.flags[.CameraConfig]
             }
-            window_config := app.user_config.flags[.WindowConfig]
-            if imgui.MenuItem("Window", selected = window_config) {
-                app.user_config.flags[.WindowConfig] = !app.user_config.flags[.WindowConfig]
+            network_config := app.user_config.flags[.NetworkConfig]
+            if imgui.MenuItem("Network", selected = network_config) {
+                app.user_config.flags[.NetworkConfig] = !app.user_config.flags[.NetworkConfig]
             }
+            if imgui.BeginMenu("Window") {
+                if imgui.MenuItem("Always On Top", selected = bool(app.user_config.flags[.AlwaysOnTop])) {
+                    app.user_config.flags[.AlwaysOnTop] = !app.user_config.flags[.AlwaysOnTop]
+                    retval = .ToggleAlwaysOnTop
+                }
 
-            imgui.EndMenu()
-        }
+                if imgui.MenuItem("Borderless Fullscreen", selected = app.game_state.borderless_fullscreen) {
+                    // Update config map
+                    app.user_config.flags[.BorderlessFullscreen] = !app.game_state.borderless_fullscreen
+                    retval = .ToggleBorderlessFullscreen
+                }
 
-        if imgui.BeginMenu("Window") {
-            if imgui.MenuItem("Always On Top", selected = bool(app.user_config.flags[.AlwaysOnTop])) {
-                app.user_config.flags[.AlwaysOnTop] = !app.user_config.flags[.AlwaysOnTop]
-                retval = .ToggleAlwaysOnTop
-            }
+                if imgui.MenuItem("Exclusive Fullscreen", selected = app.game_state.exclusive_fullscreen) {
+                    // Update config map
+                    app.user_config.flags[.ExclusiveFullscreen] = !app.game_state.exclusive_fullscreen
+                    retval = .ToggleExclusiveFullscreen
+                }
 
-            if imgui.MenuItem("Borderless Fullscreen", selected = app.game_state.borderless_fullscreen) {
-                // Update config map
-                app.user_config.flags[.BorderlessFullscreen] = !app.game_state.borderless_fullscreen
-                retval = .ToggleBorderlessFullscreen
-            }
+                window_config := app.user_config.flags[.WindowConfig]
+                if imgui.MenuItem("Present mode dropdown window", selected = window_config) {
+                    app.user_config.flags[.WindowConfig] = !app.user_config.flags[.WindowConfig]
+                }
 
-            if imgui.MenuItem("Exclusive Fullscreen", selected = app.game_state.exclusive_fullscreen) {
-                // Update config map
-                app.user_config.flags[.ExclusiveFullscreen] = !app.game_state.exclusive_fullscreen
-                retval = .ToggleExclusiveFullscreen
+                imgui.EndMenu()
             }
 
             imgui.EndMenu()
