@@ -130,6 +130,8 @@ main :: proc() {
         // Quit if user wants it
         app.running = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
 
+        network_input(&app.network)
+
         if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             app.running = false
         }
@@ -537,6 +539,10 @@ main :: proc() {
         // Imgui Demo
         if app.gui.show_gui && app.user_config.flags[.ShowImguiDemo] {
             imgui.ShowDemoWindow(&app.user_config.flags[.ShowImguiDemo])
+        }
+
+        if app.gui.show_gui && app.user_config.flags[.NetworkConfig] {
+            network_gui(&app.network)
         }
 
         // Memory viewer
