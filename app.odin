@@ -64,6 +64,7 @@ App :: struct {
     input_system: InputSystem,
     audio_system: AudioSystem,
     gui: ImguiState,
+    network: Network,
 
     // There will be two of these in order to support
     // tick-rate/frame-rate independence
@@ -374,6 +375,9 @@ app_startup :: proc(app: ^App) -> bool {
         app.previous_time = time.time_add(app.current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}
         app.saved_mouse_coords = hlsl.int2 {0, 0}
     }
+
+    // Init network subsystem
+    app.network = network_init()
 
     app.coin_paint_radius = 1.0
     app.coin_z_offset = 1.0
