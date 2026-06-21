@@ -100,9 +100,9 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                     network.server_peer = event.peer
                     log.infof("Server got connection from connect id %v", event.peer.connectID)
                     //event.peer.
-                    network.remote_player = gamestate_next_id(game_state)
+                    //network.remote_player = gamestate_next_id(game_state)
 
-
+                    connect_client(network, event.peer.address)
                 }
                 case .DISCONNECT: {
                     log.info("Disconnect event")
@@ -158,6 +158,31 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
     return output
 }
 
+connect_client_net :: proc(network: ^Network, addr: net.Address) {
+    network.client = enet.host_create(nil, 1, 2, 0, 0)
+    assert(network.client != nil)
+
+    ip4_addr := addr.(net.IP4_Address)
+    peer_addr := enet.Address {
+        host = (cast(^u32)(&ip4_addr[0]))^,
+        port = SERVER_PORT,
+    }
+    connect_client_enet(network, peer_addr)
+}
+
+connect_client_enet :: proc(network: ^Network, addr: enet.Address) {
+    addr := addr
+    network.client_peer = enet.host_connect(network.client, &addr, 2, 0)
+    if network.client_peer == nil {
+        log.errorf("Unable to connect to host.")
+    }
+}
+
+connect_client :: proc {
+    connect_client_enet,
+    connect_client_net,
+}
+
 network_gui :: proc(network: ^Network) {
     server_ip_string: string
     {
@@ -177,18 +202,7 @@ network_gui :: proc(network: ^Network) {
         remote_addr, ok := net.parse_endpoint(server_ip_string)
         assert(ok)
 
-        network.client = enet.host_create(nil, 1, 2, 0, 0)
-        assert(network.client != nil)
-
-        ip4_addr := remote_addr.address.(net.IP4_Address)
-        peer_addr := enet.Address {
-            host = (cast(^u32)(&ip4_addr[0]))^,
-            port = SERVER_PORT,
-        }
-        network.client_peer = enet.host_connect(network.client, &peer_addr, 2, 0)
-        if network.client_peer == nil {
-            log.errorf("Unable to connect to host.")
-        }
+        connect_client(network, remote_addr.address)
     }
     imgui.EndDisabled()
 
