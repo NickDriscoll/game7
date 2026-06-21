@@ -215,7 +215,9 @@ load_user_config :: proc(filename: string, allocator := context.allocator) -> (U
                     key = e
                 }
             }
-            assert(key != nil)
+            if key == nil {
+                log.warnf("User config entry \"%v\" not found/", key_str)
+            }
 
             scanner.scan(&sc)
             eq_tok := scanner.token_text(&sc)
@@ -257,6 +259,7 @@ load_user_config :: proc(filename: string, allocator := context.allocator) -> (U
                     u.strs[key.?] = its
                 }
             }
+            if key == nil { continue }
 
 
             key_tok = scanner.scan(&sc)
