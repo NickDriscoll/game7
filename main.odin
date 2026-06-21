@@ -667,7 +667,7 @@ main :: proc() {
             }
             ddata := DebugDraw {
                 world_from_model = get_transform_matrix(Transform{position = pos, scale = 1.0}),
-                color = {0.6, 0.6, 1.0, 1.0}
+                color = {0.6, 0.6, 1.0, 0.8}
             }
             draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddata)
 
