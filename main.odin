@@ -112,7 +112,7 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
 
-        network_input(&app.network)
+        network_output := poll_network(&app.network, &app.game_state, app.per_frame_allocator)
 
         if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             do_main_loop = false
@@ -885,6 +885,26 @@ main :: proc() {
                     app.vgd.resize_window = true
                 }
             }
+        }
+
+        // TEMP AFFFFF
+        {
+            @static pos: hlsl.float3
+            new_pos, ok := network_output.float3_update[.PlayerUpdate]
+            if ok {
+                pos = new_pos
+            }
+            ddata := DebugDraw {
+                world_from_model = get_transform_matrix(Transform{position = pos, scale = 1.0}),
+                color = {0.6, 0.6, 1.0, 1.0}
+            }
+            draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddata)
+
+            do_point_light(&app.renderer, PointLight {
+                world_position = pos,
+                intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
+                color = {0.6, 0.6, 1.0}
+            })
         }
 
         // Render
