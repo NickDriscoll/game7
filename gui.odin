@@ -210,9 +210,9 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Save user config") {
                 app.user_config.strs[.StartLevel] = app.current_level
 
-                tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
-                camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
-                following := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
+                tform := &app.game_state.transforms[app.game_state.viewport_cameras[0]]
+                camera := &app.game_state.cameras[app.game_state.viewport_cameras[0]]
+                following := app.game_state.viewport_cameras[0] in app.game_state.lookat_controllers
                 update_user_cfg_camera(&app.user_config, tform.position, following, camera^)
 
                 save_user_config(&app.user_config, USER_CONFIG_FILENAME)

@@ -931,9 +931,9 @@ do_mouse_raycast_with_normal :: proc(
         cast(f32)renderer.viewport_dimensions.extent.height,
     }
 
-    ray := view_ray(game_state, game_state.viewport_camera_id, input_system.mouse_location, viewport_dimensions)
+    ray := view_ray(game_state, game_state.viewport_cameras[0], input_system.mouse_location, viewport_dimensions)
 
-    tform := &game_state.transforms[game_state.viewport_camera_id]
+    tform := &game_state.transforms[game_state.viewport_cameras[0]]
     collision_pt: hlsl.float3
     normal: hlsl.float3
     closest_dist := math.INF_F32

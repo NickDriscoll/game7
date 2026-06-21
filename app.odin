@@ -331,7 +331,7 @@ app_startup :: proc(app: ^App) -> bool {
 
         // Init input system
         context.allocator = app.global_allocator
-        is_lookat := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
+        is_lookat := app.game_state.viewport_cameras[0] in app.game_state.lookat_controllers
         if is_lookat {
             app.input_system = init_input_system(&app.game_state.character_key_mappings, &app.game_state.mouse_mappings, &app.game_state.button_mappings)
         } else {
@@ -518,16 +518,26 @@ scene_editor :: proc(
             selected_entity_options :: proc(game_state: ^GameState, renderer: ^Renderer, selected_entity: ^Maybe(EntityID)) {
                 id, ok := selected_entity.?
                 eid := c.int(id)
+                cam_id := game_state.viewport_cameras[0]
+                _, has_cam := &game_state.cameras[cam_id]
+                assert(has_cam)
+                lookat_controller, lookat_ok := &game_state.lookat_controllers[cam_id]
 
-                lookat_controller, lookat_ok := &game_state.lookat_controllers[game_state.viewport_camera_id]
-                imgui.BeginDisabled(!lookat_ok)
                 if imgui.SliderInt("Selected Entity", &eid, 0, c.int(game_state._next_id - 1)) {
                     new_id := EntityID(eid)
-                    lookat_controller.target = new_id
                     selected_entity^ = new_id
                     id = new_id
+
+                    if !lookat_ok {
+                        focal_tform := &game_state.transforms[id]
+                        game_state.lookat_controllers[cam_id] = LookatController {
+                            current_focal_point = focal_tform.position,
+                            distance = 4.0
+                        }
+                    }
+
+                    lookat_controller.target = new_id
                 }
-                imgui.EndDisabled()
 
                 if ok {
                     imgui.Text("Selected #%i", c.int(id))
@@ -587,11 +597,17 @@ scene_editor :: proc(
                         }
                     }
 
-                    imgui.BeginDisabled(!lookat_ok)
                     if imgui.Button("Lock-on") {
+                       if !lookat_ok {
+                            focal_tform := &game_state.transforms[id]
+                            game_state.lookat_controllers[cam_id] = LookatController {
+                                current_focal_point = focal_tform.position,
+                                distance = 4.0
+                            }
+                        }
+
                         lookat_controller.target = id
                     }
-                    imgui.EndDisabled()
                     imgui.SameLine()
                     if imgui.Button("Delete") {
                         delete_entity(game_state, id)
@@ -784,7 +800,7 @@ scene_editor :: proc(
             cast(f32)app.renderer.viewport_dimensions.extent.height,
         }
         // @TODO: Clean up the view_ray apis
-        ray := view_ray(app.game_state, app.game_state.viewport_camera_id, app.input_system.mouse_location, dims)
+        ray := view_ray(app.game_state, app.game_state.viewport_cameras[0], app.input_system.mouse_location, dims)
 
         closest_t = math.INF_F32
         for id, instance in app.game_state.static_models {

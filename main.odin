@@ -75,9 +75,9 @@ main :: proc() {
         // Save user configuration every 100ms
         if app.user_config.flags[.ConfigAutosave] && time.diff(app.user_config.last_saved, app.current_time) >= 100_000_000 {
             scoped_event(&profiler, "Auto-save user config")
-            tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
-            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
-            following := app.game_state.viewport_camera_id in app.game_state.lookat_controllers
+            tform := &app.game_state.transforms[app.game_state.viewport_cameras[0]]
+            camera := &app.game_state.cameras[app.game_state.viewport_cameras[0]]
+            following := app.game_state.viewport_cameras[0] in app.game_state.lookat_controllers
             if len(app.current_level) > 0 {
                 app.user_config.strs[.StartLevel] = app.current_level
             } else {
@@ -118,7 +118,7 @@ main :: proc() {
         {
             scoped_event(&profiler, "Tell Dear ImGUI about events")
 
-            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
+            camera := &app.game_state.cameras[app.game_state.viewport_cameras[0]]
 
             if output_verbs.bools[.ToggleImgui] {
                 app.gui.show_gui = !app.gui.show_gui
@@ -182,10 +182,10 @@ main :: proc() {
                 imgui.Text("Frame #%i", app.vgd.frame_count)
                 imgui.Separator()
 
-                {
-                    tform := &app.game_state.transforms[app.game_state.player_id]
-                    collision := &app.game_state.spherical_bodies[app.game_state.player_id]
-                    player := &app.game_state.character_controllers[app.game_state.player_id]
+                for player_id in app.game_state.local_players {
+                    tform := &app.game_state.transforms[player_id]
+                    collision := &app.game_state.spherical_bodies[player_id]
+                    player := &app.game_state.character_controllers[player_id]
 
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
@@ -195,13 +195,13 @@ main :: proc() {
                     if imgui.Checkbox("Show player collision", &flag) {
                         app.game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
                         if flag {
-                            app.game_state.debug_models[app.game_state.player_id] = DebugModelInstance {
+                            app.game_state.debug_models[player_id] = DebugModelInstance {
                                 handle = app.game_state.sphere_mesh,
                                 scale = collision.radius,
                                 color = {0.2, 0.0, 1.0, 0.5}
                             }
                         } else {
-                            delete_key(&app.game_state.debug_models, app.game_state.player_id)
+                            delete_key(&app.game_state.debug_models, player_id)
                         }
                     }
                     flag = .ShowCoinRadius in app.game_state.debug_vis_flags
@@ -229,11 +229,11 @@ main :: proc() {
                     moving_something := .MoveSelectedEntity in app.game_state.edit_flags
                     imgui.BeginDisabled(moving_something)
                     move_text : cstring = "Move player"
-                    if moving_something && app.selected_entity.? == app.game_state.player_id {
+                    if moving_something && app.selected_entity.? == app.game_state.local_players[0] {
                         move_text = "Moving player..."
                     }
                     if imgui.Button(move_text) {
-                        app.selected_entity = app.game_state.player_id
+                        app.selected_entity = app.game_state.local_players[0]
                         app.game_state.edit_flags += {.MoveSelectedEntity}
                     }
                     imgui.EndDisabled()
@@ -423,7 +423,7 @@ main :: proc() {
         if app.gui.show_gui && app.user_config.flags[.CameraConfig] {
             camera_gui(
                 &app.game_state,
-                app.game_state.viewport_camera_id,
+                //app.game_state.viewport_camera_id,
                 &app.input_system,
                 &app.user_config,
                 &app.user_config.flags[.CameraConfig]
@@ -506,19 +506,19 @@ main :: proc() {
         game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
         // Camera update
-        {
+        for cam_id in app.game_state.viewport_cameras {
             scoped_event(&profiler, "Camera update")
 
-            tform := &app.game_state.transforms[app.game_state.viewport_camera_id]
-            camera := &app.game_state.cameras[app.game_state.viewport_camera_id]
+            tform := &app.game_state.transforms[cam_id]
+            camera := &app.game_state.cameras[cam_id]
             camera.aspect_ratio = vkw.get_framebuffer_aspect_ratio(app.renderer.main_framebuffer)
-            lookat_controller, is_lookat := &app.game_state.lookat_controllers[app.game_state.viewport_camera_id]
+            lookat_controller, is_lookat := &app.game_state.lookat_controllers[cam_id]
             current_view_from_world: hlsl.float4x4
             if is_lookat {
-                lookat_camera_update(&app.game_state, output_verbs, app.game_state.viewport_camera_id, dt)
+                lookat_camera_update(&app.game_state, output_verbs, cam_id, dt)
                 current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
             } else {
-                freecam_update(&app.game_state, output_verbs, app.game_state.viewport_camera_id, dt)
+                freecam_update(&app.game_state, output_verbs, cam_id, dt)
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
             }
 

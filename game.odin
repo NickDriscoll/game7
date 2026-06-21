@@ -204,12 +204,9 @@ ENEMY_JUMP_SPEED :: 6.0                 // m/s
 ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_enemy_ai")
-    char_tform := &game_state.transforms[game_state.player_id]
-
     for id, &enemy in game_state.enemy_ais {
         transform := &game_state.transforms[id]
 
-        dist_to_player := hlsl.distance(char_tform.position, transform.position)
         body := &game_state.spherical_bodies[id]
         is_affected_by_gravity := false
         switch enemy.state {
@@ -224,16 +221,21 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
 
                 body.velocity.xy = hlsl.normalize(enemy.facing.xy)
 
-                if dist_to_player < ENEMY_HOME_RADIUS {
-                    enemy.facing = char_tform.position - transform.position
-                    enemy.facing.z = 0.0
-                    enemy.facing = hlsl.normalize(enemy.facing)
-                    body.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
-                    enemy.state = .AlertedBounce
-                    body.state = .Falling
-                    enemy.timer_start = time.now()
-                    enemy.home_position = transform.position
-                    play_sound_effect(audio_system, game_state.jump_sound)
+                // Check if we have to charge at any players
+                for player_id in game_state.local_players {
+                    char_tform := &game_state.transforms[player_id]
+                    dist_to_player := hlsl.distance(char_tform.position, transform.position)
+                    if dist_to_player < ENEMY_HOME_RADIUS {
+                        enemy.facing = char_tform.position - transform.position
+                        enemy.facing.z = 0.0
+                        enemy.facing = hlsl.normalize(enemy.facing)
+                        body.velocity = {0.0, 0.0, ENEMY_JUMP_SPEED}
+                        enemy.state = .AlertedBounce
+                        body.state = .Falling
+                        enemy.timer_start = time.now()
+                        enemy.home_position = transform.position
+                        play_sound_effect(audio_system, game_state.jump_sound)
+                    }
                 }
 
                 if time.diff(enemy.timer_start, time.now()) > time.Duration(5.0 * SECONDS_TO_NANOSECONDS) {
@@ -280,9 +282,9 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
         }
 
         // Check for collision with player
-        {
-            player_tform := &game_state.transforms[game_state.player_id]
-            player_collision := &game_state.spherical_bodies[game_state.player_id]
+        for player_id in game_state.local_players {
+            player_tform := &game_state.transforms[player_id]
+            player_collision := &game_state.spherical_bodies[player_id]
 
             ps := Sphere {
                 position = player_tform.position,
@@ -293,7 +295,9 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                 radius = body.radius
             }
             if are_spheres_overlapping(ps, es) {
-                append(&game_state.character_damage_events, DamageEvent {})
+                append(&game_state.character_damage_events, DamageEvent {
+                    player_id = player_id
+                })
             }
         }
 
@@ -359,9 +363,9 @@ tick_hovering_enemies :: proc(game_state: ^GameState, dt: f32) {
         }
 
         // Check for collision with player
-        {
-            player_tform := &game_state.transforms[game_state.player_id]
-            player_collision := &game_state.spherical_bodies[game_state.player_id]
+        for player_id in game_state.local_players {
+            player_tform := &game_state.transforms[player_id]
+            player_collision := &game_state.spherical_bodies[player_id]
 
             ps := Sphere {
                 position = player_tform.position,
@@ -628,11 +632,13 @@ CharacterController :: struct {
 
 tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
-    camera := &game_state.cameras[game_state.viewport_camera_id]
+    i := 0
     for id, &char in game_state.character_controllers {
+        defer i += 1
         tform := &game_state.transforms[id]
         collision := &game_state.spherical_bodies[id]
         model := &game_state.skinned_models[id]
+        camera := &game_state.cameras[game_state.viewport_cameras[i]]
 
         // Set current xy velocity (and character facing) to whatever user input is
         {
@@ -901,18 +907,18 @@ DebugModelInstance :: struct {
 }
 
 DamageEvent :: struct {
-
+    player_id: EntityID     // Which player was damaged
 }
 
 tick_damage_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
     scoped_event(&profiler, "tick_damage_events")
-    collision := &game_state.spherical_bodies[game_state.player_id]
-    char := &game_state.character_controllers[game_state.player_id]
-    invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
-    if invulnerable {
-        return
-    }
-    for event in game_state.character_damage_events {
+        for event in game_state.character_damage_events {
+        collision := &game_state.spherical_bodies[event.player_id]
+        char := &game_state.character_controllers[event.player_id]
+        invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
+        if invulnerable {
+            continue
+        }
         collision.velocity.z = 3.0
         collision.state = .Falling
         char.time_last_damaged = time.now()
@@ -1125,8 +1131,10 @@ EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    player_id: EntityID,
-    viewport_camera_id: EntityID,
+    // player_id: EntityID,
+    // viewport_camera_id: EntityID,
+    local_players: [dynamic; 4]EntityID,
+    viewport_cameras: [dynamic; 4]EntityID,
 
     // Scene/Level data
     level_start: hlsl.float3,
@@ -1341,7 +1349,8 @@ gamestate_new_scene :: proc(
     user_config: ^UserConfiguration,
     scene_allocator := context.allocator
 ) {
-
+    clear(&game_state.local_players)
+    clear(&game_state.viewport_cameras)
 
     // Initialize data-oriented tables
     game_state._next_id = 0                 // All entities are deleted on new_scene(), so set ids back to 0
@@ -1367,7 +1376,7 @@ gamestate_new_scene :: proc(
     // Initialize player character
     {
         id := gamestate_next_id(game_state)
-        game_state.player_id = id
+        append(&game_state.local_players, id)
 
         game_state.transforms[id] = Transform {
             scale = 1.0,
@@ -1409,7 +1418,7 @@ gamestate_new_scene :: proc(
     // Initialize viewport camera
     {
         id := gamestate_next_id(game_state)
-        game_state.viewport_camera_id = id
+        append(&game_state.viewport_cameras, id)
 
         game_state.transforms[id] = Transform {
             position = {
@@ -1427,7 +1436,7 @@ gamestate_new_scene :: proc(
         }
         if user_config.flags[.FollowCam] {
             game_state.lookat_controllers[id] = LookatController {
-                target = game_state.player_id,
+                target = game_state.local_players[0],
                 vertical_offset = 0.75,
                 distance = 5.0
             }
@@ -1758,9 +1767,11 @@ new_load_level_file :: proc(
     }
     app.current_level = path_clone
 
-    // Move player to spawn
-    tform := &app.game_state.transforms[app.game_state.player_id]
-    tform.position = app.game_state.level_start
+    // Move players to spawn
+    for id in app.game_state.local_players {
+        tform := &app.game_state.transforms[id]
+        tform.position = app.game_state.level_start
+    }
 
     return true
 }
@@ -2256,66 +2267,65 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: En
 
 camera_gui :: proc(
     game_state: ^GameState,
-    camera_id: EntityID,
     input_system: ^InputSystem,
     user_config: ^UserConfiguration,
     close: ^bool
 ) {
-    tform := &game_state.transforms[camera_id]
-    camera := &game_state.cameras[camera_id]
-
-    lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
-
     if imgui.Begin("Camera controls", close) {
-        imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
-        imgui.Text("Yaw: %f", camera.yaw)
-        imgui.Text("Pitch: %f", camera.pitch)
+        for camera_id in game_state.viewport_cameras {
+            tform := &game_state.transforms[camera_id]
+            camera := &game_state.cameras[camera_id]
+            lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
 
-        imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
-        imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
-        imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
-        imgui.SameLine()
-        if imgui.Button("Reset") {
-            game_state.camera_follow_speed = 6.0
-        }
-        if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-            user_config.flags[.FreecamCollision] = game_state.freecam_collision
-        }
-
-        freecam := !is_lookat
-        if imgui.Checkbox("Freecam", &freecam) {
-            camera.pitch = 0.0
-            camera.yaw = 0.0
-
-            if !freecam {
-                replace_keybindings(input_system, &game_state.character_key_mappings)
-                game_state.lookat_controllers[camera_id] = LookatController {
-                    target = game_state.player_id,
-                    vertical_offset = 0.75,
-                    distance = 4.0
+            imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
+            imgui.Text("Yaw: %f", camera.yaw)
+            imgui.Text("Pitch: %f", camera.pitch)
+    
+            imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+            imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
+            imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
+            imgui.SameLine()
+            if imgui.Button("Reset") {
+                game_state.camera_follow_speed = 6.0
+            }
+            if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                user_config.flags[.FreecamCollision] = game_state.freecam_collision
+            }
+    
+            freecam := !is_lookat
+            if imgui.Checkbox("Freecam", &freecam) {
+                camera.pitch = 0.0
+                camera.yaw = 0.0
+    
+                if !freecam {
+                    replace_keybindings(input_system, &game_state.character_key_mappings)
+                    game_state.lookat_controllers[camera_id] = LookatController {
+                        target = game_state.local_players[0],
+                        distance = 4.0
+                    }
+                } else {
+                    replace_keybindings(input_system, &game_state.freecam_key_mappings)
+                    delete_key(&game_state.lookat_controllers, camera_id)
                 }
-            } else {
-                replace_keybindings(input_system, &game_state.freecam_key_mappings)
-                delete_key(&game_state.lookat_controllers, camera_id)
             }
-        }
-
-        if is_lookat {
-            imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
-            tgt: c.int = c.int(lookat_controller.target)
-            if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
-                lookat_controller.target = EntityID(tgt)
+    
+            if is_lookat {
+                imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
+                tgt: c.int = c.int(lookat_controller.target)
+                if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
+                    lookat_controller.target = EntityID(tgt)
+                }
+                imgui.SliderFloat("Vertical offset", &lookat_controller.vertical_offset, 0.0, 3.0)
             }
-            imgui.SliderFloat("Vertical offset", &lookat_controller.vertical_offset, 0.0, 3.0)
+    
+            imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
+            imgui.SameLine()
+            imgui.PushIDInt(1)
+            if imgui.Button("Reset") {
+                camera.fov_radians = math.PI / 2.0
+            }
+            imgui.PopID()
         }
-
-        imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
-        imgui.SameLine()
-        imgui.PushIDInt(1)
-        if imgui.Button("Reset") {
-            camera.fov_radians = math.PI / 2.0
-        }
-        imgui.PopID()
     }
     imgui.End()
 }
