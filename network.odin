@@ -102,7 +102,9 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                     //event.peer.
                     //network.remote_player = gamestate_next_id(game_state)
 
-                    connect_client(network, event.peer.address)
+                    log.infof("Peer address %v",  to_net_addr(event.peer.address))
+                    //connect_client(network, event.peer.address)
+                    network.client_peer = network.server_peer
                 }
                 case .DISCONNECT: {
                     log.info("Disconnect event")
