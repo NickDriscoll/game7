@@ -182,7 +182,14 @@ main :: proc() {
                 imgui.Text("Frame #%i", app.vgd.frame_count)
                 imgui.Separator()
 
+                if imgui.Button("Add player") {
+                    id := new_player_character(&app.game_state, &app.renderer, app.per_scene_allocator)
+                    append(&app.game_state.local_players, id)
+                    cam_id := new_viewport_camera(&app.game_state, id, app.user_config)
+                    append(&app.game_state.viewport_cameras, cam_id)
+                }
                 for player_id in app.game_state.local_players {
+                    imgui.PushIDInt(c.int(player_id))
                     tform := &app.game_state.transforms[player_id]
                     collision := &app.game_state.spherical_bodies[player_id]
                     player := &app.game_state.character_controllers[player_id]
@@ -237,6 +244,7 @@ main :: proc() {
                         app.game_state.edit_flags += {.MoveSelectedEntity}
                     }
                     imgui.EndDisabled()
+                    imgui.PopID()
                 }
 
                 imgui.SliderFloat("Distortion Strength", &app.renderer.uniforms.distortion_strength, 0.0, 1.0)

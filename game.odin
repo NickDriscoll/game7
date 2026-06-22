@@ -630,6 +630,69 @@ CharacterController :: struct {
     enemy_type: EnemyType,
 }
 
+new_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, allocator := context.allocator) -> EntityID {
+    id := gamestate_next_id(game_state)
+
+    game_state.transforms[id] = Transform {
+        scale = 1.0,
+    }
+    game_state.spherical_bodies[id] = SphericalBody {
+        velocity = {},
+        radius = 0.6,
+        gravity_scale = CHARACTER_HEAVY_GRAVITY,
+        state = .Falling
+    }
+    game_state.character_controllers[id] = CharacterController {
+        acceleration = {},
+        deceleration_speed = 0.1,
+        move_speed = 7.0,
+        sprint_speed = 10.0,
+        jump_speed = 10.0,
+        bullet_travel_time = 0.144,
+        health = CHARACTER_MAX_HEALTH,
+        vortex_t = 0.144 + 1.0,
+        anim_speed = 0.856,
+        time_last_damaged = {},
+        flags = {}
+    }
+
+    // Load animated test glTF model
+    path : cstring = "data/models/CesiumMan.glb"
+    skinned_model := load_gltf_skinned_model(renderer, path, allocator)
+    game_state.skinned_models[id] = SkinnedModelInstance {
+        handle = skinned_model,
+        pos_offset = {0.0, 0.0, -0.6},
+        flags = {}
+    }
+
+    return id
+}
+
+new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_config: UserConfiguration) -> EntityID {
+    id := gamestate_next_id(game_state)
+    game_state.transforms[id] = Transform {
+        position = {
+            f32(user_config.floats[.FreecamX]),
+            f32(user_config.floats[.FreecamY]),
+            f32(user_config.floats[.FreecamZ])
+        }
+    }
+    game_state.cameras[id] = FreecamController {
+        fov_radians = f32(user_config.floats[.CameraFOV]),
+        nearplane = 0.1 / math.sqrt_f32(2.0),
+        farplane = 1_000_000.0,
+        yaw = f32(user_config.floats[.FreecamYaw]),
+        pitch = f32(user_config.floats[.FreecamPitch]),
+    }
+    if user_config.flags[.FollowCam] {
+        game_state.lookat_controllers[id] = LookatController {
+            target = player_id,
+            distance = 5.0
+        }
+    }
+    return id
+}
+
 tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
     i := 0
@@ -1131,8 +1194,6 @@ EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    // player_id: EntityID,
-    // viewport_camera_id: EntityID,
     local_players: [dynamic; 4]EntityID,
     viewport_cameras: [dynamic; 4]EntityID,
 
@@ -1192,7 +1253,6 @@ GameState :: struct {
     coin_sound: int,
     ow_sound: int,
 
-    camera_follow_point: hlsl.float3,
     camera_follow_speed: f32,
     timescale: f32,
     time: f32,
@@ -1375,42 +1435,18 @@ gamestate_new_scene :: proc(
 
     // Initialize player character
     {
-        id := gamestate_next_id(game_state)
-        append(&game_state.local_players, id)
-
-        game_state.transforms[id] = Transform {
-            scale = 1.0,
-        }
-        game_state.spherical_bodies[id] = SphericalBody {
-            velocity = {},
-            radius = 0.6,
-            gravity_scale = CHARACTER_HEAVY_GRAVITY,
-            state = .Falling
-        }
-        game_state.character_controllers[id] = CharacterController {
-            acceleration = {},
-            deceleration_speed = 0.1,
-            move_speed = 7.0,
-            sprint_speed = 10.0,
-            jump_speed = 10.0,
-            bullet_travel_time = 0.144,
-            health = CHARACTER_MAX_HEALTH,
-            vortex_t = 0.144 + 1.0,
-            anim_speed = 0.856,
-            time_last_damaged = {},
-            flags = {}
-        }
-
-        // Load animated test glTF model
-        skinned_model: SkinnedModelHandle
+        player_id := new_player_character(game_state, renderer, scene_allocator)
+        append(&game_state.local_players, player_id)
+        
+        // Initialize viewport camera
         {
             path : cstring = "data/models/CesiumMan.glb"
-            skinned_model = load_gltf_skinned_model(renderer, path, scene_allocator)
-        }
-        game_state.skinned_models[id] = SkinnedModelInstance {
-            handle = skinned_model,
-            pos_offset = {0.0, 0.0, -0.6},
-            flags = {}
+            skinned_model := load_gltf_skinned_model(renderer, path, scene_allocator)
+            game_state.skinned_models[player_id] = SkinnedModelInstance {
+                handle = skinned_model,
+                pos_offset = {0.0, 0.0, -0.6},
+                flags = {}
+            }
         }
 
     }
@@ -1442,6 +1478,7 @@ gamestate_new_scene :: proc(
             }
         }
     }
+
 
     game_state.freecam_speed_multiplier = 5.0
     game_state.freecam_slow_multiplier = 1.0 / 5.0
@@ -2273,58 +2310,68 @@ camera_gui :: proc(
 ) {
     if imgui.Begin("Camera controls", close) {
         for camera_id in game_state.viewport_cameras {
+            imgui.PushIDInt(i32(camera_id))
+            defer imgui.PopID()
+
             tform := &game_state.transforms[camera_id]
             camera := &game_state.cameras[camera_id]
             lookat_controller, is_lookat := &game_state.lookat_controllers[camera_id]
 
-            imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
-            imgui.Text("Yaw: %f", camera.yaw)
-            imgui.Text("Pitch: %f", camera.pitch)
-    
-            imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
-            imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
-            imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
-            imgui.SameLine()
-            if imgui.Button("Reset") {
-                game_state.camera_follow_speed = 6.0
-            }
-            if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
-                user_config.flags[.FreecamCollision] = game_state.freecam_collision
-            }
-    
-            freecam := !is_lookat
-            if imgui.Checkbox("Freecam", &freecam) {
-                camera.pitch = 0.0
-                camera.yaw = 0.0
-    
-                if !freecam {
-                    replace_keybindings(input_system, &game_state.character_key_mappings)
-                    game_state.lookat_controllers[camera_id] = LookatController {
-                        target = game_state.local_players[0],
-                        distance = 4.0
+            sb: strings.Builder
+            strings.builder_init(&sb, context.temp_allocator)
+            fmt.sbprintf(&sb, "Camera id %v", camera_id)
+            cs := strings.to_cstring(&sb)
+            if imgui.CollapsingHeader(cs) {
+                imgui.Text("Position: (%f, %f, %f)", tform.position.x, tform.position.y, tform.position.z)
+                imgui.Text("Yaw: %f", camera.yaw)
+                imgui.Text("Pitch: %f", camera.pitch)
+        
+                imgui.SliderFloat("Fast speed", &game_state.freecam_speed_multiplier, 0.0, 100.0)
+                imgui.SliderFloat("Slow speed", &game_state.freecam_slow_multiplier, 0.0, 1/5)
+                imgui.SliderFloat("Smoothing speed", &game_state.camera_follow_speed, 0.1, 20.0)
+                imgui.SameLine()
+                if imgui.Button("Reset") {
+                    game_state.camera_follow_speed = 6.0
+                }
+                if imgui.Checkbox("Enable freecam collision", &game_state.freecam_collision) {
+                    user_config.flags[.FreecamCollision] = game_state.freecam_collision
+                }
+        
+                freecam := !is_lookat
+                if imgui.Checkbox("Freecam", &freecam) {
+                    camera.pitch = 0.0
+                    camera.yaw = 0.0
+        
+                    if !freecam {
+                        replace_keybindings(input_system, &game_state.character_key_mappings)
+                        game_state.lookat_controllers[camera_id] = LookatController {
+                            target = game_state.local_players[0],
+                            distance = 4.0
+                        }
+                    } else {
+                        replace_keybindings(input_system, &game_state.freecam_key_mappings)
+                        delete_key(&game_state.lookat_controllers, camera_id)
                     }
-                } else {
-                    replace_keybindings(input_system, &game_state.freecam_key_mappings)
-                    delete_key(&game_state.lookat_controllers, camera_id)
                 }
-            }
-    
-            if is_lookat {
-                imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
-                tgt: c.int = c.int(lookat_controller.target)
-                if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
-                    lookat_controller.target = EntityID(tgt)
+        
+                if is_lookat {
+                    imgui.SliderFloat("Camera follow distance", &lookat_controller.distance, 1.0, 20.0)
+                    tgt: c.int = c.int(lookat_controller.target)
+                    if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
+                        lookat_controller.target = EntityID(tgt)
+                    }
+                    imgui.SliderFloat("Vertical offset", &lookat_controller.vertical_offset, 0.0, 3.0)
                 }
-                imgui.SliderFloat("Vertical offset", &lookat_controller.vertical_offset, 0.0, 3.0)
+        
+                imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
+                imgui.SameLine()
+                imgui.PushIDInt(1)
+                if imgui.Button("Reset") {
+                    camera.fov_radians = math.PI / 2.0
+                }
+                imgui.PopID()
             }
-    
-            imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)
-            imgui.SameLine()
-            imgui.PushIDInt(1)
-            if imgui.Button("Reset") {
-                camera.fov_radians = math.PI / 2.0
-            }
-            imgui.PopID()
+
         }
     }
     imgui.End()
