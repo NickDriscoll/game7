@@ -612,7 +612,10 @@ render_imgui :: proc(
         maxDepth = 1.0
     }})
 
-    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
+    rp := vkw.RenderPass {
+        fb = framebuffer,
+    }
+    vkw.cmd_begin_render_pass(gd, gfx_cb_idx, rp)
 
     vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {
         {

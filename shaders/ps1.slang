@@ -210,25 +210,27 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         diffuse_contribution += cloud_shadow * lambert(face_normal, light.direction, light.color);
 
         float3 h = normalize(light.direction + view_dir);
-        specular_contribution += cloud_shadow * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
+        float d = max(0.0, dot(h, face_normal));
+        specular_contribution += cloud_shadow * light.color * max(0.0, pow(d, 64.0));
     }
 
     // Point lights
     for (uint i = 0; i < u_data.point_light_count; ++i) {
         PointLight light = u_data.point_lights[i];
         float3 direction = light.world_position - input.world_pos;
-        float d = length(direction);
-        direction /= d;
+        float dir = length(direction);
+        direction /= dir;
 
-        if (trace_shadow_ray(input.world_pos, direction, d - 0.5)) {
+        if (trace_shadow_ray(input.world_pos, direction, dir - 0.5)) {
             continue;
         }
 
-        float falloff = light.intensity / (d * d);
+        float falloff = light.intensity / (dir * dir);
         diffuse_contribution += falloff * lambert(face_normal, direction, light.color);
 
         float3 h = normalize(direction + view_dir);
-        specular_contribution += falloff * light.color * max(0.0, pow(dot(h, face_normal), 64.0));
+        float d = max(0.0, dot(h, face_normal));
+        specular_contribution += falloff * light.color * max(0.0, pow(d, 64.0));
     }
 
     // Trying rt reflections

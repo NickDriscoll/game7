@@ -1997,7 +1997,10 @@ render_scene :: proc(
         })
 
         // Begin renderpass into main internal rendertarget
-        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, &renderer.main_framebuffer)
+        rp := vkw.RenderPass {
+            fb = &renderer.main_framebuffer,
+        }
+        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, rp)
 
         //framebuffer_resolution := renderer.main_framebuffer.resolution
         vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
@@ -2153,7 +2156,10 @@ render_scene :: proc(
             vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {v})
         }
 
-        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, framebuffer)
+        rp2 := vkw.RenderPass {
+            fb = framebuffer,
+        }
+        vkw.cmd_begin_render_pass(gd, gfx_cb_idx, rp2)
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
