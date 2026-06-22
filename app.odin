@@ -794,10 +794,10 @@ scene_editor :: proc(
     }
     get_clicked_entity :: proc(app: ^App, filter_terrain: bool) -> (closest_id: EntityID, closest_t: f32) {
         dims : [4]f32 = {
-            cast(f32)app.renderer.viewport_dimensions.offset.x,
-            cast(f32)app.renderer.viewport_dimensions.offset.y,
-            cast(f32)app.renderer.viewport_dimensions.extent.width,
-            cast(f32)app.renderer.viewport_dimensions.extent.height,
+            cast(f32)app.renderer.dockspace_dimensions.offset.x,
+            cast(f32)app.renderer.dockspace_dimensions.offset.y,
+            cast(f32)app.renderer.dockspace_dimensions.extent.width,
+            cast(f32)app.renderer.dockspace_dimensions.extent.height,
         }
         // @TODO: Clean up the view_ray apis
         ray := view_ray(app.game_state, app.game_state.viewport_cameras[0], app.input_system.mouse_location, dims)

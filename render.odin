@@ -91,12 +91,25 @@ UniformFlag :: enum u32 {
 }
 
 // Manually aligned to 16 bytes
+CameraUniforms :: struct {
+    clip_from_world: hlsl.float4x4,
+
+    clip_from_skybox: hlsl.float4x4,
+
+    //clip_from_screen: hlsl.float4x4,
+
+    view_position: hlsl.float4,
+}
+
+// Manually aligned to 16 bytes
 UniformBuffer :: struct {
     clip_from_world: hlsl.float4x4,
 
     clip_from_skybox: hlsl.float4x4,
 
     clip_from_screen: hlsl.float4x4,
+
+    // cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
 
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
@@ -381,7 +394,8 @@ Renderer :: struct {
 
     // Main viewport dimensions
     // Updated every frame with respect to the ImGUI dockspace's central node
-    viewport_dimensions: vk.Rect2D,
+    dockspace_dimensions: vk.Rect2D,
+    viewports: [dynamic; MAX_SPLITSCREEN_PLAYERS]vk.Viewport,
 }
 
 renderer_free_resources :: proc(renderer: ^Renderer) {
@@ -468,10 +482,10 @@ new_frame :: proc(renderer: ^Renderer, docknode: ^imgui.DockNode) {
     renderer.gpu_static_instances = make([dynamic]GPUInstance, allocator = context.temp_allocator)
     renderer.cpu_skinned_instances = make([dynamic]CPUSkinnedInstance, allocator = context.temp_allocator)
 
-    renderer.viewport_dimensions.offset.x = cast(i32)docknode.Pos.x
-    renderer.viewport_dimensions.offset.y = cast(i32)docknode.Pos.y
-    renderer.viewport_dimensions.extent.width = cast(u32)docknode.Size.x
-    renderer.viewport_dimensions.extent.height = cast(u32)docknode.Size.y
+    renderer.dockspace_dimensions.offset.x = cast(i32)docknode.Pos.x
+    renderer.dockspace_dimensions.offset.y = cast(i32)docknode.Pos.y
+    renderer.dockspace_dimensions.extent.width = cast(u32)docknode.Size.x
+    renderer.dockspace_dimensions.extent.height = cast(u32)docknode.Size.y
 }
 
 init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer {
@@ -1930,8 +1944,8 @@ render_scene :: proc(
     // After all imgui work, update clip_from_screen matrix
     io := imgui.GetIO()
     renderer.uniforms.clip_from_screen = {
-        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+        2.0 / cast(f32)renderer.dockspace_dimensions.extent.width, 0.0, 0.0, -1.0,
+        0.0, 2.0 / cast(f32)renderer.dockspace_dimensions.extent.width, 0.0, -1.0,
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0
     }
@@ -2002,79 +2016,83 @@ render_scene :: proc(
         }
         vkw.cmd_begin_render_pass(gd, gfx_cb_idx, rp)
 
-        //framebuffer_resolution := renderer.main_framebuffer.resolution
-        vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-            // x = cast(f32)renderer.viewport_dimensions.offset.x,
-            // y = cast(f32)renderer.viewport_dimensions.offset.y,
-            // width = cast(f32)renderer.viewport_dimensions.extent.width,
-            // height = cast(f32)renderer.viewport_dimensions.extent.height,
-            x = 0.0,
-            y = 0.0,
-            width = cast(f32)FB_WIDTH,
-            height = cast(f32)FB_HEIGHT,
-            minDepth = 0.0,
-            maxDepth = 1.0
-        }})
-        vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
-            {
-                offset = vk.Offset2D {
-                    x = 0,
-                    y = 0
-                },
-                extent = vk.Extent2D {
-                    // width = u32(framebuffer_resolution.x),
-                    // height = u32(framebuffer_resolution.y),
-                    width = framebuffer.resolution.x,
-                    height = framebuffer.resolution.y
-                }
-            }
-        })
-
         uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
-        vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
-            uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
-            sampler_idx = u32(vkw.Immutable_Sampler_Index.Point),
-            tlas_idx = uniforms_offset
-        })
+        assert(len(renderer.viewports) > 0)
+        for viewport in renderer.viewports {
+            //framebuffer_resolution := renderer.main_framebuffer.resolution
+            vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
+                // x = cast(f32)renderer.viewport_dimensions.offset.x,
+                // y = cast(f32)renderer.viewport_dimensions.offset.y,
+                // width = cast(f32)renderer.viewport_dimensions.extent.width,
+                // height = cast(f32)renderer.viewport_dimensions.extent.height,
+                x = 0.0,
+                y = 0.0,
+                width = cast(f32)FB_WIDTH,
+                height = cast(f32)FB_HEIGHT,
+                minDepth = 0.0,
+                maxDepth = 1.0
+            }})
+            vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
+                {
+                    offset = vk.Offset2D {
+                        x = 0,
+                        y = 0
+                    },
+                    extent = vk.Extent2D {
+                        // width = u32(framebuffer_resolution.x),
+                        // height = u32(framebuffer_resolution.y),
+                        width = framebuffer.resolution.x,
+                        height = framebuffer.resolution.y
+                    }
+                }
+            })
 
-        // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
-
-        // Opaque drawing pipeline(s)
-
-        draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
-        // Main opaque 3D shaded pipeline
-        if len(renderer.ps1_static_instances) > 0 {
-            vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
-            vkw.cmd_draw_indexed_indirect(
-                gd,
-                gfx_cb_idx,
-                renderer.draw_buffer,
-                draw_buffer_offset,
-                ps1_draws_count
-            )
+            vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
+                uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
+                sampler_idx = u32(vkw.Immutable_Sampler_Index.Point),
+                tlas_idx = uniforms_offset
+            })
+    
+            // There is one vkCmdDrawIndexedIndirect() per distinct "ubershader" pipeline
+    
+            // Opaque drawing pipeline(s)
+    
+            draw_buffer_offset : u64 = u64(uniforms_offset) * MAX_GLOBAL_DRAW_CMDS * size_of(vk.DrawIndexedIndirectCommand)
+            // Main opaque 3D shaded pipeline
+            if len(renderer.ps1_static_instances) > 0 {
+                vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.ps1_pipeline)
+                vkw.cmd_draw_indexed_indirect(
+                    gd,
+                    gfx_cb_idx,
+                    renderer.draw_buffer,
+                    draw_buffer_offset,
+                    ps1_draws_count
+                )
+            }
+            draw_buffer_offset += u64(ps1_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
+    
+            // Opaque drawing finished
+    
+            // Sky
+            vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
+            vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
+    
+            // Start transparent drawing
+    
+            // Debug draw pipeline
+            if len(renderer.debug_static_instances) > 0 {
+                vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
+                vkw.cmd_draw_indexed_indirect(
+                    gd,
+                    gfx_cb_idx,
+                    renderer.draw_buffer,
+                    draw_buffer_offset,
+                    debug_draws_count
+                )
+            }
+            draw_buffer_offset += u64(debug_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
         }
-        draw_buffer_offset += u64(ps1_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
 
-        // Opaque drawing finished
-
-        // Sky
-        vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.skybox_pipeline)
-        vkw.cmd_draw(gd, gfx_cb_idx, 36, 1, 0, 0)
-
-        // Start transparent drawing
-
-        // Debug draw pipeline
-        if len(renderer.debug_static_instances) > 0 {
-            vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.debug_pipeline)
-            vkw.cmd_draw_indexed_indirect(
-                gd,
-                gfx_cb_idx,
-                renderer.draw_buffer,
-                draw_buffer_offset,
-                debug_draws_count
-            )
-        }
-        draw_buffer_offset += u64(debug_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
 
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
@@ -2128,7 +2146,7 @@ render_scene :: proc(
 
         {
             internal_aspect_ratio := vkw.get_framebuffer_aspect_ratio(renderer.main_framebuffer)
-            vp := renderer.viewport_dimensions
+            vp := renderer.dockspace_dimensions
             vp_aspect := f32(vp.extent.width) / f32(vp.extent.height)
             horizontal_dominates := vp_aspect >= internal_aspect_ratio
             x, y, width, height: f32

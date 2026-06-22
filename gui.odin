@@ -546,8 +546,8 @@ render_imgui :: proc(
     io := imgui.GetIO()
     uniforms: ImguiUniforms
     uniforms.clip_from_screen = {
-        2.0 / io.DisplaySize.x, 0.0, 0.0, -1.0,
-        0.0, 2.0 / io.DisplaySize.y, 0.0, -1.0,
+        2.0 / cast(f32)framebuffer.resolution.x, 0.0, 0.0, -1.0,
+        0.0, 2.0 / cast(f32)framebuffer.resolution.y, 0.0, -1.0,
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0,
     }

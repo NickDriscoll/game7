@@ -514,8 +514,23 @@ main :: proc() {
         game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
         // Camera update
-        for cam_id in app.game_state.viewport_cameras {
+        for cam_id, idx in app.game_state.viewport_cameras {
             scoped_event(&profiler, "Camera update")
+
+            // Write viewport for this camera into renderer
+            vp := vkw.Viewport {
+                x = 0.0,
+                y = 0.0,
+                width = cast(f32)FB_WIDTH,
+                height = cast(f32)FB_HEIGHT,
+                minDepth = 0.0,
+                maxDepth = 1.0
+            }
+            if idx == 1 {
+                vp.y += cast(f32)FB_HEIGHT / 2.0
+                vp.height /= 2
+            }
+            append(&app.renderer.viewports, vp)
 
             tform := &app.game_state.transforms[cam_id]
             camera := &app.game_state.cameras[cam_id]
@@ -531,6 +546,20 @@ main :: proc() {
             }
 
             projection_from_view := camera_projection_from_view(camera^)
+
+            // cam_uniforms := &app.renderer.uniforms.cameras[idx]
+            
+            // cam_uniforms.clip_from_world =
+            //     projection_from_view *
+            //     current_view_from_world
+
+            // vfw := hlsl.float3x3(current_view_from_world)
+            // vfw4 := hlsl.float4x4(vfw)
+            // cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
+
+            // cam_uniforms.view_position.xyz = tform.position
+            // cam_uniforms.view_position.a = 1.0
+            
             app.renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world

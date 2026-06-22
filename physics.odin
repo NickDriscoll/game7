@@ -925,10 +925,10 @@ do_mouse_raycast_with_normal :: proc(
     scoped_event(&profiler, "do_mouse_raycast")
     
     viewport_dimensions : [4]f32 = {
-        cast(f32)renderer.viewport_dimensions.offset.x,
-        cast(f32)renderer.viewport_dimensions.offset.y,
-        cast(f32)renderer.viewport_dimensions.extent.width,
-        cast(f32)renderer.viewport_dimensions.extent.height,
+        cast(f32)renderer.dockspace_dimensions.offset.x,
+        cast(f32)renderer.dockspace_dimensions.offset.y,
+        cast(f32)renderer.dockspace_dimensions.extent.width,
+        cast(f32)renderer.dockspace_dimensions.extent.height,
     }
 
     ray := view_ray(game_state, game_state.viewport_cameras[0], input_system.mouse_location, viewport_dimensions)

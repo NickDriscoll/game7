@@ -28,6 +28,8 @@ TERMINAL_VELOCITY :: -100000.0                                  // m/s
 ENEMY_THROW_SPEED :: 15.0
 DEFAULT_FACING_DIRECTION :: hlsl.float3 {1.0, 0.0, 0.0}
 
+MAX_SPLITSCREEN_PLAYERS :: 4
+
 Transform :: struct {
     position: hlsl.float3,
     rotation: quaternion128,
@@ -1194,8 +1196,8 @@ EntityID :: distinct u32
 
 // Megastruct for all game-specific data
 GameState :: struct {
-    local_players: [dynamic; 4]EntityID,
-    viewport_cameras: [dynamic; 4]EntityID,
+    local_players: [dynamic; MAX_SPLITSCREEN_PLAYERS]EntityID,
+    viewport_cameras: [dynamic; MAX_SPLITSCREEN_PLAYERS]EntityID,
 
     // Scene/Level data
     level_start: hlsl.float3,
