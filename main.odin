@@ -547,19 +547,22 @@ main :: proc() {
 
             projection_from_view := camera_projection_from_view(camera^)
 
-            // cam_uniforms := &app.renderer.uniforms.cameras[idx]
-            
-            // cam_uniforms.clip_from_world =
-            //     projection_from_view *
-            //     current_view_from_world
+            // New stuff
+            // {
+            //     cam_uniforms := &app.renderer.uniforms.cameras[idx]
+                
+            //     cam_uniforms.clip_from_world =
+            //         projection_from_view *
+            //         current_view_from_world
 
-            // vfw := hlsl.float3x3(current_view_from_world)
-            // vfw4 := hlsl.float4x4(vfw)
-            // cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
+            //     vfw := hlsl.float3x3(current_view_from_world)
+            //     vfw4 := hlsl.float4x4(vfw)
+            //     cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
 
-            // cam_uniforms.view_position.xyz = tform.position
-            // cam_uniforms.view_position.a = 1.0
-            
+            //     cam_uniforms.view_position.xyz = tform.position
+            //     cam_uniforms.view_position.a = 1.0
+            // }
+
             app.renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world

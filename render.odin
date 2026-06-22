@@ -92,9 +92,9 @@ UniformFlag :: enum u32 {
 
 // Manually aligned to 16 bytes
 CameraUniforms :: struct {
-    clip_from_world: hlsl.float4x4,
+    // clip_from_world: hlsl.float4x4,
 
-    clip_from_skybox: hlsl.float4x4,
+    // clip_from_skybox: hlsl.float4x4,
 
     //clip_from_screen: hlsl.float4x4,
 
@@ -109,7 +109,9 @@ UniformBuffer :: struct {
 
     clip_from_screen: hlsl.float4x4,
 
-    // cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
+    //cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
+
+    c: CameraUniforms,
 
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,

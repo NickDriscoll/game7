@@ -1,4 +1,5 @@
 
+static const uint MAX_SPLITSCREEN_PLAYERS = 4;
 static const uint MAX_DIRECTIONAL_LIGHTS = 4;
 static const uint MAX_POINT_LIGHTS = 8;
 
@@ -62,12 +63,26 @@ enum UniformFlag {
     Unlit = 0x80,
 }
 
+struct CameraUniforms {
+    // float4x4 cam_clip_from_world;
+
+    // float4x4 cam_clip_from_skybox;
+
+    // float4x4 clip_from_screen;
+
+    float4 cam_view_position;
+}
+
 struct UniformData {
     float4x4 clip_from_world;
 
     float4x4 clip_from_skybox;
 
     float4x4 clip_from_screen;
+
+    //CameraUniforms cameras[MAX_SPLITSCREEN_PLAYERS];
+
+    CameraUniforms new;
 
     StaticMeshData *mesh_data;
     InstanceData *i_data;
