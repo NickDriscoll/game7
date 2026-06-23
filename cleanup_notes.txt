@@ -5,9 +5,7 @@ List of things to fix with the code:
     - render.odin: Vertex positions really shouldn't be half4, can I change it to half3?
     - init_gamestate(): Skybox texture is currently hardcoded. We want to add it to the level file
     - General: We should prefer reading from memory-mapped files instead of filling a buffer in memory with their contents
-    - We need to manually free Vulkan resources before doing free_all(scene_allocator)
     - Figure out what to do about vkw.Image_Create.has_mipmaps
     - Instead of transforming collision meshes into world space, just transform collision sphere into meshes model space
     - Make level file format block-based instead of having it be so rigid
-    - Use Odin's core handlemap type. Mine sucks and iteration is broken which is causing some bugs.
     - 
