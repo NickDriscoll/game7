@@ -526,6 +526,9 @@ main :: proc() {
                 minDepth = 0.0,
                 maxDepth = 1.0
             }
+            if idx == 0 && len(app.game_state.viewport_cameras) == 2 {
+                vp.height /= 2
+            }
             if idx == 1 {
                 vp.y += cast(f32)FB_HEIGHT / 2.0
                 vp.height /= 2
@@ -534,7 +537,7 @@ main :: proc() {
 
             tform := &app.game_state.transforms[cam_id]
             camera := &app.game_state.cameras[cam_id]
-            camera.aspect_ratio = vkw.get_framebuffer_aspect_ratio(app.renderer.main_framebuffer)
+            camera.aspect_ratio = vp.width / vp.height
             lookat_controller, is_lookat := &app.game_state.lookat_controllers[cam_id]
             current_view_from_world: hlsl.float4x4
             if is_lookat {
@@ -548,20 +551,20 @@ main :: proc() {
             projection_from_view := camera_projection_from_view(camera^)
 
             // New stuff
-            // {
-            //     cam_uniforms := &app.renderer.uniforms.cameras[idx]
+            {
+                cam_uniforms := &app.renderer.uniforms.cameras[idx]
                 
-            //     cam_uniforms.clip_from_world =
-            //         projection_from_view *
-            //         current_view_from_world
+                cam_uniforms.clip_from_world =
+                    projection_from_view *
+                    current_view_from_world
 
-            //     vfw := hlsl.float3x3(current_view_from_world)
-            //     vfw4 := hlsl.float4x4(vfw)
-            //     cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
+                vfw := hlsl.float3x3(current_view_from_world)
+                vfw4 := hlsl.float4x4(vfw)
+                cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
 
-            //     cam_uniforms.view_position.xyz = tform.position
-            //     cam_uniforms.view_position.a = 1.0
-            // }
+                cam_uniforms.view_position.xyz = tform.position
+                cam_uniforms.view_position.a = 1.0
+            }
 
             app.renderer.uniforms.clip_from_world =
                 projection_from_view *

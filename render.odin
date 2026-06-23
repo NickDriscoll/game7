@@ -92,13 +92,16 @@ UniformFlag :: enum u32 {
 
 // Manually aligned to 16 bytes
 CameraUniforms :: struct {
-    // clip_from_world: hlsl.float4x4,
+    clip_from_world: hlsl.float4x4,
 
-    // clip_from_skybox: hlsl.float4x4,
+    clip_from_skybox: hlsl.float4x4,
 
     //clip_from_screen: hlsl.float4x4,
 
     view_position: hlsl.float4,
+    _pad0: hlsl.float4,
+    _pad1: hlsl.float4,
+    _pad2: hlsl.float4,
 }
 
 // Manually aligned to 16 bytes
@@ -109,9 +112,7 @@ UniformBuffer :: struct {
 
     clip_from_screen: hlsl.float4x4,
 
-    //cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
-
-    c: CameraUniforms,
+    cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
 
     mesh_ptr: vk.DeviceAddress,
     instance_ptr: vk.DeviceAddress,
@@ -152,6 +153,7 @@ UniformBuffer :: struct {
 Ps1PushConstants :: struct {
     uniform_buffer_ptr: vk.DeviceAddress,
     sampler_idx: u32,
+    camera_idx: u32,
     tlas_idx: u32,
 }
 
@@ -488,6 +490,8 @@ new_frame :: proc(renderer: ^Renderer, docknode: ^imgui.DockNode) {
     renderer.dockspace_dimensions.offset.y = cast(i32)docknode.Pos.y
     renderer.dockspace_dimensions.extent.width = cast(u32)docknode.Size.x
     renderer.dockspace_dimensions.extent.height = cast(u32)docknode.Size.y
+
+    clear(&renderer.viewports)
 }
 
 init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer {
@@ -2020,20 +2024,8 @@ render_scene :: proc(
 
         uniform_buf, ok := vkw.get_buffer(gd, renderer.uniform_buffer)
         assert(len(renderer.viewports) > 0)
-        for viewport in renderer.viewports {
-            //framebuffer_resolution := renderer.main_framebuffer.resolution
-            vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, {vkw.Viewport {
-                // x = cast(f32)renderer.viewport_dimensions.offset.x,
-                // y = cast(f32)renderer.viewport_dimensions.offset.y,
-                // width = cast(f32)renderer.viewport_dimensions.extent.width,
-                // height = cast(f32)renderer.viewport_dimensions.extent.height,
-                x = 0.0,
-                y = 0.0,
-                width = cast(f32)FB_WIDTH,
-                height = cast(f32)FB_HEIGHT,
-                minDepth = 0.0,
-                maxDepth = 1.0
-            }})
+        for viewport, idx in renderer.viewports {
+            vkw.cmd_set_viewport(gd, gfx_cb_idx, 0, renderer.viewports[idx:idx+1])
             vkw.cmd_set_scissor(gd, gfx_cb_idx, 0, {
                 {
                     offset = vk.Offset2D {
@@ -2052,6 +2044,7 @@ render_scene :: proc(
             vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &Ps1PushConstants {
                 uniform_buffer_ptr = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
                 sampler_idx = u32(vkw.Immutable_Sampler_Index.Point),
+                camera_idx = u32(idx),
                 tlas_idx = uniforms_offset
             })
     
@@ -2094,7 +2087,6 @@ render_scene :: proc(
             }
             draw_buffer_offset += u64(debug_draws_count) * size_of(vk.DrawIndexedIndirectCommand)
         }
-
 
         vkw.cmd_end_render_pass(gd, gfx_cb_idx)
 
