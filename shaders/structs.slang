@@ -70,17 +70,13 @@ struct CameraUniforms {
 
     // float4x4 clip_from_screen;
 
-    float4 cam_view_position;
+    float4 view_position;
     float4 _pad0;
     float4 _pad1;
     float4 _pad2;
 }
 
 struct UniformData {
-    float4x4 clip_from_world;
-
-    float4x4 clip_from_skybox;
-
     float4x4 clip_from_screen;
 
     CameraUniforms cameras[MAX_SPLITSCREEN_PLAYERS];
@@ -99,8 +95,6 @@ struct UniformData {
 
     float4x4 *inv_bind_matrices;
     DecalData *decals;
-
-    float4 view_position;
 
     DirectionalLight directional_lights[MAX_DIRECTIONAL_LIGHTS];
     PointLight point_lights[MAX_POINT_LIGHTS];

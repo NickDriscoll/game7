@@ -11,13 +11,15 @@ struct VertexOutput {
 cbuffer push_constants {
     UniformData *u_data;
     uint sampler_idx;
+    uint camera_idx;
 }
 
 [shader("vertex")]
 VertexOutput vertex_main(uint idx: SV_VertexID) {
+    CameraUniforms camera = u_data.cameras[camera_idx];
     VertexOutput out;
     float3 pos = INWARD_FACING_CUBE[idx];
-    out.clip_pos = mul(u_data.clip_from_skybox, float4(pos, 1.0));
+    out.clip_pos = mul(camera.clip_from_skybox, float4(pos, 1.0));
     out.clip_pos.z = 0.0;
 
     out.view_direciton = pos;

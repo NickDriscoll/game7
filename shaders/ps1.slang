@@ -155,7 +155,7 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     MaterialData material = u_data.mat_data[inst.material_idx];
     CameraUniforms camera = u_data.cameras[camera_idx];
 
-    float3 view_dir = normalize(u_data.view_position.xyz - input.world_pos);
+    float3 view_dir = normalize(camera.view_position.xyz - input.world_pos);
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
 
     if ((u_data.flags & UniformFlag.VisualizeFaceNormals) != 0) {

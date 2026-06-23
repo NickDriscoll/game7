@@ -548,34 +548,21 @@ main :: proc() {
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
             }
 
-            projection_from_view := camera_projection_from_view(camera^)
+        projection_from_view := camera_projection_from_view(camera^)
 
-            // New stuff
-            {
-                cam_uniforms := &app.renderer.uniforms.cameras[idx]
-                
-                cam_uniforms.clip_from_world =
-                    projection_from_view *
-                    current_view_from_world
+            cam_uniforms := &app.renderer.uniforms.cameras[idx]
 
-                vfw := hlsl.float3x3(current_view_from_world)
-                vfw4 := hlsl.float4x4(vfw)
-                cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
-
-                cam_uniforms.view_position.xyz = tform.position
-                cam_uniforms.view_position.a = 1.0
-            }
-
-            app.renderer.uniforms.clip_from_world =
+            cam_uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
 
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
-            app.renderer.uniforms.clip_from_skybox = projection_from_view * vfw4;
+            cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
 
-            app.renderer.uniforms.view_position.xyz = tform.position
-            app.renderer.uniforms.view_position.a = 1.0
+            cam_uniforms.view_position.xyz = tform.position
+            cam_uniforms.view_position.a = 1.0
+
         }
 
         // Window update

@@ -106,10 +106,6 @@ CameraUniforms :: struct {
 
 // Manually aligned to 16 bytes
 UniformBuffer :: struct {
-    clip_from_world: hlsl.float4x4,
-
-    clip_from_skybox: hlsl.float4x4,
-
     clip_from_screen: hlsl.float4x4,
 
     cameras: [MAX_SPLITSCREEN_PLAYERS]CameraUniforms,
@@ -128,8 +124,6 @@ UniformBuffer :: struct {
 
     joint_mats_ptr: vk.DeviceAddress,
     decals_ptr: vk.DeviceAddress,
-
-    view_position: hlsl.float4,
 
     directional_lights: [MAX_DIRECTIONAL_LIGHTS]GPUDirectionalLight,
     point_lights: [MAX_POINT_LIGHTS]PointLight,
