@@ -64,13 +64,16 @@ enum UniformFlag {
 }
 
 struct CameraUniforms {
-    // float4x4 cam_clip_from_world;
+    float4x4 clip_from_world;
 
-    // float4x4 cam_clip_from_skybox;
+    float4x4 clip_from_skybox;
 
     // float4x4 clip_from_screen;
 
     float4 cam_view_position;
+    float4 _pad0;
+    float4 _pad1;
+    float4 _pad2;
 }
 
 struct UniformData {
@@ -80,9 +83,7 @@ struct UniformData {
 
     float4x4 clip_from_screen;
 
-    //CameraUniforms cameras[MAX_SPLITSCREEN_PLAYERS];
-
-    CameraUniforms new;
+    CameraUniforms cameras[MAX_SPLITSCREEN_PLAYERS];
 
     StaticMeshData *mesh_data;
     InstanceData *i_data;

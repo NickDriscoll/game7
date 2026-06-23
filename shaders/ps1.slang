@@ -11,6 +11,7 @@ RaytracingAccelerationStructure tlases[];
 cbuffer push_constants {
     UniformData *u_data;
     uint sampler_idx;
+    uint camera_idx;
     uint tlas_idx;
 }
 
@@ -123,6 +124,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
     uint inst_idx = inst + first_instance;
     InstanceData inst = u_data.i_data[inst_idx];
     StaticMeshData mesh = u_data.mesh_data[inst.mesh_idx];
+    CameraUniforms camera = u_data.cameras[camera_idx];
 
     VertexOutput out;
 
@@ -130,7 +132,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
     float4 world_position = mul(inst.world_from_model, model_position);
 
     out.world_pos = world_position.xyz;
-    out.clip_pos = mul(u_data.clip_from_world, world_position);
+    out.clip_pos = mul(camera.clip_from_world, world_position);
 
     out.uv = float2(0.0);
     if (mesh.uv_offset != NULL_OFFSET) {
@@ -151,6 +153,7 @@ VertexOutput vertex_main(uint idx: SV_VertexID, uint inst: SV_InstanceID, uint f
 float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     InstanceData inst = u_data.i_data[input.instance_idx];
     MaterialData material = u_data.mat_data[inst.material_idx];
+    CameraUniforms camera = u_data.cameras[camera_idx];
 
     float3 view_dir = normalize(u_data.view_position.xyz - input.world_pos);
     float3 face_normal = normalize(cross(ddy(input.world_pos), ddx(input.world_pos)));
