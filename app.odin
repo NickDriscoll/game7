@@ -330,14 +330,19 @@ app_startup :: proc(app: ^App) -> bool {
         }
 
         // Init input system
-        context.allocator = app.global_allocator
+        app.input_system = init_input_system(app.global_allocator)
         is_lookat := app.game_state.viewport_cameras[0] in app.game_state.lookat_controllers
         if is_lookat {
-            app.input_system = init_input_system(&app.game_state.character_key_mappings, &app.game_state.mouse_mappings, &app.game_state.button_mappings)
+            app.input_system.key_mappings[VerbRecipient.PlayerOne] = &app.game_state.character_key_mappings
         } else {
-            app.input_system = init_input_system(&app.game_state.freecam_key_mappings, &app.game_state.mouse_mappings, &app.game_state.button_mappings)
+            app.input_system.key_mappings[VerbRecipient.PlayerOne] = &app.game_state.freecam_key_mappings
         }
+        app.input_system.key_mappings[VerbRecipient.System] = &app.game_state.system_key_mappings
+        app.input_system.mouse_mappings[VerbRecipient.System] = &app.game_state.mouse_mappings
         app.input_system.ctrl_key_mappings = &app.game_state.ctrl_key_mappings
+        for recipient in VerbRecipient {
+            app.input_system.button_mappings[recipient] = &app.game_state.button_mappings
+        }
 
         app.current_time = time.now()          // Time in nanoseconds since UNIX epoch
         app.previous_time = time.time_add(app.current_time, time.Duration(-1_000_000)) //current_time - time.Time{_nsec = 1}

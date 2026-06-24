@@ -695,7 +695,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
     return id
 }
 
-tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, all_output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
     i := 0
     for id, &char in game_state.character_controllers {
@@ -704,6 +704,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphi
         collision := &game_state.spherical_bodies[id]
         model := &game_state.skinned_models[id]
         camera := &game_state.cameras[game_state.viewport_cameras[i]]
+        output_verbs := all_output_verbs.recipient_verbs[i]
 
         // Set current xy velocity (and character facing) to whatever user input is
         {
@@ -1230,6 +1231,7 @@ GameState :: struct {
     moved_collision: [dynamic]MovedEntityEvent,
 
     // User input mapping structs
+    system_key_mappings: map[sdl2.Scancode]VerbType,
     freecam_key_mappings : map[sdl2.Scancode]VerbType,
     character_key_mappings: map[sdl2.Scancode]VerbType,
     ctrl_key_mappings: map[sdl2.Scancode]VerbType,
@@ -1286,6 +1288,7 @@ init_gamestate :: proc(
     game_state.timescale = 1.0
     game_state.collectable_radius = 0.1
 
+    game_state.system_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.freecam_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.ctrl_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
@@ -1293,7 +1296,12 @@ init_gamestate :: proc(
     game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
     {
-        game_state.freecam_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.system_key_mappings[.ESCAPE] = .ToggleImgui
+        game_state.system_key_mappings[.BACKSLASH] = .FrameAdvance
+        game_state.system_key_mappings[.PAUSE] = .TogglePause
+        game_state.system_key_mappings[.F] = .FullscreenHotkey
+
+        // game_state.freecam_key_mappings[.ESCAPE] = .ToggleImgui
         game_state.freecam_key_mappings[.W] = .TranslateFreecamForward
         game_state.freecam_key_mappings[.S] = .TranslateFreecamBack
         game_state.freecam_key_mappings[.A] = .TranslateFreecamLeft
@@ -1303,11 +1311,11 @@ init_gamestate :: proc(
         game_state.freecam_key_mappings[.LSHIFT] = .Sprint
         game_state.freecam_key_mappings[.LCTRL] = .Crawl
         game_state.freecam_key_mappings[.SPACE] = .PlayerJump
-        game_state.freecam_key_mappings[.BACKSLASH] = .FrameAdvance
-        game_state.freecam_key_mappings[.PAUSE] = .Resume
-        game_state.freecam_key_mappings[.F] = .FullscreenHotkey
+        // game_state.freecam_key_mappings[.BACKSLASH] = .FrameAdvance
+        // game_state.freecam_key_mappings[.PAUSE] = .TogglePause
+        // game_state.freecam_key_mappings[.F] = .FullscreenHotkey
 
-        game_state.character_key_mappings[.ESCAPE] = .ToggleImgui
+        // game_state.character_key_mappings[.ESCAPE] = .ToggleImgui
         game_state.character_key_mappings[.W] = .PlayerTranslateForward
         game_state.character_key_mappings[.S] = .PlayerTranslateBack
         game_state.character_key_mappings[.A] = .PlayerTranslateLeft
@@ -1315,9 +1323,9 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.LSHIFT] = .Sprint
         game_state.character_key_mappings[.LCTRL] = .Crawl
         game_state.character_key_mappings[.SPACE] = .PlayerJump
-        game_state.character_key_mappings[.BACKSLASH] = .FrameAdvance
-        game_state.character_key_mappings[.PAUSE] = .Resume
-        game_state.character_key_mappings[.F] = .FullscreenHotkey
+        // game_state.character_key_mappings[.BACKSLASH] = .FrameAdvance
+        // game_state.character_key_mappings[.PAUSE] = .TogglePause
+        // game_state.character_key_mappings[.F] = .FullscreenHotkey
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
 
@@ -1510,12 +1518,13 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
     scoped_event(&profiler, "GameState tick")
 
     // Determine if we're simulating a tick of game logic this frame
+    system_verbs := output_verbs.recipient_verbs[VerbRecipient.System]
     do_this_frame := !game_state.paused
-    if output_verbs.bools[.FrameAdvance] {
+    if system_verbs.bools[.FrameAdvance] {
         do_this_frame = true
         game_state.paused = true
     }
-    if output_verbs.bools[.Resume] {
+    if system_verbs.bools[.TogglePause] {
         game_state.paused = !game_state.paused
     }
 
@@ -2097,9 +2106,10 @@ new_save_level_file :: proc(
     log.infof("Finished saving level to \"%v\"", path)
 }
 
-lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
+lookat_camera_update :: proc(game_state: ^GameState, all_output_verbs: OutputVerbs, viewport_camera_idx: int, dt: f32) {
     HEMISPHERE_START_POS :: hlsl.float4 {1.0, 0.0, 0.0, 0.0}
 
+    id := game_state.viewport_cameras[viewport_camera_idx]
     tform := &game_state.transforms[id]
     camera := &game_state.cameras[id]
     lookat_controller := &game_state.lookat_controllers[id]
@@ -2111,12 +2121,13 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
         target, ok = &game_state.transforms[lookat_controller.target]
     }
 
+    output_verbs := all_output_verbs.recipient_verbs[viewport_camera_idx]
     lookat_controller.distance -= output_verbs.floats[.CameraFollowDistance]
     lookat_controller.distance = math.clamp(lookat_controller.distance, 1.0, 100.0)
 
     camera_rotation := output_verbs.float2s[.RotateCamera] * dt
 
-    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    relmotion_coords, ok3 := all_output_verbs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotionRel]
     if ok3 {
         MOUSE_SENSITIVITY :: 0.001
 
@@ -2165,14 +2176,16 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     tform.position = desired_position
 }
 
-freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: EntityID, dt: f32) {
+freecam_update :: proc(game_state: ^GameState, all_output_verbs: OutputVerbs, viewport_camera_idx: int, dt: f32) {
     camera_direction: hlsl.float3 = {0.0, 0.0, 0.0}
     camera_speed_mod : f32 = 1.0
 
+    id := game_state.viewport_cameras[viewport_camera_idx]
     tform := &game_state.transforms[id]
     camera := &game_state.cameras[id]
 
     // Input handling part
+    output_verbs := all_output_verbs.recipient_verbs[viewport_camera_idx]
     {
         camera_verbs : []VerbType = {
             .Sprint,
@@ -2208,7 +2221,7 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: En
     }
 
     camera_rotation: [2]f32 = {0.0, 0.0}
-    relmotion_coords, ok3 := output_verbs.int2s[.MouseMotionRel]
+    relmotion_coords, ok3 := all_output_verbs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotionRel]
     if ok3 {
         MOUSE_SENSITIVITY :: 0.001
         if .MouseLook in camera.flags {
@@ -2216,7 +2229,7 @@ freecam_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, id: En
         }
     }
 
-    camera_rotation += output_verbs.float2s[.RotateCamera]
+    camera_rotation += output_verbs.float2s[.RotateCamera] * dt
     camera_direction.x += output_verbs.floats[.TranslateFreecamX]
 
     // Not a sign error. In view-space, -Z is forward
@@ -2311,7 +2324,7 @@ camera_gui :: proc(
     close: ^bool
 ) {
     if imgui.Begin("Camera controls", close) {
-        for camera_id in game_state.viewport_cameras {
+        for camera_id, idx in game_state.viewport_cameras {
             imgui.PushIDInt(i32(camera_id))
             defer imgui.PopID()
 
@@ -2344,14 +2357,15 @@ camera_gui :: proc(
                     camera.pitch = 0.0
                     camera.yaw = 0.0
         
+                    recipient := VerbRecipient(idx)
                     if !freecam {
-                        replace_keybindings(input_system, &game_state.character_key_mappings)
+                        replace_keybindings(input_system, recipient, &game_state.character_key_mappings)
                         game_state.lookat_controllers[camera_id] = LookatController {
                             target = game_state.local_players[0],
                             distance = 4.0
                         }
                     } else {
-                        replace_keybindings(input_system, &game_state.freecam_key_mappings)
+                        replace_keybindings(input_system, recipient, &game_state.freecam_key_mappings)
                         delete_key(&game_state.lookat_controllers, camera_id)
                     }
                 }

@@ -108,7 +108,7 @@ main :: proc() {
         output_verbs := poll_sdl2_events(&app.input_system)
 
         // Quit if user wants it
-        do_main_loop = !output_verbs.bools[.Quit]
+        do_main_loop = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
 
         if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             do_main_loop = false
@@ -120,7 +120,7 @@ main :: proc() {
 
             camera := &app.game_state.cameras[app.game_state.viewport_cameras[0]]
 
-            if output_verbs.bools[.ToggleImgui] {
+            if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ToggleImgui] {
                 app.gui.show_gui = !app.gui.show_gui
                 app.user_config.flags[.ImguiEnabled] = app.gui.show_gui
                 if app.gui.show_gui {
@@ -130,7 +130,7 @@ main :: proc() {
                 }
             }
 
-            mlook_coords, ok := output_verbs.int2s[.ToggleMouseLook]
+            mlook_coords, ok := output_verbs.recipient_verbs[VerbRecipient.System].int2s[.ToggleMouseLook]
             if ok && mlook_coords != {0, 0} {
                 mlook := !(.MouseLook in camera.flags)
                 // Do nothing if Dear ImGUI wants mouse input
@@ -167,10 +167,10 @@ main :: proc() {
         // Update
         scene_editor(&app)
 
-        if output_verbs.bools[.ImguiScaleDown] {
+        if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
             imgui.GetStyle().FontScaleMain -= 0.2
         }
-        if output_verbs.bools[.ImguiScaleUp] {
+        if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleUp] {
             imgui.GetStyle().FontScaleMain += 0.2
         }
 
@@ -188,64 +188,81 @@ main :: proc() {
                     cam_id := new_viewport_camera(&app.game_state, id, app.user_config)
                     append(&app.game_state.viewport_cameras, cam_id)
                 }
-                for player_id in app.game_state.local_players {
-                    imgui.PushIDInt(c.int(player_id))
-                    tform := &app.game_state.transforms[player_id]
-                    collision := &app.game_state.spherical_bodies[player_id]
-                    player := &app.game_state.character_controllers[player_id]
-
+                imgui.SameLine()
+                if imgui.Button("Remove player") {
+                    // Always removing from the end
+                    remove_idx := len(app.game_state.local_players) - 1
+                    player_id := app.game_state.local_players[remove_idx]
+                    camera_id := app.game_state.viewport_cameras[remove_idx]
+                    delete_entity(&app.game_state, player_id)
+                    delete_entity(&app.game_state, camera_id)
+                    unordered_remove(&app.game_state.local_players, remove_idx)
+                    unordered_remove(&app.game_state.viewport_cameras, remove_idx)
+                }
+                for player_id, idx in app.game_state.local_players {
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
                     defer strings.builder_destroy(&sb)
-
-                    flag := .ShowPlayerHitSphere in app.game_state.debug_vis_flags
-                    if imgui.Checkbox("Show player collision", &flag) {
-                        app.game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
-                        if flag {
-                            app.game_state.debug_models[player_id] = DebugModelInstance {
-                                handle = app.game_state.sphere_mesh,
-                                scale = collision.radius,
-                                color = {0.2, 0.0, 1.0, 0.5}
+                    fmt.sbprintf(&sb, "Player %v", idx)
+                    cs, err := strings.to_cstring(&sb)
+                    assert(err == nil)
+                    strings.builder_reset(&sb)
+                    if imgui.CollapsingHeader(cs) {
+                        imgui.PushIDInt(c.int(player_id))
+                        tform := &app.game_state.transforms[player_id]
+                        collision := &app.game_state.spherical_bodies[player_id]
+                        player := &app.game_state.character_controllers[player_id]
+    
+                        flag := .ShowPlayerHitSphere in app.game_state.debug_vis_flags
+                        if imgui.Checkbox("Show player collision", &flag) {
+                            app.game_state.debug_vis_flags ~= {.ShowPlayerHitSphere}
+                            if flag {
+                                app.game_state.debug_models[player_id] = DebugModelInstance {
+                                    handle = app.game_state.sphere_mesh,
+                                    scale = collision.radius,
+                                    color = {0.2, 0.0, 1.0, 0.5}
+                                }
+                            } else {
+                                delete_key(&app.game_state.debug_models, player_id)
                             }
-                        } else {
-                            delete_key(&app.game_state.debug_models, player_id)
                         }
+                        flag = .ShowCoinRadius in app.game_state.debug_vis_flags
+                        if imgui.Checkbox("Show coin radius", &flag) {
+                            app.game_state.debug_vis_flags ~= {.ShowCoinRadius}
+                        }
+    
+                        gui_print_value(&sb, "Player position", tform.position)
+                        gui_print_value(&sb, "Player velocity", collision.velocity)
+                        gui_print_value(&sb, "Player acceleration", player.acceleration)
+                        gui_print_value(&sb, "Player state", collision.state)
+    
+                        imgui.SliderFloat("Player move speed", &player.move_speed, 1.0, 50.0)
+                        imgui.SliderFloat("Player sprint speed", &player.sprint_speed, 1.0, 50.0)
+                        imgui.SliderFloat("Player deceleration speed", &player.deceleration_speed, 0.01, 2.0)
+                        imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
+                        imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
+                        imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
+                        imgui.SliderFloat("Coin radius", &app.game_state.collectable_radius, 0.1, 1.0)
+                        if imgui.Button("Reset player") {
+                            output_verbs.recipient_verbs[idx].bools[.PlayerReset] = true
+                        }
+                        imgui.SameLine()
+    
+                        moving_something := .MoveSelectedEntity in app.game_state.edit_flags
+                        imgui.BeginDisabled(moving_something)
+                        move_text : cstring = "Move player"
+                        if moving_something && app.selected_entity.? == app.game_state.local_players[0] {
+                            move_text = "Moving player..."
+                        }
+                        if imgui.Button(move_text) {
+                            app.selected_entity = app.game_state.local_players[0]
+                            app.game_state.edit_flags += {.MoveSelectedEntity}
+                        }
+                        imgui.EndDisabled()
+                        imgui.PopID()
                     }
-                    flag = .ShowCoinRadius in app.game_state.debug_vis_flags
-                    if imgui.Checkbox("Show coin radius", &flag) {
-                        app.game_state.debug_vis_flags ~= {.ShowCoinRadius}
-                    }
-
-                    gui_print_value(&sb, "Player position", tform.position)
-                    gui_print_value(&sb, "Player velocity", collision.velocity)
-                    gui_print_value(&sb, "Player acceleration", player.acceleration)
-                    gui_print_value(&sb, "Player state", collision.state)
-
-                    imgui.SliderFloat("Player move speed", &player.move_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player sprint speed", &player.sprint_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player deceleration speed", &player.deceleration_speed, 0.01, 2.0)
-                    imgui.SliderFloat("Player jump speed", &player.jump_speed, 1.0, 50.0)
-                    imgui.SliderFloat("Player anim speed", &player.anim_speed, 0.0, 2.0)
-                    imgui.SliderFloat("Bullet travel time", &player.bullet_travel_time, 0.0, 1.0)
-                    imgui.SliderFloat("Coin radius", &app.game_state.collectable_radius, 0.1, 1.0)
-                    if imgui.Button("Reset player") {
-                        output_verbs.bools[.PlayerReset] = true
-                    }
-                    imgui.SameLine()
-
-                    moving_something := .MoveSelectedEntity in app.game_state.edit_flags
-                    imgui.BeginDisabled(moving_something)
-                    move_text : cstring = "Move player"
-                    if moving_something && app.selected_entity.? == app.game_state.local_players[0] {
-                        move_text = "Moving player..."
-                    }
-                    if imgui.Button(move_text) {
-                        app.selected_entity = app.game_state.local_players[0]
-                        app.game_state.edit_flags += {.MoveSelectedEntity}
-                    }
-                    imgui.EndDisabled()
-                    imgui.PopID()
                 }
+                imgui.Separator()
 
                 imgui.SliderFloat("Distortion Strength", &app.renderer.uniforms.distortion_strength, 0.0, 1.0)
                 imgui.SliderFloat("Timescale", &app.game_state.timescale, 0.0, 2.0)
@@ -326,15 +343,15 @@ main :: proc() {
             case .None: {}
         }
 
-        if output_verbs.bools[.NewLevel] {
+        if output_verbs.recipient_verbs[VerbRecipient.System].bools[.NewLevel] {
             new_scene(&app, app.per_scene_allocator)
         }
 
-        if output_verbs.bools[.ShowLoadLevel] {
+        if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ShowLoadLevel] {
             show_load_modal = !show_load_modal
         }
 
-        if output_verbs.bools[.FullscreenHotkey] {
+        if output_verbs.recipient_verbs[VerbRecipient.System].bools[.FullscreenHotkey] {
             do_fullscreen = true
         }
 
@@ -541,10 +558,10 @@ main :: proc() {
             lookat_controller, is_lookat := &app.game_state.lookat_controllers[cam_id]
             current_view_from_world: hlsl.float4x4
             if is_lookat {
-                lookat_camera_update(&app.game_state, output_verbs, cam_id, dt)
+                lookat_camera_update(&app.game_state, output_verbs, idx, dt)
                 current_view_from_world = lookat_view_from_world(tform^, lookat_controller.current_focal_point)
             } else {
-                freecam_update(&app.game_state, output_verbs, cam_id, dt)
+                freecam_update(&app.game_state, output_verbs, idx, dt)
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
             }
 
@@ -568,14 +585,15 @@ main :: proc() {
         // Window update
         {
             scoped_event(&profiler, "Window update")
-            new_size, ok := output_verbs.int2s[.ResizeWindow]
+            verbs := output_verbs.recipient_verbs[VerbRecipient.System]
+            new_size, ok := verbs.int2s[.ResizeWindow]
             if ok {
                 app.window.resolution.x = u32(new_size.x)
                 app.window.resolution.y = u32(new_size.y)
                 app.vgd.resize_window = true
             }
 
-            new_pos, ok2 := output_verbs.int2s[.MoveWindow]
+            new_pos, ok2 := verbs.int2s[.MoveWindow]
             if ok2 {
                 app.user_config.ints[.WindowX] = i64(new_pos.x)
                 app.user_config.ints[.WindowY] = i64(new_pos.y)
@@ -585,7 +603,8 @@ main :: proc() {
         audio_tick(&app.audio_system)
 
         {
-            value, ok := output_verbs.bools[.MinimizeWindow]
+            verbs := output_verbs.recipient_verbs[VerbRecipient.System]
+            value, ok := verbs.bools[.MinimizeWindow]
             if ok {
                 app.window.minimized = value
                 if !value {

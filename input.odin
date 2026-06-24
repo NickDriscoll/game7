@@ -32,7 +32,7 @@ VerbType :: enum {
     ImguiScaleUp,
     ImguiScaleDown,
 
-    Resume,
+    TogglePause,
     FrameAdvance,
     FullscreenHotkey,
 
@@ -72,6 +72,22 @@ ControllerStickAxis :: enum {
     Left,
     Right
 }
+stickaxis_to_sdl2 :: proc(axis: ControllerStickAxis) -> [2]sdl2.GameControllerAxis {
+    res: [2]sdl2.GameControllerAxis
+    switch axis {
+        case .Left: { res = {.LEFTX,.LEFTY} }
+        case .Right: { res = {.RIGHTX,.RIGHTY} }
+    }
+    return res
+}
+
+VerbRecipient :: enum {
+    PlayerOne = 0,
+    PlayerTwo = 1,
+    PlayerThree = 2,
+    PlayerFour = 3,
+    System = 4,
+}
 
 // @TODO: This would be problematic if any of the enum values here are identical
 RemapInput :: struct #raw_union {
@@ -92,13 +108,13 @@ InputStateFlags :: bit_set[InputStateFlag; u32]
 InputSystem :: struct {
     // For the purposes of simple remapping, user code is expected to maintain
     // these maps for the same lifetime as the input system
-    key_mappings: ^map[sdl2.Scancode]VerbType,
+    key_mappings: [len(VerbRecipient)]^map[sdl2.Scancode]VerbType,
     ctrl_key_mappings: ^map[sdl2.Scancode]VerbType,
-    mouse_mappings: ^map[u8]VerbType,
-    button_mappings: ^map[sdl2.GameControllerButton]VerbType,
-    wheel_mappings: map[u32]VerbType,
-    axis_mappings: map[sdl2.GameControllerAxis]VerbType,
-    stick_mappings: map[ControllerStickAxis]VerbType,
+    mouse_mappings: [len(VerbRecipient)]^map[u8]VerbType,
+    button_mappings: [len(VerbRecipient)]^map[sdl2.GameControllerButton]VerbType,
+    wheel_mappings: [len(VerbRecipient)]map[u32]VerbType,
+    axis_mappings: [len(VerbRecipient)]map[sdl2.GameControllerAxis]VerbType,
+    stick_mappings: [len(VerbRecipient)]map[ControllerStickAxis]VerbType,
 
     allow_repeat_keys: map[sdl2.Scancode]bool,
 
@@ -116,74 +132,111 @@ InputSystem :: struct {
 
     input_being_remapped: RemapInput,
 
-    controller_one: ^sdl2.GameController,
+    //controller_one: ^sdl2.GameController,
+    controllers: [MAX_SPLITSCREEN_PLAYERS]^sdl2.GameController,
 }
 
 init_input_system :: proc(
-    init_key_bindings: ^map[sdl2.Scancode]VerbType,
-    init_mouse_bindings: ^map[u8]VerbType,
-    init_button_mappings: ^map[sdl2.GameControllerButton]VerbType
+    // init_key_bindings: ^map[sdl2.Scancode]VerbType,
+    // init_mouse_bindings: ^map[u8]VerbType,
+    // init_button_mappings: ^map[sdl2.GameControllerButton]VerbType,
+    allocator := context.allocator
 ) -> InputSystem {
-    axis_mappings := make(map[sdl2.GameControllerAxis]VerbType, 64)
-    stick_mappings := make(map[ControllerStickAxis]VerbType, 64)
-    wheel_mappings := make(map[u32]VerbType, 64)
-    allow_repeat_keys := make(map[sdl2.Scancode]bool, 64)
-    axis_sensitivities: [len(sdl2.GameControllerAxis) - 2]f32 = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
-    stick_sensitivities: [len(ControllerStickAxis)]f32 = {1.0, 1.0}
+    system: InputSystem
 
-    // 0 bc there's just one mouse wheel... right?
-    wheel_mappings[0] = .CameraFollowDistance
+    for recipient in VerbRecipient {
 
-    // Hardcoded axis mappings
-    axis_mappings[.TRIGGERRIGHT] = .Sprint
-
-    // Stick sensitivities
-    stick_sensitivities[ControllerStickAxis.Right] = 5.0
-
-    stick_mappings[.Left] = .PlayerTranslate
-    stick_mappings[.Right] = .RotateCamera
-
-    allow_repeat_keys[.EQUALS] = true
-    allow_repeat_keys[.MINUS] = true
-
-    return InputSystem {
-        key_mappings = init_key_bindings,
-        mouse_mappings = init_mouse_bindings,
-        button_mappings = init_button_mappings,
-        wheel_mappings = wheel_mappings,
-        axis_mappings = axis_mappings,
-        stick_mappings = stick_mappings,
-        allow_repeat_keys = allow_repeat_keys,
-        reverse_axes = {.LEFTY},
-        deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
-        deadzone_sticks = {.Left,.Right},
-        axis_sensitivities = axis_sensitivities,
-        stick_sensitivities = stick_sensitivities,
-        control_stick_deadzone = 0.15,
+        system.axis_mappings[recipient] = make(map[sdl2.GameControllerAxis]VerbType, 64, allocator)
+        system.stick_mappings[recipient] = make(map[ControllerStickAxis]VerbType, 64, allocator)
+        system.wheel_mappings[recipient] = make(map[u32]VerbType, 64, allocator)
+        allow_repeat_keys := make(map[sdl2.Scancode]bool, 64, allocator)
+        
+        // 0 bc there's just one mouse wheel... right?
+        system.wheel_mappings[recipient][0] = .CameraFollowDistance
+        
+        // Hardcoded axis mappings
+        system.axis_mappings[recipient][.TRIGGERRIGHT] = .Sprint
+        
+        system.stick_mappings[recipient][.Left] = .PlayerTranslate
+        system.stick_mappings[recipient][.Right] = .RotateCamera
     }
+    clear(&system.axis_mappings[VerbRecipient.System])
+    clear(&system.stick_mappings[VerbRecipient.System])
+    
+    system.axis_sensitivities = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}
+    system.stick_sensitivities = {1.0, 1.0}
+    // Stick sensitivities
+    system.stick_sensitivities[ControllerStickAxis.Right] = 5.0
+
+    system.allow_repeat_keys[.EQUALS] = true
+    system.allow_repeat_keys[.MINUS] = true
+
+
+    system.reverse_axes = {.LEFTY}
+    system.deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY}
+    system.deadzone_sticks = {.Left,.Right}
+    system.control_stick_deadzone = 0.15
+    return system
+    // return InputSystem {
+    //     // key_mappings = init_key_bindings,
+    //     // mouse_mappings = init_mouse_bindings,
+    //     // button_mappings = init_button_mappings,
+    //     wheel_mappings = wheel_mappings,
+    //     axis_mappings = axis_mappings,
+    //     stick_mappings = stick_mappings,
+    //     allow_repeat_keys = allow_repeat_keys,
+    //     reverse_axes = {.LEFTY},
+    //     deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
+    //     deadzone_sticks = {.Left,.Right},
+    //     axis_sensitivities = axis_sensitivities,
+    //     stick_sensitivities = stick_sensitivities,
+    //     control_stick_deadzone = 0.15,
+    // }
 }
 
 destroy_input_system :: proc(s: ^InputSystem) {
-    delete(s.wheel_mappings)
-    delete(s.axis_mappings)
-    delete(s.stick_mappings)
-    if s.controller_one != nil {
-        sdl2.GameControllerClose(s.controller_one)
+    for recipient in VerbRecipient {
+        delete(s.wheel_mappings[recipient])
+        delete(s.axis_mappings[recipient])
+        delete(s.stick_mappings[recipient])
+    }
+    for &controller in s.controllers {
+        if controller != nil {
+            sdl2.GameControllerClose(controller)
+        }
     }
 }
 
-replace_keybindings :: proc(s: ^InputSystem, new_keybindings: ^map[sdl2.Scancode]VerbType) {
-    s.key_mappings = new_keybindings
+replace_keybindings :: proc(s: ^InputSystem, recipient: VerbRecipient, new_keybindings: ^map[sdl2.Scancode]VerbType) {
+    s.key_mappings[recipient] = new_keybindings
 }
 
-// Per-frame representation of what actions the
-// user wants to perform this frame
-OutputVerbs :: struct {
+RecipientVerbs :: struct {
     bools: map[VerbType]bool,
     ints: map[VerbType]i64,
     int2s: map[VerbType][2]i64,
     floats: map[VerbType]f32,
     float2s: map[VerbType][2]f32,
+}
+init_receipient_verbs :: proc(allocator := context.allocator) -> RecipientVerbs {
+    outputs: RecipientVerbs
+    outputs.bools = make(map[VerbType]bool, 16, allocator)
+    outputs.ints = make(map[VerbType]i64, 16, allocator)
+    outputs.int2s = make(map[VerbType][2]i64, 16, allocator)
+    outputs.floats = make(map[VerbType]f32, 16, allocator)
+    outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
+    return outputs
+}
+
+// Per-frame representation of what actions the
+// user wants to perform this frame
+OutputVerbs :: struct {
+    recipient_verbs: [len(VerbRecipient)]RecipientVerbs,
+    // bools: map[VerbType]bool,
+    // ints: map[VerbType]i64,
+    // int2s: map[VerbType][2]i64,
+    // floats: map[VerbType]f32,
+    // float2s: map[VerbType][2]f32,
 }
 
 // Main once-per-frame input proc
@@ -193,11 +246,9 @@ poll_sdl2_events :: proc(
 ) -> OutputVerbs {
 
     outputs: OutputVerbs
-    outputs.bools = make(map[VerbType]bool, 16, allocator)
-    outputs.ints = make(map[VerbType]i64, 16, allocator)
-    outputs.int2s = make(map[VerbType][2]i64, 16, allocator)
-    outputs.floats = make(map[VerbType]f32, 16, allocator)
-    outputs.float2s = make(map[VerbType][2]f32, 16, allocator)
+    for recipient in VerbRecipient {
+        outputs.recipient_verbs[recipient] = init_receipient_verbs(allocator)
+    }
 
     state.state_flags -= {.MouseClicked,.MouseReleased}
 
@@ -206,26 +257,27 @@ poll_sdl2_events :: proc(
 
     event: sdl2.Event
     for sdl2.PollEvent(&event) {
+        
         #partial switch event.type {
             case .QUIT: {
-                outputs.bools[.Quit] = true
+                outputs.recipient_verbs[VerbRecipient.System].bools[.Quit] = true
             }
             case .WINDOWEVENT: {
                 #partial switch (event.window.event) {
                     case .RESIZED: {
-                        outputs.int2s[.ResizeWindow] = { i64(event.window.data1), i64(event.window.data2) }
+                        outputs.recipient_verbs[VerbRecipient.System].int2s[.ResizeWindow] = { i64(event.window.data1), i64(event.window.data2) }
                     }
                     case .MOVED: {
-                        outputs.int2s[.MoveWindow] = {i64(event.window.data1), i64(event.window.data2)}
+                        outputs.recipient_verbs[VerbRecipient.System].int2s[.MoveWindow] = {i64(event.window.data1), i64(event.window.data2)}
                     }
                     case .FOCUS_GAINED: {
-                        outputs.bools[.FocusWindow] = true
+                        outputs.recipient_verbs[VerbRecipient.System].bools[.FocusWindow] = true
                     }
                     case .MINIMIZED: {
-                        outputs.bools[.MinimizeWindow] = true
+                        outputs.recipient_verbs[VerbRecipient.System].bools[.MinimizeWindow] = true
                     }
                     case .RESTORED: {
-                        outputs.bools[.MinimizeWindow] = false
+                        outputs.recipient_verbs[VerbRecipient.System].bools[.MinimizeWindow] = false
                     }
                 }
             }
@@ -245,54 +297,67 @@ poll_sdl2_events :: proc(
                     continue
                 }
 
+                for key_mappings, recipient in state.key_mappings {
+                    // Mappings can be nil
+                    if key_mappings == nil {
+                        continue
+                    }
 
-                // Handle key remapping here
-                if .CurrentlyRemapping in state.state_flags {
-                    verb, ok := state.key_mappings[state.input_being_remapped.key]
-                    if ok {
-                        existing_verb, key_exists := state.key_mappings[sc]
-                        if key_exists {
-                            log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                    // Handle key remapping here
+                    if .CurrentlyRemapping in state.state_flags {
+                        verb, ok := key_mappings[state.input_being_remapped.key]
+                        if ok {
+                            existing_verb, key_exists := key_mappings[sc]
+                            if key_exists {
+                                log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                                state.input_being_remapped.key = nil
+                                state.state_flags -= {.CurrentlyRemapping}
+                                continue
+                            }
+    
+                            key_mappings[sc] = verb
+                            delete_key(key_mappings, state.input_being_remapped.key)
                             state.input_being_remapped.key = nil
                             state.state_flags -= {.CurrentlyRemapping}
                             continue
                         }
-
-                        state.key_mappings[sc] = verb
-                        delete_key(state.key_mappings, state.input_being_remapped.key)
-                        state.input_being_remapped.key = nil
-                        state.state_flags -= {.CurrentlyRemapping}
-                        continue
                     }
-                }
 
-                imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
-
-                verbtype: VerbType
-                mapping_found: bool
-                if .CtrlHeld in state.state_flags {
-                    verbtype, mapping_found = state.ctrl_key_mappings[sc]
-                }
-
-                // Only dispatch regular key mappings if Dear ImGUI doesn't wants keyboard input
-                if !io.WantCaptureKeyboard {
-                    if !mapping_found {
-                        verbtype, mapping_found = state.key_mappings[sc]
+                    imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(sc), true)
+    
+                    verbtype: VerbType
+                    mapping_found: bool
+                    if .CtrlHeld in state.state_flags {
+                        verbtype, mapping_found = state.ctrl_key_mappings[sc]
                     }
-                    
-                }
-                if mapping_found {
-                    outputs.bools[verbtype] = true
-                } else {
-                    log.debugf("Unbound keypress: %v", event.key.keysym.scancode)
+
+                    // Only dispatch regular key mappings if Dear ImGUI doesn't wants keyboard input
+                    if !io.WantCaptureKeyboard {
+                        if !mapping_found {
+                            verbtype, mapping_found = key_mappings[sc]
+                        }
+                        
+                    }
+                    if mapping_found {
+                        outputs.recipient_verbs[recipient].bools[verbtype] = true
+                    } else {
+                        log.debugf("Unbound keypress: %v", event.key.keysym.scancode)
+                    }
                 }
             }
             case .KEYUP: {
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiKey(event.key.keysym.scancode), false)
 
-                verbtype, found := state.key_mappings[event.key.keysym.scancode]
-                if found {
-                    outputs.bools[verbtype] = false
+                for key_mappings, recipient in state.key_mappings {
+                    // Mappings can be nil
+                    if key_mappings == nil {
+                        continue
+                    }
+
+                    verbtype, found := key_mappings[event.key.keysym.scancode]
+                    if found {
+                        outputs.recipient_verbs[recipient].bools[verbtype] = false
+                    }
                 }
             }
             case .MOUSEBUTTONDOWN: {
@@ -300,14 +365,20 @@ poll_sdl2_events :: proc(
                 if io.WantCaptureMouse {
                     continue
                 }
-                verbtype, found := state.mouse_mappings[event.button.button]
-                if found {
-                    outputs.bools[verbtype] = true
-                    outputs.int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
-                }
-                if event.button.button == sdl2.BUTTON_LEFT {
-                    state.state_flags += {.MouseClicked}
-                    state.state_flags += {.MouseHeld}
+                for mouse_mappings, recipient in state.mouse_mappings {
+                    // Mappings can be nil
+                    if mouse_mappings == nil {
+                        continue
+                    }
+                    verbtype, found := mouse_mappings[event.button.button]
+                    if found {
+                        outputs.recipient_verbs[recipient].bools[verbtype] = true
+                        outputs.recipient_verbs[recipient].int2s[verbtype] = {i64(event.button.x), i64(event.button.y)}
+                    }
+                    if event.button.button == sdl2.BUTTON_LEFT {
+                        state.state_flags += {.MouseClicked}
+                        state.state_flags += {.MouseHeld}
+                    }
                 }
             }
             case .MOUSEBUTTONUP: {
@@ -315,86 +386,116 @@ poll_sdl2_events :: proc(
                 if io.WantCaptureMouse {
                     continue
                 }
-                verbtype, found := state.mouse_mappings[event.button.button]
-                if found {
-                    outputs.bools[verbtype] = false
-                    outputs.int2s[verbtype] = {0, 0}
-                }
-                if event.button.button == sdl2.BUTTON_LEFT {
-                    state.state_flags -= {.MouseHeld}
-                    state.state_flags += {.MouseReleased}
+                for mouse_mappings, recipient in state.mouse_mappings {
+                    // Mappings can be nil
+                    if mouse_mappings == nil {
+                        continue
+                    }
+                    verbtype, found := mouse_mappings[event.button.button]
+                    if found {
+                        outputs.recipient_verbs[recipient].bools[verbtype] = false
+                        outputs.recipient_verbs[recipient].int2s[verbtype] = {0, 0}
+                    }
+                    if event.button.button == sdl2.BUTTON_LEFT {
+                        state.state_flags -= {.MouseHeld}
+                        state.state_flags += {.MouseReleased}
+                    }
                 }
             }
             case .MOUSEMOTION: {
-                old_motion := outputs.int2s[.MouseMotion]
-                old_relmotion := outputs.int2s[.MouseMotionRel]
+                old_motion := outputs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotion]
+                old_relmotion := outputs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotionRel]
                 state.mouse_location.x = event.motion.x
                 state.mouse_location.y = event.motion.y
-                outputs.int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
-                outputs.int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
+                outputs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotion] = old_motion + {i64(event.motion.x), i64(event.motion.y)}
+                outputs.recipient_verbs[VerbRecipient.System].int2s[.MouseMotionRel] = old_relmotion + {i64(event.motion.xrel), i64(event.motion.yrel)}
             }
             case .MOUSEWHEEL: {
                 imgui.IO_AddMouseWheelEvent(io, f32(event.wheel.x), f32(event.wheel.y))
                 if io.WantCaptureMouse {
                     continue
                 }
-                verbtype, found := state.wheel_mappings[event.wheel.which]
-                if found {
-                    old := outputs.floats[verbtype]
-                    outputs.floats[verbtype] = old + f32(event.wheel.y)
+                for wheel_mappings, recipient in state.wheel_mappings {
+                    // Mappings can be nil
+                    if wheel_mappings == nil {
+                        continue
+                    }
+                    verbtype, found := wheel_mappings[event.wheel.which]
+                    if found {
+                        old := outputs.recipient_verbs[recipient].floats[verbtype]
+                        outputs.recipient_verbs[recipient].floats[verbtype] = old + f32(event.wheel.y)
+                    }
                 }
             }
             case .CONTROLLERDEVICEADDED: {
                 controller_idx := event.cdevice.which
-                state.controller_one = sdl2.GameControllerOpen(controller_idx)
-                type := sdl2.GameControllerGetType(state.controller_one)
-                name := sdl2.GameControllerName(state.controller_one)
-                led := sdl2.GameControllerHasLED(state.controller_one)
+                state.controllers[controller_idx] = sdl2.GameControllerOpen(controller_idx)
+                type := sdl2.GameControllerGetType(state.controllers[controller_idx])
+                name := sdl2.GameControllerName(state.controllers[controller_idx])
+                led := sdl2.GameControllerHasLED(state.controllers[controller_idx])
                 if led {
-                    sdl2.GameControllerSetLED(state.controller_one, 0xFF, 0x00, 0xFF)
+                    sdl2.GameControllerSetLED(state.controllers[controller_idx], 0xFF, 0x00, 0xFF)
                 }
-                log.infof("%v connected (%v)", name, type)
+                log.infof("%v connected (%v) at index %v", name, type, controller_idx)
             }
             case .CONTROLLERDEVICEREMOVED: {
                 controller_idx := event.cdevice.which
-                if controller_idx == 0 {
-                    sdl2.GameControllerClose(state.controller_one)
-                    state.controller_one = nil
-                }
-                log.infof("Controller %v removed.", controller_idx)
+                // if controller_idx == 0 {
+                //     sdl2.GameControllerClose(state.controller_one)
+                //     state.controller_one = nil
+                // }
+                log.infof("NO-OP Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
+                controller_idx := event.cbutton.which
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
                 // Handle button remapping here
-                if .CurrentlyRemapping in state.state_flags {
-                    verb, ok := state.button_mappings[state.input_being_remapped.button]
-                    if ok {
-                        existing_verb, button_exists := state.button_mappings[button]
-                        if button_exists {
-                            log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
-                            state.input_being_remapped.key = nil
+                //for button_mappings, recipient in state.button_mappings {
+                {
+                    button_mappings := state.button_mappings[controller_idx]
+                    // Mappings can be nil
+                    if button_mappings == nil {
+                        continue
+                    }
+                    if .CurrentlyRemapping in state.state_flags {
+                        verb, ok := button_mappings[state.input_being_remapped.button]
+                        if ok {
+                            existing_verb, button_exists := button_mappings[button]
+                            if button_exists {
+                                log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
+                                state.input_being_remapped.key = nil
+                                state.state_flags -= {.CurrentlyRemapping}
+                                continue
+                            }
+    
+                            button_mappings[button] = verb
+                            delete_key(button_mappings, state.input_being_remapped.button)
+                            state.input_being_remapped.button = nil
                             state.state_flags -= {.CurrentlyRemapping}
                             continue
                         }
-
-                        state.button_mappings[button] = verb
-                        delete_key(state.button_mappings, state.input_being_remapped.button)
-                        state.input_being_remapped.button = nil
-                        state.state_flags -= {.CurrentlyRemapping}
-                        continue
                     }
-                }
-
-                verbtype, found := state.button_mappings[sdl2.GameControllerButton(button)]
-                if found {
-                    outputs.bools[verbtype] = true
+    
+                    verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
+                    if found {
+                        outputs.recipient_verbs[controller_idx].bools[verbtype] = true
+                    }
                 }
             }
             case .CONTROLLERBUTTONUP: {
-                verbtype, found := state.button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
-                if found {
-                    outputs.bools[verbtype] = false
+                controller_idx := event.cbutton.which
+                //for button_mappings, recipient in state.button_mappings {
+                {
+                    button_mappings := state.button_mappings[controller_idx]
+                    // Mappings can be nil
+                    if button_mappings == nil {
+                        continue
+                    }
+                    verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
+                    if found {
+                        outputs.recipient_verbs[controller_idx].bools[verbtype] = false
+                    }
                 }
             }
             case: {
@@ -416,65 +517,71 @@ poll_sdl2_events :: proc(
     }
 
     // Poll controller axes and emit appropriate verbs
-    {
-        stick := ControllerStickAxis.Left
-        verbtype, found := state.stick_mappings[stick]
-        if found {
-            x := axis_to_f32(state.controller_one, .LEFTX)
-            y := axis_to_f32(state.controller_one, .LEFTY)
-            if .LEFTX in state.reverse_axes {
-                x = -x
-            }
-            if .LEFTY in state.reverse_axes {
-                y = -y
-            }
-            dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
-                sensitivity := state.stick_sensitivities[ControllerStickAxis.Left]
-                outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
+    sticks := []ControllerStickAxis {.Left,.Right}
+    for stick_mappings, recipient in state.stick_mappings {
+        for stick in sticks {
+            verbtype, found := stick_mappings[stick]
+            if found {
+                axes := stickaxis_to_sdl2(stick)
+                controller := state.controllers[recipient]
+                x := axis_to_f32(controller, axes[0])
+                y := axis_to_f32(controller, axes[1])
+                if axes[0] in state.reverse_axes {
+                    x = -x
+                }
+                if axes[1] in state.reverse_axes {
+                    y = -y
+                }
+                dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
+                if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
+                    sensitivity := state.stick_sensitivities[stick]
+                    outputs.recipient_verbs[recipient].float2s[verbtype] = sensitivity * [2]f32{x, y}
+                }
             }
         }
     }
-    {
-        stick := ControllerStickAxis.Right
-        verbtype, found := state.stick_mappings[stick]
-        if found {
-            x := axis_to_f32(state.controller_one, .RIGHTX)
-            y := axis_to_f32(state.controller_one, .RIGHTY)
-            if .RIGHTX in state.reverse_axes {
-                x = -x
-            }
-            if .RIGHTY in state.reverse_axes {
-                y = -y
-            }
-            dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-            if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
-                sensitivity := state.stick_sensitivities[ControllerStickAxis.Right]
-                outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
-            }   
-        }
-    }
+    // {
+    //     stick := ControllerStickAxis.Right
+    //     verbtype, found := state.stick_mappings[stick]
+    //     if found {
+    //         x := axis_to_f32(state.controller_one, .RIGHTX)
+    //         y := axis_to_f32(state.controller_one, .RIGHTY)
+    //         if .RIGHTX in state.reverse_axes {
+    //             x = -x
+    //         }
+    //         if .RIGHTY in state.reverse_axes {
+    //             y = -y
+    //         }
+    //         dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
+    //         if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
+    //             sensitivity := state.stick_sensitivities[ControllerStickAxis.Right]
+    //             outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
+    //         }   
+    //     }
+    // }
 
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
-
-        verbtype, found := state.axis_mappings[ax]
-        if found {
-            val := axis_to_f32(state.controller_one, ax)
-            if val == 0.0 {
-                continue
+        for axis_mappings, recipient in state.axis_mappings {
+            verbtype, found := axis_mappings[ax]
+            if found {
+                controller := state.controllers[recipient]
+                val := axis_to_f32(controller, ax)
+                if val == 0.0 {
+                    continue
+                }
+                abval := math.abs(val)
+                if ax in state.deadzone_axes && abval <= state.control_stick_deadzone {
+                    continue
+                }
+                if ax in state.reverse_axes {
+                    val = -val
+                }
+    
+                sensitivity := state.axis_sensitivities[ax]
+    
+                outputs.recipient_verbs[recipient].floats[verbtype] = val
             }
-            abval := math.abs(val)
-            if ax in state.deadzone_axes && abval <= state.control_stick_deadzone {
-                continue
-            }
-            if ax in state.reverse_axes {
-                val = -val
-            }
-
-            sensitivity := state.axis_sensitivities[ax]
-
-            outputs.floats[verbtype] = val
         }
     }
 
@@ -568,15 +675,17 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
             imgui.TableSetupColumn("Key")
             imgui.TableHeadersRow()
 
-            display_sorted_table(
-                s,
-                s.key_mappings,
-                largest_button_width,
-                &s.input_being_remapped.key,
-                KEY_REBIND_TEXT,
-                &sb,
-                allocator
-            )
+            for key_mappings in s.key_mappings {
+                display_sorted_table(
+                    s,
+                    key_mappings,
+                    largest_button_width,
+                    &s.input_being_remapped.key,
+                    KEY_REBIND_TEXT,
+                    &sb,
+                    allocator
+                )
+            }
         }
 
         if imgui.BeginTable("Controller buttons", 2, table_flags) {
@@ -584,15 +693,17 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
             imgui.TableSetupColumn("Button")
             imgui.TableHeadersRow()
 
-            display_sorted_table(
-                s,
-                s.button_mappings,
-                largest_button_width,
-                &s.input_being_remapped.button,
-                BUTTON_REBIND_TEXT,
-                &sb,
-                allocator
-            )
+            for button_mappings in s.button_mappings {
+                display_sorted_table(
+                    s,
+                    button_mappings,
+                    largest_button_width,
+                    &s.input_being_remapped.button,
+                    BUTTON_REBIND_TEXT,
+                    &sb,
+                    allocator
+                )
+            }
         }
 
         if imgui.BeginTable("Axes", 2, table_flags) {
@@ -600,15 +711,17 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
             imgui.TableSetupColumn("Axis")
             imgui.TableHeadersRow()
 
-            display_sorted_table(
-                s,
-                &s.axis_mappings,
-                largest_button_width,
-                &s.input_being_remapped.axis,
-                AXIS_REBIND_TEXT,
-                &sb,
-                allocator
-            )
+            for &axis_mappings in s.axis_mappings {
+                display_sorted_table(
+                    s,
+                    &axis_mappings,
+                    largest_button_width,
+                    &s.input_being_remapped.axis,
+                    AXIS_REBIND_TEXT,
+                    &sb,
+                    allocator
+                )
+            }
         }
 
         sensitivity_sliders :: proc(
