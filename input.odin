@@ -435,6 +435,7 @@ poll_sdl2_events :: proc(
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
                     if button_mappings == nil {
+                        log.debugf("Button mapping for controller %v were nil", controller_idx)
                         continue
                     }
                     if .CurrentlyRemapping in state.state_flags {
@@ -458,6 +459,7 @@ poll_sdl2_events :: proc(
     
                     verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
                     if found {
+                        log.debugf("Sending verb %v to recipient %v", verbtype, VerbRecipient(controller_idx))
                         outputs.recipient_verbs[controller_idx].bools[verbtype] = true
                     }
                 }

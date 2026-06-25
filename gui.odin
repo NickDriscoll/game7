@@ -422,17 +422,14 @@ setup_imgui_textures :: proc(
 
     draw_data := imgui.GetDrawData()
     tex_count := draw_data.Textures.Size
-    log.debugf("Dear ImGUI texture processing on frame #%v", gd.frame_count)
     for i in 0..<tex_count {
         tex := (cast(^^imgui.TextureData)(uintptr(draw_data.Textures.Data) + uintptr(i * size_of(^imgui.TextureData))))^
 
         switch tex.Status {
             case .OK: {}
             case .Destroyed: {
-                log.debugf("Imgui says texture is destroyed: %#v", tex)
             }
             case .WantCreate: {
-                log.debugf("Imgui wants texture created: %#v", tex)
                 data := tex.Pixels
                 width := tex.Width
                 height := tex.Height
@@ -473,8 +470,6 @@ setup_imgui_textures :: proc(
                 imgui.TextureData_SetStatus(tex, .OK)
             }
             case .WantUpdates: {
-                log.debugf("Imgui wants texture updated: %#v", tex)
-
                 update_rect := vk.Rect2D {
                     offset = {
                         x = i32(tex.UpdateRect.x),
@@ -517,8 +512,6 @@ setup_imgui_textures :: proc(
                 imgui.TextureData_SetStatus(tex, .OK)
             }
             case .WantDestroy: {
-                log.debugf("Imgui wants texture destroyed: %#v", tex)
-
                 handle := hm.u64_to_handle(tex.TexID)
                 vkw.delete_image(gd, vkw.Image_Handle(handle))
 

@@ -689,6 +689,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
     if user_config.flags[.FollowCam] {
         game_state.lookat_controllers[id] = LookatController {
             target = player_id,
+            vertical_offset = 0.75,
             distance = 5.0
         }
     }
@@ -697,14 +698,22 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
 
 tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, all_output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
-    i := 0
     for id, &char in game_state.character_controllers {
-        defer i += 1
+
+        // Figure out which local player this is
+        local_player_idx := 0
+        for local_player_idx < MAX_SPLITSCREEN_PLAYERS {
+            if id == game_state.local_players[local_player_idx] {
+                break
+            }
+            local_player_idx += 1
+        }
+
         tform := &game_state.transforms[id]
         collision := &game_state.spherical_bodies[id]
         model := &game_state.skinned_models[id]
-        camera := &game_state.cameras[game_state.viewport_cameras[i]]
-        output_verbs := all_output_verbs.recipient_verbs[i]
+        camera := &game_state.cameras[game_state.viewport_cameras[local_player_idx]]
+        output_verbs := all_output_verbs.recipient_verbs[local_player_idx]
 
         // Set current xy velocity (and character facing) to whatever user input is
         {
