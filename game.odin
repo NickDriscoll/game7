@@ -1428,6 +1428,7 @@ gamestate_new_scene :: proc(
         if user_config.flags[.FollowCam] {
             game_state.lookat_controllers[id] = LookatController {
                 target = game_state.player_id,
+                vertical_offset = 0.75,
                 distance = 5.0
             }
         }
@@ -1732,8 +1733,6 @@ new_load_level_file :: proc(
     // Read components in order
     read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.cameras, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.lookat_controllers, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
@@ -1875,8 +1874,6 @@ new_save_level_file :: proc(
         // Component data + counts
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.cameras)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.lookat_controllers)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
         final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
@@ -2008,8 +2005,8 @@ new_save_level_file :: proc(
     // Write components to file
     write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transforms, &write_head)
     write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transform_deltas, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.cameras, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.lookat_controllers, &write_head)
+    // write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.cameras, &write_head)
+    // write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.lookat_controllers, &write_head)
     write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.enemy_ais, &write_head)
     write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.hovering_enemies, &write_head)
     write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.thrown_enemy_ais, &write_head)
@@ -2096,7 +2093,7 @@ lookat_camera_update :: proc(game_state: ^GameState, output_verbs: OutputVerbs, 
     // Camera follow point chases target
     lookat_controller.current_focal_point = exponential_smoothing(
         lookat_controller.current_focal_point,
-        target.position,
+        target.position + {0.0, 0.0, lookat_controller.vertical_offset},
         game_state.camera_follow_speed,
         dt
     )
@@ -2294,6 +2291,7 @@ camera_gui :: proc(
                 replace_keybindings(input_system, &game_state.character_key_mappings)
                 game_state.lookat_controllers[camera_id] = LookatController {
                     target = game_state.player_id,
+                    vertical_offset = 0.75,
                     distance = 4.0
                 }
             } else {
@@ -2308,6 +2306,7 @@ camera_gui :: proc(
             if imgui.SliderInt("Target ID", &tgt, 0, c.int(game_state._next_id - 1)) {
                 lookat_controller.target = EntityID(tgt)
             }
+            imgui.SliderFloat("Vertical offset", &lookat_controller.vertical_offset, 0.0, 3.0)
         }
 
         imgui.SliderFloat("Camera FOV", &camera.fov_radians, math.PI / 36, math.PI)

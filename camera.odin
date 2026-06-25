@@ -21,6 +21,7 @@ CameraFlags :: bit_set[CameraFlag]
 LookatController :: struct {
     current_focal_point: hlsl.float3,
     target: EntityID,
+    vertical_offset: f32,
     distance: f32,
 }
 
