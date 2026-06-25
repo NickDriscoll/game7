@@ -636,6 +636,7 @@ new_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, alloca
     id := gamestate_next_id(game_state)
 
     game_state.transforms[id] = Transform {
+        position = game_state.level_start,
         scale = 1.0,
     }
     game_state.spherical_bodies[id] = SphericalBody {
