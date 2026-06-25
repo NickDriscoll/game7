@@ -136,12 +136,7 @@ InputSystem :: struct {
     controllers: [MAX_SPLITSCREEN_PLAYERS]^sdl2.GameController,
 }
 
-init_input_system :: proc(
-    // init_key_bindings: ^map[sdl2.Scancode]VerbType,
-    // init_mouse_bindings: ^map[u8]VerbType,
-    // init_button_mappings: ^map[sdl2.GameControllerButton]VerbType,
-    allocator := context.allocator
-) -> InputSystem {
+init_input_system :: proc(allocator := context.allocator) -> InputSystem {
     system: InputSystem
 
     for recipient in VerbRecipient {
@@ -149,7 +144,7 @@ init_input_system :: proc(
         system.axis_mappings[recipient] = make(map[sdl2.GameControllerAxis]VerbType, 64, allocator)
         system.stick_mappings[recipient] = make(map[ControllerStickAxis]VerbType, 64, allocator)
         system.wheel_mappings[recipient] = make(map[u32]VerbType, 64, allocator)
-        allow_repeat_keys := make(map[sdl2.Scancode]bool, 64, allocator)
+        system.allow_repeat_keys = make(map[sdl2.Scancode]bool, 64, allocator)
         
         // 0 bc there's just one mouse wheel... right?
         system.wheel_mappings[recipient][0] = .CameraFollowDistance
@@ -171,27 +166,11 @@ init_input_system :: proc(
     system.allow_repeat_keys[.EQUALS] = true
     system.allow_repeat_keys[.MINUS] = true
 
-
     system.reverse_axes = {.LEFTY}
     system.deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY}
     system.deadzone_sticks = {.Left,.Right}
     system.control_stick_deadzone = 0.15
     return system
-    // return InputSystem {
-    //     // key_mappings = init_key_bindings,
-    //     // mouse_mappings = init_mouse_bindings,
-    //     // button_mappings = init_button_mappings,
-    //     wheel_mappings = wheel_mappings,
-    //     axis_mappings = axis_mappings,
-    //     stick_mappings = stick_mappings,
-    //     allow_repeat_keys = allow_repeat_keys,
-    //     reverse_axes = {.LEFTY},
-    //     deadzone_axes = {.LEFTX,.LEFTY,.RIGHTX,.RIGHTY},
-    //     deadzone_sticks = {.Left,.Right},
-    //     axis_sensitivities = axis_sensitivities,
-    //     stick_sensitivities = stick_sensitivities,
-    //     control_stick_deadzone = 0.15,
-    // }
 }
 
 destroy_input_system :: proc(s: ^InputSystem) {
@@ -540,25 +519,6 @@ poll_sdl2_events :: proc(
             }
         }
     }
-    // {
-    //     stick := ControllerStickAxis.Right
-    //     verbtype, found := state.stick_mappings[stick]
-    //     if found {
-    //         x := axis_to_f32(state.controller_one, .RIGHTX)
-    //         y := axis_to_f32(state.controller_one, .RIGHTY)
-    //         if .RIGHTX in state.reverse_axes {
-    //             x = -x
-    //         }
-    //         if .RIGHTY in state.reverse_axes {
-    //             y = -y
-    //         }
-    //         dist := math.abs(hlsl.distance(hlsl.float2{0.0, 0.0}, hlsl.float2{x, y}))
-    //         if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
-    //             sensitivity := state.stick_sensitivities[ControllerStickAxis.Right]
-    //             outputs.float2s[verbtype] = sensitivity * [2]f32{x, y}
-    //         }   
-    //     }
-    // }
 
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
         ax := sdl2.GameControllerAxis(i)
