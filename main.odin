@@ -3,7 +3,6 @@ package main
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:math"
 import "core:math/linalg/hlsl"
 import "core:strings"
 import "core:time"
@@ -182,13 +181,16 @@ main :: proc() {
                 imgui.Text("Frame #%i", app.vgd.frame_count)
                 imgui.Separator()
 
+                imgui.BeginDisabled(len(app.game_state.local_players) == MAX_SPLITSCREEN_PLAYERS)
                 if imgui.Button("Add player") {
                     id := new_player_character(&app.game_state, &app.renderer, app.per_scene_allocator)
                     append(&app.game_state.local_players, id)
                     cam_id := new_viewport_camera(&app.game_state, id, app.user_config)
                     append(&app.game_state.viewport_cameras, cam_id)
                 }
+                imgui.EndDisabled()
                 imgui.SameLine()
+                imgui.BeginDisabled(len(app.game_state.local_players) == 1)
                 if imgui.Button("Remove player") {
                     // Always removing from the end
                     remove_idx := len(app.game_state.local_players) - 1
@@ -199,6 +201,7 @@ main :: proc() {
                     unordered_remove(&app.game_state.local_players, remove_idx)
                     unordered_remove(&app.game_state.viewport_cameras, remove_idx)
                 }
+                imgui.EndDisabled()
                 for player_id, idx in app.game_state.local_players {
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
@@ -530,9 +533,12 @@ main :: proc() {
 
         game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
-        // Camera update
+        // Update camera related data in the renderer
         for cam_id, idx in app.game_state.viewport_cameras {
             scoped_event(&profiler, "Camera update")
+
+            #assert(MAX_SPLITSCREEN_PLAYERS == 4, "The following code assumes a max of 4 players")
+            player_count := len(app.game_state.viewport_cameras)
 
             // Write viewport for this camera into renderer
             vp := vkw.Viewport {
@@ -543,12 +549,36 @@ main :: proc() {
                 minDepth = 0.0,
                 maxDepth = 1.0
             }
-            if idx == 0 && len(app.game_state.viewport_cameras) == 2 {
-                vp.height /= 2
+            if player_count > 1 {
+                vp.height /= 2.0
+            }
+            if idx == 0 && player_count == 4 {
+                vp.width /= 2.0
             }
             if idx == 1 {
-                vp.y += cast(f32)FB_HEIGHT / 2.0
-                vp.height /= 2
+                if player_count > 3 {
+                    vp.x = cast(f32)FB_WIDTH / 2.0
+                }
+                if player_count > 2 {
+                    vp.width /= 2.0
+                }
+                if player_count < 4 {
+                    vp.y = cast(f32)FB_HEIGHT / 2.0
+                }
+            } else if idx == 2 {
+                vp.width /= 2.0
+                if player_count == 3 {
+                    vp.x = cast(f32)FB_WIDTH / 2.0
+                }
+                if player_count == 4 {
+
+                }
+                vp.y = cast(f32)FB_HEIGHT / 2.0
+                
+            } else if idx == 3 {
+                 vp.x = cast(f32)FB_WIDTH / 2.0
+                 vp.y = cast(f32)FB_HEIGHT / 2.0
+                 vp.width /= 2.0
             }
             append(&app.renderer.viewports, vp)
 
@@ -564,11 +594,9 @@ main :: proc() {
                 freecam_update(&app.game_state, output_verbs, idx, dt)
                 current_view_from_world = freecam_view_from_world(tform^, camera^)
             }
-
-        projection_from_view := camera_projection_from_view(camera^)
+            projection_from_view := camera_projection_from_view(camera^)
 
             cam_uniforms := &app.renderer.uniforms.cameras[idx]
-
             cam_uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
@@ -576,10 +604,8 @@ main :: proc() {
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
             cam_uniforms.clip_from_skybox = projection_from_view * vfw4;
-
             cam_uniforms.view_position.xyz = tform.position
             cam_uniforms.view_position.a = 1.0
-
         }
 
         // Window update
