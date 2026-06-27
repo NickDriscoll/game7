@@ -278,9 +278,9 @@ main :: proc() {
                     _reencode_level_file(&app, app.current_level, app.per_frame_allocator)
                 }
 
-                if imgui.Button("Re-encode all level files") {
-                    _reencode_level_files(&app, app.per_frame_allocator)
-                }
+                // if imgui.Button("Re-encode all level files") {
+                //     _reencode_level_files(&app, app.per_frame_allocator)
+                // }
 
                 {
                     b := .LimitCPU in app.app_options

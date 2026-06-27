@@ -149,120 +149,118 @@ app_startup :: proc(app: ^App) -> bool {
     app.logger = log.create_console_logger(log_level)
     context.logger = app.logger
 
+    scoped_event(&profiler, "App initialization")
+
+    log.info("Initiating swag mode...")
+
+
+    // Set up per-scene allocator
     {
-        scoped_event(&profiler, "App initialization")
+        scoped_event(&profiler, "Create per-scene allocator")
+        err := vmem.arena_init_growing(&app.per_scene_arena)
+        if err != nil {
+            log.errorf("Error initing virtual arena: %v", err)
+        }
 
-        log.info("Initiating swag mode...")
+        app.per_scene_allocator = vmem.arena_allocator(&app.per_scene_arena)
+    }
 
+    // Set up per-frame temp allocator
+    {
+        scoped_event(&profiler, "Create per-frame allocator")
+        err := vmem.arena_init_growing(&app.per_frame_arena)
+        if err != nil {
+            log.errorf("Error initing virtual arena: %v", err)
+        }
+        app.per_frame_allocator = vmem.arena_allocator(&app.per_frame_arena)
+    }
+    context.temp_allocator = app.per_frame_allocator
 
-        // Set up per-scene allocator
+    when ODIN_DEBUG {
+        // Set up the tracking allocator if this is a debug build
+        mem.tracking_allocator_init(&app.scene_track, app.per_scene_allocator)
+        app.per_scene_allocator = mem.tracking_allocator(&app.scene_track)
+        mem.tracking_allocator_init(&app.temp_track, app.per_frame_allocator)
+        app.per_frame_allocator = mem.tracking_allocator(&app.temp_track)
+    }
+
+    // Load user configuration
+    cfg, config_err := load_user_config(USER_CONFIG_FILENAME, app.global_allocator)
+    if config_err != nil {
+        log.errorf("Failed to load user config: %v", config_err)
+    }
+    app.user_config = cfg
+
+    // Initialize SDL2
+    {
+        scoped_event(&profiler, "Initialize SDL2")
+        sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
+        log.info("Initialized SDL2")
+    }
+
+    // Use SDL2 to dynamically link against the Vulkan loader
+    // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
+    {
+        scoped_event(&profiler, "sdl2.Vulkan_LoadLibrary()")
+        if sdl2.Vulkan_LoadLibrary(nil) != 0 {
+            s := sdl2.GetErrorString()
+            log.fatalf("Failed to link Vulkan loader: %v", s)
+            return false
+        }
+    }
+
+    {
+        scoped_event(&profiler, "Window setup")
+
+        // Determine window resolution
         {
-            scoped_event(&profiler, "Create per-scene allocator")
-            err := vmem.arena_init_growing(&app.per_scene_arena)
-            if err != nil {
-                log.errorf("Error initing virtual arena: %v", err)
+            desktop_display_mode: sdl2.DisplayMode
+            if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
+                log.error("Error getting desktop display mode.")
             }
-
-            app.per_scene_allocator = vmem.arena_allocator(&app.per_scene_arena)
-        }
-
-        // Set up per-frame temp allocator
-        {
-            scoped_event(&profiler, "Create per-frame allocator")
-            err := vmem.arena_init_growing(&app.per_frame_arena)
-            if err != nil {
-                log.errorf("Error initing virtual arena: %v", err)
+            app.window.display_resolution = hlsl.uint2 {
+                u32(desktop_display_mode.w),
+                u32(desktop_display_mode.h),
             }
-            app.per_frame_allocator = vmem.arena_allocator(&app.per_frame_arena)
-        }
-        context.temp_allocator = app.per_frame_allocator
-
-        when ODIN_DEBUG {
-            // Set up the tracking allocator if this is a debug build
-            mem.tracking_allocator_init(&app.scene_track, app.per_scene_allocator)
-            app.per_scene_allocator = mem.tracking_allocator(&app.scene_track)
-            mem.tracking_allocator_init(&app.temp_track, app.per_frame_allocator)
-            app.per_frame_allocator = mem.tracking_allocator(&app.temp_track)
-        }
-
-        // Load user configuration
-        cfg, config_err := load_user_config(USER_CONFIG_FILENAME, app.global_allocator)
-        if config_err != nil {
-            log.errorf("Failed to load user config: %v", config_err)
-        }
-        app.user_config = cfg
-
-        // Initialize SDL2
-        {
-            scoped_event(&profiler, "Initialize SDL2")
-            sdl2.Init({.AUDIO, .EVENTS, .GAMECONTROLLER, .VIDEO})
-            log.info("Initialized SDL2")
-        }
-
-        // Use SDL2 to dynamically link against the Vulkan loader
-        // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
-        {
-            scoped_event(&profiler, "sdl2.Vulkan_LoadLibrary()")
-            if sdl2.Vulkan_LoadLibrary(nil) != 0 {
-                s := sdl2.GetErrorString()
-                log.fatalf("Failed to link Vulkan loader: %v", s)
-                return false
+            app.window.resolution = DEFAULT_RESOLUTION
+            if app.user_config.flags[.ExclusiveFullscreen] || app.user_config.flags[.BorderlessFullscreen] {
+                app.window.resolution = app.window.display_resolution
+            }
+            if .WindowWidth in app.user_config.ints && .WindowHeight in app.user_config.ints {
+                x := app.user_config.ints[.WindowWidth]
+                y := app.user_config.ints[.WindowHeight]
+                app.window.resolution = {u32(x), u32(y)}
             }
         }
 
-        {
-            scoped_event(&profiler, "Window setup")
-
-            // Determine window resolution
-            {
-                desktop_display_mode: sdl2.DisplayMode
-                if sdl2.GetDesktopDisplayMode(0, &desktop_display_mode) != 0 {
-                    log.error("Error getting desktop display mode.")
-                }
-                app.window.display_resolution = hlsl.uint2 {
-                    u32(desktop_display_mode.w),
-                    u32(desktop_display_mode.h),
-                }
-                app.window.resolution = DEFAULT_RESOLUTION
-                if app.user_config.flags[.ExclusiveFullscreen] || app.user_config.flags[.BorderlessFullscreen] {
-                    app.window.resolution = app.window.display_resolution
-                }
-                if .WindowWidth in app.user_config.ints && .WindowHeight in app.user_config.ints {
-                    x := app.user_config.ints[.WindowWidth]
-                    y := app.user_config.ints[.WindowHeight]
-                    app.window.resolution = {u32(x), u32(y)}
-                }
-            }
-
-            // Determine SDL window flags
-            flags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
-            if app.user_config.flags[.ExclusiveFullscreen] {
-                flags += {.FULLSCREEN}
-            } else if app.user_config.flags[.BorderlessFullscreen] {
-                flags += {.BORDERLESS}
-            }
-
-            // Determine SDL window position
-            app.window.position.x = sdl2.WINDOWPOS_CENTERED
-            app.window.position.y = sdl2.WINDOWPOS_CENTERED
-            if .WindowX in app.user_config.ints && .WindowY in app.user_config.ints {
-                app.window.position.x = i32(app.user_config.ints[.WindowX])
-                app.window.position.y = i32(app.user_config.ints[.WindowY])
-            } else {
-                app.user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
-                app.user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
-            }
-
-            app.window.window = sdl2.CreateWindow(
-                TITLE_WITHOUT_IMGUI,
-                app.window.position.x,
-                app.window.position.y,
-                i32(app.window.resolution.x),
-                i32(app.window.resolution.y),
-                flags
-            )
-            sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop]))
+        // Determine SDL window flags
+        flags : sdl2.WindowFlags = {.VULKAN,.RESIZABLE}
+        if app.user_config.flags[.ExclusiveFullscreen] {
+            flags += {.FULLSCREEN}
+        } else if app.user_config.flags[.BorderlessFullscreen] {
+            flags += {.BORDERLESS}
         }
+
+        // Determine SDL window position
+        app.window.position.x = sdl2.WINDOWPOS_CENTERED
+        app.window.position.y = sdl2.WINDOWPOS_CENTERED
+        if .WindowX in app.user_config.ints && .WindowY in app.user_config.ints {
+            app.window.position.x = i32(app.user_config.ints[.WindowX])
+            app.window.position.y = i32(app.user_config.ints[.WindowY])
+        } else {
+            app.user_config.ints[.WindowX] = i64(sdl2.WINDOWPOS_CENTERED)
+            app.user_config.ints[.WindowY] = i64(sdl2.WINDOWPOS_CENTERED)
+        }
+
+        app.window.window = sdl2.CreateWindow(
+            TITLE_WITHOUT_IMGUI,
+            app.window.position.x,
+            app.window.position.y,
+            i32(app.window.resolution.x),
+            i32(app.window.resolution.y),
+            flags
+        )
+        sdl2.SetWindowAlwaysOnTop(app.window.window, sdl2.bool(app.user_config.flags[.AlwaysOnTop]))
 
         // Initialize graphics device
         init_params := vkw.InitParameters {

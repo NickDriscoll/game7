@@ -134,6 +134,7 @@ InputSystem :: struct {
 
     //controller_one: ^sdl2.GameController,
     controllers: [MAX_SPLITSCREEN_PLAYERS]^sdl2.GameController,
+    controller_instance_ids: [MAX_SPLITSCREEN_PLAYERS]sdl2.JoystickID,
 }
 
 init_input_system :: proc(allocator := context.allocator) -> InputSystem {
@@ -409,6 +410,8 @@ poll_sdl2_events :: proc(
             case .CONTROLLERDEVICEADDED: {
                 controller_idx := event.cdevice.which
                 state.controllers[controller_idx] = sdl2.GameControllerOpen(controller_idx)
+                assert(state.controllers[controller_idx] != nil)
+                state.controller_instance_ids[controller_idx] = sdl2.JoystickInstanceID(sdl2.GameControllerGetJoystick(state.controllers[controller_idx]))
                 type := sdl2.GameControllerGetType(state.controllers[controller_idx])
                 name := sdl2.GameControllerName(state.controllers[controller_idx])
                 led := sdl2.GameControllerHasLED(state.controllers[controller_idx])
@@ -418,12 +421,10 @@ poll_sdl2_events :: proc(
                 log.infof("%v connected (%v) at index %v", name, type, controller_idx)
             }
             case .CONTROLLERDEVICEREMOVED: {
-                controller_idx := event.cdevice.which
-                // if controller_idx == 0 {
-                //     sdl2.GameControllerClose(state.controller_one)
-                //     state.controller_one = nil
-                // }
-                log.infof("NO-OP Controller %v removed.", controller_idx)
+                controller_instance := event.cdevice.which
+                controller := sdl2.GameControllerFromInstanceID(sdl2.JoystickGetDeviceInstanceID(controller_instance))
+                sdl2.GameControllerClose(controller)
+                log.infof("Controller %v removed.", sdl2.GameControllerGetPlayerIndex(controller))
             }
             case .CONTROLLERBUTTONDOWN: {
                 controller_idx := event.cbutton.which
