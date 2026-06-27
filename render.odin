@@ -2213,8 +2213,8 @@ render_scene :: proc(
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
-            color_target = renderer.main_framebuffer.color_images[0].index,
-            depth_target = renderer.main_framebuffer.depth_image.index,
+            color_target = renderer.main_framebuffer.color_images[0].idx,
+            depth_target = renderer.main_framebuffer.depth_image.idx,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
             tlas_idx = uniforms_offset,
             uniforms_address = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),

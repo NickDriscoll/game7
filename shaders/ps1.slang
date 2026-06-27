@@ -194,8 +194,8 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     for (uint i = 0; i < u_data.point_light_count; ++i) {
         PointLight light = u_data.point_lights[i];
         float3 direction = light.world_position - input.world_pos;
-        float dir = length(direction);
-        direction /= dir;
+        float d = length(direction);
+        direction /= d;
 
 #if defined(HardwareRT)
         Ray r;
@@ -206,12 +206,12 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         }
 #endif
 
-        float falloff = light.intensity / (dir * dir);
+        float falloff = light.intensity / (d * d);
         diffuse_contribution += falloff * lambert(face_normal, direction, light.color);
 
         float3 h = normalize(direction + view_dir);
-        float d = max(0.0, dot(h, face_normal));
-        specular_contribution += falloff * light.color * max(0.0, pow(d, 64.0));
+        float half_vector_dot = max(0.0, dot(h, face_normal));
+        specular_contribution += falloff * light.color * max(0.0, pow(half_vector_dot, 64.0));
     }
 
     // Trying rt reflections
