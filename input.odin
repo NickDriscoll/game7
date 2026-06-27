@@ -412,6 +412,7 @@ poll_sdl2_events :: proc(
                 state.controllers[controller_idx] = sdl2.GameControllerOpen(controller_idx)
                 assert(state.controllers[controller_idx] != nil)
                 state.controller_instance_ids[controller_idx] = sdl2.JoystickInstanceID(sdl2.GameControllerGetJoystick(state.controllers[controller_idx]))
+                sdl2.GameControllerSetPlayerIndex(state.controllers[controller_idx], controller_idx)
                 type := sdl2.GameControllerGetType(state.controllers[controller_idx])
                 name := sdl2.GameControllerName(state.controllers[controller_idx])
                 led := sdl2.GameControllerHasLED(state.controllers[controller_idx])
@@ -423,15 +424,34 @@ poll_sdl2_events :: proc(
             case .CONTROLLERDEVICEREMOVED: {
                 controller_instance := event.cdevice.which
                 controller := sdl2.GameControllerFromInstanceID(sdl2.JoystickGetDeviceInstanceID(controller_instance))
+                assert(controller != nil)
                 sdl2.GameControllerClose(controller)
-                log.infof("Controller %v removed.", sdl2.GameControllerGetPlayerIndex(controller))
+                controller_idx: int = -1
+                for c, i in state.controllers {
+                    if controller == c {
+                        controller_idx = i
+                        break
+                    }
+                }
+                assert(controller_idx > -1)
+                state.controllers[controller_idx] = nil
+                log.infof("Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
-                controller_idx := event.cbutton.which
+                controller_instance := event.cbutton.which
+                controller := sdl2.GameControllerFromInstanceID(controller_instance)
+                controller_idx: int = -1
+                for c, i in state.controllers {
+                    if controller == c {
+                        controller_idx = i
+                        break
+                    }
+                }
+                assert(controller_idx > -1)
+
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
                 // Handle button remapping here
-                //for button_mappings, recipient in state.button_mappings {
                 {
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
@@ -466,8 +486,16 @@ poll_sdl2_events :: proc(
                 }
             }
             case .CONTROLLERBUTTONUP: {
-                controller_idx := event.cbutton.which
-                //for button_mappings, recipient in state.button_mappings {
+                controller_instance := event.cbutton.which
+                controller := sdl2.GameControllerFromInstanceID(controller_instance)
+                controller_idx: int = -1
+                for c, i in state.controllers {
+                    if controller == c {
+                        controller_idx = i
+                        break
+                    }
+                }
+                assert(controller_idx > -1)
                 {
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
