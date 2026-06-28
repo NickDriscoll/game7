@@ -277,12 +277,6 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     //reflection_cont = {};
 #endif
 
-    // Glowing
-    float3 glow = {};
-    if ((inst.flags & InstanceFlags.Glowing) != 0) {
-        glow = float3(0.0, 1.0, 0.0);
-    }
-
     if ((u_data.flags & UniformFlag.VisualizeDirectDiffuse) != 0) {
         return float4(diffuse_contribution, 1.0);
     }
@@ -292,7 +286,13 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
     }
 
     float3 final_color = (reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
-    final_color = lerp(final_color, glow, 0.6);
+
+    // Glowing
+    if ((inst.flags & InstanceFlags.Glowing) != 0) {
+        float3 glow = {};
+        glow = float3(0.0, 1.0, 0.0);
+        final_color = lerp(final_color, glow, 0.3);
+    }
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
         float fac = smoothstep(0.3, 1.0, 1.0 - dot(face_normal, view_dir));
