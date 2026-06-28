@@ -79,6 +79,7 @@ App :: struct {
     coin_paint_radius: f32,
     coin_z_offset: f32,
     dont_delete_collision: bool,
+    new_enemy_state: EnemyState,
 
     current_time: time.Time,
     previous_time: time.Time,
@@ -723,6 +724,7 @@ scene_editor :: proc(
                     imgui.DragFloat("Coin z offset", &app.coin_z_offset, 0.0, 50.0)
                 }
                 case .PlaceEnemy: {
+                    gui_dropdown_enum("AI state###0", &app.new_enemy_state, context.temp_allocator)
                     selected_entity_options(&app.game_state, &app.renderer, &app.selected_entity)
                 }
                 case .EditPlayerSpawn: {
@@ -918,7 +920,7 @@ scene_editor :: proc(
                 if hit {
                     pos := collision_pt
                     pos.z += 1.0
-                    new_id := new_enemy(&app.game_state, pos, 0.6, .BrainDead)
+                    new_id := new_enemy(&app.game_state, pos, 0.6, app.new_enemy_state)
                     app.selected_entity = new_id
                 }
             }

@@ -226,6 +226,10 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                 // Check if we have to charge at any players
                 for player_id in game_state.local_players {
                     char_tform := &game_state.transforms[player_id]
+                    char_col := &game_state.spherical_bodies[player_id]
+                    if char_col.state != .Grounded {
+                        continue
+                    }
                     dist_to_player := hlsl.distance(char_tform.position, transform.position)
                     if dist_to_player < ENEMY_HOME_RADIUS {
                         enemy.facing = char_tform.position - transform.position
@@ -297,7 +301,7 @@ tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f3
                 radius = body.radius
             }
             if are_spheres_overlapping(ps, es) {
-                append(&game_state.character_damage_events, DamageEvent {
+                append(&game_state.character_hit_events, HitEvent {
                     player_id = player_id
                 })
             }
@@ -378,7 +382,7 @@ tick_hovering_enemies :: proc(game_state: ^GameState, dt: f32) {
                 radius = enemy.radius
             }
             if are_spheres_overlapping(ps, es) {
-                append(&game_state.character_damage_events, DamageEvent {})
+                append(&game_state.character_hit_events, HitEvent {})
             }
         }
     }
@@ -889,6 +893,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphi
             radius = collision.radius
         }
 
+        // Check player against coins
         {
             to_remove: Maybe(u32)
             for coin_id, idx in game_state.coins {
@@ -984,22 +989,30 @@ DebugModelInstance :: struct {
     scale: f32,
 }
 
-DamageEvent :: struct {
+HitEvent :: struct {
     player_id: EntityID     // Which player was damaged
 }
 
-tick_damage_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
-    scoped_event(&profiler, "tick_damage_events")
-        for event in game_state.character_damage_events {
+process_hit_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
+    scoped_event(&profiler, "process_hit_events")
+    for event in game_state.character_hit_events {
         collision := &game_state.spherical_bodies[event.player_id]
         char := &game_state.character_controllers[event.player_id]
+        char.time_last_damaged = time.now()
+
+        // If character is falling, then process this as jumping on enemy
+        if collision.velocity.z < 0.0 {
+            collision.velocity.z = 20.0
+            continue
+        }
+
+        // Otherwise process as player damage
         invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
         if invulnerable {
             continue
         }
         collision.velocity.z = 3.0
         collision.state = .Falling
-        char.time_last_damaged = time.now()
         char.health -= 1
         play_sound_effect(audio_system, game_state.ow_sound)
     }
@@ -1239,7 +1252,7 @@ GameState :: struct {
     looping_animations: [dynamic]EntityID,
     coins: [dynamic]EntityID,
 
-    character_damage_events: [dynamic]DamageEvent,
+    character_hit_events: [dynamic]HitEvent,
     moved_collision: [dynamic]MovedEntityEvent,
 
     // User input mapping structs
@@ -1513,7 +1526,7 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
         tick_spherical_bodies(game_state, dt)
         tick_enemy_ai(game_state, audio_system, dt)
         tick_hovering_enemies(game_state, dt)
-        tick_damage_events(game_state, audio_system)
+        process_hit_events(game_state, audio_system)
         tick_moved_entity(game_state)
 
         // Draw commands
@@ -1522,7 +1535,7 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
         draw_debug_models(game_state, renderer)
     }
     // Recreate per-frame dynamic allocations
-    game_state.character_damage_events = make([dynamic]DamageEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
+    game_state.character_hit_events = make([dynamic]HitEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
     game_state.moved_collision = make([dynamic]MovedEntityEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
 }
 
