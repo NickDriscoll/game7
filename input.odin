@@ -135,6 +135,7 @@ InputSystem :: struct {
     //controller_one: ^sdl2.GameController,
     controllers: [MAX_SPLITSCREEN_PLAYERS]^sdl2.GameController,
     controller_instance_ids: [MAX_SPLITSCREEN_PLAYERS]sdl2.JoystickID,
+    controller_ids_counter: u32,
 }
 
 init_input_system :: proc(allocator := context.allocator) -> InputSystem {
@@ -408,32 +409,44 @@ poll_sdl2_events :: proc(
                 }
             }
             case .CONTROLLERDEVICEADDED: {
-                controller_idx := event.cdevice.which
-                state.controllers[controller_idx] = sdl2.GameControllerOpen(controller_idx)
-                assert(state.controllers[controller_idx] != nil)
-                state.controller_instance_ids[controller_idx] = sdl2.JoystickInstanceID(sdl2.GameControllerGetJoystick(state.controllers[controller_idx]))
-                sdl2.GameControllerSetPlayerIndex(state.controllers[controller_idx], controller_idx)
-                type := sdl2.GameControllerGetType(state.controllers[controller_idx])
-                name := sdl2.GameControllerName(state.controllers[controller_idx])
-                led := sdl2.GameControllerHasLED(state.controllers[controller_idx])
+                // Find an empty slot
+                controller_idx : i32 = -1
+                for i in 0..<MAX_SPLITSCREEN_PLAYERS {
+                    if state.controllers[i] == nil {
+                        controller_idx = i32(i)
+                        break
+                    }
+                }
+                if controller_idx == -1 {
+                    log.error("Tried to add controller when four are already connected.")
+                    continue
+                }
+
+                controller := sdl2.GameControllerOpen(event.cdevice.which)
+                assert(controller != nil)
+                state.controllers[controller_idx] = controller
+                state.controller_instance_ids[controller_idx] = sdl2.JoystickInstanceID(sdl2.GameControllerGetJoystick(controller))
+                type := sdl2.GameControllerGetType(controller)
+                name := sdl2.GameControllerName(controller)
+                led := sdl2.GameControllerHasLED(controller)
                 if led {
-                    sdl2.GameControllerSetLED(state.controllers[controller_idx], 0xFF, 0x00, 0xFF)
+                    sdl2.GameControllerSetLED(controller, 0xFF, 0x00, 0xFF)
                 }
                 log.infof("%v connected (%v) at index %v", name, type, controller_idx)
             }
             case .CONTROLLERDEVICEREMOVED: {
-                controller_instance := event.cdevice.which
-                controller := sdl2.GameControllerFromInstanceID(sdl2.JoystickGetDeviceInstanceID(controller_instance))
-                assert(controller != nil)
-                sdl2.GameControllerClose(controller)
-                controller_idx: int = -1
-                for c, i in state.controllers {
-                    if controller == c {
+                controller_instance := sdl2.JoystickID(event.cdevice.which)
+                controller_idx := -1
+                for i in 0..<MAX_SPLITSCREEN_PLAYERS {
+                    if controller_instance == state.controller_instance_ids[i] {
                         controller_idx = i
                         break
                     }
                 }
                 assert(controller_idx > -1)
+                controller := state.controllers[controller_idx]
+                assert(controller != nil)
+                sdl2.GameControllerClose(controller)
                 state.controllers[controller_idx] = nil
                 log.infof("Controller %v removed.", controller_idx)
             }
