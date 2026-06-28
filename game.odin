@@ -632,7 +632,7 @@ CharacterController :: struct {
     enemy_type: EnemyType,
 }
 
-new_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, allocator := context.allocator) -> EntityID {
+new_local_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, user_config: UserConfiguration, allocator := context.allocator) -> EntityID {
     id := gamestate_next_id(game_state)
 
     game_state.transforms[id] = Transform {
@@ -658,6 +658,8 @@ new_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, alloca
         time_last_damaged = {},
         flags = {}
     }
+    cam_id := new_viewport_camera(game_state, id, user_config)
+    append(&game_state.viewport_cameras, cam_id)
 
     // Load animated test glTF model
     path : cstring = "data/models/CesiumMan.glb"
@@ -690,7 +692,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
     if user_config.flags[.FollowCam] {
         game_state.lookat_controllers[id] = LookatController {
             target = player_id,
-            vertical_offset = 0.75,
+            vertical_offset = 1.2,
             distance = 5.0
         }
     }
@@ -1247,6 +1249,7 @@ GameState :: struct {
     ctrl_key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: map[sdl2.GameControllerButton]VerbType,
+    system_button_mappings: map[sdl2.GameControllerButton]VerbType,
 
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
@@ -1304,6 +1307,7 @@ init_gamestate :: proc(
     game_state.ctrl_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
     game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+    game_state.system_button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
     {
         game_state.system_key_mappings[.ESCAPE] = .ToggleImgui
@@ -1311,7 +1315,6 @@ init_gamestate :: proc(
         game_state.system_key_mappings[.PAUSE] = .TogglePause
         game_state.system_key_mappings[.F] = .FullscreenHotkey
 
-        // game_state.freecam_key_mappings[.ESCAPE] = .ToggleImgui
         game_state.freecam_key_mappings[.W] = .TranslateFreecamForward
         game_state.freecam_key_mappings[.S] = .TranslateFreecamBack
         game_state.freecam_key_mappings[.A] = .TranslateFreecamLeft
@@ -1320,12 +1323,7 @@ init_gamestate :: proc(
         game_state.freecam_key_mappings[.E] = .TranslateFreecamUp
         game_state.freecam_key_mappings[.LSHIFT] = .Sprint
         game_state.freecam_key_mappings[.LCTRL] = .Crawl
-        game_state.freecam_key_mappings[.SPACE] = .PlayerJump
-        // game_state.freecam_key_mappings[.BACKSLASH] = .FrameAdvance
-        // game_state.freecam_key_mappings[.PAUSE] = .TogglePause
-        // game_state.freecam_key_mappings[.F] = .FullscreenHotkey
 
-        // game_state.character_key_mappings[.ESCAPE] = .ToggleImgui
         game_state.character_key_mappings[.W] = .PlayerTranslateForward
         game_state.character_key_mappings[.S] = .PlayerTranslateBack
         game_state.character_key_mappings[.A] = .PlayerTranslateLeft
@@ -1333,9 +1331,6 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.LSHIFT] = .Sprint
         game_state.character_key_mappings[.LCTRL] = .Crawl
         game_state.character_key_mappings[.SPACE] = .PlayerJump
-        // game_state.character_key_mappings[.BACKSLASH] = .FrameAdvance
-        // game_state.character_key_mappings[.PAUSE] = .TogglePause
-        // game_state.character_key_mappings[.F] = .FullscreenHotkey
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
 
@@ -1350,10 +1345,10 @@ init_gamestate :: proc(
         game_state.button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
         game_state.button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
 
+        game_state.system_button_mappings[.START] = .AddLocalPlayer
 
 
         // Hardcoded default mouse mappings
-        //mouse_mappings[sdl2.BUTTON_LEFT] = .PlayerShoot
         game_state.mouse_mappings[sdl2.BUTTON_RIGHT] = .ToggleMouseLook
     }
 
@@ -1455,10 +1450,8 @@ gamestate_new_scene :: proc(
 
     // Initialize player character
     {
-        player_id := new_player_character(game_state, renderer, scene_allocator)
+        player_id := new_local_player_character(game_state, renderer, user_config^, scene_allocator)
         append(&game_state.local_players, player_id)
-        
-        // Initialize viewport camera
         {
             path : cstring = "data/models/CesiumMan.glb"
             skinned_model := load_gltf_skinned_model(renderer, path, scene_allocator)
@@ -1470,35 +1463,6 @@ gamestate_new_scene :: proc(
         }
 
     }
-
-    // Initialize viewport camera
-    {
-        id := gamestate_next_id(game_state)
-        append(&game_state.viewport_cameras, id)
-
-        game_state.transforms[id] = Transform {
-            position = {
-                f32(user_config.floats[.FreecamX]),
-                f32(user_config.floats[.FreecamY]),
-                f32(user_config.floats[.FreecamZ])
-            }
-        }
-        game_state.cameras[id] = FreecamController {
-            fov_radians = f32(user_config.floats[.CameraFOV]),
-            nearplane = 0.1 / math.sqrt_f32(2.0),
-            farplane = 1_000_000.0,
-            yaw = f32(user_config.floats[.FreecamYaw]),
-            pitch = f32(user_config.floats[.FreecamPitch]),
-        }
-        if user_config.flags[.FollowCam] {
-            game_state.lookat_controllers[id] = LookatController {
-                target = game_state.local_players[0],
-                vertical_offset = 0.75,
-                distance = 5.0
-            }
-        }
-    }
-
 
     game_state.freecam_speed_multiplier = 5.0
     game_state.freecam_slow_multiplier = 1.0 / 5.0

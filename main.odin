@@ -104,7 +104,8 @@ main :: proc() {
         io.DeltaTime = last_frame_dt
         app.renderer.uniforms.time += scaled_dt
 
-        output_verbs := poll_sdl2_events(&app.input_system)
+        // Get user verbs from mouse, keyboard, and game controllers
+        output_verbs := poll_system_events(&app.input_system)
 
         // Quit if user wants it
         do_main_loop = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
@@ -164,6 +165,22 @@ main :: proc() {
         new_frame(&app.renderer, docknode)
 
         // Update
+
+        // Add new player if a disconnected controller pressed the magic button
+        {
+            controller_idx, found := output_verbs.recipient_verbs[VerbRecipient.System].ints[.AddLocalPlayer]
+            if found {
+                assert(controller_idx < 4)  // We shouldn't evem be honoring inputs from controller indices > 3
+                not_joined_yet := len(app.game_state.local_players) <= int(controller_idx)
+                if not_joined_yet {
+                    log.infof("Adding player %v to the game.", controller_idx + 1)
+                    id := new_local_player_character(&app.game_state, &app.renderer, app.user_config, app.per_scene_allocator)
+                    append(&app.game_state.local_players, id)
+                }
+            }
+        }
+
+        // Run general scene editor window
         scene_editor(&app)
 
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
@@ -183,10 +200,8 @@ main :: proc() {
 
                 imgui.BeginDisabled(len(app.game_state.local_players) == MAX_SPLITSCREEN_PLAYERS)
                 if imgui.Button("Add player") {
-                    id := new_player_character(&app.game_state, &app.renderer, app.per_scene_allocator)
+                    id := new_local_player_character(&app.game_state, &app.renderer, app.user_config, app.per_scene_allocator)
                     append(&app.game_state.local_players, id)
-                    cam_id := new_viewport_camera(&app.game_state, id, app.user_config)
-                    append(&app.game_state.viewport_cameras, cam_id)
                 }
                 imgui.EndDisabled()
                 imgui.SameLine()
@@ -538,7 +553,8 @@ main :: proc() {
             scoped_event(&profiler, "Camera update")
 
             #assert(MAX_SPLITSCREEN_PLAYERS == 4, "The following code assumes a max of 4 players")
-            player_count := len(app.game_state.viewport_cameras)
+            camera_count := len(app.game_state.viewport_cameras)
+            assert(camera_count == len(app.game_state.local_players))
 
             // Write viewport for this camera into renderer
             vp := vkw.Viewport {
@@ -549,29 +565,26 @@ main :: proc() {
                 minDepth = 0.0,
                 maxDepth = 1.0
             }
-            if player_count > 1 {
+            if camera_count > 1 {
                 vp.height /= 2.0
             }
-            if idx == 0 && player_count == 4 {
+            if idx == 0 && camera_count == 4 {
                 vp.width /= 2.0
             }
             if idx == 1 {
-                if player_count > 3 {
+                if camera_count > 3 {
                     vp.x = cast(f32)FB_WIDTH / 2.0
                 }
-                if player_count > 2 {
+                if camera_count > 2 {
                     vp.width /= 2.0
                 }
-                if player_count < 4 {
+                if camera_count < 4 {
                     vp.y = cast(f32)FB_HEIGHT / 2.0
                 }
             } else if idx == 2 {
                 vp.width /= 2.0
-                if player_count == 3 {
+                if camera_count == 3 {
                     vp.x = cast(f32)FB_WIDTH / 2.0
-                }
-                if player_count == 4 {
-
                 }
                 vp.y = cast(f32)FB_HEIGHT / 2.0
                 

@@ -53,6 +53,7 @@ VerbType :: enum {
 
     PlaceThing,
 
+    AddLocalPlayer,
     PlayerJump,
     PlayerShoot,
     PlayerReset,
@@ -112,6 +113,9 @@ InputSystem :: struct {
     ctrl_key_mappings: ^map[sdl2.Scancode]VerbType,
     mouse_mappings: [len(VerbRecipient)]^map[u8]VerbType,
     button_mappings: [len(VerbRecipient)]^map[sdl2.GameControllerButton]VerbType,
+
+    // Controller buttons that emit verbs to the system
+    system_button_mappings: ^map[sdl2.GameControllerButton]VerbType,
     wheel_mappings: [len(VerbRecipient)]map[u32]VerbType,
     axis_mappings: [len(VerbRecipient)]map[sdl2.GameControllerAxis]VerbType,
     stick_mappings: [len(VerbRecipient)]map[ControllerStickAxis]VerbType,
@@ -132,10 +136,11 @@ InputSystem :: struct {
 
     input_being_remapped: RemapInput,
 
-    //controller_one: ^sdl2.GameController,
+    // There are four virtual controller slots
+    // When a controller is connected, the first free slot is assigned to it
+    // When a controller is disconnected, the others are undisturbed
     controllers: [MAX_SPLITSCREEN_PLAYERS]^sdl2.GameController,
     controller_instance_ids: [MAX_SPLITSCREEN_PLAYERS]sdl2.JoystickID,
-    controller_ids_counter: u32,
 }
 
 init_input_system :: proc(allocator := context.allocator) -> InputSystem {
@@ -213,15 +218,10 @@ init_receipient_verbs :: proc(allocator := context.allocator) -> RecipientVerbs 
 // user wants to perform this frame
 OutputVerbs :: struct {
     recipient_verbs: [len(VerbRecipient)]RecipientVerbs,
-    // bools: map[VerbType]bool,
-    // ints: map[VerbType]i64,
-    // int2s: map[VerbType][2]i64,
-    // floats: map[VerbType]f32,
-    // float2s: map[VerbType][2]f32,
 }
 
 // Main once-per-frame input proc
-poll_sdl2_events :: proc(
+poll_system_events :: proc(
     state: ^InputSystem,
     allocator := context.temp_allocator
 ) -> OutputVerbs {
@@ -238,7 +238,6 @@ poll_sdl2_events :: proc(
 
     event: sdl2.Event
     for sdl2.PollEvent(&event) {
-        
         #partial switch event.type {
             case .QUIT: {
                 outputs.recipient_verbs[VerbRecipient.System].bools[.Quit] = true
@@ -464,7 +463,6 @@ poll_sdl2_events :: proc(
 
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
-                // Handle button remapping here
                 {
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
@@ -472,6 +470,7 @@ poll_sdl2_events :: proc(
                         log.debugf("Button mapping for controller %v were nil", controller_idx)
                         continue
                     }
+                    // Handle button remapping here
                     if .CurrentlyRemapping in state.state_flags {
                         verb, ok := button_mappings[state.input_being_remapped.button]
                         if ok {
@@ -491,10 +490,20 @@ poll_sdl2_events :: proc(
                         }
                     }
     
-                    verbtype, found := button_mappings[sdl2.GameControllerButton(button)]
-                    if found {
-                        log.debugf("Sending verb %v to recipient %v", verbtype, VerbRecipient(controller_idx))
-                        outputs.recipient_verbs[controller_idx].bools[verbtype] = true
+                    {
+                        verbtype, found := button_mappings[button]
+                        if found {
+                            log.debugf("Sending verb %v to recipient %v", verbtype, VerbRecipient(controller_idx))
+                            outputs.recipient_verbs[controller_idx].bools[verbtype] = true
+                        }
+                    }
+
+                    {
+                        verbtype, found := state.system_button_mappings[button]
+                        if found {
+                            log.debugf("Sending verb %v to recipient %v", verbtype, VerbRecipient.System)
+                            outputs.recipient_verbs[VerbRecipient.System].ints[verbtype] = i64(controller_idx)
+                        }
                     }
                 }
             }
@@ -510,15 +519,24 @@ poll_sdl2_events :: proc(
                 }
                 assert(controller_idx > -1)
                 {
+                    button := sdl2.GameControllerButton(event.cbutton.button)
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
                     if button_mappings == nil {
                         continue
                     }
-                    verbtype, found := button_mappings[sdl2.GameControllerButton(event.cbutton.button)]
-                    if found {
-                        outputs.recipient_verbs[controller_idx].bools[verbtype] = false
+                    {
+                        verbtype, found := button_mappings[button]
+                        if found {
+                            outputs.recipient_verbs[controller_idx].bools[verbtype] = false
+                        }
                     }
+                    // {
+                    //     verbtype, found := state.system_button_mappings[button]
+                    //     if found {
+                    //         outputs.recipient_verbs[VerbRecipient.System].ints[verbtype] = i64(controller_idx)
+                    //     }
+                    // }
                 }
             }
             case: {
