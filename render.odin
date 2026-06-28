@@ -1,6 +1,5 @@
 package main
 
-import "core:c"
 import "core:path/filepath"
 import "core:fmt"
 import "core:log"
@@ -19,8 +18,6 @@ import hm "desktop_vulkan_wrapper/handlemap"
 import imgui "odin-imgui"
 import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
-
-half4 :: [4]f16
 
 MAX_GLOBAL_DRAW_CMDS :: 4 * 1024
 MAX_GLOBAL_VERTICES :: 4*1024*1024
@@ -230,7 +227,7 @@ GPUStaticMesh :: struct {
 CPUStaticInstance :: struct {
     world_from_model: hlsl.float4x4,
     mesh_handle: Static_Mesh_Handle,
-    material_handle: int,
+    material_idx: int,
     flags: InstanceFlags,
     gpu_mesh_idx: u32,
 }
@@ -540,7 +537,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
             info.usage += {.ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
         }
         info.name = "Global vertex positions buffer"
-        info.size = size_of(half4) * MAX_GLOBAL_VERTICES
+        info.size = size_of(hlsl.half4) * MAX_GLOBAL_VERTICES
         renderer.positions_buffer = vkw.create_buffer(gd, &info)
         log.debugf("Allocated %v MB of VRAM for render_state.positions_buffer", f32(info.size) / 1024 / 1024)
 
@@ -986,7 +983,7 @@ queue_blas_build :: proc(
     mesh: ^CPUStaticMesh,
     update: bool
 ) {
-    pos_addr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * position_start)
+    pos_addr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.half4) * position_start)
 
     if mesh.current_blas_head == u32(len(mesh.blases)) {
         append(&mesh.blases, vkw.Acceleration_Structure_Handle {})
@@ -1002,7 +999,7 @@ queue_blas_build :: proc(
             vertex_data = {
                 deviceAddress = pos_addr
             },
-            vertex_stride = size_of(half4),
+            vertex_stride = size_of(hlsl.half4),
             max_vertex = positions_len - 1,
             index_type = .UINT16,
             index_data = {
@@ -1047,7 +1044,7 @@ queue_blas_build :: proc(
 create_static_mesh :: proc(
     gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
-    positions: []half4,
+    positions: []hlsl.half4,
     indices: []u16
 ) -> Static_Mesh_Handle {
     position_start: u32
@@ -1088,7 +1085,6 @@ create_static_mesh :: proc(
         blases = make([dynamic]vkw.Acceleration_Structure_Handle, 0, 4, context.allocator),
     }
 
-    // TEMP: Just trying to build a BLAS when I don't know how
     if renderer.do_raytracing {
         queue_blas_build(gd, renderer^, position_start, positions_len, &mesh, false)
     }
@@ -1351,7 +1347,7 @@ draw_ps1_static_primitives :: proc(
             mesh_handle = mesh_handle,
             gpu_mesh_idx = mesh.gpu_mesh_idx,
             flags = d.flags,
-            material_handle = material_handle,
+            material_idx = material_handle,
         }
         append(&renderer.ps1_static_instances, new_inst)
     }
@@ -1380,7 +1376,7 @@ draw_ps1_static_primitive :: proc(
         mesh_handle = mesh_handle,
         gpu_mesh_idx = mesh.gpu_mesh_idx,
         flags = draw_data.flags,
-        material_handle = material_handle,
+        material_idx = material_handle,
     }
     append(&renderer.ps1_static_instances, new_inst)
 
@@ -1561,9 +1557,9 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
             // Insert another compute shader dispatch
 
             // @TODO: use a different buffer for vertex stream-out
-            out_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * vtx_positions_out_offset)
+            out_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.half4) * vtx_positions_out_offset)
 
-            in_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(half4) * mesh.in_positions_offset)
+            in_pos_ptr := renderer.uniforms.position_ptr + vk.DeviceAddress(size_of(hlsl.half4) * mesh.in_positions_offset)
             joint_ids_ptr := renderer.uniforms.joint_id_ptr + vk.DeviceAddress(size_of(hlsl.uint4) * mesh.joint_ids_offset)
             joint_weights_ptr := renderer.uniforms.joint_weight_ptr + vk.DeviceAddress(size_of(hlsl.float4) * mesh.joint_weights_offset)
             joint_mats_ptr := renderer.uniforms.joint_mats_ptr + vk.DeviceAddress(size_of(hlsl.float4x4) * instance_mats_offset)
@@ -1589,7 +1585,7 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
             new_cpu_static_instance := CPUStaticInstance {
                 world_from_model = skinned_instance.world_from_model,
                 mesh_handle = mesh.static_mesh_handle,
-                material_handle = skinned_instance.material_handle,
+                material_idx = skinned_instance.material_handle,
                 gpu_mesh_idx = u32(len(renderer.gpu_static_meshes) - 1)
             }
             append(&renderer.ps1_static_instances, new_cpu_static_instance)
@@ -1655,10 +1651,19 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
 }
 
 build_scene_TLAS :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
-    scoped_event(&profiler, "build_scene_TLAS")
+    in_flight_idx := u32(gd.frame_count) % gd.frames_in_flight
+
     // Recreate scene TLAS
     if renderer.do_raytracing {
+        scoped_event(&profiler, "build_scene_TLAS")
         instances := make([dynamic]vk.AccelerationStructureInstanceKHR, 0, len(renderer.ps1_static_instances), context.temp_allocator)
+
+        // Sort instances by mesh idx, just like main rendering proc
+        // implicit
+        // slice.sort_by(renderer.ps1_static_instances[:], proc(i, j: CPUStaticInstance) -> bool {
+        //     return i.mesh_handle.idx < j.mesh_handle.idx
+        // })
+
         for i in 0..<len(renderer.ps1_static_instances) {
             static_instance := &renderer.ps1_static_instances[i]
             static_mesh, _ := hm.get(&renderer.cpu_static_meshes, static_instance.mesh_handle)
@@ -1671,13 +1676,15 @@ build_scene_TLAS :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
                 }
             }
 
+            instance_offset := MAX_GLOBAL_INSTANCES * int(in_flight_idx)
+
             current_blas := static_mesh.blases[static_mesh.current_blas_head]
             blas_addr := vkw.get_acceleration_structure_address(gd, current_blas)
             static_mesh.current_blas_head = min(u32(len(static_mesh.blases)) - 1, static_mesh.current_blas_head + 1)
 
             inst := vk.AccelerationStructureInstanceKHR {
                 transform = tform,
-                instanceCustomIndex = u32(i),
+                instanceCustomIndex = u32(i + instance_offset),
 
                 // @TODO: Use these fields
                 mask = 0x01,
@@ -1770,9 +1777,6 @@ render_scene :: proc(
     // Do compute skinning work
     compute_skinning(gd, renderer)
 
-    // Have graphics queue wait on compute skinning timeline semaphore
-    vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
-
     // Barrier for BLAS builds
     cb := gd.gfx_command_buffers[gfx_cb_idx]
     if renderer.do_raytracing {
@@ -1816,6 +1820,9 @@ render_scene :: proc(
     hm.iterate_callback(&renderer.cpu_static_meshes, nil, proc(mesh: ^CPUStaticMesh, handle: hm.Handle, _: rawptr) {
         mesh.current_blas_head = 0
     })
+
+    // Have graphics queue wait on compute skinning timeline semaphore
+    vkw.add_wait_op(gd, &renderer.gfx_sync, renderer.compute_timeline, gd.frame_count + 1)
 
     uniforms_offset := u32(gd.frame_count) % gd.frames_in_flight
 
@@ -1887,7 +1894,7 @@ render_scene :: proc(
 
                     material_idx : u32 = 0
                     when T == CPUStaticInstance {
-                        material_idx = u32(inst.material_handle)
+                        material_idx = u32(inst.material_idx)
                     }
 
                     color := hlsl.float4 {0.0, 0.0, 0.0, 1.0}
@@ -2332,7 +2339,7 @@ load_gltf_static_model :: proc(
     draw_primitives := make([dynamic]StaticDrawPrimitive, 0, primitive_count, allocator)
 
     // Used for constructing bounding sphere
-    all_mesh_vertices := make([dynamic]half4, context.temp_allocator)
+    all_mesh_vertices := make([dynamic]hlsl.half4, context.temp_allocator)
 
     for mesh in gltf_data.meshes {
         for &primitive, i in mesh.primitives {
@@ -2340,7 +2347,7 @@ load_gltf_static_model :: proc(
             index_data := load_gltf_indices_u16(&primitive)
 
             // Get vertex data
-            position_data: [dynamic]half4
+            position_data: [dynamic]hlsl.half4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
 
@@ -2605,7 +2612,7 @@ load_gltf_skinned_model :: proc(
     draw_primitives := make([dynamic]SkinnedDrawPrimitive, primitive_count, allocator)
 
     // Used for constructing bounding sphere
-    all_mesh_vertices := make([dynamic]half4, context.temp_allocator)
+    all_mesh_vertices := make([dynamic]hlsl.half4, context.temp_allocator)
 
     for mesh in gltf_data.meshes {
         for &primitive, i in mesh.primitives {
@@ -2613,7 +2620,7 @@ load_gltf_skinned_model :: proc(
             index_data := load_gltf_indices_u16(&primitive)
 
             // Get vertex data
-            position_data: [dynamic]half4
+            position_data: [dynamic]hlsl.half4
             color_data: [dynamic]hlsl.float4
             uv_data: [dynamic]hlsl.float2
             joint_ids: [dynamic]hlsl.uint4

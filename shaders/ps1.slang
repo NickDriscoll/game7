@@ -238,7 +238,6 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
 
     // Trying rt reflections
     float3 reflection_cont = {};
-
 #if defined(HardwareRT)
     if ((u_data.flags & UniformFlag.Reflections) != 0) {
         float3 ray_dir = normalize(reflect(-view_dir, face_normal));
@@ -260,14 +259,15 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         query.Proceed();
 
         if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
-            uint id = query.CommittedRayInstanceId();
+            uint id = query.CommittedRayInstanceCustomIndex();
             InstanceData i = u_data.i_data[id];
+            StaticMeshData mesh = u_data.mesh_data[i.mesh_idx];
             MaterialData mat = u_data.mat_data[i.material_idx];
 
 
             float2 uv = query.CandidateRayBarycentrics();
             float w = 1.0 - uv.x - uv.y;
-            // reflection_cont = float3(uv.x, uv.y, w);
+            //reflection_cont = float3(uv.x, uv.y, w);
             reflection_cont = textures[mat.color_texture].Sample(samplers[sampler_idx], uv).rgb;
             //reflection_cont = id_to_color(id);
         } else {
@@ -291,7 +291,8 @@ float4 fragment_main(VertexOutput input, uint primitive_id : SV_PrimitiveID) {
         return float4(specular_contribution, 1.0);
     }
 
-    float3 final_color = (glow + reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
+    float3 final_color = (reflection_cont + specular_contribution + diffuse_contribution + ambient_contribution) * material_albedo;
+    final_color = lerp(final_color, glow, 0.6);
 
     if ((inst.flags & InstanceFlags.Highlighted) != 0) {
         float fac = smoothstep(0.3, 1.0, 1.0 - dot(face_normal, view_dir));

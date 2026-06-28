@@ -94,8 +94,8 @@ load_gltf_float3_to_float4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.fl
     return data
 }
 
-load_gltf_float3_to_half4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]half4 {
-    data := make([dynamic]half4, attrib.data.count, context.temp_allocator)
+load_gltf_float3_to_half4 :: proc(attrib: ^cgltf.attribute) -> [dynamic]hlsl.half4 {
+    data := make([dynamic]hlsl.half4, attrib.data.count, context.temp_allocator)
     ptr := get_accessor_ptr(attrib.data, hlsl.float3)
 
     // Build up buffer, appending a 1.0 to turn each float3 into a float4
