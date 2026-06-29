@@ -3,6 +3,7 @@ package main
 import "core:net"
 import "core:log"
 import "core:math/linalg/hlsl"
+import "core:os"
 import "core:strings"
 import enet "vendor:ENet"
 import imgui "odin-imgui"
@@ -14,20 +15,29 @@ BROADCAST_PORT :: 64209
 SERVER_PORT :: 42690
 MAX_SERVER_PEERS :: 4       // Four players can connect to server
 
+BroadcastClientPacket :: struct {
+    
+}
+
 BroadcastResponse :: struct {
     my_ip: u32      // Big-endian (network order)
 }
 
 Network :: struct {
+    // Buffers for imgui.InputText cstrings
     server_ip: [256]u8,
     username: [256]u8,
+
     broadcast_listener: enet.Socket,
     broadcast_sender: enet.Socket,
     listen_address: enet.Address,
+
     server: ^enet.Host,
     server_peer: ^enet.Peer,
+
     client: ^enet.Host,
     client_peer: ^enet.Peer,
+
     remote_player: EntityID,
     my_ip: net.IP4_Address,
 }
@@ -60,6 +70,7 @@ network_init :: proc() -> Network {
     errcode = enet.socket_bind(network.broadcast_listener, &network.listen_address)
     assert(errcode == 0)
 
+    // Socket used for advertising server address
     network.broadcast_sender = enet.socket_create(.DATAGRAM)
     enet.socket_set_option(network.broadcast_sender, .BROADCAST, 1)
 
@@ -73,6 +84,10 @@ network_init :: proc() -> Network {
     }
 
     return network
+}
+
+enumerate_network_interfaces :: proc(allocator := context.allocator) {
+    
 }
 
 NetworkVerb :: enum {
@@ -99,7 +114,6 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                 case .CONNECT: {
                     network.server_peer = event.peer
                     log.infof("Server got connection from connect id %v", event.peer.connectID)
-                    //event.peer.
                     //network.remote_player = gamestate_next_id(game_state)
 
                     log.infof("Peer address %v",  to_net_addr(event.peer.address))
@@ -110,25 +124,27 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                     log.info("Disconnect event")
                 }
                 case .RECEIVE: {
+                    defer enet.packet_destroy(event.packet)
                     addr := event.peer.address
                     net_addr := to_net_addr(addr)
 
-                    //log.infof("Received packet I think from %v", net_addr)
+                    log.infof("Received packet from %v", net_addr)
                 }
             }
         }
 
         // Send player position to clients
         if network.server_peer != nil {
-            tfrom, ok := game_state.transforms[game_state.player_id]
-            assert(ok)
-            //arb : u32 = 0xAABBCCDD
-            packet := enet.packet_create(&tfrom.position, size_of(tfrom.position), {})
-            errcode := enet.peer_send(network.server_peer, 0, packet)
-            assert(errcode == 0)
-            //enet.peer_ping()
+            for player_id in game_state.local_players {
+                tfrom, ok := game_state.transforms[player_id]
+                assert(ok)
+                packet := enet.packet_create(&tfrom.position, size_of(tfrom.position), {})
+                errcode := enet.peer_send(network.server_peer, 0, packet)
+                assert(errcode == 0)
+            }
         }
     }
+
     if network.client != nil {
         for enet.host_service(network.client, &event, 0) > 0 {
             switch event.type {
@@ -185,67 +201,70 @@ connect_client :: proc {
     connect_client_net,
 }
 
-network_gui :: proc(network: ^Network) {
-    server_ip_string: string
-    {
-        cs : cstring = strings.unsafe_string_to_cstring(string(network.server_ip[:]))
-        server_ip_string = string(cs)
-        imgui.InputText("Enter IP to connect to", cs, len(network.server_ip))
-    }
-    name_string: string
-    {
-        cs : cstring = strings.unsafe_string_to_cstring(string(network.username[:]))
-        name_string = string(cs)
-        imgui.InputText("Enter username", cs, len(network.username))
-    }
-
-    imgui.BeginDisabled(network.client_peer != nil || len(server_ip_string) == 0)
-    if imgui.Button("Connect to remote game") {
-        remote_addr, ok := net.parse_endpoint(server_ip_string)
-        assert(ok)
-
-        connect_client(network, remote_addr.address)
-    }
-    imgui.EndDisabled()
-
-    imgui.BeginDisabled(len(name_string) == 0)
-    if imgui.Button("Broadcast discovery packet") {
-        addr := enet.Address {
-            host = enet.HOST_BROADCAST,
-            port = BROADCAST_PORT,
+network_gui :: proc(network: ^Network, p_open: ^bool) {
+    defer imgui.End()
+    if imgui.Begin("Network", p_open) {
+        server_ip_string: string
+        {
+            cs : cstring = strings.unsafe_string_to_cstring(string(network.server_ip[:]))
+            server_ip_string = string(cs)
+            imgui.InputText("Enter IP to connect to", cs, len(network.server_ip))
         }
+        name_string: string
+        {
+            cs : cstring = strings.unsafe_string_to_cstring(string(network.username[:]))
+            name_string = string(cs)
+            imgui.InputText("Enter username", cs, len(network.username))
+        }
+    
+        imgui.BeginDisabled(network.client_peer != nil || len(server_ip_string) == 0)
+        if imgui.Button("Connect to remote game") {
+            remote_addr, ok := net.parse_endpoint(server_ip_string)
+            assert(ok)
+    
+            connect_client(network, remote_addr.address)
+        }
+        imgui.EndDisabled()
+    
+        imgui.BeginDisabled(len(name_string) == 0)
+        if imgui.Button("Broadcast discovery packet") {
+            addr := enet.Address {
+                host = enet.HOST_BROADCAST,
+                port = BROADCAST_PORT,
+            }
+            b := enet.Buffer {
+                data = raw_data(name_string),
+                dataLength = len(name_string)
+            }
+    
+            errcode := enet.socket_connect(network.broadcast_sender, &addr)
+            assert(errcode == 0)
+            bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b, 1)
+            assert(uint(bytes_sent) == b.dataLength)
+        }
+        imgui.EndDisabled()
+    
+        @static response := false
+        if response {
+            imgui.Text("Response received!")
+        } else {
+            imgui.Text("No response yet...")
+        }
+    
+        recvbuf: [256]u8
         b := enet.Buffer {
-            data = raw_data(name_string),
-            dataLength = len(name_string)
+            data = &recvbuf,
+            dataLength = len(recvbuf)
         }
-
-        errcode := enet.socket_connect(network.broadcast_sender, &addr)
-        assert(errcode == 0)
-        bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b, 1)
-        assert(uint(bytes_sent) == b.dataLength)
-    }
-    imgui.EndDisabled()
-
-    @static response := false
-    if response {
-        imgui.Text("Response received!")
-    } else {
-        imgui.Text("No response yet...")
-    }
-
-    recvbuf: [256]u8
-    b := enet.Buffer {
-        data = &recvbuf,
-        dataLength = len(recvbuf)
-    }
-    bytes_received := enet.socket_receive(network.broadcast_listener, &network.listen_address, &b, 1)
-    if bytes_received == 4 {
-        ip := (cast(^u32)&recvbuf[0])^
-        log.infof("IP received: %v.%v.%v.%v", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF)
-    } else if bytes_received > 0 {
-        response = true
-        recv_username := string(recvbuf[:bytes_received])
-        log.infof("Received username: \"%v\"", recv_username)
+        bytes_received := enet.socket_receive(network.broadcast_listener, &network.listen_address, &b, 1)
+        if bytes_received == 4 {
+            ip := (cast(^u32)&recvbuf[0])^
+            log.infof("IP received: %v.%v.%v.%v", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF)
+        } else if bytes_received > 0 {
+            response = true
+            recv_username := string(recvbuf[:bytes_received])
+            log.infof("Received username: \"%v\"", recv_username)
+        }
     }
 }
 
