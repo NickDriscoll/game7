@@ -77,7 +77,7 @@ CONFIG_KEY_STRINGS : [ConfigKey]string : {
 	.WindowY = "window_y",
     .WindowConfig = "window_config",
     .CameraFOV = "camera_fov",
-    .StartLevel = "start_level"
+    .StartLevel = "start_level",
 }
 
 UserConfiguration :: struct {
@@ -241,7 +241,7 @@ load_user_config :: proc(filename: string, allocator := context.allocator) -> (U
             else if val_tok == "false" {
                 u.flags[key.?] = false
             }
-            else if strings.contains(val_tok, ".") {
+            else if strings.count(val_tok, ".") == 1 {
                 i : f64 = -1 if negative_number else 1
                 f, ok := strconv.parse_f64(val_tok)
                 u.floats[key.?] = i * f

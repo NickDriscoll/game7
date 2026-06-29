@@ -371,7 +371,7 @@ app_startup :: proc(app: ^App) -> bool {
     }
 
     // Init network subsystem
-    app.network = network_init()
+    app.network = network_init(app.user_config)
 
     app.coin_paint_radius = 1.0
     app.coin_z_offset = 1.0

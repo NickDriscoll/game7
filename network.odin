@@ -1,5 +1,8 @@
 package main
 
+import "core:c"
+import "core:c/libc"
+import "core:mem"
 import "core:net"
 import "core:log"
 import "core:math/linalg/hlsl"
@@ -16,11 +19,16 @@ SERVER_PORT :: 42690
 MAX_SERVER_PEERS :: 4       // Four players can connect to server
 
 BroadcastClientPacket :: struct {
-    
+    ip: u32,
 }
 
 BroadcastResponse :: struct {
     my_ip: u32      // Big-endian (network order)
+}
+
+ClientUpdatePacket :: struct {
+    position: [3]f32,
+    local_player_id: u8,
 }
 
 Network :: struct {
@@ -38,12 +46,13 @@ Network :: struct {
     client: ^enet.Host,
     client_peer: ^enet.Peer,
 
-    remote_player: EntityID,
+    remote_players: [dynamic]EntityID,
     my_ip: net.IP4_Address,
 }
 
-network_init :: proc() -> Network {
+network_init :: proc(user_config: UserConfiguration, allocator := context.allocator) -> Network {
     network: Network
+    network.remote_players = make([dynamic]EntityID, 0, 16, allocator)
 
     errcode := enet.initialize()
     assert(errcode == 0)
@@ -86,10 +95,6 @@ network_init :: proc() -> Network {
     return network
 }
 
-enumerate_network_interfaces :: proc(allocator := context.allocator) {
-    
-}
-
 NetworkVerb :: enum {
     PlayerUpdate,
     PlayerAdded,
@@ -114,7 +119,17 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                 case .CONNECT: {
                     network.server_peer = event.peer
                     log.infof("Server got connection from connect id %v", event.peer.connectID)
-                    //network.remote_player = gamestate_next_id(game_state)
+                    id := gamestate_next_id(game_state)
+                    append(&network.remote_players, id)
+                    game_state.transforms[id] = Transform {
+                        scale = 1.0
+                    }
+                    game_state.skinned_models[id] = SkinnedModelInstance {
+                        handle = game_state.player_mesh,
+                        pos_offset = {0.0, 0.0, -0.6},
+                        flags = {}
+                    }
+                    append(&network.remote_players, id)
 
                     log.infof("Peer address %v",  to_net_addr(event.peer.address))
                     //connect_client(network, event.peer.address)
@@ -135,9 +150,14 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
 
         // Send player position to clients
         if network.server_peer != nil {
-            for player_id in game_state.local_players {
+            for player_id, idx in game_state.local_players {
                 tfrom, ok := game_state.transforms[player_id]
                 assert(ok)
+                assert(idx < 256)
+                packet_data := ClientUpdatePacket {
+                    local_player_id = u8(idx),
+                    position = tfrom.position
+                }
                 packet := enet.packet_create(&tfrom.position, size_of(tfrom.position), {})
                 errcode := enet.peer_send(network.server_peer, 0, packet)
                 assert(errcode == 0)
@@ -164,10 +184,14 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
                     con_id := event.peer.connectID
 
                     assert(event.packet.dataLength == size_of(hlsl.float3))
-                    pos_received := (cast(^float3)event.packet.data)^
-                    output.float3_update[.PlayerUpdate] = pos_received
+                    cpacket := cast(^ClientUpdatePacket)event.packet.data
+                    //output.float3_update[.PlayerUpdate] = cpacket.position
+                    if len(network.remote_players) < int(cpacket.local_player_id) {
+                        tform, ok := game_state.transforms[network.remote_players[cpacket.local_player_id]]
+                        tform.position = cpacket.position
+                    }
 
-                    log.infof("Packet value received: 0x%X", pos_received)
+                    //log.infof("Packet value received: %v", cpacket.position)
                 }
             }
         }
@@ -208,7 +232,7 @@ network_gui :: proc(network: ^Network, p_open: ^bool) {
         {
             cs : cstring = strings.unsafe_string_to_cstring(string(network.server_ip[:]))
             server_ip_string = string(cs)
-            imgui.InputText("Enter IP to connect to", cs, len(network.server_ip))
+            imgui.InputText("Enter remote IP", cs, len(network.server_ip))
         }
         name_string: string
         {
@@ -257,10 +281,7 @@ network_gui :: proc(network: ^Network, p_open: ^bool) {
             dataLength = len(recvbuf)
         }
         bytes_received := enet.socket_receive(network.broadcast_listener, &network.listen_address, &b, 1)
-        if bytes_received == 4 {
-            ip := (cast(^u32)&recvbuf[0])^
-            log.infof("IP received: %v.%v.%v.%v", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF, (ip >> 24) & 0xFF)
-        } else if bytes_received > 0 {
+        if bytes_received > 0 {
             response = true
             recv_username := string(recvbuf[:bytes_received])
             log.infof("Received username: \"%v\"", recv_username)
