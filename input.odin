@@ -479,6 +479,8 @@ poll_system_events :: proc(
 
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiGamepadButton(button), true)
+
                 {
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
@@ -537,8 +539,10 @@ poll_system_events :: proc(
                     }
                 }
                 assert(controller_idx > -1)
+
+                button := sdl2.GameControllerButton(event.cbutton.button)
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiGamepadButton(button), false)
                 {
-                    button := sdl2.GameControllerButton(event.cbutton.button)
                     button_mappings := state.button_mappings[controller_idx]
                     // Mappings can be nil
                     if button_mappings == nil {

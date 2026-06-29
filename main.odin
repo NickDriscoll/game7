@@ -183,6 +183,9 @@ main :: proc() {
         // Run general scene editor window
         scene_editor(&app)
 
+        gui_pause_menu(app.gui)
+        log.infof("NavVisible? %v", io.NavVisible)
+
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
             style := imgui.GetStyle()
             style.FontScaleMain -= 0.2
