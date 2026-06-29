@@ -93,6 +93,7 @@ app_startup :: proc(app: ^App) -> bool {
     // Parse command-line arguments
     log_level := log.Level.Info
     profile_name := "game7.spall"
+    logfile: Maybe(string)
     want_rt := true
     {
         context.logger = log.create_console_logger(log_level)
@@ -122,6 +123,13 @@ app_startup :: proc(app: ^App) -> bool {
                     profile_name = os.args[i + 1]
                     i += 1
                 }
+            } else if arg == "--logfile" || arg == "-lf" {
+                if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
+                    filepath := os.args[i + 1]
+                    logfile = filepath
+                } else {
+                    logfile = "game7.log"
+                }
             } else if arg == "-nort" {
                 want_rt = false
             } else {
@@ -147,13 +155,25 @@ app_startup :: proc(app: ^App) -> bool {
     scoped_event(&profiler, "App startup")
 
     // Set up logger
-    app.logger = log.create_console_logger(log_level)
+    logfile_path, do_file_logging := logfile.?
+    if do_file_logging {
+        f, err := os.open(logfile_path, {.Write,.Create})
+        if err != nil {
+            log.errorf("Error opening logfile: %v", err)
+        }
+        assert(err == nil)
+        app.logger = log.create_file_logger(f, log_level)
+
+        // Log a message with the unconditional console logger
+        log.infof("Log messages with be written to %v", logfile_path)
+    } else {
+        app.logger = log.create_console_logger(log_level)
+    }
     context.logger = app.logger
 
     scoped_event(&profiler, "App initialization")
 
     log.info("Initiating swag mode...")
-
 
     // Set up per-scene allocator
     {
