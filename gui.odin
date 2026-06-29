@@ -290,7 +290,6 @@ gui_main_menu_bar :: proc(
                 camera := &app.game_state.cameras[app.game_state.viewport_cameras[0]]
                 following := app.game_state.viewport_cameras[0] in app.game_state.lookat_controllers
                 update_user_cfg_camera(&app.user_config, tform.position, following, camera^)
-
                 save_user_config(&app.user_config, USER_CONFIG_FILENAME)
                 log.info("Saved user config.")
             }
