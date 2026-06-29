@@ -657,11 +657,8 @@ new_local_player_character :: proc(game_state: ^GameState, renderer: ^Renderer, 
     cam_id := new_viewport_camera(game_state, id, user_config)
     append(&game_state.viewport_cameras, cam_id)
 
-    // Load animated test glTF model
-    path : cstring = "data/models/CesiumMan.glb"
-    skinned_model := load_gltf_skinned_model(renderer, path, allocator)
     game_state.skinned_models[id] = SkinnedModelInstance {
-        handle = skinned_model,
+        handle = game_state.player_mesh,
         pos_offset = {0.0, 0.0, -0.6},
         flags = {}
     }
@@ -1263,6 +1260,8 @@ GameState :: struct {
     // Icosphere mesh for visualizing spherical collision and points
     sphere_mesh: StaticModelHandle,
 
+    player_mesh: SkinnedModelHandle,
+
     coin_mesh: StaticModelHandle,
     collectable_radius: f32,
 
@@ -1474,6 +1473,16 @@ gamestate_new_scene :: proc(
     {
         player_id := new_local_player_character(game_state, renderer, user_config^, scene_allocator)
         append(&game_state.local_players, player_id)
+        {
+            path : cstring = "data/models/CesiumMan.glb"
+            game_state.player_mesh = load_gltf_skinned_model(renderer, path, scene_allocator)
+            game_state.skinned_models[player_id] = SkinnedModelInstance {
+                handle = game_state.player_mesh,
+                pos_offset = {0.0, 0.0, -0.6},
+                flags = {}
+            }
+        }
+
     }
 
     game_state.freecam_speed_multiplier = 5.0
