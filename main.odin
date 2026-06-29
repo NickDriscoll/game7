@@ -522,7 +522,7 @@ main :: proc() {
         }
 
         if app.gui.show_gui && app.user_config.flags[.NetworkConfig] {
-            network_gui(&app.network)
+            network_gui(&app.network, &app.user_config.flags[.NetworkConfig])
         }
 
         // Memory viewer
