@@ -39,6 +39,7 @@ ImguiState :: struct {
     pipeline: vkw.Pipeline_Handle,
     show_gui: bool,
     dockspace_id: u32,
+    dockspace_viewport: ^imgui.Viewport,
 }
 
 imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
@@ -50,8 +51,8 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
     io := imgui.GetIO()
     io.DisplaySize.x = f32(resolution.x)
     io.DisplaySize.y = f32(resolution.y)
-    io.ConfigFlags += {.DockingEnable}
-    io.BackendFlags += {.RendererHasTextures}
+    io.ConfigFlags += {.DockingEnable,.NavEnableGamepad}
+    io.BackendFlags += {.RendererHasTextures,.HasGamepad}
     io.ConfigDpiScaleFonts = true
 
     // Create font atlas
@@ -154,18 +155,19 @@ begin_gui :: proc(state: ^ImguiState) {
             .NoMove,
             .NoResize,
             .NoBackground,
-            .NoMouseInputs
+            .NoMouseInputs,
+            .NoNavInputs
         }
-        window_viewport := imgui.GetWindowViewport()
-        imgui.SetNextWindowPos(window_viewport.WorkPos)
-        imgui.SetNextWindowSize(window_viewport.WorkSize)
+        state.dockspace_viewport = imgui.GetWindowViewport()
+        imgui.SetNextWindowPos(state.dockspace_viewport.WorkPos)
+        imgui.SetNextWindowSize(state.dockspace_viewport.WorkSize)
         if imgui.Begin("Main dock window", flags = dock_window_flags) {
             state.dockspace_id = imgui.GetID("Main dockspace")
             flags := imgui.DockNodeFlags {
                 .NoDockingOverCentralNode,
                 .PassthruCentralNode,
             }
-            imgui.DockSpaceOverViewport(state.dockspace_id, window_viewport, flags = flags)
+            imgui.DockSpaceOverViewport(state.dockspace_id, state.dockspace_viewport, flags = flags)
         }
         imgui.End()
     }
@@ -300,6 +302,26 @@ gui_main_menu_bar :: proc(
     }
 
     return retval
+}
+
+gui_pause_menu :: proc(gui: ImguiState) {
+    defer imgui.End()
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoBackground}
+    if imgui.Begin("Pause menu", nil, {}) {
+        vp := gui.dockspace_viewport
+        pos := vp.Pos
+        size := vp.Size
+        window_size := imgui.GetWindowSize()
+        new_pos := [2]f32 {
+            size.x / 2.0 - window_size.x / 2.0,
+            size.y / 2.0 - window_size.y / 2.0
+        }
+        imgui.SetWindowPos(new_pos)
+        imgui.Button("Problem?")
+        imgui.Button("Item one")
+        imgui.Button("Item two")
+        imgui.Button("Item three")
+    }
 }
 
 gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
@@ -850,6 +872,29 @@ SDL2ToImGuiKey :: proc(keycode: sdl2.Scancode) -> imgui.Key {
         case: {assert(false, "Unhandled key.")}
     }
     return imgui.Key.None
+}
+
+SDL2ToImGuiGamepadButton :: proc(button: sdl2.GameControllerButton) -> imgui.Key {
+    #partial switch button {
+        case .A: return .GamepadFaceDown
+        case .B: return .GamepadFaceRight
+        case .X: return .GamepadFaceLeft
+        case .Y: return .GamepadFaceUp
+        case .DPAD_LEFT: return .GamepadDpadLeft
+        case .DPAD_RIGHT: return .GamepadDpadRight
+        case .DPAD_DOWN: return .GamepadDpadDown
+        case .DPAD_UP: return .GamepadDpadUp
+        case .LEFTSHOULDER: return .GamepadL1
+        case .RIGHTSHOULDER: return .GamepadR1
+        case .LEFTSTICK: return .GamepadL3
+        case .RIGHTSTICK: return .GamepadR3
+        case .BACK: return .GamepadBack
+        case .START: return .GamepadStart
+        //case .TOUCHPAD: return .Gamepad
+        //case .GUIDE: return .game
+    }
+    assert(false, "Unsupported button")
+    return .None
 }
 
 SDL2ToImGuiMouseButton :: proc(button: u8) -> i32 {
