@@ -466,6 +466,14 @@ poll_system_events :: proc(
                 log.infof("Controller %v removed.", controller_idx)
             }
             case .CONTROLLERBUTTONDOWN: {
+
+                button := sdl2.GameControllerButton(event.cbutton.button)
+
+                imgui.IO_AddKeyEvent(io, SDL2ToImGuiGamepadButton(button), true)
+                if io.NavVisible {
+                    continue
+                }
+
                 controller_instance := event.cbutton.which
                 controller := sdl2.GameControllerFromInstanceID(controller_instance)
                 controller_idx: int = -1
@@ -476,10 +484,6 @@ poll_system_events :: proc(
                     }
                 }
                 assert(controller_idx > -1)
-
-                button := sdl2.GameControllerButton(event.cbutton.button)
-
-                imgui.IO_AddKeyEvent(io, SDL2ToImGuiGamepadButton(button), true)
 
                 {
                     button_mappings := state.button_mappings[controller_idx]
@@ -581,8 +585,12 @@ poll_system_events :: proc(
     }
 
     // Poll controller axes and emit appropriate verbs
-    sticks := []ControllerStickAxis {.Left,.Right}
+    sticks := [?]ControllerStickAxis {.Left,.Right}
     for stick_mappings, recipient in state.stick_mappings {
+        if io.NavVisible {
+            break
+        }
+
         for stick in sticks {
             verbtype, found := stick_mappings[stick]
             if found {
@@ -606,6 +614,9 @@ poll_system_events :: proc(
     }
 
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
+        if io.NavVisible {
+            break
+        }
         ax := sdl2.GameControllerAxis(i)
         for axis_mappings, recipient in state.axis_mappings {
             verbtype, found := axis_mappings[ax]
