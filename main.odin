@@ -112,7 +112,7 @@ main :: proc() {
         // Quit if user wants it
         do_main_loop = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
 
-        network_output := poll_network(&app.network, &app.game_state, app.per_frame_allocator)
+        network_output := poll_network(&app, app.per_frame_allocator)
 
         if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
             do_main_loop = false

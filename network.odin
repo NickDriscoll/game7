@@ -1,7 +1,9 @@
 package main
 
+import "core:bytes"
 import "core:c"
 import "core:c/libc"
+import "core:fmt"
 import "core:mem"
 import "core:net"
 import "core:log"
@@ -18,12 +20,20 @@ BROADCAST_PORT :: 64209
 SERVER_PORT :: 42690
 MAX_SERVER_PEERS :: 4       // Four players can connect to server
 
-BroadcastClientPacket :: struct {
-    ip: u32,
+BroadcastMeaning :: enum u8 {
+    ClientQuery,
+    ServerResponse,
 }
 
-BroadcastResponse :: struct {
-    my_ip: u32      // Big-endian (network order)
+BroadcastPacket :: struct {
+    meaning: BroadcastMeaning,
+    payload: string,
+}
+serialize_broadcast_packet :: proc(p: BroadcastPacket, allocator := context.temp_allocator) -> [dynamic]byte {
+    bytes := make([dynamic]byte, 1 + len(p.payload), allocator)
+    bytes[0] = byte(p.meaning)
+    mem.copy_non_overlapping(&bytes[1], raw_data(p.payload), len(p.payload))
+    return bytes
 }
 
 ClientUpdatePacket :: struct {
@@ -106,13 +116,56 @@ NetworkOutput :: struct {
 }
 
 // Once-per-frame servicing of ENet hosts
-poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := context.temp_allocator) -> NetworkOutput {
+poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkOutput {
     output: NetworkOutput
     output.bool_update = make(map[NetworkVerb]bool, 16, allocator)
     output.float3_update = make(map[NetworkVerb]hlsl.float3, 16, allocator)
 
+    network := &app.network
+    game_state := &app.game_state
+
     event: enet.Event
     if network.server != nil {
+        // Receive broadcast packet
+        {
+            recvbuf: [256]u8
+            b := enet.Buffer {
+                data = &recvbuf,
+                dataLength = len(recvbuf)
+            }
+            retaddr: enet.Address
+            bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
+            if bytes_received > 0 {
+                meaning := BroadcastMeaning(recvbuf[0])
+                payload := string(recvbuf[1:bytes_received])
+                if meaning == .ClientQuery {
+                    recv_username := payload
+                    log.infof("Received username: \"%v\" from address %v", recv_username, address_string(retaddr))
+    
+                    // Send response packet
+                    addr := enet.Address {
+                        host = enet.HOST_BROADCAST,
+                        port = BROADCAST_PORT,
+                    }
+                    p := BroadcastPacket {
+                        meaning = .ServerResponse,
+                        payload = app.current_level
+                    }
+                    bytes := serialize_broadcast_packet(p)
+                    b2 := enet.Buffer {
+                        data = raw_data(bytes),
+                        dataLength = len(bytes)
+                    }
+            
+                    errcode := enet.socket_connect(network.broadcast_sender, &addr)
+                    assert(errcode == 0)
+                    bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b2, 1)
+                    assert(uint(bytes_sent) == b2.dataLength)
+                }
+            }
+        }
+
+        // Service host events
         for enet.host_service(network.server, &event, 0) > 0 {
             switch event.type {
                 case .NONE: { assert(false, "Should be unreachable") }
@@ -197,6 +250,24 @@ poll_network :: proc(network: ^Network, game_state: ^GameState, allocator := con
         }
     }
 
+    // Receive broadcast packet
+    {
+        recvbuf: [256]u8
+        b := enet.Buffer {
+            data = &recvbuf,
+            dataLength = len(recvbuf)
+        }
+        retaddr: enet.Address
+        bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
+        if bytes_received > 0 {
+            meaning := BroadcastMeaning(recvbuf[0])
+            if meaning == .ServerResponse {
+                resp := string(recvbuf[1:bytes_received])
+                log.infof("Game7 server at %v said \"%v\"", address_string(retaddr), resp)
+            }
+        }
+    }
+
     return output
 }
 
@@ -225,7 +296,7 @@ connect_client :: proc {
     connect_client_net,
 }
 
-network_gui :: proc(network: ^Network, p_open: ^bool) {
+network_gui :: proc(network: ^Network, p_open: ^bool, allocator := context.temp_allocator) {
     defer imgui.End()
     if imgui.Begin("Network", p_open) {
         server_ip_string: string
@@ -256,9 +327,14 @@ network_gui :: proc(network: ^Network, p_open: ^bool) {
                 host = enet.HOST_BROADCAST,
                 port = BROADCAST_PORT,
             }
+            packet := BroadcastPacket {
+                meaning = .ClientQuery,
+                payload = name_string,
+            }
+            bytes := serialize_broadcast_packet(packet)
             b := enet.Buffer {
-                data = raw_data(name_string),
-                dataLength = len(name_string)
+                data = raw_data(bytes),
+                dataLength = len(bytes)
             }
     
             errcode := enet.socket_connect(network.broadcast_sender, &addr)
@@ -267,25 +343,6 @@ network_gui :: proc(network: ^Network, p_open: ^bool) {
             assert(uint(bytes_sent) == b.dataLength)
         }
         imgui.EndDisabled()
-    
-        @static response := false
-        if response {
-            imgui.Text("Response received!")
-        } else {
-            imgui.Text("No response yet...")
-        }
-    
-        recvbuf: [256]u8
-        b := enet.Buffer {
-            data = &recvbuf,
-            dataLength = len(recvbuf)
-        }
-        bytes_received := enet.socket_receive(network.broadcast_listener, &network.listen_address, &b, 1)
-        if bytes_received > 0 {
-            response = true
-            recv_username := string(recvbuf[:bytes_received])
-            log.infof("Received username: \"%v\"", recv_username)
-        }
     }
 }
 
@@ -304,4 +361,12 @@ to_net_addr :: proc(addr: enet.Address) -> net.Address {
         u8(addr.host >> 16) & 0xFF,
         u8(addr.host >> 24) & 0xFF
     }
+}
+
+address_string :: proc(addr: enet.Address, allocator := context.temp_allocator) -> string {
+    host := addr.host
+    sb: strings.Builder
+    strings.builder_init(&sb, allocator)
+    addr_str := fmt.sbprintf(&sb, "%v.%v.%v.%v", host & 0xFF, host >> 8 & 0xFF, host >> 16 & 0xFF, host >> 24 & 0xFF)
+    return addr_str
 }
