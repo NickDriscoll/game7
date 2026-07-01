@@ -40,6 +40,7 @@ ImguiState :: struct {
     show_gui: bool,
     dockspace_id: u32,
     dockspace_viewport: ^imgui.Viewport,
+    user_facing_font: ^imgui.Font,
 }
 
 imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
@@ -61,6 +62,7 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
 
     // Create font atlas
     default_font := imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
+    imgui_state.user_facing_font = imgui.FontAtlas_AddFontFromFileTTF(io.Fonts, "data/fonts/carmina.ttf")
     style := imgui.GetStyle()
     style.FontSizeBase = 16
 
@@ -317,10 +319,39 @@ gui_main_menu_bar :: proc(
     return retval
 }
 
+gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
+    style := imgui.GetStyle()
+    size := imgui.CalcTextSize(label).x + style.FramePadding * 2.0
+    avail := imgui.GetContentRegionAvail().x
+    offset := (avail - size) * alignment
+    // if offset > 0.0 {
+    cursor_pos := imgui.GetCursorPos()
+    pos := cursor_pos.x + offset
+    imgui.SetCursorPos({pos.x, cursor_pos.y})
+    // }
+
+    return imgui.Button(label)
+
+    // bool ButtonCenteredOnLine(const char* label, float alignment = 0.5f)
+    // {
+    //     ImGuiStyle& style = ImGui::GetStyle();
+
+    //     float size = ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
+    //     float avail = ImGui::GetContentRegionAvail().x;
+
+    //     float off = (avail - size) * alignment;
+    //     if (off > 0.0f)
+    //         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
+
+    //     return ImGui::Button(label);
+    // }
+}
+
 gui_pause_menu :: proc(gui: ImguiState) {
     defer imgui.End()
     flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoBackground}
     if imgui.Begin("Pause menu", nil, {}) {
+        imgui.PushFontFloat(gui.user_facing_font, 32.0)
         vp := gui.dockspace_viewport
         pos := vp.Pos
         size := vp.Size
@@ -330,10 +361,13 @@ gui_pause_menu :: proc(gui: ImguiState) {
             size.y / 2.0 - window_size.y / 2.0
         }
         imgui.SetWindowPos(new_pos)
-        imgui.Button("Problem?")
+
+        //imgui.CalcItemWidth()
+        gui_centered_button("Problem?")
         imgui.Button("Item one")
         imgui.Button("Item two")
         imgui.Button("Item three")
+        imgui.PopFont()
     }
 }
 
