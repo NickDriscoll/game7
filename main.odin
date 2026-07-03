@@ -227,7 +227,7 @@ main :: proc() {
                     sb: strings.Builder
                     strings.builder_init(&sb, context.temp_allocator)
                     defer strings.builder_destroy(&sb)
-                    fmt.sbprintf(&sb, "Player %v", idx)
+                    fmt.sbprintf(&sb, "Player %v", idx + 1)
                     cs, err := strings.to_cstring(&sb)
                     assert(err == nil)
                     strings.builder_reset(&sb)

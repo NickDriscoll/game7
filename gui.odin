@@ -324,34 +324,24 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     size := imgui.CalcTextSize(label).x + style.FramePadding * 2.0
     avail := imgui.GetContentRegionAvail().x
     offset := (avail - size) * alignment
-    // if offset > 0.0 {
     cursor_pos := imgui.GetCursorPos()
     pos := cursor_pos.x + offset
     imgui.SetCursorPos({pos.x, cursor_pos.y})
-    // }
 
     return imgui.Button(label)
-
-    // bool ButtonCenteredOnLine(const char* label, float alignment = 0.5f)
-    // {
-    //     ImGuiStyle& style = ImGui::GetStyle();
-
-    //     float size = ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
-    //     float avail = ImGui::GetContentRegionAvail().x;
-
-    //     float off = (avail - size) * alignment;
-    //     if (off > 0.0f)
-    //         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
-
-    //     return ImGui::Button(label);
-    // }
 }
 
 gui_pause_menu :: proc(gui: ImguiState) {
     defer imgui.End()
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoBackground}
-    if imgui.Begin("Pause menu", nil, {}) {
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,}//.NoBackground}
+    if imgui.Begin("Pause menu", nil, flags) {
         imgui.PushFontFloat(gui.user_facing_font, 32.0)
+        defer imgui.PopFont()
+        imgui.PushStyleColor(.Button, 0x00000000)
+        imgui.PushStyleColor(.ButtonHovered, 0x00AA00DD)
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+
         vp := gui.dockspace_viewport
         pos := vp.Pos
         size := vp.Size
@@ -364,10 +354,9 @@ gui_pause_menu :: proc(gui: ImguiState) {
 
         //imgui.CalcItemWidth()
         gui_centered_button("Problem?")
-        imgui.Button("Item one")
-        imgui.Button("Item two")
-        imgui.Button("Item three")
-        imgui.PopFont()
+        gui_centered_button("Item one")
+        gui_centered_button("Item two")
+        gui_centered_button("Item three")
     }
 }
 
