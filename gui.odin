@@ -56,7 +56,15 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
 
     // Create font atlas
     default_font := imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
-    imgui.GetStyle().FontSizeBase = 16
+    style := imgui.GetStyle()
+    style.FontSizeBase = 16
+
+    {
+        user_font_scale, ok := user_config.floats[.ImguiFontScaleMain]
+        if ok {
+            style.FontScaleMain = cast(f32)user_font_scale
+        } 
+    } 
 
     // Allocate imgui vertex buffer
     buffer_info := vkw.Buffer_Info {
@@ -216,6 +224,7 @@ gui_main_menu_bar :: proc(
                 update_user_cfg_camera(&app.user_config, tform.position, following, camera^)
 
                 save_user_config(&app.user_config, USER_CONFIG_FILENAME)
+                log.info("Saved user config.")
             }
             if imgui.MenuItem("Exit") {
                 retval = .Exit

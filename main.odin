@@ -184,10 +184,14 @@ main :: proc() {
         scene_editor(&app)
 
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
-            imgui.GetStyle().FontScaleMain -= 0.2
+            style := imgui.GetStyle()
+            style.FontScaleMain -= 0.2
+            app.user_config.floats[.ImguiFontScaleMain] = cast(f64)style.FontScaleMain
         }
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleUp] {
-            imgui.GetStyle().FontScaleMain += 0.2
+            style := imgui.GetStyle()
+            style.FontScaleMain += 0.2
+            app.user_config.floats[.ImguiFontScaleMain] = cast(f64)style.FontScaleMain
         }
 
         // Misc imgui window for testing
