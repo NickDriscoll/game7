@@ -212,6 +212,7 @@ float4 fragment_main(VertexOutput input) {
         );
 
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
+    float4 final_color = target_sample;
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
 
         float2 crt_sample_pos = (framebuffer_resolution * sample_pos.xy);
@@ -219,8 +220,13 @@ float4 fragment_main(VertexOutput input) {
         float3 tri = Tri(pos);
         float3 mask = Mask(crt_sample_pos);
         float3 final = tri * mask;
-        return float4(final.x, final.y, final.z, target_sample.a);
-    } else {
-        return target_sample;
+        final_color = float4(final.x, final.y, final.z, target_sample.a);
     }
+
+    if ((u_data.flags & UniformFlag.BlackAndWhite) != 0) {
+        float avg = (final_color.r + final_color.g + final_color.b) / 3.0;
+        final_color.rgb = avg;
+    }
+
+    return u_data.face_to_black * final_color;
 }

@@ -85,6 +85,7 @@ UniformFlag :: enum u32 {
     VisualizeDirectDiffuse,
     VisualizeDirectSpecular,
     Unlit,
+    BlackAndWhite,
 }
 
 // Manually aligned to 16 bytes
@@ -135,10 +136,10 @@ UniformBuffer :: struct {
     cloud_speed: f32,
     cloud_scale: f32,
 
-
+    fade_to_black: f32, // [0.0,1.0]
 
     // acceleration_structures_ptr: vk.DeviceAddress,
-    // _pad1: [2]f32,
+    _pad1: [3]f32,
 }
 
 Ps1PushConstants :: struct {
@@ -466,6 +467,7 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
+        unis.fade_to_black = 1.0
         unis.flags += {.CRTShader}
     }
 }

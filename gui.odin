@@ -333,10 +333,12 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
 
 gui_pause_menu :: proc(gui: ImguiState) {
     defer imgui.End()
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,}//.NoBackground}
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoBackground}
     if imgui.Begin("Pause menu", nil, flags) {
         imgui.PushFontFloat(gui.user_facing_font, 32.0)
         defer imgui.PopFont()
+        imgui.GetStyle().FontScaleMain *= 3.0
+        defer imgui.GetStyle().FontScaleMain /= 3.0
         imgui.PushStyleColor(.Button, 0x00000000)
         imgui.PushStyleColor(.ButtonHovered, 0x00AA00DD)
         defer imgui.PopStyleColor()
@@ -353,10 +355,16 @@ gui_pause_menu :: proc(gui: ImguiState) {
         imgui.SetWindowPos(new_pos)
 
         //imgui.CalcItemWidth()
-        gui_centered_button("Problem?")
-        gui_centered_button("Item one")
-        gui_centered_button("Item two")
-        gui_centered_button("Item three")
+        buttons_height := imgui.CalcTextSize("Problem?")
+        buttons_height += imgui.CalcTextSize("Item one")
+        buttons_height += imgui.CalcTextSize("Item two")
+        buttons_height += imgui.CalcTextSize("Item three")
+        new_cursor := imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - buttons_height.y / 2.0
+        imgui.SetCursorPos({imgui.GetCursorPos().x, new_cursor})
+        gui_centered_button("Resume")
+        gui_centered_button("Guide")
+        gui_centered_button("Settings")
+        gui_centered_button("Exit")
     }
 }
 

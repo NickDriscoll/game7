@@ -61,6 +61,7 @@ enum UniformFlag {
     VisualizeDirectDiffuse = 0x20,
     VisualizeDirectSpecular = 0x40,
     Unlit = 0x80,
+    BlackAndWhite = 0x0100
 }
 
 struct CameraUniforms {
@@ -109,8 +110,10 @@ struct UniformData {
     float cloud_speed;
     float cloud_scale;
 
+    float face_to_black;
+
     // RaytracingAccelerationStructure.Handle tlas;
-    // float2 _pad1;
+    float3 _pad1;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {

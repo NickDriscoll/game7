@@ -307,6 +307,13 @@ main :: proc() {
                     app.game_state.timescale = 1.0
                 }
 
+                imgui.SliderFloat("Fade to black", &app.renderer.uniforms.fade_to_black, 0.0, 1.0)
+
+                flag := .BlackAndWhite in app.renderer.uniforms.flags
+                if imgui.Checkbox("Black and white", &flag) {
+                    app.renderer.uniforms.flags ~= {.BlackAndWhite}
+                }
+
                 if imgui.Button("Re-encode this level file") {
                     _reencode_level_file(&app, app.current_level, app.per_frame_allocator)
                 }
