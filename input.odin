@@ -91,10 +91,18 @@ VerbRecipient :: enum {
 }
 
 // @TODO: This would be problematic if any of the enum values here are identical
-RemapInput :: struct #raw_union {
-    key: sdl2.Scancode,
-    button: sdl2.GameControllerButton,
-    axis: sdl2.GameControllerAxis,
+// RemapInput :: struct #raw_union {
+//     key: sdl2.Scancode,
+//     button: sdl2.GameControllerButton,
+//     axis: sdl2.GameControllerAxis,
+// }
+RemapInput :: struct {
+    recipient: VerbRecipient,
+    value: union {
+        sdl2.Scancode,
+        sdl2.GameControllerButton,
+        sdl2.GameControllerAxis,
+    },
 }
 
 InputStateFlag :: enum {
@@ -134,7 +142,7 @@ InputSystem :: struct {
 
     mouse_location: [2]i32,
 
-    input_being_remapped: RemapInput,
+    remap_input: RemapInput,
 
     // There are four virtual controller slots
     // When a controller is connected, the first free slot is assigned to it
@@ -285,21 +293,24 @@ poll_system_events :: proc(
 
                     // Handle key remapping here
                     if .CurrentlyRemapping in state.state_flags {
-                        verb, ok := key_mappings[state.input_being_remapped.key]
-                        if ok {
-                            existing_verb, key_exists := key_mappings[sc]
-                            if key_exists {
-                                log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
-                                state.input_being_remapped.key = nil
+                        key, remap_is_key := state.remap_input.value.(sdl2.Scancode)
+                        if remap_is_key && state.remap_input.recipient == VerbRecipient(recipient) {
+                            verb, ok := key_mappings[key]
+                            if ok {
+                                existing_verb, key_exists := key_mappings[sc]
+                                if key_exists {
+                                    log.warnf("Tried to bind key %v that is already bound to %v", sc, existing_verb)
+                                    state.remap_input.value = nil
+                                    state.state_flags -= {.CurrentlyRemapping}
+                                    continue
+                                }
+        
+                                key_mappings[sc] = verb
+                                delete_key(key_mappings, key)
+                                state.remap_input.value = nil
                                 state.state_flags -= {.CurrentlyRemapping}
                                 continue
                             }
-    
-                            key_mappings[sc] = verb
-                            delete_key(key_mappings, state.input_being_remapped.key)
-                            state.input_being_remapped.key = nil
-                            state.state_flags -= {.CurrentlyRemapping}
-                            continue
                         }
                     }
 
@@ -472,21 +483,24 @@ poll_system_events :: proc(
                     }
                     // Handle button remapping here
                     if .CurrentlyRemapping in state.state_flags {
-                        verb, ok := button_mappings[state.input_being_remapped.button]
-                        if ok {
-                            existing_verb, button_exists := button_mappings[button]
-                            if button_exists {
-                                log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
-                                state.input_being_remapped.key = nil
+                        remap_button, is_button := state.remap_input.value.(sdl2.GameControllerButton)
+                        if is_button && state.remap_input.recipient == VerbRecipient(controller_idx) {
+                            verb, ok := button_mappings[remap_button]
+                            if ok {
+                                existing_verb, button_exists := button_mappings[button]
+                                if button_exists {
+                                    log.warnf("Tried to bind button %v that is already bound to %v", button, existing_verb)
+                                    state.remap_input.value = nil
+                                    state.state_flags -= {.CurrentlyRemapping}
+                                    continue
+                                }
+        
+                                button_mappings[button] = verb
+                                delete_key(button_mappings, remap_button)
+                                state.remap_input.value = nil
                                 state.state_flags -= {.CurrentlyRemapping}
                                 continue
                             }
-    
-                            button_mappings[button] = verb
-                            delete_key(button_mappings, state.input_being_remapped.button)
-                            state.input_being_remapped.button = nil
-                            state.state_flags -= {.CurrentlyRemapping}
-                            continue
                         }
                     }
     
@@ -629,8 +643,8 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
     display_sorted_table :: proc(
         s: ^InputSystem,
         m: ^map[$K]$V,
+        player_idx: int,
         button_width: f32,
-        remap_value: ^K,
         rebind_text: cstring,
         sb: ^strings.Builder,
         allocator: runtime.Allocator
@@ -659,91 +673,132 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
             imgui.Text(vs)
 
             imgui.TableNextColumn()
-            if .CurrentlyRemapping in s.state_flags && remap_value^ == key {
+            remapping := s.remap_input.recipient == VerbRecipient(player_idx) &&
+                         .CurrentlyRemapping in s.state_flags  &&
+                         s.remap_input.value == key
+            if remapping {
                 if imgui.Button(rebind_text) {
-                    s.input_being_remapped.key = nil
+                    s.remap_input.value = nil
                     s.state_flags -= {.CurrentlyRemapping}
                 }
             } else {
                 ks := build_cstring(key, sb, allocator)
                 if imgui.Button(ks, {button_width, 0.0}) {
-                    remap_value^ = key
+                    s.remap_input.value = key
+                    s.remap_input.recipient = VerbRecipient(player_idx)
                     s.state_flags += {.CurrentlyRemapping}
                 }
             }
         }
-        imgui.EndTable()
     }
 
     // Get widest string
     largest_button_width : f32 = imgui.CalcTextSize(BUTTON_REBIND_TEXT).x
-    for k, _ in s.key_mappings {
-        keystr := fmt.sbprintf(&sb, "%v", k)
-        ks := strings.clone_to_cstring(keystr, allocator)
-        width := imgui.CalcTextSize(ks).x
-        if width > largest_button_width {
-            largest_button_width = width
+    for key_mappings, _ in s.key_mappings {
+        if key_mappings == nil {
+            continue
         }
-
-        strings.builder_reset(&sb)
+        for k in key_mappings {
+            keystr := fmt.sbprintf(&sb, "%v", k)
+            ks := strings.clone_to_cstring(keystr, allocator)
+            width := imgui.CalcTextSize(ks).x
+            if width > largest_button_width {
+                largest_button_width = width
+            }
+    
+            strings.builder_reset(&sb)
+        }
     }
 
     table_flags := imgui.TableFlags_Borders |
                    imgui.TableFlags_RowBg
 
     if imgui.Begin("Input configuration", open) {
-        if imgui.BeginTable("Keybinds", 2, table_flags) {
-            imgui.TableSetupColumn("Verb")
-            imgui.TableSetupColumn("Key")
-            imgui.TableHeadersRow()
-
-            for key_mappings in s.key_mappings {
+        for key_mappings, i in s.key_mappings {
+            if key_mappings == nil {
+                continue
+            }
+            r := VerbRecipient(i)
+            fmt.sbprintf(&sb, "%v Keybindings", r)
+            table_name := strings.to_cstring(&sb)
+            imgui.Text(table_name)
+            strings.builder_reset(&sb)
+            if imgui.BeginTable(table_name, 2, table_flags) {
+                defer imgui.EndTable()
+                imgui.PushIDInt(c.int(i))
+                imgui.TableSetupColumn("Verb")
+                imgui.TableSetupColumn("Key")
+                imgui.TableHeadersRow()
                 display_sorted_table(
                     s,
                     key_mappings,
+                    i,
                     largest_button_width,
-                    &s.input_being_remapped.key,
                     KEY_REBIND_TEXT,
                     &sb,
                     allocator
                 )
+                imgui.Separator()
+                imgui.PopID()
             }
         }
 
-        if imgui.BeginTable("Controller buttons", 2, table_flags) {
-            imgui.TableSetupColumn("Verb")
-            imgui.TableSetupColumn("Button")
-            imgui.TableHeadersRow()
+        for button_mappings, i in s.button_mappings {
+            if button_mappings == nil {
+                continue
+            }
+            r := VerbRecipient(i)
+            fmt.sbprintf(&sb, "%v Buttons", r)
+            table_name := strings.to_cstring(&sb)
+            imgui.Text(table_name)
+            strings.builder_reset(&sb)
+            if imgui.BeginTable(table_name, 2, table_flags) {
+                defer imgui.EndTable()
+                imgui.TableSetupColumn("Verb")
+                imgui.TableSetupColumn("Button")
+                imgui.TableHeadersRow()
 
-            for button_mappings in s.button_mappings {
+                imgui.PushIDInt(c.int(i))
                 display_sorted_table(
                     s,
                     button_mappings,
+                    i,
                     largest_button_width,
-                    &s.input_being_remapped.button,
                     BUTTON_REBIND_TEXT,
                     &sb,
                     allocator
                 )
+                imgui.PopID()
             }
         }
 
-        if imgui.BeginTable("Axes", 2, table_flags) {
-            imgui.TableSetupColumn("Verb")
-            imgui.TableSetupColumn("Axis")
-            imgui.TableHeadersRow()
+        for &axis_mappings, i in s.axis_mappings {
+            if len(axis_mappings) == 0 {
+                continue
+            }
+            r := VerbRecipient(i)
+            fmt.sbprintf(&sb, "%v Axes", r)
+            table_name := strings.to_cstring(&sb)
+            imgui.Text(table_name)
+            strings.builder_reset(&sb)
+            imgui.PushIDInt(c.int(i))
+            if imgui.BeginTable(table_name, 2, table_flags) {
+                defer imgui.EndTable()
+                imgui.TableSetupColumn("Verb")
+                imgui.TableSetupColumn("Axis")
+                imgui.TableHeadersRow()
 
-            for &axis_mappings in s.axis_mappings {
                 display_sorted_table(
                     s,
                     &axis_mappings,
+                    i,
                     largest_button_width,
-                    &s.input_being_remapped.axis,
                     AXIS_REBIND_TEXT,
                     &sb,
                     allocator
                 )
             }
+            imgui.PopID()
         }
 
         sensitivity_sliders :: proc(
