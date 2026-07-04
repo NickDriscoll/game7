@@ -650,11 +650,9 @@ input_gui :: proc(s: ^InputSystem, open: ^bool, allocator := context.temp_alloca
         allocator: runtime.Allocator
     ) {
         keys := make([dynamic]K, 0, len(m), allocator)
-        verbs := make([dynamic]V, 0, len(m), allocator)
         verb_strings := make([dynamic]cstring, 0, len(m), allocator)
         for k, v in m {
             v_str := build_cstring(v, sb, allocator)
-            append(&verbs, v)
             append(&verb_strings, v_str)
             append(&keys, k)
         }

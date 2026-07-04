@@ -1261,7 +1261,7 @@ GameState :: struct {
     character_key_mappings: map[sdl2.Scancode]VerbType,
     ctrl_key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
-    button_mappings: map[sdl2.GameControllerButton]VerbType,
+    button_mappings: [len(VerbRecipient)]map[sdl2.GameControllerButton]VerbType,
     system_button_mappings: map[sdl2.GameControllerButton]VerbType,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -1319,7 +1319,9 @@ init_gamestate :: proc(
     game_state.character_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.ctrl_key_mappings = make(map[sdl2.Scancode]VerbType, allocator = global_allocator)
     game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
-    game_state.button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+    for r in VerbRecipient {
+        game_state.button_mappings[r] = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+    }
     game_state.system_button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
     {
@@ -1352,11 +1354,13 @@ init_gamestate :: proc(
         game_state.ctrl_key_mappings[.MINUS] = .ImguiScaleDown
         game_state.ctrl_key_mappings[.EQUALS] = .ImguiScaleUp
 
-        game_state.button_mappings[.A] = .PlayerJump
-        game_state.button_mappings[.X] = .PlayerShoot
-        game_state.button_mappings[.Y] = .PlayerReset
-        game_state.button_mappings[.LEFTSHOULDER] = .TranslateFreecamDown
-        game_state.button_mappings[.RIGHTSHOULDER] = .TranslateFreecamUp
+        for recipient in VerbRecipient {
+            game_state.button_mappings[recipient][.A] = .PlayerJump
+            game_state.button_mappings[recipient][.X] = .PlayerShoot
+            game_state.button_mappings[recipient][.Y] = .PlayerReset
+            game_state.button_mappings[recipient][.LEFTSHOULDER] = .TranslateFreecamDown
+            game_state.button_mappings[recipient][.RIGHTSHOULDER] = .TranslateFreecamUp
+        }
 
         game_state.system_button_mappings[.START] = .AddLocalPlayer
 

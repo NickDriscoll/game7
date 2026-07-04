@@ -361,7 +361,7 @@ app_startup :: proc(app: ^App) -> bool {
         app.input_system.ctrl_key_mappings = &app.game_state.ctrl_key_mappings
         app.input_system.system_button_mappings = &app.game_state.system_button_mappings
         for recipient in VerbRecipient {
-            app.input_system.button_mappings[recipient] = &app.game_state.button_mappings
+            app.input_system.button_mappings[recipient] = &app.game_state.button_mappings[recipient]
         }
 
         app.current_time = time.now()          // Time in nanoseconds since UNIX epoch
