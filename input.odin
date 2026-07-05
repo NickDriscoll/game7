@@ -33,6 +33,7 @@ VerbType :: enum {
     ImguiScaleDown,
 
     TogglePause,
+    PlayerPauseGame,
     FrameAdvance,
     FullscreenHotkey,
 

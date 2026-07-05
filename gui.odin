@@ -1,5 +1,6 @@
 package main
 
+import "core:text/table"
 import "core:c"
 import "core:fmt"
 import "core:math/linalg/hlsl"
@@ -39,7 +40,7 @@ ImguiState :: struct {
     pipeline: vkw.Pipeline_Handle,
     show_gui: bool,
     dockspace_id: u32,
-    dockspace_viewport: ^imgui.Viewport,
+    dockspace_viewport: [4]f32,
     user_facing_font: ^imgui.Font,
 }
 
@@ -172,18 +173,25 @@ begin_gui :: proc(state: ^ImguiState) {
             .NoMouseInputs,
             .NoNavInputs
         }
-        state.dockspace_viewport = imgui.GetWindowViewport()
-        imgui.SetNextWindowPos(state.dockspace_viewport.WorkPos)
-        imgui.SetNextWindowSize(state.dockspace_viewport.WorkSize)
+        dockspace_viewport := imgui.GetWindowViewport()
+
+        imgui.SetNextWindowPos(dockspace_viewport.WorkPos)
+        imgui.SetNextWindowSize(dockspace_viewport.WorkSize)
         if imgui.Begin("Main dock window", flags = dock_window_flags) {
             state.dockspace_id = imgui.GetID("Main dockspace")
             flags := imgui.DockNodeFlags {
                 .NoDockingOverCentralNode,
                 .PassthruCentralNode,
             }
-            imgui.DockSpaceOverViewport(state.dockspace_id, state.dockspace_viewport, flags = flags)
+            imgui.DockSpaceOverViewport(state.dockspace_id, dockspace_viewport, flags = flags)
         }
         imgui.End()
+
+        docknode := imgui.DockBuilderGetCentralNode(state.dockspace_id)
+        state.dockspace_viewport[0] = docknode.Pos.x
+        state.dockspace_viewport[1] = docknode.Pos.y
+        state.dockspace_viewport[2] = docknode.Size.x
+        state.dockspace_viewport[3] = docknode.Size.y
     }
 }
 
@@ -332,39 +340,50 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
 }
 
 gui_pause_menu :: proc(gui: ImguiState) {
+    imgui.PushFontFloat(gui.user_facing_font, 32.0)
+    defer imgui.PopFont()
+
+    imgui.SetNextWindowPos({
+        gui.dockspace_viewport[2] / 2.0,
+        gui.dockspace_viewport[3] / 2.0,
+    }, .Always, {0.5, 0.5})
+    labels := [?]cstring {"Resume", "Guide", "Settings", "Exit"}
+    buttons_size : [2]f32 = {}
+    for label in labels {
+        text_size := imgui.CalcTextSize(label)
+        //log.infof("Text size is %v", text_size)
+        buttons_size.x = max(buttons_size.x, text_size.x)
+        buttons_size.y += text_size.y
+    }
+    // Add padding
+    buttons_size.y += 10.0 * len(labels)
+
+    imgui.SetNextWindowSize({buttons_size.x + 30.0, buttons_size.y})
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar}//.NoBackground}
     defer imgui.End()
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoBackground}
     if imgui.Begin("Pause menu", nil, flags) {
-        imgui.PushFontFloat(gui.user_facing_font, 32.0)
-        defer imgui.PopFont()
-        imgui.GetStyle().FontScaleMain *= 3.0
-        defer imgui.GetStyle().FontScaleMain /= 3.0
         imgui.PushStyleColor(.Button, 0x00000000)
-        imgui.PushStyleColor(.ButtonHovered, 0x00AA00DD)
+        imgui.PushStyleColor(.ButtonHovered, 0x7FFF0000)
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
 
-        vp := gui.dockspace_viewport
-        pos := vp.Pos
-        size := vp.Size
-        window_size := imgui.GetWindowSize()
-        new_pos := [2]f32 {
-            size.x / 2.0 - window_size.x / 2.0,
-            size.y / 2.0 - window_size.y / 2.0
-        }
-        imgui.SetWindowPos(new_pos)
+        // vp := gui.dockspace_viewport
+        // pos := vp.Pos
+        // size := vp.Size
+        // window_size := imgui.GetWindowSize()
+        // new_pos := [2]f32 {
+        //     size.x / 2.0 - window_size.x / 2.0,
+        //     size.y / 2.0 - window_size.y / 2.0
+        // }
+        // imgui.SetWindowPos(new_pos)
 
         //imgui.CalcItemWidth()
-        buttons_height := imgui.CalcTextSize("Problem?")
-        buttons_height += imgui.CalcTextSize("Item one")
-        buttons_height += imgui.CalcTextSize("Item two")
-        buttons_height += imgui.CalcTextSize("Item three")
-        new_cursor := imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - buttons_height.y / 2.0
-        imgui.SetCursorPos({imgui.GetCursorPos().x, new_cursor})
-        gui_centered_button("Resume")
-        gui_centered_button("Guide")
-        gui_centered_button("Settings")
-        gui_centered_button("Exit")
+        new_cursor := imgui.GetCursorPos()
+        new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - buttons_size.y / 2.0
+        imgui.SetCursorPos(new_cursor)
+        for label in labels {
+            gui_centered_button(label)
+        }
     }
 }
 

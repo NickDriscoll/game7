@@ -1004,7 +1004,6 @@ process_hit_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
         if !invulnerable && collision.velocity.z < 0.0 {
             collision.velocity.z = 20.0
             char.time_last_damaged = time.now()
-            log.infof("Entity %v bounced", event.player_id)
             continue
         }
 
@@ -1012,7 +1011,6 @@ process_hit_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
         if invulnerable {
             continue
         }
-        log.infof("Entity %v took damage", event.player_id)
         char.time_last_damaged = time.now()
         collision.velocity.z = 3.0
         collision.state = .Falling
@@ -1332,7 +1330,7 @@ init_gamestate :: proc(
         game_state.system_key_mappings[.BACKSLASH] = .FrameAdvance
         game_state.system_key_mappings[.PAUSE] = .TogglePause
         game_state.system_key_mappings[.F] = .FullscreenHotkey
-
+        
         game_state.freecam_key_mappings[.W] = .TranslateFreecamForward
         game_state.freecam_key_mappings[.S] = .TranslateFreecamBack
         game_state.freecam_key_mappings[.A] = .TranslateFreecamLeft
@@ -1341,7 +1339,7 @@ init_gamestate :: proc(
         game_state.freecam_key_mappings[.E] = .TranslateFreecamUp
         game_state.freecam_key_mappings[.LSHIFT] = .Sprint
         game_state.freecam_key_mappings[.LCTRL] = .Crawl
-
+        
         game_state.character_key_mappings[.W] = .PlayerTranslateForward
         game_state.character_key_mappings[.S] = .PlayerTranslateBack
         game_state.character_key_mappings[.A] = .PlayerTranslateLeft
@@ -1351,7 +1349,8 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.SPACE] = .PlayerJump
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
-
+        game_state.character_key_mappings[.RETURN] = .PlayerPauseGame
+        
         game_state.ctrl_key_mappings[.N] = .NewLevel
         game_state.ctrl_key_mappings[.L] = .ShowLoadLevel
         game_state.ctrl_key_mappings[.MINUS] = .ImguiScaleDown
@@ -1361,6 +1360,7 @@ init_gamestate :: proc(
             game_state.button_mappings[recipient][.A] = .PlayerJump
             game_state.button_mappings[recipient][.X] = .PlayerShoot
             game_state.button_mappings[recipient][.Y] = .PlayerReset
+            game_state.button_mappings[recipient][.START] = .PlayerPauseGame
             game_state.button_mappings[recipient][.LEFTSHOULDER] = .TranslateFreecamDown
             game_state.button_mappings[recipient][.RIGHTSHOULDER] = .TranslateFreecamUp
         }
@@ -1518,12 +1518,27 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
         do_this_frame = true
         game_state.paused = true
     }
-    if system_verbs.bools[.TogglePause] {
-        game_state.paused = !game_state.paused
+
+    // Check for player pausing
+    for player_idx in 0..<len(game_state.local_players) {
+        player_verbs := output_verbs.recipient_verbs[player_idx]
+        pressed := player_verbs.bools[.PlayerPauseGame]
+        if pressed {
+            if game_state.paused {
+                renderer.uniforms.fade_to_black = 1.0
+            } else {
+                renderer.uniforms.fade_to_black = 0.4
+            }
+        }
+        toggled_pause := pressed
+        toggled_pause |= system_verbs.bools[.TogglePause]
+        if toggled_pause {
+            renderer.uniforms.flags ~= {.BlackAndWhite}
+            game_state.paused = !game_state.paused
+        }
     }
 
     if do_this_frame {
-
         // Advance game_state by dt seconds
         tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
         tick_coins(game_state, audio_system)
@@ -1535,12 +1550,13 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
         tick_hovering_enemies(game_state, dt)
         process_hit_events(game_state, audio_system)
         tick_moved_entity(game_state)
-
-        // Draw commands
-        draw_static_models(game_state, renderer)
-        draw_skinned_models(game_state, renderer)
-        draw_debug_models(game_state, renderer)
     }
+
+    // Draw commands
+    draw_static_models(game_state, renderer)
+    draw_skinned_models(game_state, renderer)
+    draw_debug_models(game_state, renderer)
+
     // Recreate per-frame dynamic allocations
     game_state.character_hit_events = make([dynamic]HitEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)
     game_state.moved_collision = make([dynamic]MovedEntityEvent, 0, DEFAULT_COMPONENT_MAP_CAPACITY, context.temp_allocator)

@@ -183,8 +183,6 @@ main :: proc() {
         // Run general scene editor window
         scene_editor(&app)
 
-        gui_pause_menu(app.gui)
-
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
             style := imgui.GetStyle()
             style.FontScaleMain -= 0.2
@@ -569,6 +567,10 @@ main :: proc() {
             if .MouseClicked in app.input_system.state_flags {
                 app.game_state.edit_flags -= {.MoveSelectedEntity}
             }
+        }
+
+        if app.game_state.paused {
+            gui_pause_menu(app.gui)
         }
 
         game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
