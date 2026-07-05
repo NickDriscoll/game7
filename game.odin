@@ -1263,6 +1263,7 @@ GameState :: struct {
     ctrl_key_mappings: map[sdl2.Scancode]VerbType,
     mouse_mappings: map[u8]VerbType,
     button_mappings: [len(VerbRecipient)]map[sdl2.GameControllerButton]VerbType,
+    paused_button_mappings: [len(VerbRecipient)]map[sdl2.GameControllerButton]VerbType,
     system_button_mappings: map[sdl2.GameControllerButton]VerbType,
 
     // Icosphere mesh for visualizing spherical collision and points
@@ -1322,6 +1323,7 @@ init_gamestate :: proc(
     game_state.mouse_mappings = make(map[u8]VerbType, 64, allocator = global_allocator)
     for r in VerbRecipient {
         game_state.button_mappings[r] = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
+        game_state.paused_button_mappings[r] = make(map[sdl2.GameControllerButton]VerbType, 64, global_allocator)
     }
     game_state.system_button_mappings = make(map[sdl2.GameControllerButton]VerbType, 64, allocator = global_allocator)
 
@@ -1350,7 +1352,7 @@ init_gamestate :: proc(
         game_state.character_key_mappings[.R] = .PlayerReset
         game_state.character_key_mappings[.E] = .PlayerShoot
         game_state.character_key_mappings[.RETURN] = .PlayerPauseGame
-        
+
         game_state.ctrl_key_mappings[.N] = .NewLevel
         game_state.ctrl_key_mappings[.L] = .ShowLoadLevel
         game_state.ctrl_key_mappings[.MINUS] = .ImguiScaleDown
@@ -1363,6 +1365,9 @@ init_gamestate :: proc(
             game_state.button_mappings[recipient][.START] = .PlayerPauseGame
             game_state.button_mappings[recipient][.LEFTSHOULDER] = .TranslateFreecamDown
             game_state.button_mappings[recipient][.RIGHTSHOULDER] = .TranslateFreecamUp
+
+            game_state.paused_button_mappings[recipient][.B] = .PlayerPauseGame
+            game_state.paused_button_mappings[recipient][.START] = .PlayerPauseGame
         }
 
         game_state.system_button_mappings[.START] = .AddLocalPlayer
@@ -1508,7 +1513,7 @@ gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
     return EntityID(r)
 }
 
-game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, input_system: ^InputSystem, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "GameState tick")
 
     // Determine if we're simulating a tick of game logic this frame
@@ -1523,18 +1528,19 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
     for player_idx in 0..<len(game_state.local_players) {
         player_verbs := output_verbs.recipient_verbs[player_idx]
         pressed := player_verbs.bools[.PlayerPauseGame]
-        if pressed {
-            if game_state.paused {
-                renderer.uniforms.fade_to_black = 1.0
-            } else {
-                renderer.uniforms.fade_to_black = 0.4
-            }
-        }
         toggled_pause := pressed
         toggled_pause |= system_verbs.bools[.TogglePause]
         if toggled_pause {
+            if game_state.paused {
+                renderer.uniforms.fade_to_black = 1.0
+                input_system.button_mappings[player_idx] = &game_state.button_mappings[player_idx]
+            } else {
+                renderer.uniforms.fade_to_black = 0.4
+                input_system.button_mappings[player_idx] = &game_state.paused_button_mappings[player_idx]
+            }
             renderer.uniforms.flags ~= {.BlackAndWhite}
             game_state.paused = !game_state.paused
+            break
         }
     }
 

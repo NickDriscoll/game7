@@ -339,7 +339,7 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_pause_menu :: proc(gui: ImguiState) {
+gui_pause_menu :: proc(gui: ImguiState, game_state: ^GameState, verbs: ^OutputVerbs) {
     imgui.PushFontFloat(gui.user_facing_font, 32.0)
     defer imgui.PopFont()
 
@@ -359,30 +359,24 @@ gui_pause_menu :: proc(gui: ImguiState) {
     buttons_size.y += 10.0 * len(labels)
 
     imgui.SetNextWindowSize({buttons_size.x + 30.0, buttons_size.y})
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar}//.NoBackground}
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,}//.NoBackground}
     defer imgui.End()
     if imgui.Begin("Pause menu", nil, flags) {
         imgui.PushStyleColor(.Button, 0x00000000)
-        imgui.PushStyleColor(.ButtonHovered, 0x7FFF0000)
+        imgui.PushStyleColor(.ButtonHovered, 0x00000000)
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
 
-        // vp := gui.dockspace_viewport
-        // pos := vp.Pos
-        // size := vp.Size
-        // window_size := imgui.GetWindowSize()
-        // new_pos := [2]f32 {
-        //     size.x / 2.0 - window_size.x / 2.0,
-        //     size.y / 2.0 - window_size.y / 2.0
-        // }
-        // imgui.SetWindowPos(new_pos)
-
-        //imgui.CalcItemWidth()
         new_cursor := imgui.GetCursorPos()
         new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - buttons_size.y / 2.0
         imgui.SetCursorPos(new_cursor)
-        for label in labels {
-            gui_centered_button(label)
+
+        for label, i in labels {
+            if gui_centered_button(label) {
+                if i == 0 {
+                    verbs.recipient_verbs[VerbRecipient.PlayerOne].bools[.PlayerPauseGame] = true
+                }
+            }
         }
     }
 }
@@ -953,10 +947,10 @@ SDL2ToImGuiGamepadButton :: proc(button: sdl2.GameControllerButton) -> imgui.Key
         case .RIGHTSTICK: return .GamepadR3
         case .BACK: return .GamepadBack
         case .START: return .GamepadStart
-        //case .TOUCHPAD: return .Gamepad
-        //case .GUIDE: return .game
+        case .TOUCHPAD, .GUIDE: return .None
     }
-    assert(false, "Unsupported button")
+    log.errorf("Unsupported button %v", button)
+    assert(false)
     return .None
 }
 

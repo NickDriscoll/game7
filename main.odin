@@ -569,11 +569,16 @@ main :: proc() {
             }
         }
 
+        @static was_paused := false
         if app.game_state.paused {
-            gui_pause_menu(app.gui)
+            gui_pause_menu(app.gui, &app.game_state, &output_verbs)
+            if !was_paused {
+                imgui.SetNavCursorVisible(true)
+            }
         }
+        was_paused = app.game_state.paused
 
-        game_tick(&app.game_state, &app.vgd, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
+        game_tick(&app.game_state, &app.vgd, &app.renderer, &app.input_system, output_verbs, &app.audio_system, scaled_dt)
 
         // Update camera related data in the renderer
         for cam_id, idx in app.game_state.viewport_cameras {

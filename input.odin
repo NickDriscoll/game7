@@ -471,9 +471,9 @@ poll_system_events :: proc(
                 button := sdl2.GameControllerButton(event.cbutton.button)
 
                 imgui.IO_AddKeyEvent(io, SDL2ToImGuiGamepadButton(button), true)
-                if io.NavVisible {
-                    continue
-                }
+                // if io.NavVisible {
+                //     continue
+                // }
 
                 controller_instance := event.cbutton.which
                 controller := sdl2.GameControllerFromInstanceID(controller_instance)
@@ -588,9 +588,9 @@ poll_system_events :: proc(
     // Poll controller axes and emit appropriate verbs
     sticks := [?]ControllerStickAxis {.Left,.Right}
     for stick_mappings, recipient in state.stick_mappings {
-        if io.NavVisible {
-            break
-        }
+        // if io.NavVisible {
+        //     break
+        // }
 
         for stick in sticks {
             verbtype, found := stick_mappings[stick]
@@ -609,15 +609,18 @@ poll_system_events :: proc(
                 if stick not_in state.deadzone_sticks || dist > state.control_stick_deadzone {
                     sensitivity := state.stick_sensitivities[stick]
                     outputs.recipient_verbs[recipient].float2s[verbtype] = sensitivity * [2]f32{x, y}
+
+                    // Tell imgui about stick
+                    //imgui.IO_AddKeyAnalogEvent(io, .GamepadL)
                 }
             }
         }
     }
 
     for i in 0..<u32(sdl2.GameControllerAxis.MAX) {
-        if io.NavVisible {
-            break
-        }
+        // if io.NavVisible {
+        //     break
+        // }
         ax := sdl2.GameControllerAxis(i)
         for axis_mappings, recipient in state.axis_mappings {
             verbtype, found := axis_mappings[ax]
