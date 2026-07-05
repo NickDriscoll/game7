@@ -281,6 +281,18 @@ main :: proc() {
                             app.game_state.edit_flags += {.MoveSelectedEntity}
                         }
                         imgui.EndDisabled()
+
+                        // Controller LED color
+                        @static led_color := hlsl.float3 {1.0, 0.0, 1.0}
+                        if imgui.ColorPicker3("Controller LED Color", &led_color) {
+                            sdl2.GameControllerSetLED(
+                                app.input_system.controllers[idx],
+                                u8(led_color.r * 255),
+                                u8(led_color.g * 255),
+                                u8(led_color.b * 255),
+                            )
+                        }
+
                         imgui.PopID()
                     }
                 }
