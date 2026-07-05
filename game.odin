@@ -697,7 +697,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
         game_state.lookat_controllers[id] = LookatController {
             target = player_id,
             vertical_offset = 1.2,
-            distance = 5.0
+            distance = DEFAULT_LOOKAT_DISTANCE
         }
     }
     return id
@@ -990,7 +990,7 @@ DebugModelInstance :: struct {
 }
 
 HitEvent :: struct {
-    player_id: EntityID     // Which player was damaged
+    player_id: EntityID     // Which player was hit
 }
 
 process_hit_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
@@ -998,19 +998,22 @@ process_hit_events :: proc(game_state: ^GameState, audio_system: ^AudioSystem) {
     for event in game_state.character_hit_events {
         collision := &game_state.spherical_bodies[event.player_id]
         char := &game_state.character_controllers[event.player_id]
-        char.time_last_damaged = time.now()
+        invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
 
         // If character is falling, then process this as jumping on enemy
-        if collision.velocity.z < 0.0 {
+        if !invulnerable && collision.velocity.z < 0.0 {
             collision.velocity.z = 20.0
+            char.time_last_damaged = time.now()
+            log.infof("Entity %v bounced", event.player_id)
             continue
         }
 
         // Otherwise process as player damage
-        invulnerable := !timer_expired(char.time_last_damaged, CHARACTER_INVULNERABILITY_DURATION * SECONDS_TO_NANOSECONDS)
         if invulnerable {
             continue
         }
+        log.infof("Entity %v took damage", event.player_id)
+        char.time_last_damaged = time.now()
         collision.velocity.z = 3.0
         collision.state = .Falling
         char.health -= 1
@@ -2353,7 +2356,7 @@ camera_gui :: proc(
                         replace_keybindings(input_system, recipient, &game_state.character_key_mappings)
                         game_state.lookat_controllers[camera_id] = LookatController {
                             target = game_state.local_players[0],
-                            distance = 4.0
+                            distance = DEFAULT_LOOKAT_DISTANCE
                         }
                     } else {
                         replace_keybindings(input_system, recipient, &game_state.freecam_key_mappings)

@@ -246,7 +246,7 @@ gui_main_menu_bar :: proc(
             if imgui.MenuItem("Auto-save user config", selected = config_autosave) {
                 app.user_config.flags[.ConfigAutosave] = !app.user_config.flags[.ConfigAutosave]
             }
-            if imgui.MenuItem("Audio panel", selected = app.user_config.flags[.AudioPanel]) {
+            if imgui.MenuItem("Audio", selected = app.user_config.flags[.AudioPanel]) {
                 app.user_config.flags[.AudioPanel] = !app.user_config.flags[.AudioPanel]
             }
             if imgui.MenuItem("Graphics", "erm", app.user_config.flags[.GraphicsSettings]) {

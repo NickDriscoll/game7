@@ -19,6 +19,8 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
+DEFAULT_LOOKAT_DISTANCE :: 2.0
+
 UndoEditPlayerSpawn :: struct {
     old_pos: hlsl.float3,
 }
@@ -557,7 +559,7 @@ scene_editor :: proc(
                         focal_tform := &game_state.transforms[id]
                         game_state.lookat_controllers[cam_id] = LookatController {
                             current_focal_point = focal_tform.position,
-                            distance = 4.0
+                            distance = DEFAULT_LOOKAT_DISTANCE
                         }
                     }
 
@@ -627,7 +629,7 @@ scene_editor :: proc(
                             focal_tform := &game_state.transforms[id]
                             game_state.lookat_controllers[cam_id] = LookatController {
                                 current_focal_point = focal_tform.position,
-                                distance = 4.0
+                                distance = DEFAULT_LOOKAT_DISTANCE
                             }
                         }
 
