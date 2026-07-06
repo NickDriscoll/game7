@@ -19,6 +19,20 @@ import hm "desktop_vulkan_wrapper/handlemap"
 MAX_IMGUI_VERTICES :: 256 * 1024
 MAX_IMGUI_INDICES :: 64 * 1024
 
+UserMenuButton :: struct {
+    label: string,
+    ptr: ^bool,
+}
+
+UserMenuItem :: union {
+    UserMenuButton,
+}
+
+UserMenu :: struct {
+    items: [dynamic]UserMenuItem,
+    
+}
+
 ImguiPushConstants :: struct {
     font_idx: u32,
     sampler: vkw.Immutable_Sampler_Index,
@@ -339,27 +353,34 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_pause_menu :: proc(gui: ImguiState, game_state: ^GameState, verbs: ^OutputVerbs) {
-    imgui.PushFontFloat(gui.user_facing_font, 32.0)
+gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) {
+    imgui.PushFontFloat(gui.user_facing_font, 48.0)
     defer imgui.PopFont()
 
     imgui.SetNextWindowPos({
         gui.dockspace_viewport[2] / 2.0,
         gui.dockspace_viewport[3] / 2.0,
     }, .Always, {0.5, 0.5})
-    labels := [?]cstring {"Resume", "Guide", "Settings", "Exit"}
-    buttons_size : [2]f32 = {}
-    for label in labels {
-        text_size := imgui.CalcTextSize(label)
-        //log.infof("Text size is %v", text_size)
-        buttons_size.x = max(buttons_size.x, text_size.x)
-        buttons_size.y += text_size.y
+
+    // First pass for layout
+    items_size := [2]f32 {}
+    total_buttons := 0
+    for item in items {
+        switch it in item {
+            case UserMenuButton: {
+                label := strings.unsafe_string_to_cstring(it.label)
+                text_size := imgui.CalcTextSize(label)
+                items_size.x = max(items_size.x, text_size.x)
+                items_size.y += text_size.y
+                total_buttons += 1
+            }
+        }
     }
     // Add padding
-    buttons_size.y += 10.0 * len(labels)
+    items_size.y += 10.0 * f32(total_buttons)
 
-    imgui.SetNextWindowSize({buttons_size.x + 30.0, buttons_size.y})
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,}//.NoBackground}
+    imgui.SetNextWindowSize({items_size.x + 30.0, items_size.y})
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,.NoBackground}
     defer imgui.End()
     if imgui.Begin("Pause menu", nil, flags) {
         imgui.PushStyleColor(.Button, 0x00000000)
@@ -368,13 +389,15 @@ gui_pause_menu :: proc(gui: ImguiState, game_state: ^GameState, verbs: ^OutputVe
         defer imgui.PopStyleColor()
 
         new_cursor := imgui.GetCursorPos()
-        new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - buttons_size.y / 2.0
+        new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - items_size.y / 2.0
         imgui.SetCursorPos(new_cursor)
 
-        for label, i in labels {
-            if gui_centered_button(label) {
-                if i == 0 {
-                    verbs.recipient_verbs[VerbRecipient.PlayerOne].bools[.PlayerPauseGame] = true
+        // Second pass for building UI
+        for item in items {
+            switch it in item {
+                case UserMenuButton: {
+                    label := strings.unsafe_string_to_cstring(it.label)
+                    it.ptr^ = gui_centered_button(label)
                 }
             }
         }

@@ -571,7 +571,31 @@ main :: proc() {
 
         @static was_paused := false
         if app.game_state.paused {
-            gui_pause_menu(app.gui, &app.game_state, &output_verbs)
+            flags: [4]bool
+            hardcoded_buttons := [?]UserMenuItem {
+                UserMenuButton {
+                    label = "Resume",
+                    ptr = &flags[0],
+                },
+                UserMenuButton {
+                    label = "Guide",
+                    ptr = &flags[1],
+                },
+                UserMenuButton {
+                    label = "Settings",
+                    ptr = &flags[2],
+                },
+                UserMenuButton {
+                    label = "Exit",
+                    ptr = &flags[3],
+                },
+            }
+            gui_user_menu(app.gui, hardcoded_buttons[:])
+            if flags[0] {
+                output_verbs.recipient_verbs[VerbRecipient.PlayerOne].bools[.PlayerPauseGame] = true
+            } else if flags[3] {
+                do_main_loop = false
+            }
             if !was_paused {
                 imgui.SetNavCursorVisible(true)
             }
