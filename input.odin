@@ -14,6 +14,7 @@ import "vendor:sdl2"
 import imgui "odin-imgui"
 
 VerbType :: enum {
+    None,
     Quit,
 
     MoveWindow,
@@ -36,6 +37,9 @@ VerbType :: enum {
     PlayerPauseGame,
     FrameAdvance,
     FullscreenHotkey,
+
+    PopMenu,
+    SettingsMenu,
 
     TranslateFreecamLeft,
     TranslateFreecamRight,

@@ -1,6 +1,7 @@
 package main
 
 import "core:c"
+import "core:container/queue"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
@@ -569,38 +570,99 @@ main :: proc() {
             }
         }
 
-        @static was_paused := false
-        if app.game_state.paused {
-            flags: [4]bool
-            hardcoded_buttons := [?]UserMenuItem {
-                UserMenuButton {
-                    label = "Resume",
-                    ptr = &flags[0],
-                },
-                UserMenuButton {
-                    label = "Guide",
-                    ptr = &flags[1],
-                },
-                UserMenuButton {
-                    label = "Settings",
-                    ptr = &flags[2],
-                },
-                UserMenuButton {
-                    label = "Exit",
-                    ptr = &flags[3],
-                },
-            }
-            gui_user_menu(app.gui, hardcoded_buttons[:])
-            if flags[0] {
-                output_verbs.recipient_verbs[VerbRecipient.PlayerOne].bools[.PlayerPauseGame] = true
-            } else if flags[3] {
-                do_main_loop = false
-            }
-            if !was_paused {
-                imgui.SetNavCursorVisible(true)
+        // Check for player pausing
+        for player_idx in 0..<len(app.game_state.local_players) {
+            player_verbs := output_verbs.recipient_verbs[player_idx]
+            toggled_pause := player_verbs.bools[.PlayerPauseGame]
+            if toggled_pause {
+                // if app.game_state.paused {
+                //     app.renderer.uniforms.fade_to_black = 1.0
+                //     app.input_system.button_mappings[player_idx] = &app.game_state.button_mappings[player_idx]
+                // } else {
+                //     app.renderer.uniforms.fade_to_black = 0.4
+                //     app.input_system.button_mappings[player_idx] = &app.game_state.menu_button_mappings[player_idx]
+                // }
+                // app.renderer.uniforms.flags ~= {.BlackAndWhite}
+
+                if !app.game_state.paused {
+                    menu_items := make([dynamic]UserMenuItem, 0, 4, app.global_allocator)
+                    append(&menu_items, UserMenuButton {
+                        label = "Resume",
+                        verb = .PlayerPauseGame
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "Guide",
+                        //ptr = nil,
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "Settings",
+                        verb = .SettingsMenu
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "Exit",
+                        verb = .Quit
+                    })
+                    menu := UserMenu {
+                        items = menu_items,
+                        player_idx = player_idx
+                    }
+                    queue.push_front(&app.gui.menu_stack, menu)
+                } else {
+                    queue.clear(&app.gui.menu_stack)
+                }
+
+                app.game_state.paused = !app.game_state.paused
+                break
             }
         }
-        was_paused = app.game_state.paused
+
+        {
+            verb := gui_do_menu_stack(&app)
+            #partial switch verb {
+                case .PopMenu: {
+                    queue.pop_front(&app.gui.menu_stack)
+                }
+                case .Quit: {
+                    do_main_loop = false
+                }
+                case .PlayerPauseGame: {
+                    queue.clear(&app.gui.menu_stack)
+                    app.game_state.paused = false
+                }
+                case .SettingsMenu: {
+                    menu_items := make([dynamic]UserMenuItem, 0, 4, app.global_allocator)
+                    append(&menu_items, UserMenuButton {
+                        label = "Suckitude",
+                        //verb = .PlayerPauseGame
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "Game",
+                        //ptr = nil,
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "System",
+                        //verb = .SettingsMenu
+                    })
+                    append(&menu_items, UserMenuButton {
+                        label = "Back",
+                        verb = .PopMenu
+                    })
+                    menu := UserMenu {
+                        items = menu_items,
+                        player_idx = app.gui.menu_player_idx
+                    }
+                    queue.push_front(&app.gui.menu_stack, menu)
+                }
+                case .None: {}
+                case: {
+                    log.infof("Unhandled verb from menu: %v", verb)
+                }
+            }
+
+            if output_verbs.recipient_verbs[app.gui.menu_player_idx].bools[.PopMenu] {
+                queue.pop_front(&app.gui.menu_stack)
+            }
+        }
 
         game_tick(&app.game_state, &app.vgd, &app.renderer, &app.input_system, output_verbs, &app.audio_system, scaled_dt)
 

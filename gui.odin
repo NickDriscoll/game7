@@ -2,6 +2,7 @@ package main
 
 import "core:text/table"
 import "core:c"
+import "core:container/queue"
 import "core:fmt"
 import "core:math/linalg/hlsl"
 import "core:log"
@@ -21,7 +22,7 @@ MAX_IMGUI_INDICES :: 64 * 1024
 
 UserMenuButton :: struct {
     label: string,
-    ptr: ^bool,
+    verb: VerbType,
 }
 
 UserMenuItem :: union {
@@ -30,7 +31,7 @@ UserMenuItem :: union {
 
 UserMenu :: struct {
     items: [dynamic]UserMenuItem,
-    
+    player_idx: int,
 }
 
 ImguiPushConstants :: struct {
@@ -56,6 +57,8 @@ ImguiState :: struct {
     dockspace_id: u32,
     dockspace_viewport: [4]f32,
     user_facing_font: ^imgui.Font,
+    menu_stack: queue.Queue(UserMenu),
+    menu_player_idx: int,               // Last player to use menus
 }
 
 imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
@@ -353,9 +356,45 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) {
+gui_do_menu_stack :: proc(app: ^App) -> VerbType {
+    retval : VerbType = nil
+
+    // Handle menu stack
+    if queue.len(app.gui.menu_stack) > 0 {
+        active_menu := queue.front_ptr(&app.gui.menu_stack)
+        app.gui.menu_player_idx = active_menu.player_idx
+
+        // Renderer and input state
+        app.renderer.uniforms.fade_to_black = 0.4
+        app.renderer.uniforms.flags += {.BlackAndWhite}
+        app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
+        app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
+
+        retval = gui_user_menu(app.gui, active_menu.items[:])
+        
+        // if app.game_state.paused {
+        //     app.renderer.uniforms.fade_to_black = 1.0
+        //     app.input_system.button_mappings[player_idx] = &app.game_state.button_mappings[player_idx]
+        // } else {
+        //     app.renderer.uniforms.fade_to_black = 0.4
+        //     app.input_system.button_mappings[player_idx] = &app.game_state.menu_button_mappings[player_idx]
+        // }
+        // app.renderer.uniforms.flags ~= {.BlackAndWhite}
+    } else {
+        app.renderer.uniforms.fade_to_black = 1.0
+        app.renderer.uniforms.flags -= {.BlackAndWhite}
+        app.input_system.button_mappings[app.gui.menu_player_idx] = &app.game_state.button_mappings[app.gui.menu_player_idx]
+        app.input_system.key_mappings[app.gui.menu_player_idx] = &app.game_state.character_key_mappings
+    }
+
+    return retval
+}
+
+gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
     imgui.PushFontFloat(gui.user_facing_font, 48.0)
     defer imgui.PopFont()
+
+    retval : VerbType = nil
 
     imgui.SetNextWindowPos({
         gui.dockspace_viewport[2] / 2.0,
@@ -397,11 +436,16 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) {
             switch it in item {
                 case UserMenuButton: {
                     label := strings.unsafe_string_to_cstring(it.label)
-                    it.ptr^ = gui_centered_button(label)
+                    //it.ptr^ = gui_centered_button(label)
+                    if gui_centered_button(label) {
+                        retval = it.verb
+                    }
                 }
             }
         }
     }
+
+    return retval
 }
 
 gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
