@@ -23,15 +23,70 @@ MAX_IMGUI_INDICES :: 64 * 1024
 UserMenuButton :: struct {
     label: string,
     verb: VerbType,
+    _was_hovered: bool,
+    _was_active: bool,
+}
+
+UserMenuSlider :: struct {
+    label: string,
+    value: ^f32,
+    min: f32,
+    max: f32,
 }
 
 UserMenuItem :: union {
     UserMenuButton,
+    UserMenuSlider
 }
 
 UserMenu :: struct {
-    items: [dynamic]UserMenuItem,
+    //items: [dynamic]UserMenuItem,
+    items: []UserMenuItem,
     player_idx: int,
+}
+
+PAUSE_MENU_ITEMS : []UserMenuItem = {
+    UserMenuButton {
+        label = "Resume",
+        verb = .PlayerPauseGame,
+        _was_hovered = true,
+    },
+    UserMenuButton {
+        label = "Guide",
+        //verb = .PlayerPauseGame,
+    },
+    UserMenuButton {
+        label = "Settings",
+        verb = .SettingsMenu,
+    },
+    UserMenuButton {
+        label = "Exit",
+        verb = .Quit,
+    },
+}
+SETTINGS_MENU_ITEMS : []UserMenuItem = {
+    UserMenuButton {
+        label = "Game",
+    },
+    UserMenuButton {
+        label = "Graphics",
+    },
+    UserMenuButton {
+        label = "Audio",
+        verb = .AudioMenu,
+    },
+    UserMenuButton {
+        label = "System",
+    },
+    // UserMenuSlider {
+    //     label = "Trying lol",
+    //     min = -1.0,
+    //     max = 1.0
+    // },
+    UserMenuButton {
+        label = "Back",
+        verb = .PopMenu,
+    },
 }
 
 ImguiPushConstants :: struct {
@@ -48,14 +103,15 @@ ImguiUniforms :: struct {
 
 ImguiState :: struct {
     ctxt: ^imgui.Context,
-    //font_atlas: vkw.Texture_Handle,
     vertex_buffer: vkw.Buffer_Handle,
     index_buffer: vkw.Buffer_Handle,
     uniform_buffer: vkw.Buffer_Handle,
     pipeline: vkw.Pipeline_Handle,
     show_gui: bool,
+
     dockspace_id: u32,
     dockspace_viewport: [4]f32,
+
     user_facing_font: ^imgui.Font,
     menu_stack: queue.Queue(UserMenu),
     menu_player_idx: int,               // Last player to use menus
@@ -90,7 +146,7 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
         user_font_scale, ok := user_config.floats[.ImguiFontScaleMain]
         if ok {
             style.FontScaleMain = cast(f32)user_font_scale
-        } 
+        }
     } 
 
     // Allocate imgui vertex buffer
@@ -400,27 +456,36 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
 
     // First pass for layout
     items_size := [2]f32 {}
-    total_buttons := 0
+    total_items := 0
     for item in items {
-        switch it in item {
+        total_items += 1
+        switch &it in item {
             case UserMenuButton: {
                 label := strings.unsafe_string_to_cstring(it.label)
                 text_size := imgui.CalcTextSize(label)
                 items_size.x = max(items_size.x, text_size.x)
                 items_size.y += text_size.y
-                total_buttons += 1
+            }
+            case UserMenuSlider: {
+                label := strings.unsafe_string_to_cstring(it.label)
+                text_size := imgui.CalcTextSize(label)
+                items_size.y += text_size.y
+                items_size.x = max(imgui.GetContentRegionAvail().x + text_size.x, items_size.x)
             }
         }
     }
     // Add padding
-    items_size.y += 10.0 * f32(total_buttons)
+    items_size.y += 10.0 * f32(total_items)
 
     imgui.SetNextWindowSize({items_size.x + 30.0, items_size.y})
     flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,.NoBackground}
+    //flags : imgui.WindowFlags = {.NoTitleBar,.NoScrollbar}
     defer imgui.End()
     if imgui.Begin("Pause menu", nil, flags) {
         imgui.PushStyleColor(.Button, 0x00000000)
         imgui.PushStyleColor(.ButtonHovered, 0x00000000)
+        imgui.PushStyleColor(.ButtonActive, 0x00000000)
+        defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
 
@@ -429,14 +494,32 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         imgui.SetCursorPos(new_cursor)
 
         // Second pass for building UI
-        for item in items {
-            switch it in item {
+        for &item in items {
+            switch &it in item {
                 case UserMenuButton: {
                     label := strings.unsafe_string_to_cstring(it.label)
-                    //it.ptr^ = gui_centered_button(label)
+                    if it._was_hovered {
+                        imgui.PushStyleColor(.Text, 0xFF007700)
+                    }
+                    if it._was_active {
+                        imgui.PushStyleColor(.Text, 0xFF00FF00)
+                    }
                     if gui_centered_button(label) {
                         retval = it.verb
                     }
+                    if it._was_hovered {
+                        imgui.PopStyleColor()
+                    }
+                    if it._was_active {
+                        imgui.PopStyleColor()
+                    }
+                    it._was_hovered = imgui.IsItemHovered()
+                    it._was_active = imgui.IsItemActive()
+                }
+                case UserMenuSlider: {
+                    imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x * 0.5)
+                    label := strings.unsafe_string_to_cstring(it.label)
+                    imgui.SliderFloat(label, it.value, it.min, it.max)
                 }
             }
         }

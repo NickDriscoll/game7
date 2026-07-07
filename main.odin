@@ -575,35 +575,9 @@ main :: proc() {
             player_verbs := output_verbs.recipient_verbs[player_idx]
             toggled_pause := player_verbs.bools[.PlayerPauseGame]
             if toggled_pause {
-                // if app.game_state.paused {
-                //     app.renderer.uniforms.fade_to_black = 1.0
-                //     app.input_system.button_mappings[player_idx] = &app.game_state.button_mappings[player_idx]
-                // } else {
-                //     app.renderer.uniforms.fade_to_black = 0.4
-                //     app.input_system.button_mappings[player_idx] = &app.game_state.menu_button_mappings[player_idx]
-                // }
-                // app.renderer.uniforms.flags ~= {.BlackAndWhite}
-
                 if !app.game_state.paused {
-                    menu_items := make([dynamic]UserMenuItem, 0, 4, app.global_allocator)
-                    append(&menu_items, UserMenuButton {
-                        label = "Resume",
-                        verb = .PlayerPauseGame
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "Guide",
-                        //ptr = nil,
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "Settings",
-                        verb = .SettingsMenu
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "Exit",
-                        verb = .Quit
-                    })
                     menu := UserMenu {
-                        items = menu_items,
+                        items = PAUSE_MENU_ITEMS,
                         player_idx = player_idx
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
@@ -630,25 +604,39 @@ main :: proc() {
                     app.game_state.paused = false
                 }
                 case .SettingsMenu: {
-                    menu_items := make([dynamic]UserMenuItem, 0, 4, app.global_allocator)
-                    append(&menu_items, UserMenuButton {
-                        label = "Suckitude",
-                        //verb = .PlayerPauseGame
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "Game",
-                        //ptr = nil,
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "System",
-                        //verb = .SettingsMenu
-                    })
-                    append(&menu_items, UserMenuButton {
-                        label = "Back",
-                        verb = .PopMenu
-                    })
                     menu := UserMenu {
-                        items = menu_items,
+                        items = SETTINGS_MENU_ITEMS,
+                        player_idx = app.gui.menu_player_idx
+                    }
+                    queue.push_front(&app.gui.menu_stack, menu)
+                }
+                case .AudioMenu: {
+                    AUDIO_MENU_ITEMS : []UserMenuItem = {
+                        UserMenuSlider {
+                            label = "Master volume",
+                            min = 0.0,
+                            max = 1.0,
+                            value = &app.audio_system.master_volume,
+                        },
+                        UserMenuSlider {
+                            label = "Music volume",
+                            min = 0.0,
+                            max = 1.0,
+                            value = &app.audio_system.music_volume,
+                        },
+                        UserMenuSlider {
+                            label = "SFX volume",
+                            min = 0.0,
+                            max = 1.0,
+                            value = &app.audio_system.sfx_volume,
+                        },
+                        UserMenuButton {
+                            label = "Back",
+                            verb = .PopMenu
+                        }
+                    }
+                    menu := UserMenu {
+                        items = AUDIO_MENU_ITEMS,
                         player_idx = app.gui.menu_player_idx
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
