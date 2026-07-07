@@ -326,7 +326,7 @@ app_startup :: proc(app: ^App) -> bool {
         }
 
         //Dear ImGUI init
-        app.gui = imgui_init(&app.vgd, app.user_config, app.window.resolution)
+        app.gui = imgui_init(&app.vgd, app.user_config, app.window.resolution, app.global_allocator)
         if app.gui.show_gui {
             sdl2.SetWindowTitle(app.window.window, TITLE_WITH_IMGUI)
         }

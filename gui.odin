@@ -61,11 +61,13 @@ ImguiState :: struct {
     menu_player_idx: int,               // Last player to use menus
 }
 
-imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2) -> ImguiState {
+imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration, resolution: hlsl.uint2, global_allocator := context.allocator) -> ImguiState {
     scoped_event(&profiler, "ImGUI init")
     imgui_state: ImguiState
     imgui_state.show_gui = user_config.flags[.ImguiEnabled]
     imgui_state.ctxt = imgui.CreateContext()
+
+    queue.init(&imgui_state.menu_stack, allocator = global_allocator)
 
     io := imgui.GetIO()
     io.DisplaySize.x = f32(resolution.x)
@@ -360,6 +362,7 @@ gui_do_menu_stack :: proc(app: ^App) -> VerbType {
     retval : VerbType = nil
 
     // Handle menu stack
+    @static last_was_menu := false
     if queue.len(app.gui.menu_stack) > 0 {
         active_menu := queue.front_ptr(&app.gui.menu_stack)
         app.gui.menu_player_idx = active_menu.player_idx
@@ -371,20 +374,14 @@ gui_do_menu_stack :: proc(app: ^App) -> VerbType {
         app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
 
         retval = gui_user_menu(app.gui, active_menu.items[:])
-        
-        // if app.game_state.paused {
-        //     app.renderer.uniforms.fade_to_black = 1.0
-        //     app.input_system.button_mappings[player_idx] = &app.game_state.button_mappings[player_idx]
-        // } else {
-        //     app.renderer.uniforms.fade_to_black = 0.4
-        //     app.input_system.button_mappings[player_idx] = &app.game_state.menu_button_mappings[player_idx]
-        // }
-        // app.renderer.uniforms.flags ~= {.BlackAndWhite}
-    } else {
+        last_was_menu = true
+    } else if last_was_menu {
         app.renderer.uniforms.fade_to_black = 1.0
         app.renderer.uniforms.flags -= {.BlackAndWhite}
         app.input_system.button_mappings[app.gui.menu_player_idx] = &app.game_state.button_mappings[app.gui.menu_player_idx]
         app.input_system.key_mappings[app.gui.menu_player_idx] = &app.game_state.character_key_mappings
+        app.game_state.paused = false
+        last_was_menu = false
     }
 
     return retval
