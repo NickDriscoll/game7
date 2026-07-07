@@ -1371,7 +1371,7 @@ init_gamestate :: proc(
             game_state.button_mappings[recipient][.RIGHTSHOULDER] = .TranslateFreecamUp
 
             game_state.menu_button_mappings[recipient][.B] = .PopMenu
-            game_state.menu_button_mappings[recipient][.START] = .PopMenu
+            game_state.menu_button_mappings[recipient][.START] = .PlayerPauseGame
         }
 
         game_state.system_button_mappings[.START] = .AddLocalPlayer
