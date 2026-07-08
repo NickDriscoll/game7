@@ -32,6 +32,8 @@ UserMenuSlider :: struct {
     value: ^f32,
     min: f32,
     max: f32,
+    _was_hovered: bool,
+    _was_active: bool,
 }
 
 UserMenuItem :: union {
@@ -454,12 +456,14 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         gui.dockspace_viewport[3] / 2.0,
     }, .Always, {0.5, 0.5})
 
+    imgui.SetNavCursorVisible(true)
+
     // First pass for layout
     items_size := [2]f32 {}
     total_items := 0
     for item in items {
         total_items += 1
-        switch &it in item {
+        switch it in item {
             case UserMenuButton: {
                 label := strings.unsafe_string_to_cstring(it.label)
                 text_size := imgui.CalcTextSize(label)
@@ -485,42 +489,75 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         imgui.PushStyleColor(.Button, 0x00000000)
         imgui.PushStyleColor(.ButtonHovered, 0x00000000)
         imgui.PushStyleColor(.ButtonActive, 0x00000000)
+        imgui.PushStyleColor(.NavCursor, 0x00000000)
+        imgui.PushStyleColor(.ScrollbarBg, 0x00000000)
+        imgui.PushStyleColor(.SliderGrab, 0x00000000)
+        imgui.PushStyleColor(.SliderGrabActive, 0x00000000)
+        imgui.PushStyleColor(.FrameBg, 0x00000000)
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
+
 
         new_cursor := imgui.GetCursorPos()
         new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - items_size.y / 2.0
         imgui.SetCursorPos(new_cursor)
 
+        text_colors := [?]u32 {0xFFFFFFFF, 0xFF007700, 0xFF00FF00}
+
         // Second pass for building UI
-        for &item in items {
+        for &item, i in items {
             switch &it in item {
                 case UserMenuButton: {
                     label := strings.unsafe_string_to_cstring(it.label)
-                    if it._was_hovered {
-                        imgui.PushStyleColor(.Text, 0xFF007700)
-                    }
-                    if it._was_active {
-                        imgui.PushStyleColor(.Text, 0xFF00FF00)
-                    }
+
+                    colori := 0
+                    if it._was_hovered {colori = 1}
+                    if it._was_active {colori = 2}
+
+                    // if it._was_hovered {
+                    //     imgui.PushStyleColor(.Text, 0xFF007700)
+                    // }
+                    // if it._was_active {
+                    //     imgui.PushStyleColor(.Text, 0xFF00FF00)
+                    // }
+                    imgui.PushStyleColor(.Text, text_colors[colori])
                     if gui_centered_button(label) {
                         retval = it.verb
                     }
-                    if it._was_hovered {
-                        imgui.PopStyleColor()
-                    }
-                    if it._was_active {
-                        imgui.PopStyleColor()
-                    }
+                    imgui.PopStyleColor()
+                    // if it._was_hovered {
+                    //     imgui.PopStyleColor()
+                    // }
+                    // if it._was_active {
+                    //     imgui.PopStyleColor()
+                    // }
                     it._was_hovered = imgui.IsItemHovered()
                     it._was_active = imgui.IsItemActive()
                 }
                 case UserMenuSlider: {
+                    colori := 0
+                    if it._was_hovered {colori = 1}
+                    if it._was_active {colori = 2}
+                    imgui.PushStyleColor(.Text, text_colors[colori])
+
                     imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x * 0.5)
                     label := strings.unsafe_string_to_cstring(it.label)
                     imgui.SliderFloat(label, it.value, it.min, it.max)
+                    imgui.PopStyleColor()
+
+                    it._was_hovered = imgui.IsItemHovered()
+                    it._was_active = imgui.IsItemActive()
                 }
+            }
+
+            if i == 0 {
+                imgui.SetItemDefaultFocus()
             }
         }
     }
