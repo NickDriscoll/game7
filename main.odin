@@ -601,7 +601,6 @@ main :: proc() {
                 }
                 case .PlayerPauseGame: {
                     queue.clear(&app.gui.menu_stack)
-                    app.game_state.paused = false
                 }
                 case .SettingsMenu: {
                     menu := UserMenu {
@@ -612,31 +611,61 @@ main :: proc() {
                 }
                 case .AudioMenu: {
                     AUDIO_MENU_ITEMS : []UserMenuItem = {
-                        UserMenuSlider {
+                        {
                             label = "Master volume",
-                            min = 0.0,
-                            max = 1.0,
-                            value = &app.audio_system.master_volume,
+                            widget = UserMenuSlider {
+                                min = 0.0,
+                                max = 1.0,
+                                value = &app.audio_system.master_volume,
+                            },
                         },
-                        UserMenuSlider {
+                        {
                             label = "Music volume",
-                            min = 0.0,
-                            max = 1.0,
-                            value = &app.audio_system.music_volume,
+                            widget = UserMenuSlider {
+                                min = 0.0,
+                                max = 1.0,
+                                value = &app.audio_system.music_volume,
+                            },
                         },
-                        UserMenuSlider {
-                            label = "SFX volume",
-                            min = 0.0,
-                            max = 1.0,
-                            value = &app.audio_system.sfx_volume,
+                        {
+                            label = "SFX Volume",
+                            widget = UserMenuSlider {
+                                min = 0.0,
+                                max = 1.0,
+                                value = &app.audio_system.sfx_volume,
+                            },
                         },
-                        UserMenuButton {
+                        {
                             label = "Back",
-                            verb = .PopMenu
-                        }
+                            widget = UserMenuButton {
+                                verb = .PopMenu
+                            },
+                        },
                     }
                     menu := UserMenu {
                         items = AUDIO_MENU_ITEMS,
+                        player_idx = app.gui.menu_player_idx
+                    }
+                    queue.push_front(&app.gui.menu_stack, menu)
+                }
+                case .GraphicsMenu: {
+                    crt_on := .CRTShader in app.renderer.uniforms.flags
+                    items : []UserMenuItem = {
+                        {
+                            label = "Enable CRT filter",
+                            widget = UserMenuCheckbox {
+                                value = &crt_on
+                            }
+                        },
+                        {
+                            label = "Back",
+                            widget = UserMenuButton {
+                                verb = .PopMenu
+                            }
+                        }
+                    }
+                    menu := UserMenu {
+                        items = items,
                         player_idx = app.gui.menu_player_idx
                     }
                     queue.push_front(&app.gui.menu_stack, menu)

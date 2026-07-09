@@ -20,74 +20,102 @@ import hm "desktop_vulkan_wrapper/handlemap"
 MAX_IMGUI_VERTICES :: 256 * 1024
 MAX_IMGUI_INDICES :: 64 * 1024
 
-UserMenuButton :: struct {
-    label: string,
-    verb: VerbType,
+UserMenuItemCommon :: struct {
     _was_hovered: bool,
     _was_active: bool,
+    label: string,
+}
+
+UserMenuButton :: struct {
+    verb: VerbType,
+}
+
+UserMenuCheckbox :: struct {
+    value: ^bool,
+}
+
+UserMenuFlagsCheckbox :: struct($T: typeid) {
+    set: ^bit_set[T],
+    flag: T,
 }
 
 UserMenuSlider :: struct {
-    label: string,
     value: ^f32,
     min: f32,
     max: f32,
-    _was_hovered: bool,
-    _was_active: bool,
 }
 
-UserMenuItem :: union {
+UserMenuWidget :: union {
     UserMenuButton,
+    UserMenuCheckbox,
+    //UserMenuFlagsCheckbox,
     UserMenuSlider
 }
 
+UserMenuItem :: struct {
+    using c: UserMenuItemCommon,
+    widget: UserMenuWidget,
+}
+
 UserMenu :: struct {
-    //items: [dynamic]UserMenuItem,
     items: []UserMenuItem,
     player_idx: int,
 }
 
 PAUSE_MENU_ITEMS : []UserMenuItem = {
-    UserMenuButton {
+    {
         label = "Resume",
-        verb = .PlayerPauseGame,
-        _was_hovered = true,
+        widget = UserMenuButton {
+            verb = .PlayerPauseGame,
+        },
     },
-    UserMenuButton {
+    {
         label = "Guide",
-        //verb = .PlayerPauseGame,
+        widget = UserMenuButton {
+            //verb = .PlayerPauseGame,
+        },
     },
-    UserMenuButton {
+    {
         label = "Settings",
-        verb = .SettingsMenu,
+        widget = UserMenuButton {
+            verb = .SettingsMenu,
+        },
     },
-    UserMenuButton {
-        label = "Exit",
-        verb = .Quit,
+    {
+        label = "Quit",
+        widget = UserMenuButton {
+            verb = .Quit,
+        },
     },
 }
 SETTINGS_MENU_ITEMS : []UserMenuItem = {
-    UserMenuButton {
+    {
         label = "Game",
+        widget = UserMenuButton {
+        },
     },
-    UserMenuButton {
+    {
         label = "Graphics",
+        widget = UserMenuButton {
+            verb = .GraphicsMenu
+        },
     },
-    UserMenuButton {
+    {
         label = "Audio",
-        verb = .AudioMenu,
+        widget = UserMenuButton {
+            verb = .AudioMenu,
+        },
     },
-    UserMenuButton {
+    {
         label = "System",
+        widget = UserMenuButton {
+        },
     },
-    // UserMenuSlider {
-    //     label = "Trying lol",
-    //     min = -1.0,
-    //     max = 1.0
-    // },
-    UserMenuButton {
+    {
         label = "Back",
-        verb = .PopMenu,
+        widget = UserMenuButton {
+            verb = .PopMenu,
+        },
     },
 }
 
@@ -463,16 +491,18 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
     total_items := 0
     for item in items {
         total_items += 1
-        switch it in item {
+        label := strings.unsafe_string_to_cstring(item.label)
+        text_size := imgui.CalcTextSize(label)
+        switch it in item.widget {
             case UserMenuButton: {
-                label := strings.unsafe_string_to_cstring(it.label)
-                text_size := imgui.CalcTextSize(label)
                 items_size.x = max(items_size.x, text_size.x)
                 items_size.y += text_size.y
             }
+            case UserMenuCheckbox: {
+                items_size.x = max(items_size.x, text_size.x + imgui.GetFrameHeight())
+                items_size.y += text_size.y
+            }
             case UserMenuSlider: {
-                label := strings.unsafe_string_to_cstring(it.label)
-                text_size := imgui.CalcTextSize(label)
                 items_size.y += text_size.y
                 items_size.x = max(imgui.GetContentRegionAvail().x + text_size.x, items_size.x)
             }
@@ -489,13 +519,9 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         imgui.PushStyleColor(.Button, 0x00000000)
         imgui.PushStyleColor(.ButtonHovered, 0x00000000)
         imgui.PushStyleColor(.ButtonActive, 0x00000000)
-        imgui.PushStyleColor(.NavCursor, 0x00000000)
+        imgui.PushStyleColor(.NavCursor, 0xFFFFFFFF)
         imgui.PushStyleColor(.ScrollbarBg, 0x00000000)
-        imgui.PushStyleColor(.SliderGrab, 0x00000000)
-        imgui.PushStyleColor(.SliderGrabActive, 0x00000000)
-        imgui.PushStyleColor(.FrameBg, 0x00000000)
-        defer imgui.PopStyleColor()
-        defer imgui.PopStyleColor()
+        imgui.PushStyleColor(.FrameBg, 0xFF111111)
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
@@ -508,53 +534,37 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         new_cursor.y = imgui.GetCursorPos().y + imgui.GetContentRegionAvail().y / 2.0 - items_size.y / 2.0
         imgui.SetCursorPos(new_cursor)
 
+        // Unselected, Hovered, Active
         text_colors := [?]u32 {0xFFFFFFFF, 0xFF007700, 0xFF00FF00}
 
         // Second pass for building UI
         for &item, i in items {
-            switch &it in item {
+            colori := 0
+            if item._was_hovered {colori = 1}
+            if item._was_active {colori = 2}
+            imgui.PushStyleColor(.Text, text_colors[colori])
+            imgui.PushStyleColor(.SliderGrab, text_colors[colori])
+            imgui.PushStyleColor(.SliderGrabActive, text_colors[colori])
+            defer imgui.PopStyleColor()
+            defer imgui.PopStyleColor()
+            defer imgui.PopStyleColor()
+            label := strings.unsafe_string_to_cstring(item.label)
+            switch &it in item.widget {
                 case UserMenuButton: {
-                    label := strings.unsafe_string_to_cstring(it.label)
-
-                    colori := 0
-                    if it._was_hovered {colori = 1}
-                    if it._was_active {colori = 2}
-
-                    // if it._was_hovered {
-                    //     imgui.PushStyleColor(.Text, 0xFF007700)
-                    // }
-                    // if it._was_active {
-                    //     imgui.PushStyleColor(.Text, 0xFF00FF00)
-                    // }
-                    imgui.PushStyleColor(.Text, text_colors[colori])
                     if gui_centered_button(label) {
                         retval = it.verb
                     }
-                    imgui.PopStyleColor()
-                    // if it._was_hovered {
-                    //     imgui.PopStyleColor()
-                    // }
-                    // if it._was_active {
-                    //     imgui.PopStyleColor()
-                    // }
-                    it._was_hovered = imgui.IsItemHovered()
-                    it._was_active = imgui.IsItemActive()
+                }
+                case UserMenuCheckbox: {
+                    imgui.Checkbox(label, it.value)
                 }
                 case UserMenuSlider: {
-                    colori := 0
-                    if it._was_hovered {colori = 1}
-                    if it._was_active {colori = 2}
-                    imgui.PushStyleColor(.Text, text_colors[colori])
-
                     imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x * 0.5)
-                    label := strings.unsafe_string_to_cstring(it.label)
                     imgui.SliderFloat(label, it.value, it.min, it.max)
-                    imgui.PopStyleColor()
-
-                    it._was_hovered = imgui.IsItemHovered()
-                    it._was_active = imgui.IsItemActive()
                 }
             }
+            item._was_hovered = imgui.IsItemHovered()
+            item._was_active = imgui.IsItemActive()
 
             if i == 0 {
                 imgui.SetItemDefaultFocus()

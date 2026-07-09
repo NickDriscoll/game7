@@ -41,6 +41,7 @@ VerbType :: enum {
     PopMenu,
     SettingsMenu,
     AudioMenu,
+    GraphicsMenu,
 
     TranslateFreecamLeft,
     TranslateFreecamRight,
