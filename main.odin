@@ -433,6 +433,8 @@ main :: proc() {
                     // Load selected level
                     app.load_new_level = strings.clone(string(list_items[selected_item]), context.allocator)
                     show_load_modal = false
+                    app.game_state.paused = false
+                    queue.clear(&app.gui.menu_stack)
                     imgui.CloseCurrentPopup()
                 }
                 imgui.Separator()
@@ -576,8 +578,34 @@ main :: proc() {
             toggled_pause := player_verbs.bools[.PlayerPauseGame]
             if toggled_pause {
                 if !app.game_state.paused {
+                    items : []UserMenuItem = {
+                        {
+                            label = "Resume",
+                            widget = UserMenuButton {
+                                verb = .PlayerPauseGame,
+                            },
+                        },
+                        {
+                            label = "Level Select",
+                            widget = UserMenuButton {
+                                verb = .ShowLoadLevel,
+                            },
+                        },
+                        {
+                            label = "Settings",
+                            widget = UserMenuButton {
+                                verb = .SettingsMenu,
+                            },
+                        },
+                        {
+                            label = "Quit",
+                            widget = UserMenuButton {
+                                verb = .Quit,
+                            },
+                        },
+                    }
                     menu := UserMenu {
-                        items = PAUSE_MENU_ITEMS,
+                        items = items,
                         player_idx = player_idx
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
@@ -599,12 +627,45 @@ main :: proc() {
                 case .Quit: {
                     do_main_loop = false
                 }
+                case .ShowLoadLevel: {
+                    show_load_modal = true
+                }
                 case .PlayerPauseGame: {
                     queue.clear(&app.gui.menu_stack)
                 }
                 case .SettingsMenu: {
+                    items : []UserMenuItem = {
+                        {
+                            label = "Game",
+                            widget = UserMenuButton {
+                            },
+                        },
+                        {
+                            label = "Graphics",
+                            widget = UserMenuButton {
+                                verb = .GraphicsMenu
+                            },
+                        },
+                        {
+                            label = "Audio",
+                            widget = UserMenuButton {
+                                verb = .AudioMenu,
+                            },
+                        },
+                        {
+                            label = "System",
+                            widget = UserMenuButton {
+                            },
+                        },
+                        {
+                            label = "Back",
+                            widget = UserMenuButton {
+                                verb = .PopMenu,
+                            },
+                        },
+                    }
                     menu := UserMenu {
-                        items = SETTINGS_MENU_ITEMS,
+                        items = items,
                         player_idx = app.gui.menu_player_idx
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
@@ -649,12 +710,12 @@ main :: proc() {
                     queue.push_front(&app.gui.menu_stack, menu)
                 }
                 case .GraphicsMenu: {
-                    crt_on := .CRTShader in app.renderer.uniforms.flags
                     items : []UserMenuItem = {
                         {
-                            label = "Enable CRT filter",
-                            widget = UserMenuCheckbox {
-                                value = &crt_on
+                            label = "CRT filter",
+                            widget = UserMenuFlagsCheckbox(UniformFlag) {
+                                set = &app.renderer.uniforms.flags,
+                                flag = .CRTShader
                             }
                         },
                         {

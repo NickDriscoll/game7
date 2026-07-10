@@ -48,7 +48,7 @@ UserMenuSlider :: struct {
 UserMenuWidget :: union {
     UserMenuButton,
     UserMenuCheckbox,
-    //UserMenuFlagsCheckbox,
+    UserMenuFlagsCheckbox(UniformFlag),
     UserMenuSlider
 }
 
@@ -60,63 +60,6 @@ UserMenuItem :: struct {
 UserMenu :: struct {
     items: []UserMenuItem,
     player_idx: int,
-}
-
-PAUSE_MENU_ITEMS : []UserMenuItem = {
-    {
-        label = "Resume",
-        widget = UserMenuButton {
-            verb = .PlayerPauseGame,
-        },
-    },
-    {
-        label = "Guide",
-        widget = UserMenuButton {
-            //verb = .PlayerPauseGame,
-        },
-    },
-    {
-        label = "Settings",
-        widget = UserMenuButton {
-            verb = .SettingsMenu,
-        },
-    },
-    {
-        label = "Quit",
-        widget = UserMenuButton {
-            verb = .Quit,
-        },
-    },
-}
-SETTINGS_MENU_ITEMS : []UserMenuItem = {
-    {
-        label = "Game",
-        widget = UserMenuButton {
-        },
-    },
-    {
-        label = "Graphics",
-        widget = UserMenuButton {
-            verb = .GraphicsMenu
-        },
-    },
-    {
-        label = "Audio",
-        widget = UserMenuButton {
-            verb = .AudioMenu,
-        },
-    },
-    {
-        label = "System",
-        widget = UserMenuButton {
-        },
-    },
-    {
-        label = "Back",
-        widget = UserMenuButton {
-            verb = .PopMenu,
-        },
-    },
 }
 
 ImguiPushConstants :: struct {
@@ -506,6 +449,10 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
                 items_size.y += text_size.y
                 items_size.x = max(imgui.GetContentRegionAvail().x + text_size.x, items_size.x)
             }
+            case UserMenuFlagsCheckbox(UniformFlag): {
+                items_size.x = max(items_size.x, text_size.x + imgui.GetFrameHeight())
+                items_size.y += text_size.y
+            }
         }
     }
     // Add padding
@@ -519,9 +466,17 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         imgui.PushStyleColor(.Button, 0x00000000)
         imgui.PushStyleColor(.ButtonHovered, 0x00000000)
         imgui.PushStyleColor(.ButtonActive, 0x00000000)
-        imgui.PushStyleColor(.NavCursor, 0xFFFFFFFF)
+        imgui.PushStyleColor(.NavCursor, 0x00000000)
         imgui.PushStyleColor(.ScrollbarBg, 0x00000000)
         imgui.PushStyleColor(.FrameBg, 0xFF111111)
+        imgui.PushStyleColor(.FrameBgHovered, 0xFF070707)
+        imgui.PushStyleColor(.FrameBgActive, 0xFF000000)
+        imgui.PushStyleVar(.FrameRounding, 16.0)
+        imgui.PushStyleVar(.GrabRounding, 16.0)
+        defer imgui.PopStyleVar()
+        defer imgui.PopStyleVar()
+        defer imgui.PopStyleColor()
+        defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
         defer imgui.PopStyleColor()
@@ -557,6 +512,12 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
                 }
                 case UserMenuCheckbox: {
                     imgui.Checkbox(label, it.value)
+                }
+                case UserMenuFlagsCheckbox(UniformFlag): {
+                    checked := it.flag in it.set
+                    if imgui.Checkbox(label, &checked) {
+                        it.set^ ~= {it.flag}
+                    }
                 }
                 case UserMenuSlider: {
                     imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x * 0.5)
