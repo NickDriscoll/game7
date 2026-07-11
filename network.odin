@@ -38,6 +38,8 @@ serialize_broadcast_packet :: proc(p: BroadcastPacket, allocator := context.temp
 
 ClientUpdatePacket :: struct {
     position: [3]f32,
+    anim_idx: u32,
+    anim_t: f32,
     local_player_id: u8,
 }
 
@@ -62,7 +64,7 @@ Network :: struct {
 
 network_init :: proc(user_config: UserConfiguration, allocator := context.allocator) -> Network {
     network: Network
-    network.remote_players = make([dynamic]EntityID, 0, 16, allocator)
+    network.remote_players = make([dynamic]EntityID, 0, MAX_SPLITSCREEN_PLAYERS, allocator)
 
     errcode := enet.initialize()
     assert(errcode == 0)
@@ -173,7 +175,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                     network.server_peer = event.peer
                     log.infof("Server got connection from connect id %v", event.peer.connectID)
                     id := gamestate_next_id(game_state)
-                    append(&network.remote_players, id)
                     game_state.transforms[id] = Transform {
                         scale = 1.0
                     }
@@ -206,12 +207,16 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
             for player_id, idx in game_state.local_players {
                 tfrom, ok := game_state.transforms[player_id]
                 assert(ok)
+                a, aok := &game_state.skinned_models[player_id]
+                assert(aok)
                 assert(idx < 256)
                 packet_data := ClientUpdatePacket {
                     local_player_id = u8(idx),
-                    position = tfrom.position
+                    anim_idx = a.anim_idx,
+                    anim_t = a.anim_t,
+                    position = tfrom.position,
                 }
-                packet := enet.packet_create(&tfrom.position, size_of(tfrom.position), {})
+                packet := enet.packet_create(&packet_data, size_of(ClientUpdatePacket), {})
                 errcode := enet.peer_send(network.server_peer, 0, packet)
                 assert(errcode == 0)
             }
@@ -236,15 +241,19 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
 
                     con_id := event.peer.connectID
 
-                    assert(event.packet.dataLength == size_of(hlsl.float3))
+                    assert(event.packet.dataLength == size_of(ClientUpdatePacket))
                     cpacket := cast(^ClientUpdatePacket)event.packet.data
-                    //output.float3_update[.PlayerUpdate] = cpacket.position
-                    if len(network.remote_players) < int(cpacket.local_player_id) {
-                        tform, ok := game_state.transforms[network.remote_players[cpacket.local_player_id]]
-                        tform.position = cpacket.position
+                    log.infof("Received remote player %v position from %v: %v", cpacket.local_player_id, con_id, cpacket.position)
+                    if int(cpacket.local_player_id) < len(network.remote_players) {
+                        local_id := network.remote_players[cpacket.local_player_id]
+                        tform, ok := &game_state.transforms[local_id]
+                        assert(ok)
+                        a, aok := &game_state.skinned_models[local_id]
+                        assert(aok)
+                        a.anim_idx = cpacket.anim_idx
+                        a.anim_t = cpacket.anim_t
+                        tform.position = cpacket.position + {4.0, 0.0, 0.0}
                     }
-
-                    //log.infof("Packet value received: %v", cpacket.position)
                 }
             }
         }
