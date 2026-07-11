@@ -10,6 +10,7 @@ import "core:log"
 import "core:math/linalg/hlsl"
 import "core:os"
 import "core:strings"
+import "core:time"
 import enet "vendor:ENet"
 import imgui "odin-imgui"
 
@@ -37,7 +38,7 @@ serialize_broadcast_packet :: proc(p: BroadcastPacket, allocator := context.temp
 }
 
 ClientUpdatePacket :: struct {
-    position: [3]f32,
+    position: float3,
     anim_idx: u32,
     anim_t: f32,
     local_player_id: u8,
@@ -52,19 +53,19 @@ Network :: struct {
     broadcast_sender: enet.Socket,
     listen_address: enet.Address,
 
-    server: ^enet.Host,
-    server_peer: ^enet.Peer,
-
-    client: ^enet.Host,
-    client_peer: ^enet.Peer,
+    host: ^enet.Host,
+    one_and_only_peer: ^enet.Peer,
 
     remote_players: [dynamic]EntityID,
     my_ip: net.IP4_Address,
+
+    _unique_id: i64,
 }
 
 network_init :: proc(user_config: UserConfiguration, allocator := context.allocator) -> Network {
     network: Network
     network.remote_players = make([dynamic]EntityID, 0, MAX_SPLITSCREEN_PLAYERS, allocator)
+    network._unique_id = time.now()._nsec
 
     errcode := enet.initialize()
     assert(errcode == 0)
@@ -95,13 +96,16 @@ network_init :: proc(user_config: UserConfiguration, allocator := context.alloca
     network.broadcast_sender = enet.socket_create(.DATAGRAM)
     enet.socket_set_option(network.broadcast_sender, .BROADCAST, 1)
 
-    server_addr := enet.Address {
-        host = enet.HOST_ANY,
-        port = SERVER_PORT,
-    }
-    network.server = enet.host_create(&server_addr, MAX_SERVER_PEERS, 2, 0, 0)
-    if network.server == nil {
-        log.error("Unable to create ENet server host. Is another copy of the game running on this machine?")
+    is_server := true
+    if is_server {
+        server_addr := enet.Address {
+            host = enet.HOST_ANY,
+            port = SERVER_PORT,
+        }
+        network.host = enet.host_create(&server_addr, MAX_SERVER_PEERS, 2, 0, 0)
+        if network.host == nil {
+            log.error("Unable to create ENet server host. Is another copy of the game running on this machine?")
+        }
     }
 
     return network
@@ -127,8 +131,8 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
     game_state := &app.game_state
 
     event: enet.Event
-    if network.server != nil {
-        // Receive broadcast packet
+    if network.host != nil {
+        //  broadcast packet
         {
             recvbuf: [256]u8
             b := enet.Buffer {
@@ -140,39 +144,45 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
             if bytes_received > 0 {
                 meaning := BroadcastMeaning(recvbuf[0])
                 payload := string(recvbuf[1:bytes_received])
-                if meaning == .ClientQuery {
-                    recv_username := payload
-                    log.infof("Received username: \"%v\" from address %v", recv_username, address_string(retaddr))
-    
-                    // Send response packet
-                    addr := enet.Address {
-                        host = enet.HOST_BROADCAST,
-                        port = BROADCAST_PORT,
+                switch meaning {
+                    case .ClientQuery: {
+                        recv_username := payload
+                        log.infof("Received username: \"%v\" from address %v", recv_username, address_string(retaddr))
+        
+                        // Send response packet
+                        addr := enet.Address {
+                            host = enet.HOST_BROADCAST,
+                            port = BROADCAST_PORT,
+                        }
+                        p := BroadcastPacket {
+                            meaning = .ServerResponse,
+                            payload = app.current_level
+                        }
+                        bytes := serialize_broadcast_packet(p)
+                        b2 := enet.Buffer {
+                            data = raw_data(bytes),
+                            dataLength = len(bytes)
+                        }
+                
+                        errcode := enet.socket_connect(network.broadcast_sender, &addr)
+                        assert(errcode == 0)
+                        bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b2, 1)
+                        assert(uint(bytes_sent) == b2.dataLength)
                     }
-                    p := BroadcastPacket {
-                        meaning = .ServerResponse,
-                        payload = app.current_level
+                    case .ServerResponse: {
+                        resp := string(recvbuf[1:bytes_received])
+                        log.infof("Game7 peer at %v said \"%v\"", address_string(retaddr), resp)
                     }
-                    bytes := serialize_broadcast_packet(p)
-                    b2 := enet.Buffer {
-                        data = raw_data(bytes),
-                        dataLength = len(bytes)
-                    }
-            
-                    errcode := enet.socket_connect(network.broadcast_sender, &addr)
-                    assert(errcode == 0)
-                    bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b2, 1)
-                    assert(uint(bytes_sent) == b2.dataLength)
                 }
             }
         }
 
         // Service host events
-        for enet.host_service(network.server, &event, 0) > 0 {
+        for enet.host_service(network.host, &event, 0) > 0 {
             switch event.type {
                 case .NONE: { assert(false, "Should be unreachable") }
                 case .CONNECT: {
-                    network.server_peer = event.peer
+                    network.one_and_only_peer = event.peer
                     log.infof("Server got connection from connect id %v", event.peer.connectID)
                     id := gamestate_next_id(game_state)
                     game_state.transforms[id] = Transform {
@@ -186,8 +196,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                     append(&network.remote_players, id)
 
                     log.infof("Peer address %v",  to_net_addr(event.peer.address))
-                    //connect_client(network, event.peer.address)
-                    network.client_peer = network.server_peer
                 }
                 case .DISCONNECT: {
                     log.info("Disconnect event")
@@ -198,46 +206,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                     net_addr := to_net_addr(addr)
 
                     log.infof("Received packet from %v", net_addr)
-                }
-            }
-        }
-
-        // Send player position to clients
-        if network.server_peer != nil {
-            for player_id, idx in game_state.local_players {
-                tfrom, ok := game_state.transforms[player_id]
-                assert(ok)
-                a, aok := &game_state.skinned_models[player_id]
-                assert(aok)
-                assert(idx < 256)
-                packet_data := ClientUpdatePacket {
-                    local_player_id = u8(idx),
-                    anim_idx = a.anim_idx,
-                    anim_t = a.anim_t,
-                    position = tfrom.position,
-                }
-                packet := enet.packet_create(&packet_data, size_of(ClientUpdatePacket), {})
-                errcode := enet.peer_send(network.server_peer, 0, packet)
-                assert(errcode == 0)
-            }
-        }
-    }
-
-    if network.client != nil {
-        for enet.host_service(network.client, &event, 0) > 0 {
-            switch event.type {
-                case .NONE: {}
-                case .CONNECT: {
-                    addr_str := net.to_string(to_net_addr(event.peer.address))
-                    log.infof("Client Got connection from %v", addr_str)
-                }
-                case .DISCONNECT: {
-                    log.info("Disconnect event")
-                }
-                case .RECEIVE: {
-                    defer enet.packet_destroy(event.packet)
-                    addr := event.peer.address
-                    net_addr := to_net_addr(addr)
 
                     con_id := event.peer.connectID
 
@@ -255,6 +223,27 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                         tform.position = cpacket.position + {4.0, 0.0, 0.0}
                     }
                 }
+            }
+        }
+
+        // Send player position
+        if network.one_and_only_peer != nil {
+            for player_id, idx in game_state.local_players {
+                tfrom, ok := game_state.transforms[player_id]
+                assert(ok)
+                a, aok := &game_state.skinned_models[player_id]
+                assert(aok)
+                assert(idx < 256)
+                packet_data := ClientUpdatePacket {
+                    local_player_id = u8(idx),
+                    anim_idx = a.anim_idx,
+                    anim_t = a.anim_t,
+                    position = tfrom.position,
+                }
+                packet := enet.packet_create(&packet_data, size_of(ClientUpdatePacket), {})
+                errcode := enet.peer_send(network.one_and_only_peer, 0, packet)
+                log.errorf("errcode == %v", errcode)
+                assert(errcode == 0)
             }
         }
     }
@@ -281,10 +270,11 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
 }
 
 connect_client_net :: proc(network: ^Network, addr: net.Address) {
-    network.client = enet.host_create(nil, 1, 2, 0, 0)
-    assert(network.client != nil)
+    network.host = enet.host_create(nil, 1, 2, 0, 0)
+    assert(network.host != nil)
 
-    ip4_addr := addr.(net.IP4_Address)
+    ip4_addr, ok := addr.(net.IP4_Address)
+    assert(ok)
     peer_addr := enet.Address {
         host = (cast(^u32)(&ip4_addr[0]))^,
         port = SERVER_PORT,
@@ -294,8 +284,8 @@ connect_client_net :: proc(network: ^Network, addr: net.Address) {
 
 connect_client_enet :: proc(network: ^Network, addr: enet.Address) {
     addr := addr
-    network.client_peer = enet.host_connect(network.client, &addr, 2, 0)
-    if network.client_peer == nil {
+    network.one_and_only_peer = enet.host_connect(network.host, &addr, 2, 0)
+    if network.one_and_only_peer == nil {
         log.errorf("Unable to connect to host.")
     }
 }
@@ -321,12 +311,17 @@ network_gui :: proc(network: ^Network, p_open: ^bool, allocator := context.temp_
             imgui.InputText("Enter username", cs, len(network.username))
         }
     
-        imgui.BeginDisabled(network.client_peer != nil || len(server_ip_string) == 0)
+        imgui.BeginDisabled(network.one_and_only_peer != nil || len(server_ip_string) == 0)
         if imgui.Button("Connect to remote game") {
             remote_addr, ok := net.parse_endpoint(server_ip_string)
             assert(ok)
     
             connect_client(network, remote_addr.address)
+        }
+        imgui.EndDisabled()
+        imgui.BeginDisabled(network.one_and_only_peer == nil)
+        if imgui.Button("Disconnect from game") {
+            enet.peer_disconnect(network.one_and_only_peer, 0)
         }
         imgui.EndDisabled()
     

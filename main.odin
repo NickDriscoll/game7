@@ -887,26 +887,6 @@ main :: proc() {
             }
         }
 
-        // TEMP AFFFFF
-        // {
-        //     @static pos: hlsl.float3
-        //     new_pos, ok := network_output.float3_update[.PlayerUpdate]
-        //     if ok {
-        //         pos = new_pos
-        //     }
-        //     ddata := DebugDraw {
-        //         world_from_model = get_transform_matrix(Transform{position = pos, scale = 1.0}),
-        //         color = {0.6, 0.6, 1.0, 0.8}
-        //     }
-        //     draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddata)
-
-        //     do_point_light(&app.renderer, PointLight {
-        //         world_position = pos,
-        //         intensity = light_flicker(app.game_state.rng_seed, app.game_state.time),
-        //         color = {0.6, 0.6, 1.0}
-        //     })
-        // }
-
         // Render
         cancel_frame := app.window.minimized
         render: if !cancel_frame {
