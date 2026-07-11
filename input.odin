@@ -304,7 +304,7 @@ poll_system_events :: proc(
                                     state.state_flags -= {.CurrentlyRemapping}
                                     continue
                                 }
-        
+
                                 key_mappings[sc] = verb
                                 delete_key(key_mappings, key)
                                 state.remap_input.value = nil
@@ -319,6 +319,7 @@ poll_system_events :: proc(
                     verbtype: VerbType
                     mapping_found: bool
                     if .CtrlHeld in state.state_flags {
+                        imgui.IO_AddKeyEvent(io, .ImGuiMod_Ctrl, true)
                         verbtype, mapping_found = state.ctrl_key_mappings[sc]
                     }
 
@@ -343,6 +344,10 @@ poll_system_events :: proc(
                     // Mappings can be nil
                     if key_mappings == nil {
                         continue
+                    }
+
+                    if .CtrlHeld in state.state_flags {
+                        imgui.IO_AddKeyEvent(io, .ImGuiMod_Ctrl, false)
                     }
 
                     verbtype, found := key_mappings[event.key.keysym.scancode]
@@ -622,6 +627,14 @@ poll_system_events :: proc(
     }
 
     return outputs
+}
+
+get_clipboard_text :: proc "c" (ctxt: ^imgui.Context) -> cstring {
+    return sdl2.GetClipboardText()
+}
+
+set_clipboard_text :: proc "c" (ctxt: ^imgui.Context, text: cstring) {
+    sdl2.SetClipboardText(text)
 }
 
 // @TODO: Clean up proc

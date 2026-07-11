@@ -54,6 +54,10 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
     io.BackendFlags += {.RendererHasTextures}
     io.ConfigDpiScaleFonts = true
 
+    platform_io := imgui.GetPlatformIO()
+    platform_io.Platform_GetClipboardTextFn = get_clipboard_text
+    platform_io.Platform_SetClipboardTextFn = set_clipboard_text
+
     // Create font atlas
     default_font := imgui.FontAtlas_AddFontDefaultVector(io.Fonts)
     style := imgui.GetStyle()
