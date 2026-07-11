@@ -466,6 +466,7 @@ EditVerb :: enum {
     EditDirectionalLights,
     PaintCoins,
     PlaceEnemy,
+    PlaceHoveringEnemy,
     EditPlayerSpawn,
     //PlaceMacGuffen,
 }
@@ -473,10 +474,11 @@ EditVerb :: enum {
     .None = "None",
     .Select = "Select",
     .Delete = "Delete Entity",
-    .AddCollision = "Add Collision",
+    .AddCollision = "Add Collision mesh",
     .EditDirectionalLights = "Edit directional lights",
     .PaintCoins = "Paint coins",
-    .PlaceEnemy = "Place Enemy",
+    .PlaceEnemy = "Place enemy",
+    .PlaceHoveringEnemy = "Place hovering enemy",
     .EditPlayerSpawn = "Move player spawn"
 }
 
@@ -592,6 +594,11 @@ scene_editor :: proc(
                     ai, ai_ok := &game_state.enemy_ais[id]
                     if ai_ok {
                         gui_dropdown_enum("AI state", &ai.state, context.temp_allocator)
+                    }
+
+                    hovering_ai, hovering_ok := &game_state.hovering_enemies[id]
+                    if hovering_ok {
+                        imgui.DragFloat3("Home position", &hovering_ai.home_position, 0.1)
                     }
 
                     mesh, mesh_ok := &game_state.triangle_meshes[id]
@@ -747,6 +754,9 @@ scene_editor :: proc(
                 }
                 case .PlaceEnemy: {
                     gui_dropdown_enum("AI state###0", &app.new_enemy_state, context.temp_allocator)
+                    selected_entity_options(&app.game_state, &app.renderer, &app.selected_entity)
+                }
+                case .PlaceHoveringEnemy: {
                     selected_entity_options(&app.game_state, &app.renderer, &app.selected_entity)
                 }
                 case .EditPlayerSpawn: {
@@ -943,6 +953,21 @@ scene_editor :: proc(
                     pos := collision_pt
                     pos.z += 1.0
                     new_id := new_enemy(&app.game_state, pos, 0.6, app.new_enemy_state)
+                    app.selected_entity = new_id
+                }
+            }
+        }
+        case .PlaceHoveringEnemy: {
+            if .MouseClicked in app.input_system.state_flags {
+                collision_pt, _, hit := do_mouse_raycast(
+                    app.game_state,
+                    app.renderer,
+                    app.input_system,
+                )
+                if hit {
+                    pos := collision_pt
+                    pos.z += 1.0
+                    new_id := new_hovering_enemy(&app.game_state, pos, 0.6)
                     app.selected_entity = new_id
                 }
             }

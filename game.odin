@@ -145,7 +145,7 @@ new_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale: f32, sta
     game_state.enemy_ais[id] = ai
 
     game_state.spherical_bodies[id] = SphericalBody {
-        radius = 0.5,
+        radius = scale,
         gravity_scale = 1.0,
         state = .Falling
     }
@@ -336,7 +336,7 @@ new_hovering_enemy :: proc(game_state: ^GameState, position: hlsl.float3, scale:
     }
     game_state.hovering_enemies[id] = HoveringEnemy {
         home_position = position,
-        radius = 0.5,
+        radius = scale,
     }
     game_state.static_models[id] = StaticModelInstance {
         handle = game_state.enemy_mesh,
