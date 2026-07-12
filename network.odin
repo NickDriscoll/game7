@@ -1,14 +1,10 @@
 package main
 
-import "core:bytes"
-import "core:c"
-import "core:c/libc"
 import "core:fmt"
 import "core:mem"
 import "core:net"
 import "core:log"
 import "core:math/linalg/hlsl"
-import "core:os"
 import "core:strings"
 import "core:time"
 import enet "vendor:ENet"
@@ -37,10 +33,13 @@ serialize_broadcast_packet :: proc(p: BroadcastPacket, allocator := context.temp
     return bytes
 }
 
+ClientID :: distinct i64
+
 ClientUpdatePacket :: struct {
     position: float3,
-    anim_idx: u32,
     anim_t: f32,
+    rotation: quaternion128,
+    anim_idx: u32,
     local_player_id: u8,
 }
 
@@ -56,16 +55,15 @@ Network :: struct {
     host: ^enet.Host,
     one_and_only_peer: ^enet.Peer,
 
-    remote_players: [dynamic]EntityID,
+    remote_players: [dynamic; MAX_SPLITSCREEN_PLAYERS]EntityID,
     my_ip: net.IP4_Address,
 
-    _unique_id: i64,
+    _unique_id: ClientID,
 }
 
 network_init :: proc(user_config: UserConfiguration, allocator := context.allocator) -> Network {
     network: Network
-    network.remote_players = make([dynamic]EntityID, 0, MAX_SPLITSCREEN_PLAYERS, allocator)
-    network._unique_id = time.now()._nsec
+    network._unique_id = ClientID(time.now()._nsec)
 
     errcode := enet.initialize()
     assert(errcode == 0)
@@ -188,21 +186,25 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                 case .CONNECT: {
                     network.one_and_only_peer = event.peer
                     log.infof("Got connection from connect id %v", event.peer.connectID)
-                    id := gamestate_next_id(game_state)
-                    game_state.transforms[id] = Transform {
-                        scale = 1.0
+                    for _ in 0..<MAX_SPLITSCREEN_PLAYERS {
+                        id := gamestate_next_id(game_state)
+                        game_state.transforms[id] = Transform {
+                            position = {f32(0xFFFFFFFF), f32(0xFFFFFFFF), f32(0xFFFFFFFF)},
+                            scale = 1.0
+                        }
+                        game_state.skinned_models[id] = SkinnedModelInstance {
+                            handle = game_state.player_mesh,
+                            pos_offset = {0.0, 0.0, -0.6},
+                            flags = {}
+                        }
+                        append(&network.remote_players, id)
                     }
-                    game_state.skinned_models[id] = SkinnedModelInstance {
-                        handle = game_state.player_mesh,
-                        pos_offset = {0.0, 0.0, -0.6},
-                        flags = {}
-                    }
-                    append(&network.remote_players, id)
 
                     log.infof("Peer address %v",  to_net_addr(event.peer.address))
                 }
                 case .DISCONNECT: {
-                    log.info("Disconnect event")
+                    log.info("Peer %v disconnected", event.peer.connectID)
+
                 }
                 case .RECEIVE: {
                     defer enet.packet_destroy(event.packet)
@@ -222,6 +224,7 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                         a.anim_idx = cpacket.anim_idx
                         a.anim_t = cpacket.anim_t
                         tform.position = cpacket.position
+                        tform.rotation = cpacket.rotation
                     }
                 }
             }
@@ -230,38 +233,26 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
         // Send player position
         if network.one_and_only_peer != nil && network.one_and_only_peer.state == .CONNECTED {
             for player_id, idx in game_state.local_players {
+                assert(idx < 256)
                 tfrom, ok := game_state.transforms[player_id]
                 assert(ok)
                 a, aok := &game_state.skinned_models[player_id]
                 assert(aok)
-                assert(idx < 256)
                 packet_data := ClientUpdatePacket {
                     local_player_id = u8(idx),
                     anim_idx = a.anim_idx,
                     anim_t = a.anim_t,
                     position = tfrom.position,
+                    rotation = tfrom.rotation,
                 }
                 packet := enet.packet_create(&packet_data, size_of(ClientUpdatePacket), {})
+                @static once := true
+                if once {
+                    once = false
+                    log.infof("ClientUpdatePacket \"over-the-wire\" size is %v bytes", packet.dataLength)
+                }
                 errcode := enet.peer_send(network.one_and_only_peer, 0, packet)
                 assert(errcode == 0)
-            }
-        }
-    }
-
-    // Receive broadcast packet
-    {
-        recvbuf: [256]u8
-        b := enet.Buffer {
-            data = &recvbuf,
-            dataLength = len(recvbuf)
-        }
-        retaddr: enet.Address
-        bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
-        if bytes_received > 0 {
-            meaning := BroadcastMeaning(recvbuf[0])
-            if meaning == .ServerResponse {
-                resp := string(recvbuf[1:bytes_received])
-                log.infof("Game7 server at %v said \"%v\"", address_string(retaddr), resp)
             }
         }
     }
