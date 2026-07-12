@@ -71,14 +71,18 @@ network_init :: proc(user_config: UserConfiguration, allocator := context.alloca
     assert(errcode == 0)
 
     network.server_ip[0] = '1'
-    network.server_ip[1] = '2'
-    network.server_ip[2] = '7'
+    network.server_ip[1] = '9'
+    network.server_ip[2] = '2'
     network.server_ip[3] = '.'
-    network.server_ip[4] = '0'
-    network.server_ip[5] = '.'
-    network.server_ip[6] = '0'
+    network.server_ip[4] = '1'
+    network.server_ip[5] = '6'
+    network.server_ip[6] = '8'
     network.server_ip[7] = '.'
     network.server_ip[8] = '1'
+    network.server_ip[9] = '.'
+    network.server_ip[10] = '2'
+    network.server_ip[11] = '1'
+    network.server_ip[12] = '4'
 
     network.broadcast_listener = enet.socket_create(.DATAGRAM)
     network.listen_address = enet.Address {
@@ -183,7 +187,7 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                 case .NONE: { assert(false, "Should be unreachable") }
                 case .CONNECT: {
                     network.one_and_only_peer = event.peer
-                    log.infof("Server got connection from connect id %v", event.peer.connectID)
+                    log.infof("Got connection from connect id %v", event.peer.connectID)
                     id := gamestate_next_id(game_state)
                     game_state.transforms[id] = Transform {
                         scale = 1.0
@@ -205,13 +209,10 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                     addr := event.peer.address
                     net_addr := to_net_addr(addr)
 
-                    log.infof("Received packet from %v", net_addr)
-
                     con_id := event.peer.connectID
 
                     assert(event.packet.dataLength == size_of(ClientUpdatePacket))
                     cpacket := cast(^ClientUpdatePacket)event.packet.data
-                    log.infof("Received remote player %v position from %v: %v", cpacket.local_player_id, con_id, cpacket.position)
                     if int(cpacket.local_player_id) < len(network.remote_players) {
                         local_id := network.remote_players[cpacket.local_player_id]
                         tform, ok := &game_state.transforms[local_id]
@@ -220,14 +221,14 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                         assert(aok)
                         a.anim_idx = cpacket.anim_idx
                         a.anim_t = cpacket.anim_t
-                        tform.position = cpacket.position + {4.0, 0.0, 0.0}
+                        tform.position = cpacket.position
                     }
                 }
             }
         }
 
         // Send player position
-        if network.one_and_only_peer != nil {
+        if network.one_and_only_peer != nil && network.one_and_only_peer.state == .CONNECTED {
             for player_id, idx in game_state.local_players {
                 tfrom, ok := game_state.transforms[player_id]
                 assert(ok)
@@ -242,7 +243,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                 }
                 packet := enet.packet_create(&packet_data, size_of(ClientUpdatePacket), {})
                 errcode := enet.peer_send(network.one_and_only_peer, 0, packet)
-                log.errorf("errcode == %v", errcode)
                 assert(errcode == 0)
             }
         }
@@ -270,8 +270,8 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
 }
 
 connect_client_net :: proc(network: ^Network, addr: net.Address) {
-    network.host = enet.host_create(nil, 1, 2, 0, 0)
-    assert(network.host != nil)
+    // network.host = enet.host_create(nil, 1, 2, 0, 0)
+    // assert(network.host != nil)
 
     ip4_addr, ok := addr.(net.IP4_Address)
     assert(ok)
