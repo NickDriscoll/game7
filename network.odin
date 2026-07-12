@@ -21,19 +21,28 @@ BroadcastMeaning :: enum u8 {
     ClientQuery,
     ServerResponse,
 }
-
+ClientID :: distinct i64
 BroadcastPacket :: struct {
     meaning: BroadcastMeaning,
+    client_id: ClientID,
     payload: string,
 }
-serialize_broadcast_packet :: proc(p: BroadcastPacket, allocator := context.temp_allocator) -> [dynamic]byte {
-    bytes := make([dynamic]byte, 1 + len(p.payload), allocator)
+serialize_broadcast_packet :: proc(p: ^BroadcastPacket, allocator := context.temp_allocator) -> [dynamic]byte {
+    bytes := make([dynamic]byte, size_of(BroadcastMeaning) + size_of(ClientID) + len(p.payload), allocator)
     bytes[0] = byte(p.meaning)
-    mem.copy_non_overlapping(&bytes[1], raw_data(p.payload), len(p.payload))
+    mem.copy_non_overlapping(&bytes[size_of(BroadcastMeaning)], &p.client_id, size_of(ClientID))
+    mem.copy_non_overlapping(&bytes[size_of(BroadcastMeaning) + size_of(ClientID)], raw_data(p.payload), len(p.payload))
     return bytes
 }
+deserialize_broadcast_packet :: proc(bytes: []byte) -> BroadcastPacket {
+    packet: BroadcastPacket
 
-ClientID :: distinct i64
+    packet.meaning = BroadcastMeaning(bytes[0])
+    packet.client_id = (cast(^ClientID)(&bytes[1]))^
+    packet.payload = string(bytes[size_of(ClientID) + size_of(BroadcastMeaning):])
+
+    return packet
+}
 
 ClientUpdatePacket :: struct {
     position: float3,
@@ -47,6 +56,8 @@ Network :: struct {
     // Buffers for imgui.InputText cstrings
     server_ip: [256]u8,
     username: [256]u8,
+    
+    recv_message: [256]u8,
 
     broadcast_listener: enet.Socket,
     broadcast_sender: enet.Socket,
@@ -134,7 +145,7 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
 
     event: enet.Event
     if network.host != nil {
-        //  broadcast packet
+        // Server advertisement / UDP broadcast handling
         {
             recvbuf: [256]u8
             b := enet.Buffer {
@@ -144,38 +155,45 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
             retaddr: enet.Address
             bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
             if bytes_received > 0 {
-                meaning := BroadcastMeaning(recvbuf[0])
-                payload := string(recvbuf[1:bytes_received])
-                switch meaning {
-                    case .ClientQuery: {
-                        recv_username := payload
-                        log.infof("Received username: \"%v\" from address %v", recv_username, address_string(retaddr))
-        
-                        // Send response packet
-                        addr := enet.Address {
-                            host = enet.HOST_BROADCAST,
-                            port = BROADCAST_PORT,
+                packet := deserialize_broadcast_packet(recvbuf[0:bytes_received])
+                // Ignore broadcasts that came from ourself
+                log.infof("our id == %v, packet id == %v", network._unique_id, packet.client_id)
+                if packet.client_id != network._unique_id {
+                    switch packet.meaning {
+                        case .ClientQuery: {
+                            recv_username := packet.payload
+                            log.infof("Received username: \"%v\" from address %v", recv_username, address_string(retaddr))
+                            mem.copy_non_overlapping(&network.recv_message[0], raw_data(recv_username), len(recv_username))
+                            network.recv_message[len(recv_username)] = 0
+            
+                            // Send response packet
+                            addr := enet.Address {
+                                host = enet.HOST_BROADCAST,
+                                port = BROADCAST_PORT,
+                            }
+                            p := BroadcastPacket {
+                                meaning = .ServerResponse,
+                                client_id = network._unique_id,
+                                payload = app.current_level
+                            }
+                            bytes := serialize_broadcast_packet(&p)
+                            b2 := enet.Buffer {
+                                data = raw_data(bytes),
+                                dataLength = len(bytes)
+                            }
+                    
+                            errcode := enet.socket_connect(network.broadcast_sender, &addr)
+                            assert(errcode == 0)
+                            bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b2, 1)
+                            assert(uint(bytes_sent) == b2.dataLength)
                         }
-                        p := BroadcastPacket {
-                            meaning = .ServerResponse,
-                            payload = app.current_level
+                        case .ServerResponse: {
+                            resp := string(recvbuf[1:bytes_received])
+                            log.infof("Game7 peer at %v said \"%v\"", address_string(retaddr), resp)
                         }
-                        bytes := serialize_broadcast_packet(p)
-                        b2 := enet.Buffer {
-                            data = raw_data(bytes),
-                            dataLength = len(bytes)
-                        }
-                
-                        errcode := enet.socket_connect(network.broadcast_sender, &addr)
-                        assert(errcode == 0)
-                        bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b2, 1)
-                        assert(uint(bytes_sent) == b2.dataLength)
-                    }
-                    case .ServerResponse: {
-                        resp := string(recvbuf[1:bytes_received])
-                        log.infof("Game7 peer at %v said \"%v\"", address_string(retaddr), resp)
                     }
                 }
+
             }
         }
 
@@ -324,20 +342,27 @@ network_gui :: proc(network: ^Network, p_open: ^bool, allocator := context.temp_
             }
             packet := BroadcastPacket {
                 meaning = .ClientQuery,
+                client_id = network._unique_id,
                 payload = name_string,
             }
-            bytes := serialize_broadcast_packet(packet)
+            bytes := serialize_broadcast_packet(&packet)
             b := enet.Buffer {
                 data = raw_data(bytes),
                 dataLength = len(bytes)
             }
-    
+
             errcode := enet.socket_connect(network.broadcast_sender, &addr)
             assert(errcode == 0)
             bytes_sent := enet.socket_send(network.broadcast_sender, &addr, &b, 1)
             assert(uint(bytes_sent) == b.dataLength)
         }
         imgui.EndDisabled()
+
+        message_str := string(network.recv_message[:])
+        cs := strings.unsafe_string_to_cstring(message_str)
+        if message_str[0] > 0 {
+            imgui.Text("You got a username! It was \"%s\"!", cs)
+        }
     }
 }
 
