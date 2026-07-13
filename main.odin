@@ -5,6 +5,7 @@ import "core:container/queue"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg/hlsl"
+import "core:os"
 import "core:strings"
 import "core:time"
 
@@ -588,7 +589,7 @@ main :: proc() {
                         {
                             label = "Level Select",
                             widget = UserMenuButton {
-                                verb = .ShowLoadLevel,
+                                verb = .LevelSelect,
                             },
                         },
                         {
@@ -619,7 +620,7 @@ main :: proc() {
         }
 
         {
-            verb := gui_do_menu_stack(&app)
+            verb, retstr := gui_do_menu_stack(&app)
             #partial switch verb {
                 case .PopMenu: {
                     queue.pop_front(&app.gui.menu_stack)
@@ -627,8 +628,38 @@ main :: proc() {
                 case .Quit: {
                     do_main_loop = false
                 }
-                case .ShowLoadLevel: {
-                    show_load_modal = true
+                case .LevelSelect: {
+                    //show_load_modal = true
+                    items := make([dynamic]UserMenuItem, app.per_scene_allocator)
+                    w: os.Walker
+                    os.walker_init_path(&w, "./data/levels")
+                    defer os.walker_destroy(&w)
+
+                    for info in os.walker_walk(&w) {
+                        namestr := strings.clone(info.name, app.per_scene_allocator)
+                        n := UserMenuItem {
+                            label = namestr,
+                            widget = UserMenuButton {
+                                verb = .LoadLevel
+                            }
+                        }
+                        append(&items, n)
+                    }
+                    append(&items, UserMenuItem {
+                        label = "Back",
+                        widget = UserMenuButton {
+                            verb = .PopMenu
+                        }
+                    })
+                    menu := UserMenu {
+                        items = items[:],
+                        player_idx = app.gui.menu_player_idx
+                    }
+                    queue.push_front(&app.gui.menu_stack, menu)
+                }
+                case .LoadLevel: {
+                    app.load_new_level = retstr
+                    queue.clear(&app.gui.menu_stack)
                 }
                 case .PlayerPauseGame: {
                     queue.clear(&app.gui.menu_stack)

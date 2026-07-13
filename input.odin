@@ -24,6 +24,8 @@ VerbType :: enum {
 
     NewLevel,
     ShowLoadLevel,
+    LevelSelect,
+    LoadLevel,
 
     MouseMotion,
     MouseMotionRel,

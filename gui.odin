@@ -387,8 +387,9 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_do_menu_stack :: proc(app: ^App) -> VerbType {
+gui_do_menu_stack :: proc(app: ^App, allocator := context.allocator) -> (VerbType, string) {
     retval : VerbType = nil
+    retstr: string
 
     // Handle menu stack
     @static last_was_menu := false
@@ -402,7 +403,7 @@ gui_do_menu_stack :: proc(app: ^App) -> VerbType {
         app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
         app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
 
-        retval = gui_user_menu(app.gui, active_menu.items[:])
+        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], allocator)
         last_was_menu = true
     } else if last_was_menu {
         app.renderer.uniforms.fade_to_black = 1.0
@@ -413,14 +414,18 @@ gui_do_menu_stack :: proc(app: ^App) -> VerbType {
         last_was_menu = false
     }
 
-    return retval
+    return retval, retstr
 }
 
-gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
+gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := context.allocator) -> (VerbType, string) {
     imgui.PushFontFloat(gui.user_facing_font, 48.0)
     defer imgui.PopFont()
 
     retval : VerbType = nil
+    retstr: string
+
+    sb: strings.Builder
+    strings.builder_init(&sb, allocator)
 
     imgui.SetNextWindowPos({
         gui.dockspace_viewport[2] / 2.0,
@@ -434,7 +439,9 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
     total_items := 0
     for item in items {
         total_items += 1
-        label := strings.unsafe_string_to_cstring(item.label)
+        fmt.sbprintf(&sb, "%v", item.label)
+        label := strings.to_cstring(&sb)
+        defer strings.builder_reset(&sb)
         text_size := imgui.CalcTextSize(label)
         switch it in item.widget {
             case UserMenuButton: {
@@ -503,11 +510,15 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
             defer imgui.PopStyleColor()
             defer imgui.PopStyleColor()
             defer imgui.PopStyleColor()
-            label := strings.unsafe_string_to_cstring(item.label)
+
+            fmt.sbprintf(&sb, "%v", item.label)
+            label := strings.to_cstring(&sb)
+            defer strings.builder_reset(&sb)
             switch &it in item.widget {
                 case UserMenuButton: {
                     if gui_centered_button(label) {
                         retval = it.verb
+                        retstr = item.label
                     }
                 }
                 case UserMenuCheckbox: {
@@ -533,7 +544,7 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem) -> VerbType {
         }
     }
 
-    return retval
+    return retval, retstr
 }
 
 gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
