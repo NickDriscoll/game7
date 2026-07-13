@@ -16,6 +16,7 @@ float3 :: hlsl.float3
 BROADCAST_PORT :: 64209
 SERVER_PORT :: 42690
 MAX_SERVER_PEERS :: 4       // Four players can connect to server
+MAX_BROADCAST_RESPONSES :: 20
 
 BroadcastMeaning :: enum u8 {
     ClientQuery,
@@ -44,6 +45,12 @@ deserialize_broadcast_packet :: proc(bytes: []byte) -> BroadcastPacket {
     return packet
 }
 
+LANServer :: struct {
+    ip_address: enet.Address,
+    username: [256]u8,
+    level_name: [256]u8,
+}
+
 ClientUpdatePacket :: struct {
     position: float3,
     anim_t: f32,
@@ -62,6 +69,7 @@ Network :: struct {
     broadcast_listener: enet.Socket,
     broadcast_sender: enet.Socket,
     listen_address: enet.Address,
+    lan_servers: [dynamic; MAX_BROADCAST_RESPONSES]LANServer,
 
     host: ^enet.Host,
     one_and_only_peer: ^enet.Peer,
@@ -147,17 +155,18 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
     if network.host != nil {
         // Server advertisement / UDP broadcast handling
         {
-            recvbuf: [256]u8
+            recvbuf: [size_of(BroadcastPacket)]u8
             b := enet.Buffer {
                 data = &recvbuf,
                 dataLength = len(recvbuf)
             }
             retaddr: enet.Address
             bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
-            if bytes_received > 0 {
+            for bytes_received > 0 {
+                defer bytes_received = enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
+                assert(bytes_received == size_of(BroadcastPacket))
                 packet := deserialize_broadcast_packet(recvbuf[0:bytes_received])
                 // Ignore broadcasts that came from ourself
-                log.infof("our id == %v, packet id == %v", network._unique_id, packet.client_id)
                 if packet.client_id != network._unique_id {
                     switch packet.meaning {
                         case .ClientQuery: {
@@ -188,8 +197,15 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                             assert(uint(bytes_sent) == b2.dataLength)
                         }
                         case .ServerResponse: {
-                            resp := string(recvbuf[1:bytes_received])
-                            log.infof("Game7 peer at %v said \"%v\"", address_string(retaddr), resp)
+                            log.infof("Game7 peer at %v said \"%v\"", address_string(retaddr), packet.payload)
+
+                            new_server: LANServer
+                            new_server.ip_address = retaddr
+                            new_server.username[0] = 'N'
+                            new_server.username[1] = '/'
+                            new_server.username[2] = 'A'
+                            mem.copy_non_overlapping(&new_server.level_name[0], raw_data(packet.payload), len(packet.payload))
+                            append(&network.lan_servers, new_server)
                         }
                     }
                 }
@@ -222,7 +238,7 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                 }
                 case .DISCONNECT: {
                     log.info("Peer %v disconnected", event.peer.connectID)
-
+                    network.one_and_only_peer = nil
                 }
                 case .RECEIVE: {
                     defer enet.packet_destroy(event.packet)
@@ -279,9 +295,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
 }
 
 connect_client_net :: proc(network: ^Network, addr: net.Address) {
-    // network.host = enet.host_create(nil, 1, 2, 0, 0)
-    // assert(network.host != nil)
-
     ip4_addr, ok := addr.(net.IP4_Address)
     assert(ok)
     peer_addr := enet.Address {
@@ -336,6 +349,8 @@ network_gui :: proc(network: ^Network, p_open: ^bool, allocator := context.temp_
     
         imgui.BeginDisabled(len(name_string) == 0)
         if imgui.Button("Broadcast discovery packet") {
+            clear(&network.lan_servers)
+            
             addr := enet.Address {
                 host = enet.HOST_BROADCAST,
                 port = BROADCAST_PORT,
@@ -358,10 +373,49 @@ network_gui :: proc(network: ^Network, p_open: ^bool, allocator := context.temp_
         }
         imgui.EndDisabled()
 
-        message_str := string(network.recv_message[:])
-        cs := strings.unsafe_string_to_cstring(message_str)
-        if message_str[0] > 0 {
-            imgui.Text("You got a username! It was \"%s\"!", cs)
+        {
+            message_str := string(network.recv_message[:])
+            cs := strings.unsafe_string_to_cstring(message_str)
+            if message_str[0] > 0 {
+                imgui.Text("You got a username! It was \"%s\"!", cs)
+            }
+        }
+
+        if len(network.lan_servers) > 0 {
+            if imgui.BeginTable("Server browser", 3) {
+                defer imgui.EndTable()
+                imgui.TableSetupColumn("IP Address")
+                imgui.TableSetupColumn("Username")
+                imgui.TableSetupColumn("Level name")
+                imgui.TableHeadersRow()
+
+                for &server, i in network.lan_servers {
+                    imgui.PushIDInt(i32(i))
+                    defer imgui.PopID()
+                    imgui.TableNextRow()
+                    imgui.TableNextColumn()
+
+                    cs: cstring
+                    addr_str := address_string(server.ip_address, allocator)
+                    cs = strings.unsafe_string_to_cstring(addr_str)
+                    imgui.Text(cs)
+                    imgui.SameLine()
+                    imgui.BeginDisabled(network.one_and_only_peer != nil)
+                    if imgui.Button("Connect") {
+                        log.infof("Connecting to %v", addr_str)
+                        connect_client(network, server.ip_address)
+                    }
+                    imgui.EndDisabled()
+
+                    imgui.TableNextColumn()
+                    cs = strings.unsafe_string_to_cstring(string(server.username[:]))
+                    imgui.Text(cs)
+
+                    imgui.TableNextColumn()
+                    cs = strings.unsafe_string_to_cstring(string(server.level_name[:]))
+                    imgui.Text(cs)
+                }
+            }
         }
     }
 }
