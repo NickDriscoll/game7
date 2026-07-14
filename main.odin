@@ -620,7 +620,7 @@ main :: proc() {
         }
 
         {
-            verb, retstr := gui_do_menu_stack(&app)
+            verb, retstr := do_user_menus(&app)
             #partial switch verb {
                 case .PopMenu: {
                     queue.pop_front(&app.gui.menu_stack)
@@ -646,6 +646,10 @@ main :: proc() {
                         append(&items, n)
                     }
                     append(&items, UserMenuItem {
+                        label = "",
+                        widget = UserMenuSeparator {}
+                    })
+                    append(&items, UserMenuItem {
                         label = "Back",
                         widget = UserMenuButton {
                             verb = .PopMenu
@@ -667,11 +671,6 @@ main :: proc() {
                 case .SettingsMenu: {
                     items : []UserMenuItem = {
                         {
-                            label = "Game",
-                            widget = UserMenuButton {
-                            },
-                        },
-                        {
                             label = "Graphics",
                             widget = UserMenuButton {
                                 verb = .GraphicsMenu
@@ -684,9 +683,8 @@ main :: proc() {
                             },
                         },
                         {
-                            label = "System",
-                            widget = UserMenuButton {
-                            },
+                            label = "",
+                            widget = UserMenuSeparator {}
                         },
                         {
                             label = "Back",
@@ -726,6 +724,10 @@ main :: proc() {
                                 max = 1.0,
                                 value = &app.audio_system.sfx_volume,
                             },
+                        },
+                        {
+                            label = "",
+                            widget = UserMenuSeparator {}
                         },
                         {
                             label = "Back",

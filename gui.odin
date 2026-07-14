@@ -26,6 +26,8 @@ UserMenuItemCommon :: struct {
     label: string,
 }
 
+UserMenuSeparator :: struct {}
+
 UserMenuButton :: struct {
     verb: VerbType,
 }
@@ -46,6 +48,7 @@ UserMenuSlider :: struct {
 }
 
 UserMenuWidget :: union {
+    UserMenuSeparator,
     UserMenuButton,
     UserMenuCheckbox,
     UserMenuFlagsCheckbox(UniformFlag),
@@ -387,36 +390,6 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_do_menu_stack :: proc(app: ^App, allocator := context.allocator) -> (VerbType, string) {
-    retval : VerbType = nil
-    retstr: string
-
-    // Handle menu stack
-    @static last_was_menu := false
-    if queue.len(app.gui.menu_stack) > 0 {
-        active_menu := queue.front_ptr(&app.gui.menu_stack)
-        app.gui.menu_player_idx = active_menu.player_idx
-
-        // Renderer and input state
-        app.renderer.uniforms.fade_to_black = 0.4
-        app.renderer.uniforms.flags += {.BlackAndWhite}
-        app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
-        app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
-
-        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], allocator)
-        last_was_menu = true
-    } else if last_was_menu {
-        app.renderer.uniforms.fade_to_black = 1.0
-        app.renderer.uniforms.flags -= {.BlackAndWhite}
-        app.input_system.button_mappings[app.gui.menu_player_idx] = &app.game_state.button_mappings[app.gui.menu_player_idx]
-        app.input_system.key_mappings[app.gui.menu_player_idx] = &app.game_state.character_key_mappings
-        app.game_state.paused = false
-        last_was_menu = false
-    }
-
-    return retval, retstr
-}
-
 gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := context.allocator) -> (VerbType, string) {
     imgui.PushFontFloat(gui.user_facing_font, 48.0)
     defer imgui.PopFont()
@@ -444,6 +417,9 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
         defer strings.builder_reset(&sb)
         text_size := imgui.CalcTextSize(label)
         switch it in item.widget {
+            case UserMenuSeparator: {
+                items_size.y += 20.0
+            }
             case UserMenuButton: {
                 items_size.x = max(items_size.x, text_size.x)
                 items_size.y += text_size.y
@@ -515,6 +491,9 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
             label := strings.to_cstring(&sb)
             defer strings.builder_reset(&sb)
             switch &it in item.widget {
+                case UserMenuSeparator: {
+                    imgui.Separator()
+                }
                 case UserMenuButton: {
                     if gui_centered_button(label) {
                         retval = it.verb

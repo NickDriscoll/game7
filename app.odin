@@ -452,6 +452,36 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     }
 }
 
+do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, string) {
+    retval : VerbType = nil
+    retstr: string
+
+    // Handle menu stack
+    @static last_was_menu := false
+    if queue.len(app.gui.menu_stack) > 0 {
+        active_menu := queue.front_ptr(&app.gui.menu_stack)
+        app.gui.menu_player_idx = active_menu.player_idx
+
+        // Renderer and input state
+        app.renderer.uniforms.fade_to_black = 0.4
+        app.renderer.uniforms.flags += {.BlackAndWhite}
+        app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
+        app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
+
+        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], allocator)
+        last_was_menu = true
+    } else if last_was_menu {
+        app.renderer.uniforms.fade_to_black = 1.0
+        app.renderer.uniforms.flags -= {.BlackAndWhite}
+        app.input_system.button_mappings[app.gui.menu_player_idx] = &app.game_state.button_mappings[app.gui.menu_player_idx]
+        app.input_system.key_mappings[app.gui.menu_player_idx] = &app.game_state.character_key_mappings
+        app.game_state.paused = false
+        last_was_menu = false
+    }
+
+    return retval, retstr
+}
+
 EditFlag :: enum {
     MovePlayerSpawn,
     MoveSelectedEntity
