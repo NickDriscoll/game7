@@ -155,7 +155,7 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
     if network.host != nil {
         // Server advertisement / UDP broadcast handling
         {
-            recvbuf: [size_of(BroadcastPacket)]u8
+            recvbuf: [256]u8
             b := enet.Buffer {
                 data = &recvbuf,
                 dataLength = len(recvbuf)
@@ -164,7 +164,6 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
             bytes_received := enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
             for bytes_received > 0 {
                 defer bytes_received = enet.socket_receive(network.broadcast_listener, &retaddr, &b, 1)
-                assert(bytes_received == size_of(BroadcastPacket))
                 packet := deserialize_broadcast_packet(recvbuf[0:bytes_received])
                 // Ignore broadcasts that came from ourself
                 if packet.client_id != network._unique_id {
@@ -208,8 +207,9 @@ poll_network :: proc(app: ^App, allocator := context.temp_allocator) -> NetworkO
                             append(&network.lan_servers, new_server)
                         }
                     }
+                } else {
+                    log.info("Detected broadcast packet from self.")
                 }
-
             }
         }
 
