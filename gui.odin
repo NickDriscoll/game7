@@ -222,7 +222,8 @@ begin_gui :: proc(state: ^ImguiState) {
             .NoResize,
             .NoBackground,
             .NoMouseInputs,
-            .NoNavInputs
+            .NoNavInputs,
+            .NoNavFocus
         }
         dockspace_viewport := imgui.GetWindowViewport()
 
@@ -442,7 +443,7 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
     items_size.y += 10.0 * f32(total_items)
 
     imgui.SetNextWindowSize({items_size.x + 30.0, items_size.y})
-    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,.NoBackground}
+    flags : imgui.WindowFlags = {.NoTitleBar,.NoResize,.NoScrollbar,.NoBackground,.NoNavFocus}
     //flags : imgui.WindowFlags = {.NoTitleBar,.NoScrollbar}
     defer imgui.End()
     if imgui.Begin("Pause menu", nil, flags) {
