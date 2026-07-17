@@ -468,7 +468,6 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
         unis.fade_to_black = 1.0
-        unis.flags += {.CRTShader}
     }
 }
 
@@ -495,6 +494,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
     renderer.do_raytracing = want_rt && (.Raytracing in gd.support_flags)
 
     renderer_new_scene(&renderer)
+    renderer.uniforms.flags += {.CRTShader}
 
     main_color_attachment_formats : []vk.Format = {vk.Format.R8G8B8A8_UNORM}
     renderer.depth_format = .D32_SFLOAT

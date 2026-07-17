@@ -783,7 +783,7 @@ main :: proc() {
 
             #assert(MAX_SPLITSCREEN_PLAYERS == 4, "The following code assumes a max of 4 players")
             camera_count := len(app.game_state.viewport_cameras)
-            assert(camera_count == len(app.game_state.local_players))
+            //assert(camera_count == len(app.game_state.local_players))
 
             // Write viewport for this camera into renderer
             vp := vkw.Viewport {

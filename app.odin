@@ -19,7 +19,7 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
-DEFAULT_LOOKAT_DISTANCE :: 2.0
+DEFAULT_LOOKAT_DISTANCE :: 2.5
 
 UndoEditPlayerSpawn :: struct {
     old_pos: hlsl.float3,
@@ -237,8 +237,6 @@ app_startup :: proc(app: ^App) -> bool {
     }
 
     {
-        scoped_event(&profiler, "Window setup")
-
         // Determine window resolution
         {
             desktop_display_mode: sdl2.DisplayMode
@@ -352,6 +350,27 @@ app_startup :: proc(app: ^App) -> bool {
             strings.builder_init(&sb, app.per_frame_allocator)
             start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
             load_level_file(app, start_path)
+        }
+
+        // Main menu setup
+        {
+            delete_entity(&app.game_state, app.game_state.viewport_cameras[0])
+            clear(&app.game_state.viewport_cameras)
+
+            id := gamestate_next_id(&app.game_state)
+            app.game_state.transforms[id] = Transform {
+                position = {1.0, 1.0, 1.0}
+            }
+            app.game_state.cameras[id] = FreecamController {
+                fov_radians = f32(app.user_config.floats[.CameraFOV]),
+                nearplane = 0.1 / math.sqrt_f32(2.0),
+                farplane = 1_000_000.0,
+                // yaw = f32(app.user_config.floats[.FreecamYaw]),
+                // pitch = f32(app.user_config.floats[.FreecamPitch]),
+                yaw = 0.0,
+                pitch = 0.0
+            }
+            append(&app.game_state.viewport_cameras, id)
         }
 
         // Init input system

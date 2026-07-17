@@ -615,7 +615,7 @@ CharacterFlag :: enum {
     HoldingEnemy
 }
 CharacterFlags :: bit_set[CharacterFlag]
-CHARACTER_MAX_HEALTH :: 3
+CHARACTER_MAX_HEALTH :: 5
 CHARACTER_INVULNERABILITY_DURATION :: 0.5
 VORTEX_MAX_RADIUS :: 1.0
 CHARACTER_NORMAL_GRAVITY :: 1.0
@@ -1481,16 +1481,6 @@ gamestate_new_scene :: proc(
     {
         player_id := new_local_player_character(game_state, renderer, user_config^, scene_allocator)
         append(&game_state.local_players, player_id)
-        {
-            path : cstring = "data/models/CesiumMan.glb"
-            skinned_model := load_gltf_skinned_model(renderer, path, scene_allocator)
-            game_state.skinned_models[player_id] = SkinnedModelInstance {
-                handle = skinned_model,
-                pos_offset = {0.0, 0.0, -0.6},
-                flags = {}
-            }
-        }
-
     }
 
     game_state.freecam_speed_multiplier = 5.0
