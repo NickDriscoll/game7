@@ -139,6 +139,11 @@ UniformBuffer :: struct {
     cloud_scale: f32,
 
     fog_fudge: f32,
+    fog_max_depth: f32,
+    fog_step_multiple: i32,
+    henyey_greenstein_g: f32,
+
+    beta_scale: f32,
     _pad: hlsl.float3,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
@@ -470,7 +475,12 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
-        unis.fog_fudge = 2000.0
+        unis.fog_step_multiple = 4
+        unis.fog_fudge = 1500.0
+        unis.fog_max_depth = 250.0
+        //unis.henyey_greenstein_g = 0.76
+        unis.henyey_greenstein_g = 0.55
+        unis.beta_scale = 1.0
         //unis.flags += {.CRTShader}
     }
 }
@@ -1998,6 +2008,7 @@ render_scene :: proc(
 
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
+        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_pipeline_barriers(gd, cb, {}, {
             vkw.Image_Barrier {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -2123,7 +2134,6 @@ render_scene :: proc(
         framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
 
         // Transition internal framebuffer to be sampled from
-        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_pipeline_barriers(gd, cb, {},
             {
                 {
@@ -2165,8 +2175,7 @@ render_scene :: proc(
             }
         )
 
-        // Set viewport to scale 
-
+        // Set viewport to scale
         {
             internal_aspect_ratio := vkw.get_framebuffer_aspect_ratio(renderer.main_framebuffer)
             vp := renderer.viewport_dimensions
@@ -2204,8 +2213,8 @@ render_scene :: proc(
         vkw.cmd_bind_gfx_pipeline(gd, gfx_cb_idx, renderer.postfx_pipeline)
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
-            color_target = renderer.main_framebuffer.color_images[0].index,
-            depth_target = renderer.main_framebuffer.depth_image.index,
+            color_target = renderer.main_framebuffer.color_images[0].idx,
+            depth_target = renderer.main_framebuffer.depth_image.idx,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
             tlas_idx = uniforms_offset,
             uniforms_address = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),

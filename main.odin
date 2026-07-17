@@ -526,11 +526,11 @@ main :: proc() {
             app.renderer.uniforms.clip_from_world =
                 projection_from_view *
                 current_view_from_world
-            renderer.uniforms.world_from_clip = hlsl.inverse(renderer.uniforms.clip_from_world)
-            renderer.uniforms.view_from_world = current_view_from_world
-            renderer.uniforms.world_from_view = hlsl.inverse(current_view_from_world)
-            renderer.uniforms.clip_from_view = projection_from_view;
-            renderer.uniforms.view_from_clip = hlsl.inverse(projection_from_view)
+            app.renderer.uniforms.world_from_clip = hlsl.inverse(app.renderer.uniforms.clip_from_world)
+            app.renderer.uniforms.view_from_world = current_view_from_world
+            app.renderer.uniforms.world_from_view = hlsl.inverse(current_view_from_world)
+            app.renderer.uniforms.clip_from_view = projection_from_view;
+            app.renderer.uniforms.view_from_clip = hlsl.inverse(projection_from_view)
 
             vfw := hlsl.float3x3(current_view_from_world)
             vfw4 := hlsl.float4x4(vfw)
@@ -570,8 +570,17 @@ main :: proc() {
         }
 
         {
-            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 100.0, 5000.0)
-            
+            renderer := &app.renderer
+            imgui.SliderInt("Raymarching steps (multiple of 4)", &renderer.uniforms.fog_step_multiple, 1, 16)
+            imgui.SliderFloat("Fog intensity", &renderer.uniforms.fog_fudge, 1.0, 5000.0)
+            imgui.SliderFloat("Fog max depth", &renderer.uniforms.fog_max_depth, 10.0, 2000.0)
+            imgui.SliderFloat("Beta scale", &renderer.uniforms.beta_scale, 1.0, 50.0)
+
+            imgui.SliderFloat("g", &renderer.uniforms.henyey_greenstein_g, 0.000001, 1.0)
+            imgui.SameLine()
+            if imgui.Button("Reset") {
+                renderer.uniforms.henyey_greenstein_g = 0.76
+            }
         }
 
         // Render
