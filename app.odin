@@ -341,7 +341,7 @@ app_startup :: proc(app: ^App) -> bool {
         app.game_state = init_gamestate(&app.vgd, &app.renderer, &app.audio_system, &app.user_config, app.global_allocator)
 
         {
-            start_level := "test02"
+            start_level := "one"
             s, ok := app.user_config.strs[.StartLevel]
             if ok {
                 start_level = s
@@ -359,7 +359,7 @@ app_startup :: proc(app: ^App) -> bool {
 
             id := gamestate_next_id(&app.game_state)
             app.game_state.transforms[id] = Transform {
-                position = {1.0, 1.0, 1.0}
+                position = {-29.525560, 25.632435, -1.840763}
             }
             app.game_state.cameras[id] = FreecamController {
                 fov_radians = f32(app.user_config.floats[.CameraFOV]),
@@ -367,8 +367,8 @@ app_startup :: proc(app: ^App) -> bool {
                 farplane = 1_000_000.0,
                 // yaw = f32(app.user_config.floats[.FreecamYaw]),
                 // pitch = f32(app.user_config.floats[.FreecamPitch]),
-                yaw = 0.0,
-                pitch = 0.0
+                yaw = 0.994,
+                pitch = 0.149
             }
             append(&app.game_state.viewport_cameras, id)
         }
