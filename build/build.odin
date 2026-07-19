@@ -68,7 +68,7 @@ when ODIN_DEBUG {
             "-no-bounds-check",
             "-define:INCLUDE_PROFILER=true",
         }
-    } else when ODIN_OS == .Linux {
+    } else when ODIN_OS == .Linux || ODIN_OS == .Darwin {
         ODIN_COMMAND : []string : {
             "odin",
             "build",
@@ -122,7 +122,7 @@ main :: proc() {
     context.logger = log.create_console_logger(log_level)
     log.infof("starting program build with ODIN_DEBUG==%v...", ODIN_DEBUG)
 
-    when ODIN_OS == .Linux {
+    when ODIN_OS == .Linux || ODIN_OS == .Darwin {
         if !os.exists(BUILT_COMPILER_VENDOR_LIBS_LOCKFILE) {
             log.info("Building odin vendor libraries...")
             d := os.Process_Desc {
@@ -212,49 +212,51 @@ main :: proc() {
 
         log.infof("building %v shaders...", type)
         for shader in list {
-            out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
-            in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
-
-            log_name := fmt.sbprintf(&file_sb, "%v.%v.stdout", shader, type[0:4])
-            stdout_file := new_log_file(log_name)
-            strings.builder_reset(&file_sb)
-            logerr_name := fmt.sbprintf(&file_sb, "%v.%v.stderr", shader, type[0:4])
-            stderr_file := new_log_file(logerr_name)
-            strings.builder_reset(&file_sb)
-            append(&streamout_files, stdout_file)
-            append(&streamout_files, stderr_file)
-
-            slangc_command := os.Process_Desc {
-                command = {
-                    "slangc",
-                    "-stage",
-                    type,
-                    "-g3",
-                    "-Wno-39001",   // Ignore aliased descriptor bindings warning
-                    "-entry",
-                    entry_point,
-                    "-o",
-                    out_path,
-                    in_path
-                },
-		        stdout = stdout_file,
-                stderr = stderr_file,
+            {
+                out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v.%v.spv", shader, type[0:4])
+                in_path := fmt.sbprintf(&out_sb, "./shaders/%v.slang", shader)
+    
+                log_name := fmt.sbprintf(&file_sb, "%v.%v.stdout", shader, type[0:4])
+                stdout_file := new_log_file(log_name)
+                strings.builder_reset(&file_sb)
+                logerr_name := fmt.sbprintf(&file_sb, "%v.%v.stderr", shader, type[0:4])
+                stderr_file := new_log_file(logerr_name)
+                strings.builder_reset(&file_sb)
+                append(&streamout_files, stdout_file)
+                append(&streamout_files, stderr_file)
+    
+                slangc_command := os.Process_Desc {
+                    command = {
+                        "slangc",
+                        "-stage",
+                        type,
+                        "-g3",
+                        "-Wno-39001",   // Ignore aliased descriptor bindings warning
+                        "-entry",
+                        entry_point,
+                        "-o",
+                        out_path,
+                        in_path
+                    },
+                    stdout = stdout_file,
+                    stderr = stderr_file,
+                }
+    
+                p, error := os.process_start(slangc_command)
+                if error != nil {
+                    log.errorf("Error launching slangc: %#v", error)
+                    return
+                }
+                process := SlangProcess {
+                    process = p,
+                    shader_name = shader,
+                }
+                command_str := strings.join(slangc_command.command, " ")
+                log.debugf("Launching:\n\"%v\"", command_str)
+                append(&processes, process)
+                strings.builder_reset(&in_sb)
+                strings.builder_reset(&out_sb)
             }
-
-            p, error := os.process_start(slangc_command)
-            if error != nil {
-                log.errorf("Error launching slangc: %#v", error)
-                return
-            }
-            process := SlangProcess {
-                process = p,
-                shader_name = shader,
-            }
-            command_str := strings.join(slangc_command.command, " ")
-            log.debugf("Launching:\n\"%v\"", command_str)
-            append(&processes, process)
-            strings.builder_reset(&in_sb)
-            strings.builder_reset(&out_sb)
 
             for extra in SHADER_EXTRAS {
                 out_path := fmt.sbprintf(&in_sb, "./data/shaders/%v%v.%v.spv", shader, extra[1], type[0:4])

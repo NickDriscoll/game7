@@ -225,7 +225,11 @@ app_startup :: proc(app: ^App) -> bool {
     // This allows sdl2.Vulkan_GetVkGetInstanceProcAddr() to return a real address
     {
         scoped_event(&profiler, "sdl2.Vulkan_LoadLibrary()")
-        if sdl2.Vulkan_LoadLibrary(nil) != 0 {
+        library_path : cstring = nil
+        when ODIN_OS == .Darwin {
+            library_path = "./libvulkan.1.4.350.dylib"
+        }
+        if sdl2.Vulkan_LoadLibrary(library_path) != 0 {
             s := sdl2.GetErrorString()
             log.fatalf("Failed to link Vulkan loader: %v", s)
             return false

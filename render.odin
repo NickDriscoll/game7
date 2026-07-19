@@ -591,7 +591,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
         info := vkw.Buffer_Info {
             size = vk.DeviceSize(gd.frames_in_flight) * size_of(vk.DrawIndexedIndirectCommand) * MAX_GLOBAL_DRAW_CMDS,
             usage = {.INDIRECT_BUFFER,.TRANSFER_DST},
-            alloc_flags = {.Mapped},
+            alloc_flags = {.MAPPED},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "Indirect draw buffer"
         }
@@ -604,7 +604,7 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
         info := vkw.Buffer_Info {
             size = vk.DeviceSize(gd.frames_in_flight) * size_of(UniformBuffer),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = {.Mapped},
+            alloc_flags = {.MAPPED},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "Global uniforms buffer"
         }
