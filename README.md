@@ -47,6 +47,12 @@ sudo apt install libc++-19-dev
 ./linux_build.sh debug
 ```
 
+### Experimental MacOS build
+If you install KosmicKrisp (i.e. by installing the Mac VulkanSDK) you can build with `macos_build.sh`
+```
+./macos_build.sh debug
+```
+
 ### Dependencies
 - Odin standard library
 - SDL2
