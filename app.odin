@@ -39,6 +39,12 @@ Window :: struct {
     minimized: bool,
 }
 
+AppState :: enum {
+    Playing,
+    FadingIn,
+    MainMenu
+}
+
 AppOption :: enum {
     LimitCPU,
     PerfProfile
@@ -65,6 +71,9 @@ App :: struct {
     input_system: InputSystem,
     audio_system: AudioSystem,
     gui: ImguiState,
+
+    // Track which state the overall app is in
+    state: AppState,
 
     // There will be two of these in order to support
     // tick-rate/frame-rate independence
@@ -143,6 +152,8 @@ app_startup :: proc(app: ^App) -> bool {
         }
         log.destroy_console_logger(context.logger)
     }
+
+    app.state = .FadingIn
 
     // Set up global allocator
     app.global_allocator = runtime.heap_allocator()
