@@ -573,6 +573,51 @@ main :: proc() {
             }
         }
 
+        switch app.state {
+            case .Playing: {}
+            case .FadingIn: {
+                app.renderer.uniforms.fade_to_black += 0.75 * scaled_dt
+                if app.renderer.uniforms.fade_to_black > 1.0 {
+                    app.state = .MainMenu
+                }
+            }
+            case .MainMenu: {
+                items : []UserMenuItem = {
+                    {
+                        label = "Continue",
+                        widget = UserMenuButton {
+                            //verb = .PlayerPauseGame,
+                        },
+                    },
+                    {
+                        label = "New game",
+                        widget = UserMenuButton {
+                            //verb = .LevelSelect,
+                        },
+                    },
+                    {
+                        label = "Level Select",
+                        widget = UserMenuButton {
+                            verb = .LevelSelect,
+                        },
+                    },
+                    {
+                        label = "Settings",
+                        widget = UserMenuButton {
+                            verb = .SettingsMenu,
+                        },
+                    },
+                    {
+                        label = "Quit",
+                        widget = UserMenuButton {
+                            verb = .Quit,
+                        },
+                    },
+                }
+                gui_user_menu(app.gui, items, app.per_scene_allocator)
+            }
+        }
+
         // Check for player pausing
         for player_idx in 0..<len(app.game_state.local_players) {
             player_verbs := output_verbs.recipient_verbs[player_idx]

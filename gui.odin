@@ -406,7 +406,7 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
         gui.dockspace_viewport[3] / 2.0,
     }, .Always, {0.5, 0.5})
 
-    imgui.SetNavCursorVisible(true)
+    //imgui.SetNavCursorVisible(true)
 
     // First pass for layout
     items_size := [2]f32 {}
