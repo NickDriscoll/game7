@@ -487,7 +487,7 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
 }
 
 do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, string) {
-    retval : VerbType = nil
+    retval : VerbType = .None
     retstr: string
 
     // Handle menu stack

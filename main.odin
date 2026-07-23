@@ -38,6 +38,39 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
+main_menu_items : []UserMenuItem = {
+    {
+        label = "Continue",
+        widget = UserMenuButton {
+            //verb = .PlayerPauseGame,
+        },
+    },
+    {
+        label = "New game",
+        widget = UserMenuButton {
+            //verb = .LevelSelect,
+        },
+    },
+    {
+        label = "Level Select",
+        widget = UserMenuButton {
+            verb = .LevelSelect,
+        },
+    },
+    {
+        label = "Settings",
+        widget = UserMenuButton {
+            verb = .SettingsMenu,
+        },
+    },
+    {
+        label = "Quit",
+        widget = UserMenuButton {
+            verb = .Quit,
+        },
+    },
+}
+
 @thread_local profiler: Profiler
 
 main :: proc() {
@@ -578,43 +611,15 @@ main :: proc() {
             case .FadingIn: {
                 app.renderer.uniforms.fade_to_black += 0.75 * scaled_dt
                 if app.renderer.uniforms.fade_to_black > 1.0 {
+                    app.renderer.uniforms.fade_to_black = 1.0
                     app.state = .MainMenu
                 }
             }
             case .MainMenu: {
-                items : []UserMenuItem = {
-                    {
-                        label = "Continue",
-                        widget = UserMenuButton {
-                            //verb = .PlayerPauseGame,
-                        },
-                    },
-                    {
-                        label = "New game",
-                        widget = UserMenuButton {
-                            //verb = .LevelSelect,
-                        },
-                    },
-                    {
-                        label = "Level Select",
-                        widget = UserMenuButton {
-                            verb = .LevelSelect,
-                        },
-                    },
-                    {
-                        label = "Settings",
-                        widget = UserMenuButton {
-                            verb = .SettingsMenu,
-                        },
-                    },
-                    {
-                        label = "Quit",
-                        widget = UserMenuButton {
-                            verb = .Quit,
-                        },
-                    },
+                verb, _ := gui_user_menu(app.gui, main_menu_items, app.per_scene_allocator)
+                if verb == .Quit {
+                    do_main_loop = false
                 }
-                gui_user_menu(app.gui, items, app.per_scene_allocator)
             }
         }
 
