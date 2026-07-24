@@ -616,7 +616,7 @@ main :: proc() {
                 }
             }
             case .MainMenu: {
-                verb, _ := gui_user_menu(app.gui, main_menu_items, app.per_scene_allocator)
+                verb, _ := gui_user_menu(app.gui, main_menu_items, 24.0, .Left, app.per_scene_allocator)
                 if verb == .Quit {
                     do_main_loop = false
                 }

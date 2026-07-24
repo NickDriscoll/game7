@@ -502,7 +502,7 @@ do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, s
         app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
         app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
 
-        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], allocator)
+        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], 48.0, .Center, allocator)
         last_was_menu = true
     } else if last_was_menu {
         app.renderer.uniforms.fade_to_black = 1.0

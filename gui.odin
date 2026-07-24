@@ -391,8 +391,14 @@ gui_centered_button :: proc(label: cstring, alignment: f32 = 0.5) -> bool {
     return imgui.Button(label)
 }
 
-gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := context.allocator) -> (VerbType, string) {
-    imgui.PushFontFloat(gui.user_facing_font, 48.0)
+MenuAlignment :: enum {
+    Left,
+    Center,
+    Right
+}
+
+gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, alignment: MenuAlignment, allocator := context.allocator) -> (VerbType, string) {
+    imgui.PushFontFloat(gui.user_facing_font, font_size)
     defer imgui.PopFont()
 
     retval : VerbType = nil
@@ -401,12 +407,11 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
     sb: strings.Builder
     strings.builder_init(&sb, allocator)
 
+    x_scales := [?]f32 {1.0/6.0, 1.0/2.0, 5.0/6.0}
     imgui.SetNextWindowPos({
-        gui.dockspace_viewport[2] / 2.0,
+        gui.dockspace_viewport[2] * x_scales[alignment],
         gui.dockspace_viewport[3] / 2.0,
     }, .Always, {0.5, 0.5})
-
-    //imgui.SetNavCursorVisible(true)
 
     // First pass for layout
     items_size := [2]f32 {}
@@ -525,6 +530,10 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, allocator := conte
     }
 
     return retval, retstr
+}
+
+gui_pause_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, allocator := context.allocator) -> (VerbType, string) {
+    return gui_user_menu(gui, items, 48.0, .Center, allocator)
 }
 
 gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {
