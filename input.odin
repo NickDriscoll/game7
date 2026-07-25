@@ -23,6 +23,8 @@ VerbType :: enum {
     FocusWindow,
 
     NewLevel,
+    StartNewGame,
+    LoadMainMenu,
     ShowLoadLevel,
     LevelSelect,
     LoadLevel,

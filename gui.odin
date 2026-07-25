@@ -63,6 +63,8 @@ UserMenuItem :: struct {
 UserMenu :: struct {
     items: []UserMenuItem,
     player_idx: int,
+    alignment: MenuAlignment,
+    font_size: f32,
 }
 
 ImguiPushConstants :: struct {
@@ -397,8 +399,8 @@ MenuAlignment :: enum {
     Right
 }
 
-gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, alignment: MenuAlignment, allocator := context.allocator) -> (VerbType, string) {
-    imgui.PushFontFloat(gui.user_facing_font, font_size)
+gui_user_menu :: proc(gui: ImguiState, menu: UserMenu, allocator := context.allocator) -> (VerbType, string) {
+    imgui.PushFontFloat(gui.user_facing_font, menu.font_size)
     defer imgui.PopFont()
 
     retval : VerbType = nil
@@ -409,14 +411,14 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, al
 
     x_scales := [?]f32 {1.0/6.0, 1.0/2.0, 5.0/6.0}
     imgui.SetNextWindowPos({
-        gui.dockspace_viewport[2] * x_scales[alignment],
+        gui.dockspace_viewport[2] * x_scales[menu.alignment],
         gui.dockspace_viewport[3] / 2.0,
     }, .Always, {0.5, 0.5})
 
     // First pass for layout
     items_size := [2]f32 {}
     total_items := 0
-    for item in items {
+    for item in menu.items {
         total_items += 1
         fmt.sbprintf(&sb, "%v", item.label)
         label := strings.to_cstring(&sb)
@@ -482,7 +484,7 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, al
         text_colors := [?]u32 {0xFFFFFFFF, 0xFF007700, 0xFF00FF00}
 
         // Second pass for building UI
-        for &item, i in items {
+        for &item, i in menu.items {
             colori := 0
             if item._was_hovered {colori = 1}
             if item._was_active {colori = 2}
@@ -501,9 +503,20 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, al
                     imgui.Separator()
                 }
                 case UserMenuButton: {
-                    if gui_centered_button(label) {
-                        retval = it.verb
-                        retstr = item.label
+                    switch menu.alignment {
+                        case .Left: {
+                            if imgui.Button(label) {
+                                retval = it.verb
+                                retstr = item.label
+                            }
+                        }
+                        case .Center: {
+                            if gui_centered_button(label) {
+                                retval = it.verb
+                                retstr = item.label
+                            }
+                        }
+                        case .Right: { assert(false) }
                     }
                 }
                 case UserMenuCheckbox: {
@@ -532,8 +545,8 @@ gui_user_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, al
     return retval, retstr
 }
 
-gui_pause_menu :: proc(gui: ImguiState, items: []UserMenuItem, font_size: f32, allocator := context.allocator) -> (VerbType, string) {
-    return gui_user_menu(gui, items, 48.0, .Center, allocator)
+gui_pause_menu :: proc(gui: ImguiState, menu: UserMenu, allocator := context.allocator) -> (VerbType, string) {
+    return gui_user_menu(gui, menu, allocator)
 }
 
 gui_print_value :: proc(builder: ^strings.Builder, label: string, value: $T) {

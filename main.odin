@@ -38,39 +38,6 @@ IDENTITY_MATRIX4x4 :: hlsl.float4x4 {
     0.0, 0.0, 0.0, 1.0,
 }
 
-main_menu_items : []UserMenuItem = {
-    {
-        label = "Continue",
-        widget = UserMenuButton {
-            //verb = .PlayerPauseGame,
-        },
-    },
-    {
-        label = "New game",
-        widget = UserMenuButton {
-            //verb = .LevelSelect,
-        },
-    },
-    {
-        label = "Level Select",
-        widget = UserMenuButton {
-            verb = .LevelSelect,
-        },
-    },
-    {
-        label = "Settings",
-        widget = UserMenuButton {
-            verb = .SettingsMenu,
-        },
-    },
-    {
-        label = "Quit",
-        widget = UserMenuButton {
-            verb = .Quit,
-        },
-    },
-}
-
 @thread_local profiler: Profiler
 
 main :: proc() {
@@ -81,19 +48,21 @@ main :: proc() {
         log.error("Failed to init app struct")
         return
     }
-    defer app_shutdown(&app)
+    defer when ODIN_DEBUG {
+        app_shutdown(&app)
+    }
     scoped_event(&profiler, "Main proc")
-
-    // context is per-scope, so set the allocators and logger here
-    context.logger = app.logger
-    context.allocator = app.per_scene_allocator
-    context.temp_allocator = app.per_frame_allocator
 
     log.info("App initialization complete. Entering main loop")
 
     do_main_loop := true
     for do_main_loop {
         scoped_event(&profiler, "Main frame loop")
+
+        // context is per-scope, so set the allocators and logger here
+        context.logger = app.logger
+        context.allocator = app.per_scene_allocator
+        context.temp_allocator = app.per_frame_allocator
 
         // Time
         app.current_time = time.now()
@@ -555,7 +524,7 @@ main :: proc() {
         }
 
         // Memory viewer
-        when ODIN_DEBUG {
+        {
             if app.gui.show_gui && app.user_config.flags[.ShowAllocatorStats] {
                 if imgui.Begin("Allocator stats", &app.user_config.flags[.ShowAllocatorStats]) {
                     imgui.Text("Global allocator stats")
@@ -608,34 +577,84 @@ main :: proc() {
             }
         }
 
+        user_menu_verb := VerbType.None
+        user_menu_string := ""
         switch app.state {
-            case .Playing: {}
+            case .Playing: {
+                // Check for player pausing
+                for player_idx in 0..<len(app.game_state.local_players) {
+                    player_verbs := output_verbs.recipient_verbs[player_idx]
+                    toggled_pause := player_verbs.bools[.PlayerPauseGame]
+                    if toggled_pause {
+                        if !app.game_state.paused {
+                            items : []UserMenuItem = {
+                                {
+                                    label = "Resume",
+                                    widget = UserMenuButton {
+                                        verb = .PlayerPauseGame,
+                                    },
+                                },
+                                {
+                                    label = "Level Select",
+                                    widget = UserMenuButton {
+                                        verb = .LevelSelect,
+                                    },
+                                },
+                                {
+                                    label = "Settings",
+                                    widget = UserMenuButton {
+                                        verb = .SettingsMenu,
+                                    },
+                                },
+                                {
+                                    label = "Main Menu",
+                                    widget = UserMenuButton {
+                                        verb = .LoadMainMenu,
+                                    },
+                                },
+                                {
+                                    label = "Quit",
+                                    widget = UserMenuButton {
+                                        verb = .Quit,
+                                    },
+                                },
+                            }
+                            menu := UserMenu {
+                                items = items,
+                                player_idx = player_idx,
+                                alignment = .Center,
+                                font_size = 48.0,
+                            }
+                            queue.push_front(&app.gui.menu_stack, menu)
+                            app.renderer.uniforms.fade_to_black = 0.4
+                            app.renderer.uniforms.flags += {.BlackAndWhite}
+                        } else {
+                            queue.clear(&app.gui.menu_stack)
+                            app.renderer.uniforms.fade_to_black = 1.0
+                            app.renderer.uniforms.flags -= {.BlackAndWhite}
+                        }
+
+                        app.game_state.paused = !app.game_state.paused
+                        break
+                    }
+                }
+            }
             case .FadingIn: {
                 app.renderer.uniforms.fade_to_black += 0.75 * scaled_dt
                 if app.renderer.uniforms.fade_to_black > 1.0 {
                     app.renderer.uniforms.fade_to_black = 1.0
                     app.state = .MainMenu
-                }
-            }
-            case .MainMenu: {
-                verb, _ := gui_user_menu(app.gui, main_menu_items, 24.0, .Left, app.per_scene_allocator)
-                if verb == .Quit {
-                    do_main_loop = false
-                }
-            }
-        }
-
-        // Check for player pausing
-        for player_idx in 0..<len(app.game_state.local_players) {
-            player_verbs := output_verbs.recipient_verbs[player_idx]
-            toggled_pause := player_verbs.bools[.PlayerPauseGame]
-            if toggled_pause {
-                if !app.game_state.paused {
-                    items : []UserMenuItem = {
+                    main_menu_items : []UserMenuItem = {
                         {
-                            label = "Resume",
+                            label = "Continue",
                             widget = UserMenuButton {
-                                verb = .PlayerPauseGame,
+                                //verb = .PlayerPauseGame,
+                            },
+                        },
+                        {
+                            label = "New game",
+                            widget = UserMenuButton {
+                                verb = .StartNewGame,
                             },
                         },
                         {
@@ -658,27 +677,46 @@ main :: proc() {
                         },
                     }
                     menu := UserMenu {
-                        items = items,
-                        player_idx = player_idx
+                        items = main_menu_items,
+                        player_idx = 0,
+                        alignment = .Left,
+                        font_size = 36.0,
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
-                } else {
-                    queue.clear(&app.gui.menu_stack)
                 }
-
-                app.game_state.paused = !app.game_state.paused
-                break
             }
+            case .MainMenu: {}
         }
 
         {
-            verb, retstr := do_user_menus(&app)
-            #partial switch verb {
+            v, s := do_user_menus(&app)
+            if v != .None {
+                user_menu_verb, user_menu_string = v, s
+            }
+            #partial switch user_menu_verb {
                 case .PopMenu: {
                     queue.pop_front(&app.gui.menu_stack)
                 }
                 case .Quit: {
                     do_main_loop = false
+                }
+                case .LoadMainMenu: {
+                    app_shutdown(&app)
+                    app = {}
+                    app_startup(&app)
+                }
+                case .StartNewGame: {
+                    app.state = .Playing
+                    start_level := "one"
+                    str, ok := app.user_config.strs[.StartLevel]
+                    if ok {
+                        start_level = str
+                    }
+                    sb: strings.Builder
+                    strings.builder_init(&sb, app.per_scene_allocator)
+                    start_path := fmt.sbprintf(&sb, "%v.lvl", start_level)
+                    app.load_new_level = start_path
+                    queue.clear(&app.gui.menu_stack)
                 }
                 case .LevelSelect: {
                     //show_load_modal = true
@@ -709,16 +747,20 @@ main :: proc() {
                     })
                     menu := UserMenu {
                         items = items[:],
-                        player_idx = app.gui.menu_player_idx
+                        player_idx = app.gui.menu_player_idx,
+                        alignment = .Center,
+                        font_size = 48.0,
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
                 }
                 case .LoadLevel: {
-                    app.load_new_level = retstr
+                    app.load_new_level = user_menu_string
                     queue.clear(&app.gui.menu_stack)
                 }
                 case .PlayerPauseGame: {
                     queue.clear(&app.gui.menu_stack)
+                    app.renderer.uniforms.flags ~= {.BlackAndWhite}
+                    app.renderer.uniforms.fade_to_black = 1.0
                 }
                 case .SettingsMenu: {
                     items : []UserMenuItem = {
@@ -747,7 +789,9 @@ main :: proc() {
                     }
                     menu := UserMenu {
                         items = items,
-                        player_idx = app.gui.menu_player_idx
+                        player_idx = app.gui.menu_player_idx,
+                        alignment = .Center,
+                        font_size = 48.0,
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
                 }
@@ -790,7 +834,9 @@ main :: proc() {
                     }
                     menu := UserMenu {
                         items = AUDIO_MENU_ITEMS,
-                        player_idx = app.gui.menu_player_idx
+                        player_idx = app.gui.menu_player_idx,
+                        alignment = .Center,
+                        font_size = 48.0,
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
                 }
@@ -812,13 +858,15 @@ main :: proc() {
                     }
                     menu := UserMenu {
                         items = items,
-                        player_idx = app.gui.menu_player_idx
+                        player_idx = app.gui.menu_player_idx,
+                        alignment = .Center,
+                        font_size = 48.0,
                     }
                     queue.push_front(&app.gui.menu_stack, menu)
                 }
                 case .None: {}
                 case: {
-                    log.infof("Unhandled verb from menu: %v", verb)
+                    log.infof("Unhandled verb from menu: %v", user_menu_verb)
                 }
             }
 
@@ -951,6 +999,7 @@ main :: proc() {
                 if !vkw.resize_window(gd, info) {
                     log.error("Failed to resize window")
                 }
+                log.infof("Resized window to %vx%v", window.resolution.x, window.resolution.y)
                 //resize_framebuffers(gd, renderer, window.resolution)
                 is_fullscreen := user_config.flags[.BorderlessFullscreen] || user_config.flags[.ExclusiveFullscreen]
                 if !is_fullscreen {

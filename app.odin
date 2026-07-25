@@ -414,7 +414,6 @@ app_startup :: proc(app: ^App) -> bool {
     return true
 }
 
-//@(disabled=!ODIN_DEBUG)
 app_shutdown :: proc(app: ^App) {
     scoped_event(&profiler, "Shutdown")
     log.destroy_console_logger(context.logger)
@@ -452,6 +451,9 @@ app_shutdown :: proc(app: ^App) {
             log.debugf("- %p @ %v\n", entry.memory, entry.location)
         }
     }
+
+    vmem.arena_destroy(&app.per_scene_arena)
+    vmem.arena_destroy(&app.per_frame_arena)
 
     mem.tracking_allocator_destroy(&app.global_track)
     mem.tracking_allocator_destroy(&app.scene_track)
@@ -499,16 +501,12 @@ do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, s
         app.gui.menu_player_idx = active_menu.player_idx
 
         // Renderer and input state
-        app.renderer.uniforms.fade_to_black = 0.4
-        app.renderer.uniforms.flags += {.BlackAndWhite}
         app.input_system.button_mappings[active_menu.player_idx] = &app.game_state.menu_button_mappings[active_menu.player_idx]
         app.input_system.key_mappings[active_menu.player_idx] = &app.game_state.character_menu_key_mappings
 
-        retval, retstr = gui_user_menu(app.gui, active_menu.items[:], 48.0, .Center, allocator)
+        retval, retstr = gui_user_menu(app.gui, active_menu^, allocator)
         last_was_menu = true
     } else if last_was_menu {
-        app.renderer.uniforms.fade_to_black = 1.0
-        app.renderer.uniforms.flags -= {.BlackAndWhite}
         app.input_system.button_mappings[app.gui.menu_player_idx] = &app.game_state.button_mappings[app.gui.menu_player_idx]
         app.input_system.key_mappings[app.gui.menu_player_idx] = &app.game_state.character_key_mappings
         app.game_state.paused = false
