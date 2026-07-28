@@ -150,7 +150,7 @@ imgui_init :: proc(gd: ^vkw.VulkanGraphicsDevice, user_config: UserConfiguration
         info := vkw.Buffer_Info {
             size = size_of(ImguiUniforms) * vk.DeviceSize(gd.frames_in_flight),
             usage = {.UNIFORM_BUFFER,.TRANSFER_DST},
-            alloc_flags = {.MAPPED},
+            alloc_flags = {.MAPPED,.HOST_ACCESS_SEQUENTIAL_WRITE},
             required_flags = {.DEVICE_LOCAL,.HOST_VISIBLE,.HOST_COHERENT},
             name = "ImGUI uniform buffer",
         }
