@@ -907,9 +907,9 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
     return renderer
 }
 
-_resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, screen_size: hlsl.uint2) {
-    vkw.delete_image(gd, renderer.main_framebuffer.color_images[0])
-    vkw.delete_image(gd, renderer.main_framebuffer.depth_image)
+_resize_framebuffers :: proc(renderer: ^Renderer, screen_size: hlsl.uint2) {
+    vkw.delete_image(renderer.vgd, renderer.main_framebuffer.color_images[0])
+    vkw.delete_image(renderer.vgd, renderer.main_framebuffer.depth_image)
 
     old_clearcolor := renderer.main_framebuffer.clear_color
 
@@ -932,7 +932,7 @@ _resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer,
             alloc_flags = nil,
             name = "Main color target"
         }
-        color_target_handle := vkw.new_bindless_image(gd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
+        color_target_handle := vkw.new_bindless_image(renderer.vgd, &color_target, .COLOR_ATTACHMENT_OPTIMAL)
 
         depth_target := vkw.Image_Create {
             flags = nil,
@@ -951,7 +951,7 @@ _resize_framebuffers :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer,
             alloc_flags = nil,
             name = "Main depth target"
         }
-        depth_handle := vkw.new_bindless_image(gd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
+        depth_handle := vkw.new_bindless_image(renderer.vgd, &depth_target, .DEPTH_ATTACHMENT_OPTIMAL)
 
         color_images: [8]vkw.Image_Handle
         color_images[0] = color_target_handle
@@ -978,7 +978,6 @@ swapchain_framebuffer :: proc(gd: ^vkw.VulkanGraphicsDevice, swapchain_idx: u32,
 }
 
 queue_blas_build :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: Renderer,
     position_start: u32,
     positions_len: u32,
@@ -1040,11 +1039,10 @@ queue_blas_build :: proc(
         type = .BOTTOM_LEVEL
     }
 
-    current_blas^ = vkw.create_acceleration_structure(gd, as_info, &build_info)
+    current_blas^ = vkw.create_acceleration_structure(renderer.vgd, as_info, &build_info)
 }
 
 create_static_mesh :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     positions: []hlsl.half4,
     indices: []u16
@@ -1058,7 +1056,7 @@ create_static_mesh :: proc(
         position_start = renderer.positions_head
         renderer.positions_head += positions_len
 
-        vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.positions_buffer, positions, position_start)
     }
 
     indices_start: u32
@@ -1071,7 +1069,7 @@ create_static_mesh :: proc(
         indices_start = renderer.indices_head
         renderer.indices_head += indices_len
 
-        vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.index_buffer, indices, indices_start)
     }
     gpu_mesh := GPUStaticMesh {
         position_offset = position_start,
@@ -1088,7 +1086,7 @@ create_static_mesh :: proc(
     }
 
     if renderer.do_raytracing {
-        queue_blas_build(gd, renderer^, position_start, positions_len, &mesh, false)
+        queue_blas_build(renderer^, position_start, positions_len, &mesh, false)
     }
     handle := Static_Mesh_Handle(hm.insert(&renderer.cpu_static_meshes, mesh))
 
@@ -1098,7 +1096,6 @@ create_static_mesh :: proc(
 }
 
 create_skinned_mesh :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     positions: [][4]f16,
     indices: []u16,
@@ -1116,7 +1113,7 @@ create_skinned_mesh :: proc(
         position_start = renderer.positions_head
         renderer.positions_head += positions_len
 
-        vkw.sync_write_buffer(gd, renderer.positions_buffer, positions, position_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.positions_buffer, positions, position_start)
     }
     assert(renderer.positions_head + positions_len <= MAX_GLOBAL_VERTICES)
 
@@ -1130,7 +1127,7 @@ create_skinned_mesh :: proc(
         indices_start = renderer.indices_head
         renderer.indices_head += indices_len
 
-        vkw.sync_write_buffer(gd, renderer.index_buffer, indices, indices_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.index_buffer, indices, indices_start)
     }
 
     joint_ids_start: u32
@@ -1140,7 +1137,7 @@ create_skinned_mesh :: proc(
         joint_ids_start = renderer.joint_ids_head
         renderer.joint_ids_head += joint_ids_len
 
-        vkw.sync_write_buffer(gd, renderer.joint_ids_buffer, joint_ids, joint_ids_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.joint_ids_buffer, joint_ids, joint_ids_start)
     }
 
     joint_weights_start: u32
@@ -1150,7 +1147,7 @@ create_skinned_mesh :: proc(
         joint_weights_start = renderer.joint_weights_head
         renderer.joint_weights_head += joint_weights_len
 
-        vkw.sync_write_buffer(gd, renderer.joint_weights_buffer, joint_weights, joint_weights_start)
+        vkw.sync_write_buffer(renderer.vgd, renderer.joint_weights_buffer, joint_weights, joint_weights_start)
     }
 
     // Create static mesh for this skinned mesh
@@ -1181,7 +1178,6 @@ create_skinned_mesh :: proc(
 }
 
 add_vertex_colors :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: $HandleType,
     colors: []hlsl.float4
@@ -1204,11 +1200,10 @@ add_vertex_colors :: proc(
         panic("Invalid arg type")
     }
 
-    return vkw.sync_write_buffer(gd, renderer.colors_buffer, colors, color_start)
+    return vkw.sync_write_buffer(renderer.vgd, renderer.colors_buffer, colors, color_start)
 }
 
 add_vertex_uvs :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: $HandleType,
     uvs: []hlsl.float2
@@ -1231,7 +1226,7 @@ add_vertex_uvs :: proc(
         panic("Invalid arg type")
     }
 
-    return vkw.sync_write_buffer(gd, renderer.uvs_buffer, uvs, uv_start)
+    return vkw.sync_write_buffer(renderer.vgd, renderer.uvs_buffer, uvs, uv_start)
 }
 
 add_material :: proc(r: ^Renderer, new_mat: ^Material) -> int {
@@ -1251,7 +1246,6 @@ do_point_light :: proc(renderer: ^Renderer, light: PointLight) {
 }
 
 draw_ps1_static_meshes :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: StaticModelHandle,
     draw_data: []StaticDraw,
@@ -1259,11 +1253,10 @@ draw_ps1_static_meshes :: proc(
     scoped_event(&profiler, "draw_ps1_static_meshes")
     data := get_static_model(r, handle)
     for prim, i in data.primitives {
-        draw_ps1_static_primitives(gd, r, prim.mesh, prim.material, draw_data)
+        draw_ps1_static_primitives(r, prim.mesh, prim.material, draw_data)
     }
 }
 draw_ps1_static_mesh :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: StaticModelHandle,
     draw_data: StaticDraw,
@@ -1271,12 +1264,11 @@ draw_ps1_static_mesh :: proc(
     scoped_event(&profiler, "draw_ps1_static_mesh")
     data := get_static_model(r, handle)
     for prim in data.primitives {
-        draw_ps1_static_primitive(gd, r, prim.mesh, prim.material, draw_data)
+        draw_ps1_static_primitive(r, prim.mesh, prim.material, draw_data)
     }
 }
 
 draw_ps1_skinned_mesh :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     r: ^Renderer,
     handle: SkinnedModelHandle,
     draw_data: ^SkinnedDraw,
@@ -1285,24 +1277,22 @@ draw_ps1_skinned_mesh :: proc(
     data := get_skinned_model(r, handle)
     draw_data.anim_idx += data.first_animation_idx
     for prim in data.primitives {
-        draw_ps1_skinned_primitive(gd, r, prim.mesh, prim.material, draw_data)
+        draw_ps1_skinned_primitive(r, prim.mesh, prim.material, draw_data)
     }
 }
 
 draw_debug_mesh :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     handle: StaticModelHandle,
     draw_data: ^DebugDraw
 ) {
     model := get_static_model(renderer, handle)
     for prim in model.primitives {
-        draw_debug_primtive(gd, renderer, prim.mesh, draw_data)
+        draw_debug_primtive(renderer, prim.mesh, draw_data)
     }
 }
 
 draw_debug_primtive :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     draw_data: ^DebugDraw
@@ -1327,7 +1317,6 @@ draw_debug_primtive :: proc(
 
 // User code calls this to queue up draw calls
 draw_ps1_static_primitives :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: int,
@@ -1357,7 +1346,6 @@ draw_ps1_static_primitives :: proc(
     return true
 }
 draw_ps1_static_primitive :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Static_Mesh_Handle,
     material_handle: int,
@@ -1386,7 +1374,6 @@ draw_ps1_static_primitive :: proc(
 }
 
 draw_ps1_skinned_primitive :: proc(
-    gd: ^vkw.VulkanGraphicsDevice,
     renderer: ^Renderer,
     mesh_handle: Skinned_Mesh_Handle,
     material_handle: int,
@@ -1597,7 +1584,6 @@ compute_skinning :: proc(gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer) {
                 static_mesh, _ := hm.get(&renderer.cpu_static_meshes, mesh.static_mesh_handle)
 
                 queue_blas_build(
-                    gd,
                     renderer^,
                     vtx_positions_out_offset,
                     mesh.vertices_len,
@@ -2378,12 +2364,12 @@ load_gltf_static_model :: proc(
 
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
-            mesh_handle := create_static_mesh(gd, renderer, position_data[:], index_data[:])
+            mesh_handle := create_static_mesh(renderer, position_data[:], index_data[:])
             if len(color_data) > 0 {
-                add_vertex_colors(gd, renderer, mesh_handle, color_data[:])
+                add_vertex_colors(renderer, mesh_handle, color_data[:])
             }
             if len(uv_data) > 0 {
-                add_vertex_uvs(gd, renderer, mesh_handle, uv_data[:])
+                add_vertex_uvs(renderer, mesh_handle, uv_data[:])
             }
 
 
@@ -2644,7 +2630,6 @@ load_gltf_skinned_model :: proc(
             // Now that we have the mesh data in CPU-side buffers,
             // it's time to upload them
             mesh_handle := create_skinned_mesh(
-                renderer.vgd,
                 renderer,
                 position_data[:],
                 index_data[:],
@@ -2654,10 +2639,10 @@ load_gltf_skinned_model :: proc(
                 first_joint_idx
             )
             if len(color_data) > 0 {
-                add_vertex_colors(renderer.vgd, renderer, mesh_handle, color_data[:])
+                add_vertex_colors(renderer, mesh_handle, color_data[:])
             }
             if len(uv_data) > 0 {
-                add_vertex_uvs(renderer.vgd, renderer, mesh_handle, uv_data[:])
+                add_vertex_uvs(renderer, mesh_handle, uv_data[:])
             }
 
 

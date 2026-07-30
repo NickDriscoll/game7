@@ -19,7 +19,8 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
-DEFAULT_LOOKAT_DISTANCE :: 2.0
+DEFAULT_LOOKAT_DISTANCE :: 2.5
+DEFAULT_LOOKAT_VERTICAL_OFFSET :: 1.2
 
 UndoEditPlayerSpawn :: struct {
     old_pos: hlsl.float3,
@@ -129,6 +130,7 @@ app_startup :: proc(app: ^App) -> bool {
                 if i + 1 < argc && !strings.contains(os.args[i + 1], "-") {
                     filepath := os.args[i + 1]
                     logfile = filepath
+                    i += 1
                 } else {
                     logfile = "game7.log"
                 }
@@ -805,7 +807,7 @@ scene_editor :: proc(
                             world_from_model = mmat,
                             color = {0.0, 1.0, 0.0, 0.4}
                         }
-                        draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                        draw_debug_mesh(&app.renderer, app.game_state.sphere_mesh, &ddraw)
                     }
 
                     label : cstring = "Move player spawn##"
@@ -842,7 +844,7 @@ scene_editor :: proc(
                     world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
                     color = color,
                 }
-                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                draw_debug_mesh(&app.renderer, app.game_state.sphere_mesh, &ddraw)
             }
 
             for id, instance in app.game_state.skinned_models {
@@ -859,7 +861,7 @@ scene_editor :: proc(
                     world_from_model = translation_matrix(pos) * uniform_scaling_matrix(scale),
                     color = color,
                 }
-                draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
+                draw_debug_mesh(&app.renderer, app.game_state.sphere_mesh, &ddraw)
 
             }
         }

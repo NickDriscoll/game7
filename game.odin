@@ -695,7 +695,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
     return id
 }
 
-tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, all_output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+tick_character_controllers :: proc(game_state: ^GameState, renderer: ^Renderer, all_output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_character_controllers")
     for id, &char in game_state.character_controllers {
 
@@ -928,7 +928,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphi
                 world_from_model = mat,
                 color = {0.0, 0.4, 0.0, 0.3}
             }
-            draw_debug_mesh(gd, renderer, game_state.sphere_mesh, &draw)
+            draw_debug_mesh(renderer, game_state.sphere_mesh, &draw)
 
             do_point_light(renderer, PointLight {
                 world_position = tform.position,
@@ -948,7 +948,7 @@ tick_character_controllers :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphi
                 world_from_model = m,
                 flags = {.Glowing}
             }
-            draw_ps1_static_mesh(gd, renderer, game_state.enemy_mesh, d)
+            draw_ps1_static_mesh(renderer, game_state.enemy_mesh, d)
 
             // Light source
             l := default_point_light()
@@ -1055,7 +1055,7 @@ draw_static_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
             world_from_model = mat,
             flags = model.flags
         }
-        draw_ps1_static_mesh(renderer.vgd, renderer, model.handle, draw)
+        draw_ps1_static_mesh(renderer, model.handle, draw)
 
         if .Glowing in model.flags {
             // Light source
@@ -1084,7 +1084,7 @@ draw_skinned_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
             anim_t = model.anim_t,
             //flags = model.flags
         }
-        draw_ps1_skinned_mesh(renderer.vgd, renderer, model.handle, &draw)
+        draw_ps1_skinned_mesh(renderer, model.handle, &draw)
 
         if .Glowing in model.flags {
             // Light source
@@ -1111,7 +1111,7 @@ draw_debug_models :: proc(game_state: ^GameState, renderer: ^Renderer) {
             world_from_model = mat,
             color = model.color
         }
-        draw_debug_mesh(renderer.vgd, renderer, game_state.sphere_mesh, &draw)
+        draw_debug_mesh(renderer, game_state.sphere_mesh, &draw)
     }
 }
 
@@ -1510,7 +1510,7 @@ gamestate_next_id :: proc(gamestate: ^GameState) -> EntityID {
     return EntityID(r)
 }
 
-game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, renderer: ^Renderer, input_system: ^InputSystem, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
+game_tick :: proc(game_state: ^GameState, renderer: ^Renderer, output_verbs: OutputVerbs, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "GameState tick")
 
     // Determine if we're simulating a tick of game logic this frame
@@ -1523,7 +1523,7 @@ game_tick :: proc(game_state: ^GameState, gd: ^vkw.VulkanGraphicsDevice, rendere
 
     if do_this_frame {
         // Advance game_state by dt seconds
-        tick_character_controllers(game_state, gd, renderer, output_verbs, audio_system, dt)
+        tick_character_controllers(game_state, renderer, output_verbs, audio_system, dt)
         tick_coins(game_state, audio_system)
         tick_looping_animations(game_state, renderer^, dt)
         tick_transform_deltas(game_state, dt)
@@ -2352,6 +2352,7 @@ camera_gui :: proc(
                         replace_keybindings(input_system, recipient, &game_state.character_key_mappings)
                         game_state.lookat_controllers[camera_id] = LookatController {
                             target = game_state.local_players[0],
+                            vertical_offset = DEFAULT_LOOKAT_VERTICAL_OFFSET,
                             distance = DEFAULT_LOOKAT_DISTANCE
                         }
                     } else {

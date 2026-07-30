@@ -775,7 +775,7 @@ main :: proc() {
             }
         }
 
-        game_tick(&app.game_state, &app.vgd, &app.renderer, &app.input_system, output_verbs, &app.audio_system, scaled_dt)
+        game_tick(&app.game_state, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
 
         // Update camera related data in the renderer
         for cam_id, idx in app.game_state.viewport_cameras {
