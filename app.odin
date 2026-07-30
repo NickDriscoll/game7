@@ -808,7 +808,7 @@ scene_editor :: proc(
                         draw_debug_mesh(&app.vgd, &app.renderer, app.game_state.sphere_mesh, &ddraw)
                     }
 
-                    label : cstring = "Move player spawn"
+                    label : cstring = "Move player spawn##"
                     moving := .MovePlayerSpawn in app.game_state.edit_flags
                     if moving {
                         label = "Moving player spawn..."

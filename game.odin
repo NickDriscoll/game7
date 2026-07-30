@@ -36,15 +36,7 @@ Transform :: struct {
     scale: f32,
 }
 get_transform_matrix :: proc(tform: Transform, scale: f32 = 1.0) -> hlsl.float4x4 {
-    scoped_event(&profiler, "get_transform_matrix")
-    scale_mat := scaling_matrix(tform.scale)
-    rot := linalg.matrix4_from_quaternion_f32(tform.rotation)
-    mat := rot * scale_mat * scaling_matrix(scale)
-    mat[3][0] = tform.position.x
-    mat[3][1] = tform.position.y
-    mat[3][2] = tform.position.z
-
-    return mat
+    return translation_rotation_scaling_matrix(tform.position, tform.rotation, scale * tform.scale)
 }
 
 TransformDelta :: struct {
@@ -1044,6 +1036,7 @@ tick_moved_entity :: proc(game_state: ^GameState) {
         mesh, mesh_ok := &game_state.triangle_meshes[event.id]
         if mesh_ok {
             mmat := get_transform_matrix(tform^)
+            mesh.model_matrix = mmat
             rebuild_static_triangle_mesh(mesh, mmat)
         }
     }
@@ -1607,9 +1600,8 @@ get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, com
 }
 
 LEVEL_FILE_MAGIC_STRING :: "katawari"
-load_level_file :: new_load_level_file
 
-new_load_level_file :: proc(
+load_level_file :: proc(
     app: ^App,
     path: string,
     scene_allocator := context.allocator
@@ -1842,8 +1834,6 @@ _reencode_level_files :: proc(app: ^App, temp_allocator := context.temp_allocato
     }
 }
 
-save_level_file :: new_save_level_file
-
 // Strings in the StringTable are written back-to-back when serialized
 // Components can have a pair of u32 (offset, size) to address into it
 StringTable :: struct {
@@ -1886,7 +1876,7 @@ write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^
     }
 }
 
-new_save_level_file :: proc(
+save_level_file :: proc(
     app: ^App,
     path: string,
     temp_allocator := context.temp_allocator

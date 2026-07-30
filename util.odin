@@ -1,6 +1,7 @@
 package main
 
 import "core:math/linalg/hlsl"
+import "core:math/linalg"
 import "core:math"
 import "core:os"
 import "core:time"
@@ -102,6 +103,29 @@ basis_matrix :: proc(x, y, z: hlsl.float3) -> hlsl.float4x4 {
         x.y, y.y, z.y, 0.0,
         x.z, y.z, z.z, 0.0,
         0.0, 0.0, 0.0, 1.0,
+    }
+}
+
+translation_rotation_scaling_matrix :: proc {
+    translation_rotation_scaling_matrix_f32,
+    translation_rotation_scaling_matrix_float3
+}
+translation_rotation_scaling_matrix_f32 :: proc (translation: hlsl.float3, rotation: quaternion128, scaling: f32) -> hlsl.float4x4 {
+    return translation_rotation_scaling_matrix_float3(translation, rotation, {scaling, scaling, scaling})
+}
+translation_rotation_scaling_matrix_float3 :: proc(translation: hlsl.float3, rotation: quaternion128, scaling: hlsl.float3) -> hlsl.float4x4 {
+    rot := linalg.matrix3_from_quaternion(rotation)
+    scale := hlsl.float3x3 {
+        scaling.x, 0.0, 0.0,
+        0.0, scaling.y, 0.0,
+        0.0, 0.0, scaling.z
+    }
+    rotscale := rot * scale
+    return {
+        rotscale[0][0], rotscale[1][0], rotscale[2][0], translation.x,
+        rotscale[0][1], rotscale[1][1], rotscale[2][1], translation.y,
+        rotscale[0][2], rotscale[1][2], rotscale[2][2], translation.z,
+        0.0, 0.0, 0.0 , 1.0,
     }
 }
 
