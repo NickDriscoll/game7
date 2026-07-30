@@ -52,7 +52,6 @@ delete_static_triangles :: proc(s: ^TriangleMesh) {
 }
 
 positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Triangle {
-    scoped_event(&profiler, "positions_to_triangles")
     FLOATS_PER_TRIANGLE :: 9
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
 
@@ -81,7 +80,7 @@ positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Tri
 }
 
 new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
-    scoped_event(&profiler, "new_static_triangle_mesh")
+    
     FLOATS_PER_TRIANGLE :: 9
 
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
@@ -116,7 +115,7 @@ load_static_triangle_mesh :: proc(path: string, mmat: hlsl.float4x4, allocator :
 }
 
 rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
-    scoped_event(&profiler, "rebuild_static_triangle_mesh")
+    
     FLOATS_PER_TRIANGLE :: 9
 
     // For each implicit triangle
@@ -130,7 +129,7 @@ rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hls
 }
 
 copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.allocator) -> TriangleMesh {
-    scoped_event(&profiler, "copy_static_triangle_mesh")
+    
     new_positions := make([]f32, len(collision.local_positions), allocator)
     new_triangles := make([dynamic]Triangle, len(collision.triangles), allocator)
     copy(new_positions, collision.local_positions)
@@ -144,7 +143,7 @@ copy_static_triangle_mesh :: proc(collision: TriangleMesh, allocator := context.
 
 // Implementation adapted from section 5.1.5 of Real-Time Collision Detection
 closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
-    scoped_event(&profiler, "closest_pt_triangle")
+    
     dot :: hlsl.dot
 
     a := tri.a
@@ -209,9 +208,9 @@ closest_pt_triangle :: proc(point: hlsl.float3,  tri: Triangle) -> hlsl.float3 {
     return candidate
 }
 closest_pt_triangle_with_normal :: proc(point: hlsl.float3, tri: Triangle) -> (hlsl.float3, hlsl.float3) {
-    scoped_event(&profiler, "closest_pt_triangle_with_normal")
+    
     dot :: hlsl.dot
-    //scoped_event(&profiler, "closest_pt_triangle_with_normal")
+    //
 
     a := tri.a
     b := tri.b
@@ -284,7 +283,7 @@ closest_pt_triangle_with_normal :: proc(point: hlsl.float3, tri: Triangle) -> (h
 
 // This proc returns the first collision detected
 closest_pt_triangles :: proc(point: hlsl.float3, tris: ^TriangleMesh) -> hlsl.float3 {
-    scoped_event(&profiler, "closest_pt_triangles")
+    
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
@@ -312,7 +311,7 @@ closest_pt_triangles :: proc(point: hlsl.float3, tris: ^TriangleMesh) -> hlsl.fl
     return closest_point
 }
 closest_pt_triangles_with_normal :: proc(point: hlsl.float3, tris: TriangleMesh) -> (hlsl.float3, hlsl.float3) {
-    scoped_event(&profiler, "closest_pt_triangles_with_normal")
+    
 
     // Helper proc to check if a closest point is
     // the closest one we've found so far
@@ -822,7 +821,7 @@ dynamic_sphere_vs_triangles :: proc(s: Sphere, tris: TriangleMesh, motion_interv
 
 
 closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> hlsl.float3 {
-    scoped_event(&profiler, "closest_pt_terrain")
+    
     candidate: hlsl.float3
     closest_dist := math.INF_F32
     for _, &piece in terrain {
@@ -836,7 +835,7 @@ closest_pt_terrain :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMes
     return candidate
 }
 closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, hlsl.float3) {
-    scoped_event(&profiler, "closest_pt_terrain_with_normal")
+    
     candidate: hlsl.float3
     cn: hlsl.float3
     closest_dist := math.INF_F32
@@ -853,7 +852,7 @@ closest_pt_terrain_with_normal :: proc(point: hlsl.float3, terrain: map[EntityID
 }
 
 intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (hlsl.float3, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain")
+    
     cand_t := math.INF_F32
     for _, &piece in terrain {
         t, ok := intersect_segment_triangles_t(segment, piece)
@@ -868,7 +867,7 @@ intersect_segment_terrain :: proc(segment: LineSegment, terrain: map[EntityID]Tr
 }
 
 intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain_with_normal")
+    
     cand_t := math.INF_F32
     normal: hlsl.float3
     for _, piece in terrain {
@@ -885,7 +884,7 @@ intersect_segment_terrain_with_normal :: proc(segment: LineSegment, terrain: map
 }
 
 intersect_segment_terrain_with_normal_and_id :: proc(segment: LineSegment, terrain: map[EntityID]TriangleMesh) -> (f32, hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "intersect_segment_terrain_with_normal_and_id")
+    
     cand_t := math.INF_F32
     normal: hlsl.float3
     cand_id: EntityID
@@ -904,7 +903,7 @@ intersect_segment_terrain_with_normal_and_id :: proc(segment: LineSegment, terra
 }
 
 dynamic_sphere_vs_terrain_t :: proc(s: Sphere, terrain: map[EntityID]TriangleMesh, motion_interval: LineSegment) -> (f32, bool) {
-    scoped_event(&profiler, "dynamic_sphere_vs_terrain_t()")
+    
     closest_t := math.INF_F32
     for _, piece in terrain {
         t, ok3 := dynamic_sphere_vs_triangles_t(s, piece, motion_interval)
@@ -922,7 +921,7 @@ do_mouse_raycast_with_normal :: proc(
     renderer: Renderer,
     input_system: InputSystem
 ) -> (hlsl.float3, hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "do_mouse_raycast")
+    
     
     viewport_dimensions : [4]f32 = {
         cast(f32)renderer.dockspace_dimensions.offset.x,
@@ -958,7 +957,7 @@ do_mouse_raycast :: proc(
     renderer: Renderer,
     input_system: InputSystem,
 ) -> (hlsl.float3, EntityID, bool) {
-    scoped_event(&profiler, "do_mouse_raycast")
+    
     collision_pt, _, id, hit := do_mouse_raycast_with_normal(
         game_state,
         renderer,

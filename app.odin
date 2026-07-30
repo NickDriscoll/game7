@@ -109,6 +109,7 @@ app_startup :: proc(app: ^App) -> bool {
     want_rt := true
     {
         context.logger = log.create_console_logger(log_level)
+        defer log.destroy_console_logger(context.logger)
         argc := len(os.args)
         i := 1  // Start at one to skip executable path arg
         for i < len(os.args) {
@@ -150,7 +151,6 @@ app_startup :: proc(app: ^App) -> bool {
             }
             i += 1
         }
-        log.destroy_console_logger(context.logger)
     }
 
     app.state = .FadingIn
@@ -185,8 +185,6 @@ app_startup :: proc(app: ^App) -> bool {
         app.logger = log.create_console_logger(log_level)
     }
     context.logger = app.logger
-
-    scoped_event(&profiler, "App initialization")
 
     log.info("Initiating swag mode...")
 
@@ -384,6 +382,8 @@ app_startup :: proc(app: ^App) -> bool {
                 pitch = 0.149
             }
             append(&app.game_state.viewport_cameras, id)
+
+            app.renderer.uniforms.fade_to_black = 0.0
         }
 
         // Init input system

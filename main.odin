@@ -707,11 +707,7 @@ main :: proc() {
                 }
                 case .StartNewGame: {
                     app.state = .Playing
-                    start_level := "one"
-                    str, ok := app.user_config.strs[.StartLevel]
-                    if ok {
-                        start_level = str
-                    }
+                    start_level := "moment_of_truth"
                     sb: strings.Builder
                     strings.builder_init(&sb, app.per_scene_allocator)
                     start_path := fmt.sbprintf(&sb, "%v.lvl", start_level)
