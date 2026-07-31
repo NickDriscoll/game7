@@ -154,6 +154,8 @@ delete_enemy :: proc(game_state: ^GameState, id: EntityID) {
     delete_key(&game_state.transforms, id)
     delete_key(&game_state.spherical_bodies, id)
     delete_key(&game_state.enemy_ais, id)
+    delete_key(&game_state.hovering_enemies, id)
+    delete_key(&game_state.thrown_enemy_ais, id)
     delete_key(&game_state.static_models, id)
 }
 

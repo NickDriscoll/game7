@@ -549,6 +549,18 @@ scene_editor :: proc(
                 }
             }
 
+            if imgui.Button("Delete all enemies") {
+                for id, _ in app.game_state.hovering_enemies {
+                    delete_enemy(&app.game_state, id)
+                }
+                for id, _ in app.game_state.thrown_enemy_ais {
+                    delete_enemy(&app.game_state, id)
+                }
+                for id, _ in app.game_state.enemy_ais {
+                    delete_enemy(&app.game_state, id)
+                }
+            }
+
             // Edit verb selection
             verb_changed := false
             {

@@ -202,6 +202,7 @@ main :: proc() {
             if imgui.Begin("Hacking window", &app.user_config.flags[.ShowDebugMenu]) {
                 scoped_event(&profiler, "Show debug menu")
                 imgui.Text("Frame #%i", app.vgd.frame_count)
+                imgui.Text("Frametime: %.2fms (%.2f FPS)", 1000.0 / io.Framerate, io.Framerate)
                 imgui.Separator()
 
                 imgui.BeginDisabled(len(app.game_state.local_players) == MAX_SPLITSCREEN_PLAYERS)
