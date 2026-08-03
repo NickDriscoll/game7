@@ -185,6 +185,7 @@ main :: proc() {
         // Run general scene editor window
         scene_editor(&app)
 
+        // Handle font scaling verbs
         if output_verbs.recipient_verbs[VerbRecipient.System].bools[.ImguiScaleDown] {
             style := imgui.GetStyle()
             style.FontScaleMain -= 0.2

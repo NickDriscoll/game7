@@ -197,14 +197,12 @@ check_characters_grabbing :: proc(
 ENEMY_HOME_RADIUS :: 4.0
 ENEMY_LUNGE_SPEED :: 20.0
 ENEMY_JUMP_SPEED :: 6.0                 // m/s
-ENEMY_PLAYER_MIN_DISTANCE :: 50.0       // Meters
 tick_enemy_ai :: proc(game_state: ^GameState, audio_system: ^AudioSystem, dt: f32) {
     scoped_event(&profiler, "tick_enemy_ai")
     for id, &enemy in game_state.enemy_ais {
         transform := &game_state.transforms[id]
 
         body := &game_state.spherical_bodies[id]
-        is_affected_by_gravity := false
         switch enemy.state {
             case .BrainDead: {
                 body.velocity.xy = {}
@@ -1225,7 +1223,7 @@ GameState :: struct {
     level_start: hlsl.float3,
     skybox_texture: vkw.Image_Handle,
 
-    // Data-oriented tables
+    // Game data as relational database rows
     _next_id: u32,                   // Components with the same id are associated with one another
     transforms: map[EntityID]Transform,
     transform_deltas: map[EntityID]TransformDelta,
