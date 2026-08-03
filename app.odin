@@ -19,8 +19,8 @@ import vk "vendor:vulkan"
 import vkw "desktop_vulkan_wrapper"
 import imgui "odin-imgui"
 
-DEFAULT_LOOKAT_DISTANCE :: 2.5
 DEFAULT_LOOKAT_VERTICAL_OFFSET :: 1.2
+DEFAULT_LOOKAT_DISTANCE :: 2.5
 
 UndoEditPlayerSpawn :: struct {
     old_pos: hlsl.float3,

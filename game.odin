@@ -688,7 +688,7 @@ new_viewport_camera :: proc(game_state: ^GameState, player_id: EntityID, user_co
     if user_config.flags[.FollowCam] {
         game_state.lookat_controllers[id] = LookatController {
             target = player_id,
-            vertical_offset = 1.2,
+            vertical_offset = DEFAULT_LOOKAT_VERTICAL_OFFSET,
             distance = DEFAULT_LOOKAT_DISTANCE
         }
     }

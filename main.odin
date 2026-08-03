@@ -101,6 +101,21 @@ main :: proc() {
                 path := strings.to_string(builder)
                 load_level_file(&app, path)
                 app.load_new_level = nil
+
+                // Force camera focus on player
+                for i in 0..<len(app.game_state.viewport_cameras) {
+                    id := app.game_state.viewport_cameras[i]
+                    _, lookat_ok := app.game_state.lookat_controllers[id]
+                    if !lookat_ok {
+                        controller := LookatController {
+                            current_focal_point = 0.0,
+                            target = app.game_state.local_players[i],
+                            vertical_offset = DEFAULT_LOOKAT_VERTICAL_OFFSET,
+                            distance = DEFAULT_LOOKAT_DISTANCE
+                        }
+                        app.game_state.lookat_controllers[id] = controller
+                    }
+                }
             }
         }
 
