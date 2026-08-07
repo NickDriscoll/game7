@@ -4,6 +4,7 @@ import "core:c"
 import "core:container/queue"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:math/linalg/hlsl"
 import "core:os"
 import "core:strings"
@@ -716,9 +717,43 @@ main :: proc() {
                     do_main_loop = false
                 }
                 case .LoadMainMenu: {
-                    app_shutdown(&app)
-                    app = {}
-                    app_startup(&app)
+                    app.state = .FadingIn
+                    app.renderer.uniforms.flags -= {.BlackAndWhite}
+                    queue.clear(&app.gui.menu_stack)
+                    {
+                        start_level := "one"
+                        sl, ok := app.user_config.strs[.StartLevel]
+                        if ok {
+                            start_level = sl
+                        }
+                        sb: strings.Builder
+                        strings.builder_init(&sb, app.per_frame_allocator)
+                        start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
+                        load_level_file(&app, start_path)
+                    }
+
+                    // Main menu setup
+                    {
+                        delete_entity(&app.game_state, app.game_state.viewport_cameras[0])
+                        clear(&app.game_state.viewport_cameras)
+
+                        id := gamestate_next_id(&app.game_state)
+                        app.game_state.transforms[id] = Transform {
+                            position = {-29.525560, 25.632435, -1.840763}
+                        }
+                        app.game_state.cameras[id] = FreecamController {
+                            fov_radians = f32(app.user_config.floats[.CameraFOV]),
+                            nearplane = 0.1 / math.sqrt_f32(2.0),
+                            farplane = 1_000_000.0,
+                            // yaw = f32(app.user_config.floats[.FreecamYaw]),
+                            // pitch = f32(app.user_config.floats[.FreecamPitch]),
+                            yaw = 0.994,
+                            pitch = 0.149
+                        }
+                        append(&app.game_state.viewport_cameras, id)
+
+                        app.renderer.uniforms.fade_to_black = 0.0
+                    }
                 }
                 case .StartNewGame: {
                     app.state = .Playing
