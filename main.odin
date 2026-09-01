@@ -662,12 +662,6 @@ main :: proc() {
                     app.state = .MainMenu
                     main_menu_items : []UserMenuItem = {
                         {
-                            label = "Continue",
-                            widget = UserMenuButton {
-                                //verb = .PlayerPauseGame,
-                            },
-                        },
-                        {
                             label = "New game",
                             widget = UserMenuButton {
                                 verb = .StartNewGame,
@@ -801,6 +795,7 @@ main :: proc() {
                 }
                 case .LoadLevel: {
                     app.load_new_level = user_menu_string
+                    app.state = .Playing
                     queue.clear(&app.gui.menu_stack)
                 }
                 case .PlayerPauseGame: {

@@ -467,6 +467,7 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.directional_light_count = 0
         unis.cloud_speed = 0.025
         unis.cloud_scale = 0.022
+        unis.flags -= {.BlackAndWhite}
         //unis.fade_to_black = 1.0
     }
 }
