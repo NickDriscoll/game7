@@ -99,6 +99,7 @@ App :: struct {
     saved_mouse_coords: hlsl.int2,
     user_config: UserConfiguration,
     window: Window,
+    running: bool,
 }
 
 app_startup :: proc(app: ^App) -> bool {
@@ -154,6 +155,7 @@ app_startup :: proc(app: ^App) -> bool {
     }
 
     app.state = .FadingIn
+    app.running = true
 
     // Set up global allocator
     app.global_allocator = runtime.heap_allocator()
@@ -384,6 +386,7 @@ app_startup :: proc(app: ^App) -> bool {
             append(&app.game_state.viewport_cameras, id)
 
             app.renderer.uniforms.fade_to_black = 0.0
+            app.audio_system.master_volume = 0.0
         }
 
         // Init input system
@@ -514,6 +517,223 @@ do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, s
     }
 
     return retval, retstr
+}
+
+process_user_menu :: proc(app: ^App, output_verbs: OutputVerbs) {
+    user_menu_verb := VerbType.None
+    user_menu_string := ""
+    v, s := do_user_menus(app)
+    if v != .None {
+        user_menu_verb, user_menu_string = v, s
+    }
+    #partial switch user_menu_verb {
+        case .PopMenu: {
+            queue.pop_front(&app.gui.menu_stack)
+        }
+        case .Quit: {
+            app.running = false
+        }
+        case .LoadMainMenu: {
+            app.state = .FadingIn
+            app.renderer.uniforms.fade_to_black = 0.0
+            app.renderer.uniforms.flags -= {.BlackAndWhite}
+            app.audio_system.master_volume = 0.0
+            queue.clear(&app.gui.menu_stack)
+            {
+                start_level := "one"
+                sl, ok := app.user_config.strs[.StartLevel]
+                if ok {
+                    start_level = sl
+                }
+                sb: strings.Builder
+                strings.builder_init(&sb, app.per_frame_allocator)
+                start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
+                load_level_file(app, start_path)
+            }
+
+            // Main menu setup
+            {
+                delete_entity(&app.game_state, app.game_state.viewport_cameras[0])
+                clear(&app.game_state.viewport_cameras)
+
+                id := gamestate_next_id(&app.game_state)
+                app.game_state.transforms[id] = Transform {
+                    position = {-29.525560, 25.632435, -1.840763}
+                }
+                app.game_state.cameras[id] = FreecamController {
+                    fov_radians = f32(app.user_config.floats[.CameraFOV]),
+                    nearplane = 0.1 / math.sqrt_f32(2.0),
+                    farplane = 1_000_000.0,
+                    // yaw = f32(app.user_config.floats[.FreecamYaw]),
+                    // pitch = f32(app.user_config.floats[.FreecamPitch]),
+                    yaw = 0.994,
+                    pitch = 0.149
+                }
+                append(&app.game_state.viewport_cameras, id)
+            }
+        }
+        case .StartNewGame: {
+            app.state = .Playing
+            start_level := "moment_of_truth"
+            sb: strings.Builder
+            strings.builder_init(&sb, app.per_scene_allocator)
+            start_path := fmt.sbprintf(&sb, "%v.lvl", start_level)
+            app.load_new_level = start_path
+            queue.clear(&app.gui.menu_stack)
+        }
+        case .LevelSelect: {
+            items := make([dynamic]UserMenuItem, app.per_scene_allocator)
+            w: os.Walker
+            os.walker_init_path(&w, "./data/levels")
+            defer os.walker_destroy(&w)
+
+            for info in os.walker_walk(&w) {
+                namestr := strings.clone(info.name, app.per_scene_allocator)
+                n := UserMenuItem {
+                    label = namestr,
+                    widget = UserMenuButton {
+                        verb = .LoadLevel
+                    }
+                }
+                append(&items, n)
+            }
+            append(&items, UserMenuItem {
+                label = "",
+                widget = UserMenuSeparator {}
+            })
+            append(&items, UserMenuItem {
+                label = "Back",
+                widget = UserMenuButton {
+                    verb = .PopMenu
+                }
+            })
+            menu := UserMenu {
+                items = items[:],
+                player_idx = app.gui.menu_player_idx,
+                alignment = .Center,
+                font_size = 48.0,
+            }
+            queue.push_front(&app.gui.menu_stack, menu)
+        }
+        case .LoadLevel: {
+            app.load_new_level = user_menu_string
+            app.state = .Playing
+            app.renderer.uniforms.fade_to_black = 1.0
+            queue.clear(&app.gui.menu_stack)
+        }
+        case .PlayerPauseGame: {
+            queue.clear(&app.gui.menu_stack)
+            app.renderer.uniforms.flags ~= {.BlackAndWhite}
+            app.renderer.uniforms.fade_to_black = 1.0
+        }
+        case .SettingsMenu: {
+            items := make([dynamic]UserMenuItem, app.per_scene_allocator)
+            append(&items, UserMenuItem {
+                label = "Graphics",
+                widget = UserMenuButton {
+                    verb = .GraphicsMenu
+                },
+            })
+            append(&items, UserMenuItem {
+                label = "Audio",
+                widget = UserMenuButton {
+                    verb = .AudioMenu,
+                },
+            })
+            append(&items, UserMenuItem {
+                label = "",
+                widget = UserMenuSeparator {}
+            })
+            append(&items, UserMenuItem {
+                label = "Back",
+                widget = UserMenuButton {
+                    verb = .PopMenu,
+                },
+            })
+            menu := UserMenu {
+                items = items[:],
+                player_idx = app.gui.menu_player_idx,
+                alignment = .Center,
+                font_size = 48.0,
+            }
+            queue.push_front(&app.gui.menu_stack, menu)
+        }
+        case .AudioMenu: {
+            items := make([dynamic]UserMenuItem, app.per_scene_allocator)
+            append(&items, UserMenuItem {
+                label = "Master volume",
+                widget = UserMenuSlider {
+                    min = 0.0,
+                    max = 1.0,
+                    value = &app.audio_system.master_volume,
+                },
+            })
+            append(&items, UserMenuItem {
+                label = "Music volume",
+                widget = UserMenuSlider {
+                    min = 0.0,
+                    max = 1.0,
+                    value = &app.audio_system.music_volume,
+                },
+            })
+            append(&items, UserMenuItem {
+                label = "SFX Volume",
+                widget = UserMenuSlider {
+                    min = 0.0,
+                    max = 1.0,
+                    value = &app.audio_system.sfx_volume,
+                },
+            })
+            append(&items, UserMenuItem {
+                label = "",
+                widget = UserMenuSeparator {}
+            })
+            append(&items, UserMenuItem {
+                label = "Back",
+                widget = UserMenuButton {
+                    verb = .PopMenu
+                },
+            })
+            menu := UserMenu {
+                items = items[:],
+                player_idx = app.gui.menu_player_idx,
+                alignment = .Center,
+                font_size = 48.0,
+            }
+            queue.push_front(&app.gui.menu_stack, menu)
+        }
+        case .GraphicsMenu: {
+            items := make([dynamic]UserMenuItem, app.per_scene_allocator)
+            append(&items, UserMenuItem {
+                label = "CRT filter",
+                widget = UserMenuFlagsCheckbox(UniformFlag) {
+                    set = &app.renderer.uniforms.flags,
+                    flag = .CRTShader
+                }
+            })
+            append(&items, UserMenuItem {
+                label = "Back",
+                widget = UserMenuButton {
+                    verb = .PopMenu
+                }
+            })
+            menu := UserMenu {
+                items = items[:],
+                player_idx = app.gui.menu_player_idx,
+                alignment = .Center,
+                font_size = 48.0,
+            }
+            queue.push_front(&app.gui.menu_stack, menu)
+        }
+        case .None: {}
+        case: {
+            log.infof("Unhandled verb from menu: %v", user_menu_verb)
+        }
+    }
+
+    if output_verbs.recipient_verbs[app.gui.menu_player_idx].bools[.PopMenu] {
+        queue.pop_front(&app.gui.menu_stack)
+    }
 }
 
 EditFlag :: enum {

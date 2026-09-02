@@ -56,8 +56,7 @@ main :: proc() {
 
     log.info("App initialization complete. Entering main loop")
 
-    do_main_loop := true
-    for do_main_loop {
+    for app.running {
         scoped_event(&profiler, "Main frame loop")
 
         // context is per-scope, so set the allocators and logger here
@@ -102,6 +101,7 @@ main :: proc() {
                 path := strings.to_string(builder)
                 load_level_file(&app, path)
                 app.load_new_level = nil
+                app.audio_system.master_volume = cast(f32)app.user_config.floats[.MasterVolume]
 
                 // Force camera focus on player
                 for i in 0..<len(app.game_state.viewport_cameras) {
@@ -128,10 +128,10 @@ main :: proc() {
         output_verbs := poll_system_events(&app.input_system)
 
         // Quit if user wants it
-        do_main_loop = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
+        app.running = !output_verbs.recipient_verbs[VerbRecipient.System].bools[.Quit]
 
         if .PerfProfile in app.app_options && app.vgd.frame_count >= 144 * 5 {
-            do_main_loop = false
+            app.running = false
         }
 
         // Tell Dear ImGUI about inputs
@@ -366,7 +366,7 @@ main :: proc() {
         @static show_save_modal := false
         do_fullscreen := false
         switch gui_main_menu_bar(&app) {
-            case .Exit: do_main_loop = false
+            case .Exit: app.running = false
             case .NewLevel: {
                 new_scene(&app, app.per_scene_allocator)
             }
@@ -593,8 +593,8 @@ main :: proc() {
             }
         }
 
-        user_menu_verb := VerbType.None
-        user_menu_string := ""
+
+        // App-state specific logic
         switch app.state {
             case .Playing: {
                 // Check for player pausing
@@ -698,225 +698,10 @@ main :: proc() {
             case .MainMenu: {}
         }
 
-        {
-            v, s := do_user_menus(&app)
-            if v != .None {
-                user_menu_verb, user_menu_string = v, s
-            }
-            #partial switch user_menu_verb {
-                case .PopMenu: {
-                    queue.pop_front(&app.gui.menu_stack)
-                }
-                case .Quit: {
-                    do_main_loop = false
-                }
-                case .LoadMainMenu: {
-                    app.state = .FadingIn
-                    app.renderer.uniforms.flags -= {.BlackAndWhite}
-                    queue.clear(&app.gui.menu_stack)
-                    {
-                        start_level := "one"
-                        sl, ok := app.user_config.strs[.StartLevel]
-                        if ok {
-                            start_level = sl
-                        }
-                        sb: strings.Builder
-                        strings.builder_init(&sb, app.per_frame_allocator)
-                        start_path := fmt.sbprintf(&sb, "data/levels/%v.lvl", start_level)
-                        load_level_file(&app, start_path)
-                    }
-
-                    // Main menu setup
-                    {
-                        delete_entity(&app.game_state, app.game_state.viewport_cameras[0])
-                        clear(&app.game_state.viewport_cameras)
-
-                        id := gamestate_next_id(&app.game_state)
-                        app.game_state.transforms[id] = Transform {
-                            position = {-29.525560, 25.632435, -1.840763}
-                        }
-                        app.game_state.cameras[id] = FreecamController {
-                            fov_radians = f32(app.user_config.floats[.CameraFOV]),
-                            nearplane = 0.1 / math.sqrt_f32(2.0),
-                            farplane = 1_000_000.0,
-                            // yaw = f32(app.user_config.floats[.FreecamYaw]),
-                            // pitch = f32(app.user_config.floats[.FreecamPitch]),
-                            yaw = 0.994,
-                            pitch = 0.149
-                        }
-                        append(&app.game_state.viewport_cameras, id)
-
-                        app.renderer.uniforms.fade_to_black = 0.0
-                    }
-                }
-                case .StartNewGame: {
-                    app.state = .Playing
-                    start_level := "moment_of_truth"
-                    sb: strings.Builder
-                    strings.builder_init(&sb, app.per_scene_allocator)
-                    start_path := fmt.sbprintf(&sb, "%v.lvl", start_level)
-                    app.load_new_level = start_path
-                    queue.clear(&app.gui.menu_stack)
-                }
-                case .LevelSelect: {
-                    //show_load_modal = true
-                    items := make([dynamic]UserMenuItem, app.per_scene_allocator)
-                    w: os.Walker
-                    os.walker_init_path(&w, "./data/levels")
-                    defer os.walker_destroy(&w)
-
-                    for info in os.walker_walk(&w) {
-                        namestr := strings.clone(info.name, app.per_scene_allocator)
-                        n := UserMenuItem {
-                            label = namestr,
-                            widget = UserMenuButton {
-                                verb = .LoadLevel
-                            }
-                        }
-                        append(&items, n)
-                    }
-                    append(&items, UserMenuItem {
-                        label = "",
-                        widget = UserMenuSeparator {}
-                    })
-                    append(&items, UserMenuItem {
-                        label = "Back",
-                        widget = UserMenuButton {
-                            verb = .PopMenu
-                        }
-                    })
-                    menu := UserMenu {
-                        items = items[:],
-                        player_idx = app.gui.menu_player_idx,
-                        alignment = .Center,
-                        font_size = 48.0,
-                    }
-                    queue.push_front(&app.gui.menu_stack, menu)
-                }
-                case .LoadLevel: {
-                    app.load_new_level = user_menu_string
-                    app.state = .Playing
-                    queue.clear(&app.gui.menu_stack)
-                }
-                case .PlayerPauseGame: {
-                    queue.clear(&app.gui.menu_stack)
-                    app.renderer.uniforms.flags ~= {.BlackAndWhite}
-                    app.renderer.uniforms.fade_to_black = 1.0
-                }
-                case .SettingsMenu: {
-                    items : []UserMenuItem = {
-                        {
-                            label = "Graphics",
-                            widget = UserMenuButton {
-                                verb = .GraphicsMenu
-                            },
-                        },
-                        {
-                            label = "Audio",
-                            widget = UserMenuButton {
-                                verb = .AudioMenu,
-                            },
-                        },
-                        {
-                            label = "",
-                            widget = UserMenuSeparator {}
-                        },
-                        {
-                            label = "Back",
-                            widget = UserMenuButton {
-                                verb = .PopMenu,
-                            },
-                        },
-                    }
-                    menu := UserMenu {
-                        items = items,
-                        player_idx = app.gui.menu_player_idx,
-                        alignment = .Center,
-                        font_size = 48.0,
-                    }
-                    queue.push_front(&app.gui.menu_stack, menu)
-                }
-                case .AudioMenu: {
-                    AUDIO_MENU_ITEMS : []UserMenuItem = {
-                        {
-                            label = "Master volume",
-                            widget = UserMenuSlider {
-                                min = 0.0,
-                                max = 1.0,
-                                value = &app.audio_system.master_volume,
-                            },
-                        },
-                        {
-                            label = "Music volume",
-                            widget = UserMenuSlider {
-                                min = 0.0,
-                                max = 1.0,
-                                value = &app.audio_system.music_volume,
-                            },
-                        },
-                        {
-                            label = "SFX Volume",
-                            widget = UserMenuSlider {
-                                min = 0.0,
-                                max = 1.0,
-                                value = &app.audio_system.sfx_volume,
-                            },
-                        },
-                        {
-                            label = "",
-                            widget = UserMenuSeparator {}
-                        },
-                        {
-                            label = "Back",
-                            widget = UserMenuButton {
-                                verb = .PopMenu
-                            },
-                        },
-                    }
-                    menu := UserMenu {
-                        items = AUDIO_MENU_ITEMS,
-                        player_idx = app.gui.menu_player_idx,
-                        alignment = .Center,
-                        font_size = 48.0,
-                    }
-                    queue.push_front(&app.gui.menu_stack, menu)
-                }
-                case .GraphicsMenu: {
-                    items : []UserMenuItem = {
-                        {
-                            label = "CRT filter",
-                            widget = UserMenuFlagsCheckbox(UniformFlag) {
-                                set = &app.renderer.uniforms.flags,
-                                flag = .CRTShader
-                            }
-                        },
-                        {
-                            label = "Back",
-                            widget = UserMenuButton {
-                                verb = .PopMenu
-                            }
-                        }
-                    }
-                    menu := UserMenu {
-                        items = items,
-                        player_idx = app.gui.menu_player_idx,
-                        alignment = .Center,
-                        font_size = 48.0,
-                    }
-                    queue.push_front(&app.gui.menu_stack, menu)
-                }
-                case .None: {}
-                case: {
-                    log.infof("Unhandled verb from menu: %v", user_menu_verb)
-                }
-            }
-
-            if output_verbs.recipient_verbs[app.gui.menu_player_idx].bools[.PopMenu] {
-                queue.pop_front(&app.gui.menu_stack)
-            }
-        }
+        process_user_menu(&app, output_verbs)
 
         game_tick(&app.game_state, &app.renderer, output_verbs, &app.audio_system, scaled_dt)
+        audio_tick(&app.audio_system)
 
         // Update camera related data in the renderer
         for cam_id, idx in app.game_state.viewport_cameras {
@@ -1008,8 +793,6 @@ main :: proc() {
                 app.user_config.ints[.WindowY] = i64(new_pos.y)
             }
         }
-
-        audio_tick(&app.audio_system)
 
         {
             verbs := output_verbs.recipient_verbs[VerbRecipient.System]
