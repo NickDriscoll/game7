@@ -2,6 +2,7 @@
 static const uint MAX_SPLITSCREEN_PLAYERS = 4;
 static const uint MAX_DIRECTIONAL_LIGHTS = 4;
 static const uint MAX_POINT_LIGHTS = 8;
+static const float PI = acos(-1);
 
 struct StaticMeshData {
     uint position_offset;
@@ -34,7 +35,7 @@ struct MaterialData {
     float4 base_color;
 }
 
-struct DecalData {
+struct DecalInstance {
 
 }
 
@@ -52,6 +53,11 @@ struct PointLight {
     float _pad1;
 }
 
+struct Ray {
+    float3 origin;
+    float3 direction;
+};
+
 enum UniformFlag {
     ColorTriangles = 0x01,
     Reflections = 0x02,
@@ -66,6 +72,16 @@ enum UniformFlag {
 
 struct CameraUniforms {
     float4x4 clip_from_world;
+
+    float4x4 world_from_clip;
+
+    float4x4 clip_from_view;
+
+    float4x4 view_from_world;
+
+    float4x4 world_from_view;
+
+    float4x4 view_from_clip;
 
     float4x4 clip_from_skybox;
 
@@ -95,7 +111,7 @@ struct UniformData {
     float4 *joint_weights;
 
     float4x4 *inv_bind_matrices;
-    DecalData *decals;
+    DecalInstance *decals;
 
     DirectionalLight directional_lights[MAX_DIRECTIONAL_LIGHTS];
     PointLight point_lights[MAX_POINT_LIGHTS];
@@ -111,9 +127,15 @@ struct UniformData {
     float cloud_scale;
 
     float face_to_black;
+    float fog_fudge;
+    float fog_max_depth;
+    int fog_step_multiple;
+
+    float henyey_greenstein_g;
+    float beta_scale;
 
     // RaytracingAccelerationStructure.Handle tlas;
-    float3 _pad1;
+    float2 _pad1;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {
