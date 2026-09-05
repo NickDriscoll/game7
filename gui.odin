@@ -37,7 +37,7 @@ UserMenuCheckbox :: struct {
 }
 
 UserMenuFlagsCheckbox :: struct($T: typeid) {
-    set: ^bit_set[T],
+    set: ^bit_set[T; u32],
     flag: T,
 }
 

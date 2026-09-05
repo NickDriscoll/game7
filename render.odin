@@ -75,7 +75,7 @@ light_flicker :: proc(seed: i64, t: f32) -> f32 {
     return 0.7 * noise.noise_2d(seed, sample_point) + 3.0
 }
 
-UniformFlags :: bit_set[UniformFlag]
+UniformFlags :: bit_set[UniformFlag; u32]
 UniformFlag :: enum u32 {
     ColorTriangles,
     Reflections,
@@ -91,6 +91,16 @@ UniformFlag :: enum u32 {
 // Manually aligned to 16 bytes
 CameraUniforms :: struct {
     clip_from_world: hlsl.float4x4,
+
+    world_from_clip: hlsl.float4x4,
+
+    clip_from_view: hlsl.float4x4,
+
+    view_from_world: hlsl.float4x4,
+
+    world_from_view: hlsl.float4x4,
+
+    view_from_clip: hlsl.float4x4,
 
     clip_from_skybox: hlsl.float4x4,
 
@@ -137,9 +147,15 @@ UniformBuffer :: struct {
     cloud_scale: f32,
 
     fade_to_black: f32, // [0.0,1.0]
+    fog_fudge: f32,
+    fog_max_depth: f32,
+    fog_step_multiple: i32,
+
+    henyey_greenstein_g: f32,
+    beta_scale: f32,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
-    _pad1: [3]f32,
+    _pad1: [2]f32,
 }
 
 Ps1PushConstants :: struct {
@@ -151,7 +167,10 @@ Ps1PushConstants :: struct {
 
 PostFxPushConstants :: struct {
     color_target: u32,
+    depth_target: u32,
     sampler_idx: u32,
+    tlas_idx: u32,
+    camera_idx: u32,
     uniforms_address: vk.DeviceAddress,
 }
 
@@ -469,6 +488,13 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.cloud_scale = 0.022
         unis.flags -= {.BlackAndWhite}
         //unis.fade_to_black = 1.0
+        unis.fog_step_multiple = 4
+        unis.fog_fudge = 1500.0
+        unis.fog_max_depth = 250.0
+        //unis.henyey_greenstein_g = 0.76
+        unis.henyey_greenstein_g = 0.55
+        unis.beta_scale = 1.0
+        //unis.flags += {.CRTShader}
     }
 }
 
@@ -804,8 +830,17 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
 
         // Postprocessing pass info
 
-        postfx_vert_spv := #load("data/shaders/postprocessing.vert.spv", []u32)
-        postfx_frag_spv := #load("data/shaders/postprocessing.frag.spv", []u32)
+        swapchain_format := vk.Format.B8G8R8A8_SRGB
+
+        postfx_vert_spv: []u32
+        postfx_frag_spv: []u32
+        if renderer.do_raytracing {
+            postfx_vert_spv = #load("data/shaders/postprocessing_rt.vert.spv", []u32)
+            postfx_frag_spv = #load("data/shaders/postprocessing_rt.frag.spv", []u32)
+        } else {
+            postfx_vert_spv = #load("data/shaders/postprocessing.vert.spv", []u32)
+            postfx_frag_spv = #load("data/shaders/postprocessing.frag.spv", []u32)
+        }
         append(&pipeline_infos, vkw.GraphicsPipelineInfo {
             vertex_shader_bytecode = postfx_vert_spv,
             fragment_shader_bytecode = postfx_frag_spv,
@@ -1986,6 +2021,7 @@ render_scene :: proc(
 
         // Transition internal color buffer to COLOR_ATTACHMENT_OPTIMAL
         color_target, ok3 := vkw.get_image(gd, renderer.main_framebuffer.color_images[0])
+        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_pipeline_barriers(gd, cb, {}, {
             vkw.Image_Barrier {
                 src_stage_mask = {.COLOR_ATTACHMENT_OUTPUT},
@@ -2004,7 +2040,25 @@ render_scene :: proc(
                     baseArrayLayer = 0,
                     layerCount = 1
                 }
-            }
+            },
+            {
+                src_stage_mask = {.FRAGMENT_SHADER},
+                src_access_mask = {.SHADER_READ},
+                dst_stage_mask = {.ALL_GRAPHICS},
+                dst_access_mask = {.MEMORY_READ,.MEMORY_WRITE},
+                old_layout = .UNDEFINED,
+                new_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                src_queue_family = gd.gfx_queue_family,
+                dst_queue_family = gd.gfx_queue_family,
+                image = depth_target.image,
+                subresource_range = vk.ImageSubresourceRange {
+                    aspectMask = {.DEPTH},
+                    baseMipLevel = 0,
+                    levelCount = 1,
+                    baseArrayLayer = 0,
+                    layerCount = 1
+                }
+            },
         })
 
         // Begin renderpass into main internal rendertarget
@@ -2085,7 +2139,6 @@ render_scene :: proc(
         framebuffer_color_target, ok4 := vkw.get_image(gd, framebuffer.color_images[0])
 
         // Transition internal framebuffer to be sampled from
-        depth_target, ok5 := vkw.get_image(gd, renderer.main_framebuffer.depth_image)
         vkw.cmd_pipeline_barriers(gd, cb, {},
             {
                 {
@@ -2112,7 +2165,7 @@ render_scene :: proc(
                     dst_stage_mask = {.EARLY_FRAGMENT_TESTS},
                     dst_access_mask = {.DEPTH_STENCIL_ATTACHMENT_WRITE,.DEPTH_STENCIL_ATTACHMENT_READ},
                     old_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    new_layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    new_layout = .SHADER_READ_ONLY_OPTIMAL,
                     src_queue_family = gd.gfx_queue_family,
                     dst_queue_family = gd.gfx_queue_family,
                     image = depth_target.image,
@@ -2127,8 +2180,7 @@ render_scene :: proc(
             }
         )
 
-        // Set viewport to scale 
-
+        // Set viewport to scale
         {
             internal_aspect_ratio := vkw.get_framebuffer_aspect_ratio(renderer.main_framebuffer)
             vp := renderer.dockspace_dimensions
@@ -2167,8 +2219,11 @@ render_scene :: proc(
 
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
             color_target = renderer.main_framebuffer.color_images[0].idx,
+            depth_target = renderer.main_framebuffer.depth_image.idx,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
-            uniforms_address = uniform_buf.address
+            tlas_idx = uniforms_offset,
+            camera_idx = 0,         // @TODO(constant-fog): Loop PostFX like we do for main framebuffer
+            uniforms_address = uniform_buf.address + vk.DeviceAddress(uniforms_offset * size_of(UniformBuffer)),
         })
 
         // Draw screen-filling triangle
