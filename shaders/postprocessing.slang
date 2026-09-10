@@ -163,6 +163,46 @@ float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, Uni
     return fogged_color;
 }
 
+float3 simple_scattering(
+    UniformData *u_data,
+    Ray ray,
+    float3 frag_world_pos,
+    float3 frag_color,
+    float2 uv
+) {
+    const int num_samples = 4 * u_data.fog_step_multiple;
+    float random_offset = my_noise(uv * 5000 + 5.3338 * u_data.time);
+    float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_world_pos);
+    float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
+
+    DirectionalLight light = u_data.directional_lights[0];
+    float sunview_alignment = max(0.0, dot(ray.direction, light.direction));
+    float3 fog_color = lerp({0.2, 0.2, 0.7}, light.color, pow(sunview_alignment, 8.0));
+
+    int shadow_count = 0;
+#if defined(HardwareRT)
+    // Ray-marched shadow term
+    for (int i = 0; i < num_samples; ++i) {
+        float d = (float(i) + random_offset) * march_step;
+        float3 sampled_position = ray.origin + ray.direction * d;
+
+        Ray trace_ray = {
+            sampled_position,
+            light.direction
+        };
+        if (trace_shadow_ray(tlases[tlas_idx], trace_ray, 1000000.0)) {
+            shadow_count += 1;
+        }
+    }
+#endif
+    float shadow_term = 1.0 - (float(shadow_count) / num_samples);
+    
+    // Analytical absorption and scattering
+    // finalColor = pixelColor*exp(-distance*b) + fogColor*(1.0-exp(-distance*b));
+
+    return frag_color * exp(-pixel_depth * 0.05) + shadow_term * fog_color*(1.0 - exp(-pixel_depth*0.005));
+}
+
 // Returns the world space position of the fragment identified
 // by its depth value and position in UV space
 float3 perspective_frag_depth_to_world_pos(float depth_sample, float2 uv, UniformData *u_data) {
@@ -236,6 +276,8 @@ float4 fragment_main(VertexOutput input) {
             my_noise(input.uv + 0.5 * u_data.time + 1.0)
         );
 
+    sample_pos.y += 0.015*sin(0.75 * u_data.time + sample_pos.x);
+
     float depth_sample = textures[depth_target].Sample(samplers[sampler_idx], sample_pos).r;
     float3 frag_world_pos = perspective_frag_depth_to_world_pos(depth_sample, sample_pos, u_data);
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
@@ -245,9 +287,10 @@ float4 fragment_main(VertexOutput input) {
     Ray view_ray;
     view_ray.origin = camera.view_position.xyz;
     view_ray.direction = normalize(frag_world_pos - view_ray.origin);
-    target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, sample_pos, u_data);
-
-    float4 final_color = target_sample;
+    // target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, sample_pos, u_data);
+    float3 fogged_color = simple_scattering(u_data, view_ray, frag_world_pos, target_sample.rgb, sample_pos);
+    
+    float4 final_color = float4(fogged_color, target_sample.a);
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
         float3 final = crt_filer(textures[color_target], samplers[sampler_idx], sample_pos, u_data.clip_from_screen);
         final_color = float4(final.x, final.y, final.z, target_sample.a);
