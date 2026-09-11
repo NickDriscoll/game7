@@ -147,15 +147,17 @@ UniformBuffer :: struct {
     cloud_scale: f32,
 
     fade_to_black: f32, // [0.0,1.0]
-    fog_fudge: f32,
-    fog_max_depth: f32,
     fog_step_multiple: i32,
+    absorb_beta: f32,
+    inscatter_beta: f32,
+    // fog_fudge: f32,
+    // fog_max_depth: f32,
 
-    henyey_greenstein_g: f32,
-    beta_scale: f32,
+    // henyey_greenstein_g: f32,
+    // beta_scale: f32,
 
     // acceleration_structures_ptr: vk.DeviceAddress,
-    _pad1: [2]f32,
+    //_pad1: [2]f32,
 }
 
 Ps1PushConstants :: struct {
@@ -489,11 +491,13 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.flags -= {.BlackAndWhite}
         //unis.fade_to_black = 1.0
         unis.fog_step_multiple = 4
-        unis.fog_fudge = 1500.0
-        unis.fog_max_depth = 250.0
+        unis.absorb_beta = 0.05
+        unis.inscatter_beta = 0.005
+        // unis.fog_fudge = 1500.0
+        // unis.fog_max_depth = 250.0
         //unis.henyey_greenstein_g = 0.76
-        unis.henyey_greenstein_g = 0.55
-        unis.beta_scale = 1.0
+        // unis.henyey_greenstein_g = 0.55
+        // unis.beta_scale = 1.0
         //unis.flags += {.CRTShader}
     }
 }
@@ -2803,6 +2807,12 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
+
+            if imgui.CollapsingHeader("Fog settings") {
+                imgui.SliderInt("Raymarching steps (multiple of 4)", &renderer.uniforms.fog_step_multiple, 1, 16)
+                imgui.DragFloat("Absorbtion beta", &renderer.uniforms.absorb_beta, 0.01, 0.0001, 1.0)
+                imgui.DragFloat("In-scattering beta", &renderer.uniforms.inscatter_beta, 0.01, 0.0001, 1.0)
+            }
 
             imgui.Separator()
 
