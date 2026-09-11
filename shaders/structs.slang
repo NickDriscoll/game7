@@ -127,15 +127,18 @@ struct UniformData {
     float cloud_scale;
 
     float face_to_black;
-    float fog_fudge;
-    float fog_max_depth;
     int fog_step_multiple;
+    float absorb_beta;
+    float inscatter_beta;
 
-    float henyey_greenstein_g;
-    float beta_scale;
+    // float fog_fudge;
+    // float fog_max_depth;
+
+    // float henyey_greenstein_g;
+    // float beta_scale;
 
     // RaytracingAccelerationStructure.Handle tlas;
-    float2 _pad1;
+    //float2 _pad1;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {

@@ -29,139 +29,139 @@ float my_noise(float2 p) {
 
 
 // mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
-float rayleigh_phase_func(float mu)
-{
-    return
-            3.0 * (1.0 + mu * mu)
-    / //------------------------
-           (16.0 * PI);
-}
+// float rayleigh_phase_func(float mu)
+// {
+//     return
+//             3.0 * (1.0 + mu * mu)
+//     / //------------------------
+//            (16.0 * PI);
+// }
 
-// Henyey-Greenstein phase function factor [-1, 1]
-// represents the average cosine of the scattered directions
-// 0 is isotropic scattering
-// > 1 is forward scattering, < 1 is backwards
-// mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
-//static const float g = 0.76;
-float henyey_greenstein_phase_func(float mu, float g)
-{
-    return
-                        (1.0 - g * g)
-    / //---------------------------------------------
-           ((4.0 * PI) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
-}
+// // Henyey-Greenstein phase function factor [-1, 1]
+// // represents the average cosine of the scattered directions
+// // 0 is isotropic scattering
+// // > 1 is forward scattering, < 1 is backwards
+// // mu is the cosine of angle between view and light directions i.e. dot(view_dir, light_dir)
+// //static const float g = 0.76;
+// float henyey_greenstein_phase_func(float mu, float g)
+// {
+//     return
+//                         (1.0 - g * g)
+//     / //---------------------------------------------
+//            ((4.0 * PI) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
+// }
 
-// scattering coefficients at sea level (m)
-static const float3 betaR = float3(5.5e-6, 13.0e-6, 22.4e-6); // Rayleigh
-static const float3 betaM = float3(21e-6);                    // Mie
+// // scattering coefficients at sea level (m)
+// static const float3 betaR = float3(5.5e-6, 13.0e-6, 22.4e-6); // Rayleigh
+// static const float3 betaM = float3(21e-6);                    // Mie
 
 // scale height (m)
 // thickness of the atmosphere if its density were uniform
 // static const float hR = 7994.0; // Rayleigh
 // static const float hM = 1200.0; // Mie
 
-float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, UniformData* u_data) {
-    const int num_samples = 4 * u_data.fog_step_multiple;
+// float3 integrate_atmospheric_scattering(Ray ray, float3 frag_pos, float2 uv, UniformData* u_data) {
+//     const int num_samples = 4 * u_data.fog_step_multiple;
 
-    DirectionalLight light = u_data.directional_lights[0];
-    float3 sun_direction = light.direction;
-    float3 sun_color = light.color;
+//     DirectionalLight light = u_data.directional_lights[0];
+//     float3 sun_direction = light.direction;
+//     float3 sun_color = light.color;
 
-    // cosine of angle between view and light directions
-    float mu = dot(ray.direction, sun_direction);
+//     // cosine of angle between view and light directions
+//     float mu = dot(ray.direction, sun_direction);
 
-    // Rayleigh and Mie phase functions
-    // A black box indicating how light is interacting with the material
-    // Similar to BRDF except
-    // * it usually considers a single angle
-    //   (the phase angle between 2 directions)
-    // * integrates to 1 over the entire sphere of directions
-    float phaseR = rayleigh_phase_func(mu);
-    float phaseM = henyey_greenstein_phase_func(mu, u_data.henyey_greenstein_g);
+//     // Rayleigh and Mie phase functions
+//     // A black box indicating how light is interacting with the material
+//     // Similar to BRDF except
+//     // * it usually considers a single angle
+//     //   (the phase angle between 2 directions)
+//     // * integrates to 1 over the entire sphere of directions
+//     float phaseR = rayleigh_phase_func(mu);
+//     float phaseM = henyey_greenstein_phase_func(mu, u_data.henyey_greenstein_g);
 
-    // optical depth (or "average density")
-    // represents the accumulated extinction coefficients
-    // along the path, multiplied by the length of that path
-    float optical_depthR = 0.0;
-    float optical_depthM = 0.0;
+//     // optical depth (or "average density")
+//     // represents the accumulated extinction coefficients
+//     // along the path, multiplied by the length of that path
+//     float optical_depthR = 0.0;
+//     float optical_depthM = 0.0;
 
-    // What are we summing? Incoming radiance?
-    float3 sumR = float3(0.0);
-    float3 sumM = float3(0.0);
+//     // What are we summing? Incoming radiance?
+//     float3 sumR = float3(0.0);
+//     float3 sumM = float3(0.0);
 
-    float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_pos);
-    float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
-    float random_offset = my_noise(uv*5000 + 5.3338 * u_data.time);
+//     float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_pos);
+//     float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
+//     float random_offset = my_noise(uv*5000 + 5.3338 * u_data.time);
 
-    for (int i = 0; i < num_samples; i++) {
-        float d = (float(i) + random_offset) * march_step;
-        float3 s = ray.origin + ray.direction * d;
-        // float height = length(s) + HEIGHT_OFFSET;
-        // float height = s.z;
-        float height = distance(s, {});
+//     for (int i = 0; i < num_samples; i++) {
+//         float d = (float(i) + random_offset) * march_step;
+//         float3 s = ray.origin + ray.direction * d;
+//         // float height = length(s) + HEIGHT_OFFSET;
+//         // float height = s.z;
+//         float height = distance(s, {});
 
-        // integrate the height scale
-        // float hr = exp(-height / hR) * march_step;
-        // float hm = exp(-height / hM) * march_step;
-        float hr = d;
-        float hm = d;
-        optical_depthR += hr;
-        optical_depthM += hm;
+//         // integrate the height scale
+//         // float hr = exp(-height / hR) * march_step;
+//         // float hm = exp(-height / hM) * march_step;
+//         float hr = d;
+//         float hm = d;
+//         optical_depthR += hr;
+//         optical_depthM += hm;
 
-        // Ray from sample point to light
-        Ray light_ray = {
-            s,
-            sun_direction
-        };
+//         // Ray from sample point to light
+//         Ray light_ray = {
+//             s,
+//             sun_direction
+//         };
 
-    #if defined(HardwareRT)
-        // Skip integrating this sample if we're in shadow
-        if (trace_shadow_ray(tlases[tlas_idx], light_ray, 1000000.0)) {
-            continue;
-        }
-    #endif
+//     #if defined(HardwareRT)
+//         // Skip integrating this sample if we're in shadow
+//         if (trace_shadow_ray(tlases[tlas_idx], light_ray, 1000000.0)) {
+//             continue;
+//         }
+//     #endif
 
-        // gather the sunlight
-        float optical_depth_lightR = 0.0;
-        float optical_depth_lightM = 0.0;
-        {
-            const int num_samples2 = 8;
-            float march_step2 = 0.8;
+//         // gather the sunlight
+//         float optical_depth_lightR = 0.0;
+//         float optical_depth_lightM = 0.0;
+//         {
+//             const int num_samples2 = 8;
+//             float march_step2 = 0.8;
 
-            for (int j = 0; j < num_samples2; j++) {
-                float3 s2 = light_ray.origin + light_ray.direction * ((float(j) + 0.1) * march_step2);
+//             for (int j = 0; j < num_samples2; j++) {
+//                 float3 s2 = light_ray.origin + light_ray.direction * ((float(j) + 0.1) * march_step2);
 
-                // float height2 = distance(s2, {});
-                // optical_depth_lightR += exp(-height2 / hR) * march_step2;
-                // optical_depth_lightM += exp(-height2 / hM) * march_step2;
-                float d2 = distance(light_ray.origin, s2);
-                optical_depth_lightR += d2 * march_step2;
-                optical_depth_lightM += d2 * march_step2;
-            }
-        }
+//                 // float height2 = distance(s2, {});
+//                 // optical_depth_lightR += exp(-height2 / hR) * march_step2;
+//                 // optical_depth_lightM += exp(-height2 / hM) * march_step2;
+//                 float d2 = distance(light_ray.origin, s2);
+//                 optical_depth_lightR += d2 * march_step2;
+//                 optical_depth_lightM += d2 * march_step2;
+//             }
+//         }
 
-        {
-            float3 tau =
-                betaR * (optical_depthR + optical_depth_lightR) +
-                betaM * 1.1 * (optical_depthM + optical_depth_lightM);
-            float3 transmittance = exp(-tau);
+//         {
+//             float3 tau =
+//                 betaR * (optical_depthR + optical_depth_lightR) +
+//                 betaM * 1.1 * (optical_depthM + optical_depth_lightM);
+//             float3 transmittance = exp(-tau);
 
-            sumR += hr * transmittance;
-            sumM += hm * transmittance;
-        }
-    }
+//             sumR += hr * transmittance;
+//             sumM += hm * transmittance;
+//         }
+//     }
 
-    // Average out the sums
-    sumR /= float(num_samples);
-    sumM /= float(num_samples);
+//     // Average out the sums
+//     sumR /= float(num_samples);
+//     sumM /= float(num_samples);
 
-    float3 rayleigh_contribution = sumR * phaseR * betaR;
-    //float3 rayleigh_contribution = {};
-    float3 mie_contribution = sumM * phaseM * betaM * u_data.beta_scale;
-    //float3 mie_contribution = {};
-    float3 fogged_color = u_data.fog_fudge * sun_color * (rayleigh_contribution + mie_contribution);
-    return fogged_color;
-}
+//     float3 rayleigh_contribution = sumR * phaseR * betaR;
+//     //float3 rayleigh_contribution = {};
+//     float3 mie_contribution = sumM * phaseM * betaM * u_data.beta_scale;
+//     //float3 mie_contribution = {};
+//     float3 fogged_color = u_data.fog_fudge * sun_color * (rayleigh_contribution + mie_contribution);
+//     return fogged_color;
+// }
 
 float3 simple_scattering(
     UniformData *u_data,
@@ -173,7 +173,8 @@ float3 simple_scattering(
     const int num_samples = 4 * u_data.fog_step_multiple;
     float random_offset = my_noise(uv * 5000 + 5.3338 * u_data.time);
     float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_world_pos);
-    float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
+    // float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
+    float march_step = pixel_depth / float(num_samples);
 
     DirectionalLight light = u_data.directional_lights[0];
     float sunview_alignment = max(0.0, dot(ray.direction, light.direction));
@@ -196,11 +197,13 @@ float3 simple_scattering(
     }
 #endif
     float shadow_term = 1.0 - (float(shadow_count) / num_samples);
-    
+
     // Analytical absorption and scattering
     // finalColor = pixelColor*exp(-distance*b) + fogColor*(1.0-exp(-distance*b));
+    float3 absorb_color = frag_color * exp(-pixel_depth * u_data.absorb_beta);
+    float3 inscatter_color = shadow_term * fog_color * (1.0 - exp(-pixel_depth * u_data.inscatter_beta));
 
-    return frag_color * exp(-pixel_depth * 0.05) + shadow_term * fog_color*(1.0 - exp(-pixel_depth*0.005));
+    return absorb_color + inscatter_color;
 }
 
 // Returns the world space position of the fragment identified
