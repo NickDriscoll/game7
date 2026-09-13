@@ -1,5 +1,6 @@
 package main
 
+import "core:/c"
 import "core:path/filepath"
 import "core:fmt"
 import "core:log"
@@ -150,6 +151,12 @@ UniformBuffer :: struct {
     fog_step_multiple: i32,
     absorb_beta: f32,
     inscatter_beta: f32,
+
+    unlit_fog_color: [3]f32,
+    sunview_exponent: f32,
+    // lit_fog_color: [3]f32,
+    // _pad1: f32,
+
     // fog_fudge: f32,
     // fog_max_depth: f32,
 
@@ -325,7 +332,9 @@ Skinned_Mesh_Handle :: distinct hm.Handle
 Renderer :: struct {
     vgd: ^vkw.VulkanGraphicsDevice,              // Pointer to the graphics device
 
-    index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of draw indices
+    bluenoise_r8: vkw.Image_Handle,     // Single channel of blue noise
+
+    index_buffer: vkw.Buffer_Handle,            // Global GPU buffer of u16 draw indices
     indices_head: u32,
     indices_ptr: vk.DeviceAddress,
 
@@ -493,6 +502,7 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.fog_step_multiple = 4
         unis.absorb_beta = 0.05
         unis.inscatter_beta = 0.005
+        unis.unlit_fog_color = {0.2, 0.2, 0.7}
         // unis.fog_fudge = 1500.0
         // unis.fog_max_depth = 250.0
         //unis.henyey_greenstein_g = 0.76
@@ -679,6 +689,39 @@ init_renderer :: proc(gd: ^vkw.VulkanGraphicsDevice, want_rt: bool) -> Renderer 
 
         indices_buffer, _ := vkw.get_buffer(gd, renderer.index_buffer)
         renderer.indices_ptr = indices_buffer.address
+    }
+
+    // Load blue noise texture
+    {
+        x, y, channels: c.int
+        desired_channels: c.int : 1 // One-dimensional noise texture
+        decoded_image := stbi.load("./data/images/bluenoise_R8.png", &x, &y, &channels, desired_channels)
+        //assert(channels == desired_channels)
+        log.infof("Blue noise texture (%v, %v) has %v channels.", x, y, channels)
+
+        width := 512
+        info := vkw.Image_Create {
+            image_type = .D2,
+            format = .R8_UNORM,
+            extent = vk.Extent3D {
+                width = cast(u32)width,
+                height = cast(u32)width,
+                depth = 1,
+            },
+            mip_count = 1,
+            array_layers = 1,
+            samples = {._1},
+            tiling = .OPTIMAL,
+            usage = {.SAMPLED},
+            alloc_flags = {},
+            name = "Blue noise R8",
+        }
+        ok: bool
+        bytes_slice := slice.from_ptr(decoded_image, width * width * cast(int)channels)
+        renderer.bluenoise_r8, ok = vkw.sync_create_image_with_data(gd, &info, bytes_slice)
+        if !ok {
+            log.error("Failed to load blue noise texture.")
+        }
     }
 
     // Create main rendertarget
@@ -2807,11 +2850,15 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectDiffuse)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.VisualizeDirectSpecular)
             flag_checkbox(&renderer.uniforms.flags, UniformFlag.Unlit)
+            imgui.Separator()
 
             if imgui.CollapsingHeader("Fog settings") {
                 imgui.SliderInt("Raymarching steps (multiple of 4)", &renderer.uniforms.fog_step_multiple, 1, 16)
-                imgui.DragFloat("Absorbtion beta", &renderer.uniforms.absorb_beta, 0.01, 0.0001, 1.0)
-                imgui.DragFloat("In-scattering beta", &renderer.uniforms.inscatter_beta, 0.01, 0.0001, 1.0)
+                imgui.DragFloat("Absorbtion beta", &renderer.uniforms.absorb_beta, 0.001, 0.0001, 1.0)
+                imgui.DragFloat("In-scattering beta", &renderer.uniforms.inscatter_beta, 0.001, 0.0001, 1.0)
+                imgui.ColorPicker3("Unlit color", &renderer.uniforms.unlit_fog_color)
+                imgui.DragFloat("Sun view exponent", &renderer.uniforms.sunview_exponent, 0.2, -1.0, 16.0)
+                //imgui.ColorPicker3("Lit color", &renderer.uniforms.lit_fog_color)
             }
 
             imgui.Separator()

@@ -1,8 +1,11 @@
+// Global structs and constants that define the layout
+// of the renderer on the GPU
 
 static const uint MAX_SPLITSCREEN_PLAYERS = 4;
 static const uint MAX_DIRECTIONAL_LIGHTS = 4;
 static const uint MAX_POINT_LIGHTS = 8;
 static const float PI = acos(-1);
+static const float GOLDEN_RATIO = (1 + sqrt(5)) / 2;
 
 struct StaticMeshData {
     uint position_offset;
@@ -130,6 +133,11 @@ struct UniformData {
     int fog_step_multiple;
     float absorb_beta;
     float inscatter_beta;
+
+    float3 unlit_fog_color;
+    float sunview_exponent;
+    // float3 lit_fog_color;
+    // float _pad1;
 
     // float fog_fudge;
     // float fog_max_depth;

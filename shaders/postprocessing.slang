@@ -178,7 +178,7 @@ float3 simple_scattering(
 
     DirectionalLight light = u_data.directional_lights[0];
     float sunview_alignment = max(0.0, dot(ray.direction, light.direction));
-    float3 fog_color = lerp({0.2, 0.2, 0.7}, light.color, pow(sunview_alignment, 8.0));
+    float3 fog_color = lerp(u_data.unlit_fog_color, light.color, pow(sunview_alignment, u_data.sunview_exponent));
 
     int shadow_count = 0;
 #if defined(HardwareRT)
@@ -200,8 +200,10 @@ float3 simple_scattering(
 
     // Analytical absorption and scattering
     // finalColor = pixelColor*exp(-distance*b) + fogColor*(1.0-exp(-distance*b));
-    float3 absorb_color = frag_color * exp(-pixel_depth * u_data.absorb_beta);
-    float3 inscatter_color = shadow_term * fog_color * (1.0 - exp(-pixel_depth * u_data.inscatter_beta));
+    float absorb_term = pixel_depth * u_data.absorb_beta;
+    float inscatter_term = pixel_depth * u_data.inscatter_beta;
+    float3 absorb_color = frag_color * exp(-(absorb_term * absorb_term));
+    float3 inscatter_color = shadow_term * light.color * (1.0 - exp(-(inscatter_term * inscatter_term)));
 
     return absorb_color + inscatter_color;
 }
@@ -279,14 +281,11 @@ float4 fragment_main(VertexOutput input) {
             my_noise(input.uv + 0.5 * u_data.time + 1.0)
         );
 
-    sample_pos.y += 0.015*sin(0.75 * u_data.time + sample_pos.x);
-
     float depth_sample = textures[depth_target].Sample(samplers[sampler_idx], sample_pos).r;
     float3 frag_world_pos = perspective_frag_depth_to_world_pos(depth_sample, sample_pos, u_data);
     float4 target_sample = textures[color_target].Sample(samplers[sampler_idx], sample_pos);
 
     CameraUniforms camera = u_data.cameras[camera_idx];
-    DirectionalLight light = u_data.directional_lights[0];
     Ray view_ray;
     view_ray.origin = camera.view_position.xyz;
     view_ray.direction = normalize(frag_world_pos - view_ray.origin);
