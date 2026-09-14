@@ -171,7 +171,23 @@ float3 simple_scattering(
     float2 uv
 ) {
     const int num_samples = 4 * u_data.fog_step_multiple;
-    float random_offset = my_noise(uv * 5000 + 5.3338 * u_data.time);
+    Texture2D bluenoise_texture = textures[bluenoise_idx];
+
+    // float random_offset = my_noise(uv * 5000 + 5.3338 * u_data.time);
+    // scroll by 5.588238 pixels on each axis
+    float width, height;
+    bluenoise_texture.GetDimensions(width, height);
+    float2 pixel_step = 1.0 / float2(width, height);
+
+    // float fb_width, fb_height;
+    // textures[1].GetDimensions(fb_width, fb_height);
+    float2 pixel_scale_factor = pixel_step * float2(640, 480);
+
+    float2 scaled_uv = pixel_scale_factor * uv;
+    float2 scrolled_uv = scaled_uv + pixel_step * 5.588238 * u_data.frame_count;
+    float random_offset = bluenoise_texture.Sample(samplers[StaticSamplers.Point], scrolled_uv).r;
+    random_offset = frac(random_offset + GOLDEN_RATIO * u_data.frame_count);
+
     float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_world_pos);
     // float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
     float march_step = pixel_depth / float(num_samples);
@@ -250,6 +266,7 @@ struct VertexOutput {
 cbuffer push_constants {
     uint color_target;
     uint depth_target;
+    uint bluenoise_idx;
     uint sampler_idx;
     uint tlas_idx;
     uint camera_idx;

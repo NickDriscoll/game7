@@ -7,6 +7,12 @@ static const uint MAX_POINT_LIGHTS = 8;
 static const float PI = acos(-1);
 static const float GOLDEN_RATIO = (1 + sqrt(5)) / 2;
 
+enum StaticSamplers {
+    Aniso16 = 0,
+    Point = 1,
+    PostFX = 2,
+}
+
 struct StaticMeshData {
     uint position_offset;
     uint uv_offset;
@@ -139,6 +145,9 @@ struct UniformData {
     // float3 lit_fog_color;
     // float _pad1;
 
+    uint64_t frame_count;
+    float2 _pad2;
+
     // float fog_fudge;
     // float fog_max_depth;
 
@@ -146,7 +155,7 @@ struct UniformData {
     // float beta_scale;
 
     // RaytracingAccelerationStructure.Handle tlas;
-    //float2 _pad1;
+    float3 _pad1;
 }
 
 static const float3 INWARD_FACING_CUBE[] = {

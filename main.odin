@@ -354,7 +354,7 @@ main :: proc() {
                     "to sleep for (minimum_frametime - this_frames_duration) milliseconds " +
                     "at the end of the main loop, more-or-less capping the framerate."
                 )
-                imgui.SliderInt("Minimum frametime", &minimum_frametime, 2, 50)
+                imgui.SliderInt("Minimum frametime", &minimum_frametime, 2, 200)
 
                 imgui.Separator()
             }
@@ -894,6 +894,7 @@ main :: proc() {
                 if present_res == .SUBOPTIMAL_KHR || present_res == .ERROR_OUT_OF_DATE_KHR {
                     app.vgd.resize_window = true
                 }
+                app.renderer.uniforms.frame_count = app.vgd.frame_count
             }
             
         }

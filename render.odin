@@ -154,8 +154,13 @@ UniformBuffer :: struct {
 
     unlit_fog_color: [3]f32,
     sunview_exponent: f32,
+
+
     // lit_fog_color: [3]f32,
     // _pad1: f32,
+
+    frame_count: u64,
+    _pad2: [2]f32,
 
     // fog_fudge: f32,
     // fog_max_depth: f32,
@@ -177,6 +182,7 @@ Ps1PushConstants :: struct {
 PostFxPushConstants :: struct {
     color_target: u32,
     depth_target: u32,
+    bluenoise_idx: u32,
     sampler_idx: u32,
     tlas_idx: u32,
     camera_idx: u32,
@@ -2266,6 +2272,7 @@ render_scene :: proc(
         vkw.cmd_push_constants_gfx(gd, gfx_cb_idx, &PostFxPushConstants{
             color_target = renderer.main_framebuffer.color_images[0].idx,
             depth_target = renderer.main_framebuffer.depth_image.idx,
+            bluenoise_idx = renderer.bluenoise_r8.idx,
             sampler_idx = u32(vkw.Immutable_Sampler_Index.PostFX),
             tlas_idx = uniforms_offset,
             camera_idx = 0,         // @TODO(constant-fog): Loop PostFX like we do for main framebuffer
