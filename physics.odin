@@ -43,7 +43,7 @@ Triangle :: struct {
 TriangleMesh :: struct {
     local_positions: []f32,
     triangles: [dynamic]Triangle,
-    model_matrix: hlsl.float4x4,
+
     name: string
 }
 
@@ -51,19 +51,20 @@ delete_static_triangles :: proc(s: ^TriangleMesh) {
     delete(s.triangles)
 }
 
-positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Triangle {
+positions_to_triangle :: proc(positions: []f32, tform: Transform) -> Triangle {
     FLOATS_PER_TRIANGLE :: 9
     assert(len(positions) % FLOATS_PER_TRIANGLE == 0)
 
+    model_matrix := get_transform_matrix(tform)
     // Triangle vertices
     a4 := hlsl.float4{positions[0], positions[1], positions[2], 1.0}
     b4 := hlsl.float4{positions[3], positions[4], positions[5], 1.0}
     c4 := hlsl.float4{positions[6], positions[7], positions[8], 1.0}
 
     // Transform with supplied model matrix
-    a := hlsl.float3((transform * a4).xyz)
-    b := hlsl.float3((transform * b4).xyz)
-    c := hlsl.float3((transform * c4).xyz)
+    a := hlsl.float3((model_matrix * a4).xyz)
+    b := hlsl.float3((model_matrix * b4).xyz)
+    c := hlsl.float3((model_matrix * c4).xyz)
 
     // Compute normal from cross product of edges
     // Edges AB and AC
@@ -79,7 +80,7 @@ positions_to_triangle :: proc(positions: []f32, transform: hlsl.float4x4) -> Tri
     }
 }
 
-new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
+new_static_triangle_mesh :: proc(positions: []f32, tform: Transform, allocator := context.allocator) -> TriangleMesh {
     
     FLOATS_PER_TRIANGLE :: 9
 
@@ -87,34 +88,37 @@ new_static_triangle_mesh :: proc(positions: []f32, model_matrix: hlsl.float4x4, 
 
     static_mesh: TriangleMesh
     static_mesh.triangles = make([dynamic]Triangle, 0, len(positions) / FLOATS_PER_TRIANGLE, allocator)
-    static_mesh.model_matrix = model_matrix
+    // static_mesh.model_matrix = model_matrix
+
+    model_matrix := get_transform_matrix(tform)
 
     // For each implicit triangle
     for i := 0; i < len(positions); i += FLOATS_PER_TRIANGLE {
         start := i
         end := i + FLOATS_PER_TRIANGLE
-        append(&static_mesh.triangles, positions_to_triangle(positions[start:end], model_matrix))
+        // append(&static_mesh.triangles, positions_to_triangle(positions[start:end], model_matrix))
+        append(&static_mesh.triangles, positions_to_triangle(positions[start:end], tform))
     }
 
     static_mesh.local_positions = positions
     return static_mesh
 }
 
-load_static_triangle_mesh :: proc(path: string, mmat: hlsl.float4x4, allocator := context.allocator) -> TriangleMesh {
+load_static_triangle_mesh :: proc(path: string, tform: Transform, allocator := context.allocator) -> TriangleMesh {
     cpath, err := strings.clone_to_cstring(path, allocator)
     if err != nil {
         log.errorf("Error cloning string to cstring: %v", err)
     }
 
     positions := get_glb_positions(cpath, allocator)
-    trimesh := new_static_triangle_mesh(positions[:], mmat, allocator)
-    trimesh.model_matrix = mmat
+    trimesh := new_static_triangle_mesh(positions[:], tform, allocator)
+    // trimesh.model_matrix = mmat
     trimesh.name = strings.clone(filepath.base(path), allocator)
 
     return trimesh
 }
 
-rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hlsl.float4x4) {
+rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, tform: Transform) {
     
     FLOATS_PER_TRIANGLE :: 9
 
@@ -124,7 +128,7 @@ rebuild_static_triangle_mesh :: proc(collision: ^TriangleMesh, model_matrix: hls
         tri := &collision.triangles[i]
         start := FLOATS_PER_TRIANGLE * i
         end := start + FLOATS_PER_TRIANGLE
-        tri^ = positions_to_triangle(collision.local_positions[start:end], model_matrix)
+        tri^ = positions_to_triangle(collision.local_positions[start:end], tform)
     }
 }
 

@@ -1,0 +1,12 @@
+[INFO ] --- [2026-08-06 23:28:21] [app.odin:181:app_startup()] Initiating swag mode...
+[INFO ] --- [2026-08-06 23:28:21] [app.odin:224:app_startup()] Initialized SDL2
+[INFO ] --- [2026-08-06 23:28:21] [lib.odin:260:init_vulkan()] Initializing Vulkan instance and device
+[INFO ] --- [2026-08-06 23:28:21] [lib.odin:503:init_vulkan()] Chosen GPU: NVIDIA GeForce RTX 3080 Ti Laptop GPU
+[WARN ] --- [2026-08-06 23:28:21] [audio.odin:248:load_sound_effects()] Audio file "data/audio/orb_final.ogg" sample rate (48000 Hz) doesn't match audio spec (44100 Hz)
+[INFO ] --- [2026-08-06 23:28:22] [main.odin:59:main()] App initialization complete. Entering main loop
+[INFO ] --- [2026-08-06 23:28:22] [input.odin:459:poll_system_events()] (8BitDo Ultimate wireless Controller for PC) connected (UNKNOWN) at index 0
+[WARN ] --- [2026-08-06 23:28:22] [lib.odin:4155:cmd_build_acceleration_structures()] Resized acceleration structure scratch buffer to 631936 bytes.
+[INFO ] --- [2026-08-06 23:29:15] [network.odin:222:poll_network()] Got connection from connect id 1141469276
+[INFO ] --- [2026-08-06 23:29:15] [network.odin:237:poll_network()] Peer address [75, 118, 18, 57]
+[INFO ] --- [2026-08-06 23:29:15] [network.odin:286:poll_network()] ClientUpdatePacket "over-the-wire" size is 40 bytes
+[WARN ] --- [2026-08-06 23:29:15] [lib.odin:4155:cmd_build_acceleration_structures()] Resized acceleration structure scratch buffer to 942720 bytes.
