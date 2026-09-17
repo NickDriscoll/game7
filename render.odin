@@ -160,7 +160,8 @@ UniformBuffer :: struct {
     // _pad1: f32,
 
     frame_count: u64,
-    _pad2: [2]f32,
+    fog_max_depth: f32,
+    _pad2: f32,
 
     // fog_fudge: f32,
     // fog_max_depth: f32,
@@ -510,7 +511,7 @@ renderer_new_scene :: proc(renderer: ^Renderer, allocator := context.allocator) 
         unis.inscatter_beta = 0.005
         unis.unlit_fog_color = {0.2, 0.2, 0.7}
         // unis.fog_fudge = 1500.0
-        // unis.fog_max_depth = 250.0
+        unis.fog_max_depth = 250.0
         //unis.henyey_greenstein_g = 0.76
         // unis.henyey_greenstein_g = 0.55
         // unis.beta_scale = 1.0
@@ -2863,8 +2864,9 @@ graphics_gui :: proc(renderer: ^Renderer, do_window: ^bool) {
                 imgui.SliderInt("Raymarching steps (multiple of 4)", &renderer.uniforms.fog_step_multiple, 1, 16)
                 imgui.DragFloat("Absorbtion beta", &renderer.uniforms.absorb_beta, 0.001, 0.0001, 1.0)
                 imgui.DragFloat("In-scattering beta", &renderer.uniforms.inscatter_beta, 0.001, 0.0001, 1.0)
-                imgui.ColorPicker3("Unlit color", &renderer.uniforms.unlit_fog_color)
                 imgui.DragFloat("Sun view exponent", &renderer.uniforms.sunview_exponent, 0.2, -1.0, 16.0)
+                imgui.DragFloat("Max fog depth", &renderer.uniforms.fog_max_depth, 1.0, 0.0, 500.0)
+                imgui.ColorPicker3("Unlit color", &renderer.uniforms.unlit_fog_color)
                 //imgui.ColorPicker3("Lit color", &renderer.uniforms.lit_fog_color)
             }
 

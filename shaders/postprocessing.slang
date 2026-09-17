@@ -189,8 +189,8 @@ float3 simple_scattering(
     random_offset = frac(random_offset + GOLDEN_RATIO * u_data.frame_count);
 
     float pixel_depth = distance(u_data.cameras[camera_idx].view_position.xyz, frag_world_pos);
-    // float march_step = min(pixel_depth, u_data.fog_max_depth) / float(num_samples);
-    float march_step = pixel_depth / float(num_samples);
+    float clamped_depth = min(pixel_depth, u_data.fog_max_depth);
+    float march_step = clamped_depth / float(num_samples);
 
     DirectionalLight light = u_data.directional_lights[0];
     float sunview_alignment = max(0.0, dot(ray.direction, light.direction));
@@ -216,8 +216,8 @@ float3 simple_scattering(
 
     // Analytical absorption and scattering
     // finalColor = pixelColor*exp(-distance*b) + fogColor*(1.0-exp(-distance*b));
-    float absorb_term = pixel_depth * u_data.absorb_beta;
-    float inscatter_term = pixel_depth * u_data.inscatter_beta;
+    float absorb_term = clamped_depth * u_data.absorb_beta;
+    float inscatter_term = clamped_depth * u_data.inscatter_beta;
     float3 absorb_color = frag_color * exp(-(absorb_term * absorb_term));
     float3 inscatter_color = shadow_term * light.color * (1.0 - exp(-(inscatter_term * inscatter_term)));
 

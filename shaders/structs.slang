@@ -146,7 +146,8 @@ struct UniformData {
     // float _pad1;
 
     uint64_t frame_count;
-    float2 _pad2;
+    float fog_max_depth;
+    float _pad2;
 
     // float fog_fudge;
     // float fog_max_depth;
