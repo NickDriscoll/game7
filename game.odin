@@ -1035,9 +1035,9 @@ tick_moved_entity :: proc(game_state: ^GameState) {
 
         mesh, mesh_ok := &game_state.triangle_meshes[event.id]
         if mesh_ok {
-            mmat := get_transform_matrix(tform^)
-            mesh.model_matrix = mmat
-            rebuild_static_triangle_mesh(mesh, mmat)
+            // mmat := get_transform_matrix(tform^)
+            // mesh.model_matrix = mmat
+            rebuild_static_triangle_mesh(mesh, tform^)
         }
     }
 }
@@ -1653,6 +1653,7 @@ load_level_file :: proc(
     read_component_map :: proc(
         gd: ^vkw.VulkanGraphicsDevice,
         renderer: ^Renderer,
+        game_state: GameState,
         buffer: []byte,
         components: ^map[EntityID]$T,
         head: ^u32,
@@ -1685,10 +1686,14 @@ load_level_file :: proc(
 
             comp: T
             when T == TriangleMesh {
-                mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
+                //mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
+                tform := game_state.transforms[id]
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
 
-                comp = load_static_triangle_mesh(string(model_path), mmat, scene_allocator)
+                // TODO: do I want to pass mmat, tform, or both down
+                // I think first try to only pass down transform
+               // comp = load_static_triangle_mesh(string(model_path), mmat, scene_allocator)
+                comp = load_static_triangle_mesh(string(model_path), tform, scene_allocator)
 
             } else when T == StaticModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
@@ -1770,16 +1775,16 @@ load_level_file :: proc(
     }
 
     // Read components in order
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer,  app.game_state, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer,  app.game_state, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(&app.vgd, &app.renderer, app.game_state, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
 
     // Read stateless entities
     app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
@@ -1962,7 +1967,7 @@ save_level_file :: proc(
             id := id
             write_thing_to_buffer(buffer, &id, head)
             when T == TriangleMesh {
-                write_thing_to_buffer(buffer, &comp.model_matrix, head)
+                // write_thing_to_buffer(buffer, &comp.model_matrix, head)
                 write_component_string_to_table(buffer, string_table, comp.name, head)
             } else when T == StaticModelInstance {
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)

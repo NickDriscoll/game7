@@ -483,9 +483,14 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
         position = {0.0, 0.0, 0.0},
         scale = 1.0
     }
+    // app.game_state.triangle_meshes[id] = load_static_triangle_mesh(
+    //     "data/models/plane.glb",
+    //     IDENTITY_MATRIX4x4,
+    //     app.per_scene_allocator
+    // )
     app.game_state.triangle_meshes[id] = load_static_triangle_mesh(
         "data/models/plane.glb",
-        IDENTITY_MATRIX4x4,
+        app.game_state.transforms[id],
         app.per_scene_allocator
     )
     app.game_state.static_models[id] = StaticModelInstance {
@@ -974,7 +979,8 @@ scene_editor :: proc(
                         app.game_state.transforms[new_id] = {
                             scale = 1.0
                         }
-                        app.game_state.triangle_meshes[new_id] = load_static_triangle_mesh(path, IDENTITY_MATRIX4x4, scene_allocator)
+                        // app.game_state.triangle_meshes[new_id] = load_static_triangle_mesh(path, IDENTITY_MATRIX4x4, scene_allocator)
+                        app.game_state.triangle_meshes[new_id] = load_static_triangle_mesh(path, app.game_state.transforms[new_id], scene_allocator)
                         app.game_state.static_models[new_id] = StaticModelInstance {
                             handle = load_gltf_static_model(&app.vgd, &app.renderer, cpath, scene_allocator),
                         }
