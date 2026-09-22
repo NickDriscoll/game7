@@ -91,8 +91,7 @@ load_level_file :: proc(
     }
 
     read_component_map :: proc(
-        gd: ^vkw.VulkanGraphicsDevice,
-        renderer: ^Renderer,
+        app: ^App,
         buffer: []byte,
         components: ^map[EntityID]$T,
         head: ^u32,
@@ -125,28 +124,28 @@ load_level_file :: proc(
 
             comp: T
             when T == TriangleMesh {
-                mmat := read_thing_from_buffer(buffer, hlsl.float4x4, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
 
+                tform := app.game_state.transforms[id]  // Works bc transforms are loaded before triangle meshes
+                mmat := get_transform_matrix(tform)
                 comp = load_static_triangle_mesh(string(model_path), mmat, scene_allocator)
-
             } else when T == StaticModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
-                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+                comp.handle = load_gltf_static_model(&app.vgd, &app.renderer, model_path, scene_allocator)
             } else when T == SkinnedModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.flags = read_thing_from_buffer(buffer, InstanceFlags, head)
                 comp.anim_idx = read_thing_from_buffer(buffer, u32, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
-                comp.handle = load_gltf_skinned_model(renderer, model_path, scene_allocator)
+                comp.handle = load_gltf_skinned_model(&app.renderer, model_path, scene_allocator)
             } else when T == DebugModelInstance {
                 comp.pos_offset = read_thing_from_buffer(buffer, hlsl.float3, head)
                 comp.color = read_thing_from_buffer(buffer, hlsl.float4, head)
                 comp.scale = read_thing_from_buffer(buffer, f32, head)
                 model_path := get_model_path(buffer, head, string_table_offset, scene_allocator)
-                comp.handle = load_gltf_static_model(gd, renderer, model_path, scene_allocator)
+                comp.handle = load_gltf_static_model(&app.vgd, &app.renderer, model_path, scene_allocator)
             } else {
                 comp = read_thing_from_buffer(buffer, T, head)
             }
@@ -210,16 +209,16 @@ load_level_file :: proc(
     }
 
     // Read components in order
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(&app.vgd, &app.renderer, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
 
     // Read stateless entities
     app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
@@ -340,7 +339,6 @@ save_level_file :: proc(
         size := size_of(EntityID)
 
         when ComponentType == TriangleMesh {
-            size += size_of(hlsl.float4x4)
             size += string_table_insert_string(string_table, component.name)
         } else when ComponentType == StaticModelInstance {
             size += size_of(component.pos_offset)
@@ -461,7 +459,6 @@ save_level_file :: proc(
             id := id
             write_thing_to_buffer(buffer, &id, head)
             when T == TriangleMesh {
-                write_thing_to_buffer(buffer, &comp.model_matrix, head)
                 write_component_string_to_table(buffer, string_table, comp.name, head)
             } else when T == StaticModelInstance {
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)

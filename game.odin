@@ -1036,7 +1036,6 @@ tick_moved_entity :: proc(game_state: ^GameState) {
         mesh, mesh_ok := &game_state.triangle_meshes[event.id]
         if mesh_ok {
             mmat := get_transform_matrix(tform^)
-            mesh.model_matrix = mmat
             rebuild_static_triangle_mesh(mesh, mmat)
         }
     }
