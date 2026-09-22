@@ -31,61 +31,6 @@ BlockType :: enum {
     ParentEntity,
 }
 
-// Returns the size in bytes of component when serialized
-get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
-    string_table_insert_string :: proc(string_table: ^StringTable, str: string) -> int {
-        // This proc returns the size in bytes of _this_
-        // instance of the string in the level file
-        // u32 offset + length
-        size := 2 * size_of(u32)
-        seen_it := str in string_table.string_map
-        if !seen_it {
-            // Only if this is the first time seeing this string
-            // do we want to add it's length to the total size
-            size += len(str)
-            string_table_append(string_table, str)
-        }
-
-        return size
-    }
-
-    // Each component has it's EntityID written before it
-    size := size_of(EntityID)
-
-    when ComponentType == TriangleMesh {
-        size += size_of(hlsl.float4x4)
-        size += string_table_insert_string(string_table, component.name)
-    } else when ComponentType == StaticModelInstance {
-        size += size_of(component.pos_offset)
-        size += size_of(component.flags)
-
-        // Size of string instance
-        model := get_static_model(renderer, component.handle)
-        size += string_table_insert_string(string_table, model.name)
-    } else when ComponentType == SkinnedModelInstance {
-        size += size_of(component.pos_offset)
-        size += size_of(component.flags)
-        size += size_of(component.anim_idx)
-
-        // Size of string instance
-        model := get_skinned_model(renderer, component.handle)
-        size += string_table_insert_string(string_table, model.name)
-    } else when ComponentType == DebugModelInstance {
-        size += size_of(component.pos_offset)
-        size += size_of(component.color)
-        size += size_of(component.scale)
-
-        // Size of string instance
-        model := get_static_model(renderer, component.handle)
-        size += string_table_insert_string(string_table, model.name)
-    } else {
-        // Type doesn't need special handling
-        size += size_of(ComponentType)
-    }
-
-    return size
-}
-
 load_level_file :: proc(
     app: ^App,
     path: string,
@@ -305,7 +250,8 @@ _reencode_level_file :: proc(app: ^App, level_name: string, temp_allocator := co
     sb: strings.Builder
     strings.builder_init(&sb, temp_allocator)
 
-    out_path := fmt.sbprintf(&sb, "data/levels/%v_new.lvl", level_name)
+    out_path := fmt.sbprintf(&sb, "data/levels/new_%v.lvl", level_name)
+    log.infof("Saving %v...", out_path)
     save_level_file(app, out_path, temp_allocator)
 }
 
@@ -314,15 +260,14 @@ _reencode_level_files :: proc(app: ^App, temp_allocator := context.temp_allocato
     os.walker_init_path(&w, "data/levels")
 	defer os.walker_destroy(&w)
 
+    sb: strings.Builder
+    strings.builder_init(&sb, temp_allocator)
     for info in os.walker_walk(&w) {
-        sb: strings.Builder
-        strings.builder_init(&sb, temp_allocator)
-        save_location := fmt.sbprintf(&sb, "data/levels/new_%v", info.name)
-        log.infof("Saving %v...", save_location)
-        strings.builder_reset(&sb)
+        level_name := filepath.stem(info.name)
         load_path := fmt.sbprintf(&sb, "data/levels/%v", info.name)
+        strings.builder_reset(&sb)
         load_level_file(app, load_path, context.allocator)
-        _reencode_level_file(app, save_location, temp_allocator)
+        _reencode_level_file(app, level_name, temp_allocator)
     }
 }
 
@@ -373,6 +318,60 @@ save_level_file :: proc(
     path: string,
     temp_allocator := context.temp_allocator
 ) {
+    // Returns the size in bytes of component when serialized
+    get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
+        string_table_insert_string :: proc(string_table: ^StringTable, str: string) -> int {
+            // This proc returns the size in bytes of _this_
+            // instance of the string in the level file
+            // u32 offset + length
+            size := 2 * size_of(u32)
+            seen_it := str in string_table.string_map
+            if !seen_it {
+                // Only if this is the first time seeing this string
+                // do we want to add it's length to the total size
+                size += len(str)
+                string_table_append(string_table, str)
+            }
+
+            return size
+        }
+
+        // Each component has it's EntityID written before it
+        size := size_of(EntityID)
+
+        when ComponentType == TriangleMesh {
+            size += size_of(hlsl.float4x4)
+            size += string_table_insert_string(string_table, component.name)
+        } else when ComponentType == StaticModelInstance {
+            size += size_of(component.pos_offset)
+            size += size_of(component.flags)
+
+            // Size of string instance
+            model := get_static_model(renderer, component.handle)
+            size += string_table_insert_string(string_table, model.name)
+        } else when ComponentType == SkinnedModelInstance {
+            size += size_of(component.pos_offset)
+            size += size_of(component.flags)
+            size += size_of(component.anim_idx)
+
+            // Size of string instance
+            model := get_skinned_model(renderer, component.handle)
+            size += string_table_insert_string(string_table, model.name)
+        } else when ComponentType == DebugModelInstance {
+            size += size_of(component.pos_offset)
+            size += size_of(component.color)
+            size += size_of(component.scale)
+
+            // Size of string instance
+            model := get_static_model(renderer, component.handle)
+            size += string_table_insert_string(string_table, model.name)
+        } else {
+            // Type doesn't need special handling
+            size += size_of(ComponentType)
+        }
+
+        return size
+    }
     calc_level_file_size :: proc(
         app: ^App,
         string_table: ^StringTable
