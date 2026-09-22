@@ -374,15 +374,13 @@ save_level_file :: proc(
     temp_allocator := context.temp_allocator
 ) {
     calc_level_file_size :: proc(
-        game_state: GameState,
-        renderer: ^Renderer,
-        audio_system: AudioSystem,
+        app: ^App,
         string_table: ^StringTable
     ) -> u32 {
-        calc_component_map_size :: proc(game_state: GameState, renderer: ^Renderer, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
+        calc_component_map_size :: proc(app: ^App, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
             size := size_of(u32)
             for _, comp in component_map {
-                size += get_serialized_size(renderer, string_table, comp)
+                size += get_serialized_size(&app.renderer, string_table, comp)
             }
             return size
         }
@@ -400,8 +398,8 @@ save_level_file :: proc(
         final_size += size_of(hlsl.float3)
 
         bgm_string: string
-        if len(audio_system.music_files) > int(game_state.bgm_id) {
-            bgm_string = audio_system.music_files[game_state.bgm_id].name
+        if len(app.audio_system.music_files) > int(app.game_state.bgm_id) {
+            bgm_string = app.audio_system.music_files[app.game_state.bgm_id].name
         }
 
         // Size of bgm pascal string
@@ -410,25 +408,25 @@ save_level_file :: proc(
 
         // Directional lights count + data
         final_size += size_of(u32)
-        final_size += size_of(NewDirectionalLight) * int(renderer.directional_light_count)
+        final_size += size_of(NewDirectionalLight) * int(app.renderer.directional_light_count)
 
         // Component data + counts
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transforms)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.transform_deltas)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.enemy_ais)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.hovering_enemies)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.thrown_enemy_ais)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.spherical_bodies)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.triangle_meshes)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.static_models)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.skinned_models)
-        final_size += calc_component_map_size(game_state, renderer, string_table, game_state.debug_models)
+        final_size += calc_component_map_size(app, string_table, app.game_state.transforms)
+        final_size += calc_component_map_size(app, string_table, app.game_state.transform_deltas)
+        final_size += calc_component_map_size(app, string_table, app.game_state.enemy_ais)
+        final_size += calc_component_map_size(app, string_table, app.game_state.hovering_enemies)
+        final_size += calc_component_map_size(app, string_table, app.game_state.thrown_enemy_ais)
+        final_size += calc_component_map_size(app, string_table, app.game_state.spherical_bodies)
+        final_size += calc_component_map_size(app, string_table, app.game_state.triangle_meshes)
+        final_size += calc_component_map_size(app, string_table, app.game_state.static_models)
+        final_size += calc_component_map_size(app, string_table, app.game_state.skinned_models)
+        final_size += calc_component_map_size(app, string_table, app.game_state.debug_models)
 
         // Special entities that don't need extra state
         final_size += size_of(u32)
-        final_size += len(game_state.looping_animations) * size_of(EntityID)
+        final_size += len(app.game_state.looping_animations) * size_of(EntityID)
         final_size += size_of(u32)
-        final_size += len(game_state.coins) * size_of(EntityID)
+        final_size += len(app.game_state.coins) * size_of(EntityID)
 
         // Don't need to compute string table size explicitly bc
         // string sizes are accounted for in get_serialized_size()
@@ -509,7 +507,7 @@ save_level_file :: proc(
 
     // Set up intermediate buffer for gathering file data
     string_table := string_table_init(64, temp_allocator)
-    total_size := calc_level_file_size(app.game_state, &app.renderer, app.audio_system, &string_table)
+    total_size := calc_level_file_size(app, &string_table)
     write_head : u32 = 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
