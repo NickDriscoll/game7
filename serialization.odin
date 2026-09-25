@@ -13,13 +13,11 @@ import "vendor:sdl2"
 
 import vkw "desktop_vulkan_wrapper"
 
-LEVEL_FILE_VERSION :: 1
 LEVEL_FILE_MAGIC_STRING :: "katawari"
 
-BlockType :: enum {
+BlockType :: enum u16 {
     Transform,
     TransformDelta,
-    CharacterController,
     EnemyAI,
     HoveringEnemy,
     ThrownEnemyAI,
@@ -28,7 +26,29 @@ BlockType :: enum {
     StaticModelInstance,
     SkinnedModelInstance,
     DebugModelInstance,
-    ParentEntity,
+    //ParentEntity,
+    DirectionalLights,
+    LoopingAnimations,
+    Coins,
+    PlayerSpawn,
+}
+
+@rodata BLOCK_TYPE_VERSIONS : [BlockType]u16 = {
+    .Transform = 1,
+    .TransformDelta = 1,
+    .EnemyAI = 1,
+    .HoveringEnemy = 1,
+    .ThrownEnemyAI = 1,
+    .SphericalBody = 1,
+    .TriangleMesh = 1,
+    .StaticModelInstance = 1,
+    .SkinnedModelInstance = 1,
+    .DebugModelInstance = 1,
+    //.ParentEntity = 1,
+    .DirectionalLights = 1,
+    .LoopingAnimations = 1,
+    .Coins = 1,
+    .PlayerSpawn = 1,
 }
 
 load_level_file :: proc(
@@ -99,9 +119,6 @@ load_level_file :: proc(
         largest_seen_id: ^u32,
         scene_allocator: runtime.Allocator
     ) {
-        // Read component count
-        count := read_thing_from_buffer(buffer, u32, head)
-
         get_model_path :: proc(
             buffer: []byte,
             head: ^u32,
@@ -118,6 +135,17 @@ load_level_file :: proc(
             fmt.sbprintf(&sb, "data/models/%v", model_string)
             return strings.to_cstring(&sb)
         }
+
+        // Read block tag and version
+        tag := read_thing_from_buffer(buffer, BlockType, head)
+        version := read_thing_from_buffer(buffer, type_of(BLOCK_TYPE_VERSIONS[.Transform]), head)
+        block_bytes := read_thing_from_buffer(buffer, u32, head)
+        if version > BLOCK_TYPE_VERSIONS[tag] {
+            log.errorf("%v version %v is greater than highest known version %v. Skipping block.", tag, version, BLOCK_TYPE_VERSIONS[tag])
+            head^ += block_bytes + size_of(u32)
+            return
+        }
+        count := read_thing_from_buffer(buffer, u32, head)
 
         for _ in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
@@ -322,7 +350,7 @@ save_level_file :: proc(
         string_table_insert_string :: proc(string_table: ^StringTable, str: string) -> int {
             // This proc returns the size in bytes of _this_
             // instance of the string in the level file
-            // u32 offset + length
+            // i.e. u32 offset + length
             size := 2 * size_of(u32)
             seen_it := str in string_table.string_map
             if !seen_it {
@@ -370,18 +398,26 @@ save_level_file :: proc(
 
         return size
     }
+
+    calc_component_map_size :: proc(app: ^App, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
+        size := 0
+
+        // Block tag and version
+        size += size_of(BlockType)
+        size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+
+        size += size_of(u32)        // Byte count
+        size += size_of(u32)        // Component count
+        for _, comp in component_map {
+            size += get_serialized_size(&app.renderer, string_table, comp)
+        }
+        return size
+    }
+
     calc_level_file_size :: proc(
         app: ^App,
         string_table: ^StringTable
     ) -> u32 {
-        calc_component_map_size :: proc(app: ^App, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
-            size := size_of(u32)
-            for _, comp in component_map {
-                size += get_serialized_size(&app.renderer, string_table, comp)
-            }
-            return size
-        }
-
         final_size := 0
 
         // Magic string
@@ -444,7 +480,7 @@ save_level_file :: proc(
         head^ += amount
     }
 
-    write_component_map :: proc(renderer: ^Renderer, string_table: ^StringTable, buffer: []byte, components: map[EntityID]$T, head: ^u32) {
+    write_component_map :: proc(app: ^App, string_table: ^StringTable, buffer: []byte, blocktype: BlockType, components: map[EntityID]$T, head: ^u32) {
         write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^u32) {
             table_entry := string_table_append(string_table, str)
             l := u32(len(table_entry.str))
@@ -452,7 +488,18 @@ save_level_file :: proc(
             write_thing_to_buffer(buffer, &l, head)
         }
 
+        // Write block tag and version
+        tag := blocktype
+        write_thing_to_buffer(buffer, &tag, head)
+        write_thing_to_buffer(buffer, &BLOCK_TYPE_VERSIONS[blocktype], head)
+
         component_count := u32(len(components))
+        component_bytes := cast(u32)calc_component_map_size(app, string_table, components)
+        component_bytes -= size_of(BlockType)
+        component_bytes -= size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        component_bytes -= size_of(u32)
+        component_bytes -= size_of(u32)
+        write_thing_to_buffer(buffer, &component_bytes, head)
         write_thing_to_buffer(buffer, &component_count, head)
 
         for id, &comp in components {
@@ -464,7 +511,7 @@ save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.pos_offset, head)
                 write_thing_to_buffer(buffer, &comp.flags, head)
 
-                model := get_static_model(renderer, comp.handle)
+                model := get_static_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == SkinnedModelInstance {
@@ -472,7 +519,7 @@ save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.flags, head)
                 write_thing_to_buffer(buffer, &comp.anim_idx, head)
 
-                model := get_skinned_model(renderer, comp.handle)
+                model := get_skinned_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == DebugModelInstance {
@@ -480,7 +527,7 @@ save_level_file :: proc(
                 write_thing_to_buffer(buffer, &comp.color, head)
                 write_thing_to_buffer(buffer, &comp.scale, head)
 
-                model := get_static_model(renderer, comp.handle)
+                model := get_static_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
             } else {
                 // Directly serialize the component struct
@@ -538,16 +585,16 @@ save_level_file :: proc(
     }
 
     // Write components to file
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transforms, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.transform_deltas, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.enemy_ais, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.hovering_enemies, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.thrown_enemy_ais, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.spherical_bodies, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.triangle_meshes, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.static_models, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.skinned_models, &write_head)
-    write_component_map(&app.renderer, &string_table, output_buffer[:], app.game_state.debug_models, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .Transform, app.game_state.transforms, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .TransformDelta, app.game_state.transform_deltas, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .EnemyAI, app.game_state.enemy_ais, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .HoveringEnemy, app.game_state.hovering_enemies, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .ThrownEnemyAI, app.game_state.thrown_enemy_ais, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .SphericalBody, app.game_state.spherical_bodies, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .TriangleMesh, app.game_state.triangle_meshes, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .StaticModelInstance, app.game_state.static_models, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .SkinnedModelInstance, app.game_state.skinned_models, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .DebugModelInstance, app.game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
     write_stateless_entities(output_buffer[:], app.game_state.looping_animations[:], &write_head)
@@ -562,18 +609,21 @@ save_level_file :: proc(
     lvl_file, lvl_err := os.create(path)
     if lvl_err != nil {
         log.errorf("Error opening level file: %v", lvl_err)
+        return
     }
     defer os.close(lvl_file)
 
     _, err := os.write(lvl_file, output_buffer[:])
     if err != nil {
         log.errorf("Error writing level data: %v", err)
+        return
     }
 
     base_path := filepath.stem(path)
     path_clone, p_err := strings.clone(base_path)
     if p_err != nil {
         log.errorf("Error allocating current_level_path string: %v", err)
+        return
     }
     app.current_level = path_clone
 
