@@ -103,7 +103,7 @@ audio_system_callback : sdl2.AudioCallback : proc "c" (userdata: rawptr, stream:
         mix_buffer[i] *= audio_system.master_volume
     }
 
-    mem.copy(&out_samples[0], &mix_buffer[0], size_of(f32) * len(out_samples))
+    mem.copy_non_overlapping(&out_samples[0], &mix_buffer[0], size_of(f32) * len(out_samples))
 }
 
 FilePlayback :: struct {

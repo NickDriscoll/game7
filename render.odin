@@ -43,7 +43,7 @@ NULL_OFFSET :: 0xFFFFFFFF
 
 FRAMES_IN_FLIGHT :: 2
 
-NewDirectionalLight :: struct {
+DirectionalLight :: struct {
     pitch: f32,
     yaw: f32,
     color: hlsl.float3,
@@ -357,7 +357,7 @@ Renderer :: struct {
     instance_buffer: vkw.Buffer_Handle,             // Global GPU buffer of instances
 
     // Directional lights
-    directional_lights: [MAX_DIRECTIONAL_LIGHTS]NewDirectionalLight,
+    directional_lights: [MAX_DIRECTIONAL_LIGHTS]DirectionalLight,
     directional_light_count: u32,
 
     // Per-frame shader uniforms
