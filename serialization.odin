@@ -56,60 +56,25 @@ load_level_file :: proc(
     path: string,
     scene_allocator := context.allocator
 ) -> bool {
-    // Audio lock while loading level data
-    sdl2.LockAudioDevice(app.audio_system.device_id)
-    defer sdl2.UnlockAudioDevice(app.audio_system.device_id)
-
-    vkw.device_wait_idle(&app.vgd)
-
-    read_head : u32 = 0
-
-    lvl_data: []byte
-    {
-        err: os.Error
-        lvl_data, err = os.read_entire_file_from_path(path, context.temp_allocator)
-        if err != nil {
-            log.errorf("Error reading entire level file \"%v\": %v", path, err)
-            return false
-        }
-    }
-
-    // Read magic string
-    magic := read_string_from_buffer(lvl_data, &read_head)
-    if magic != LEVEL_FILE_MAGIC_STRING {
-        log.errorf("%v has wrong magic string. Aborting level load.", path)
-        return false
-    }
-
-    // Have to free rendering resources before scene_allocator is reset
-    renderer_free_resources(&app.renderer)
-    free_all(scene_allocator)
-    audio_new_scene(&app.audio_system)
-    renderer_new_scene(&app.renderer, scene_allocator)
-    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config)
-
-    read_thing_from_buffer :: proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
+    read_thing_from_buffer :: #force_inline proc(buffer: []byte, $type: typeid, read_head: ^u32) -> type {
         thing: type
         mem.copy_non_overlapping(&thing, &buffer[read_head^], size_of(type))
         read_head^ += size_of(type)
         return thing
     }
-
-    read_string_from_buffer :: proc(buffer: []byte, read_head: ^u32) -> string {
+    read_string_from_buffer :: #force_inline proc(buffer: []byte, read_head: ^u32) -> string {
         // Read the u32 string length, then read the string itself
         str_len := read_thing_from_buffer(buffer, u32, read_head)
         s := strings.string_from_ptr(&buffer[read_head^], int(str_len))
         read_head^ += str_len
         return s
     }
-
-    read_naked_string_from_buffer :: proc(buffer: []byte, offset: u32, length: u32) -> string {
+    read_naked_string_from_buffer :: #force_inline proc(buffer: []byte, offset, length: u32) -> string {
         // Precondition: buffer should start at the first byte of the string table
 
         start_ptr := slice.ptr_add(&buffer[0], int(offset))
         return strings.string_from_ptr(start_ptr, int(length))
     }
-
     read_component_map :: proc(
         app: ^App,
         buffer: []byte,
@@ -136,17 +101,7 @@ load_level_file :: proc(
             return strings.to_cstring(&sb)
         }
 
-        // Read block tag and version
-        tag := read_thing_from_buffer(buffer, BlockType, head)
-        version := read_thing_from_buffer(buffer, type_of(BLOCK_TYPE_VERSIONS[.Transform]), head)
-        block_bytes := read_thing_from_buffer(buffer, u32, head)
-        if version > BLOCK_TYPE_VERSIONS[tag] {
-            log.errorf("%v version %v is greater than highest known version %v. Skipping block.", tag, version, BLOCK_TYPE_VERSIONS[tag])
-            head^ += block_bytes + size_of(u32)
-            return
-        }
         count := read_thing_from_buffer(buffer, u32, head)
-
         for _ in 0..<count {
             id := read_thing_from_buffer(buffer, EntityID, head)
 
@@ -185,7 +140,6 @@ load_level_file :: proc(
             }
         }
     }
-
     read_stateless_entities :: proc(buffer: []byte, head: ^u32) -> [dynamic]EntityID {
         ids: [dynamic]EntityID
 
@@ -201,6 +155,38 @@ load_level_file :: proc(
 
         return ids
     }
+
+    // Audio lock while loading level data
+    sdl2.LockAudioDevice(app.audio_system.device_id)
+    defer sdl2.UnlockAudioDevice(app.audio_system.device_id)
+
+    vkw.device_wait_idle(&app.vgd)
+
+    read_head : u32 = 0
+
+    lvl_data: []byte
+    {
+        err: os.Error
+        lvl_data, err = os.read_entire_file_from_path(path, context.temp_allocator)
+        if err != nil {
+            log.errorf("Error reading entire level file \"%v\": %v", path, err)
+            return false
+        }
+    }
+
+    // Read magic string
+    magic := read_string_from_buffer(lvl_data, &read_head)
+    if magic != LEVEL_FILE_MAGIC_STRING {
+        log.errorf("%v has wrong magic string. Aborting level load.", path)
+        return false
+    }
+
+    // Have to free rendering resources before scene_allocator is reset
+    renderer_free_resources(&app.renderer)
+    free_all(scene_allocator)
+    audio_new_scene(&app.audio_system)
+    renderer_new_scene(&app.renderer, scene_allocator)
+    gamestate_new_scene(&app.game_state, &app.vgd, &app.renderer, &app.user_config)
 
     path_builder: strings.Builder
     strings.builder_init(&path_builder, context.temp_allocator)
@@ -222,16 +208,74 @@ load_level_file :: proc(
         strings.builder_reset(&path_builder)
     }
 
-    // Read directional light data
-    {
-        count := read_thing_from_buffer(lvl_data, u32, &read_head)
-        app.renderer.directional_light_count = count
-        for i in 0..<count {
-            light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
-            app.renderer.directional_lights[i] = DirectionalLight {
-                yaw = light.yaw,
-                pitch = light.pitch,
-                color = light.color
+    // count := read_thing_from_buffer(lvl_data, u32, &read_head)
+    // app.renderer.directional_light_count = count
+    // for i in 0..<count {
+    //     light := read_thing_from_buffer(lvl_data, NewDirectionalLight, &read_head)
+    //     app.renderer.directional_lights[i] = NewDirectionalLight {
+    //         yaw = light.yaw,
+    //         pitch = light.pitch,
+    //         color = light.color
+    //     }
+    // }
+
+    for read_head < string_table_offset {
+        // Read block tag and version
+        tag := read_thing_from_buffer(lvl_data, BlockType, &read_head)
+        version := read_thing_from_buffer(lvl_data, type_of(BLOCK_TYPE_VERSIONS[.Transform]), &read_head)
+        block_bytes := read_thing_from_buffer(lvl_data, u32, &read_head)
+        if version > BLOCK_TYPE_VERSIONS[tag] {
+            log.errorf("%v version %v is greater than highest known version %v. Skipping block.", tag, version, BLOCK_TYPE_VERSIONS[tag])
+            read_head += block_bytes + size_of(u32)
+            continue
+        }
+
+        // Define per-block processing
+        #partial switch tag {
+            case .Transform : {
+                read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .TransformDelta: {
+                read_component_map(app, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .EnemyAI: {
+                read_component_map(app, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .HoveringEnemy: {
+                read_component_map(app, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .ThrownEnemyAI: {
+                read_component_map(app, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .SphericalBody: {
+                read_component_map(app, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .TriangleMesh: {
+                read_component_map(app, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .StaticModelInstance: {
+                read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .SkinnedModelInstance: {
+                read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .DebugModelInstance: {
+                read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+            }
+            case .DirectionalLights: {
+                count := read_thing_from_buffer(lvl_data, u32, &read_head)
+                app.renderer.directional_light_count = count
+                for i in 0..<count {
+                    light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
+                    app.renderer.directional_lights[i] = DirectionalLight {
+                        yaw = light.yaw,
+                        pitch = light.pitch,
+                        color = light.color
+                    }
+                }
+            }
+            case .LoopingAnimations: {
+                
             }
         }
     }
@@ -248,6 +292,7 @@ load_level_file :: proc(
     read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
 
+    
     // Read stateless entities
     app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
     app.game_state.coins = read_stateless_entities(lvl_data, &read_head)
@@ -467,9 +512,10 @@ save_level_file :: proc(
         return u32(final_size)
     }
 
-    write_thing_to_buffer :: proc(buffer: []byte, ptr: ^$T, head: ^u32) {
+    write_thing_to_buffer :: proc(buffer: []byte, val: $T, head: ^u32) {
+        v := val
         amount := size_of(T)
-        mem.copy_non_overlapping(&buffer[head^], ptr, amount)
+        mem.copy_non_overlapping(&buffer[head^], &v, amount)
         head^ += u32(amount)
     }
 
@@ -577,7 +623,8 @@ save_level_file :: proc(
     // Write directional lights data
     {
         count := app.renderer.directional_light_count
-        write_thing_to_buffer(output_buffer[:], &count, &write_head)
+        write_thing_to_buffer(output_buffer[:], BlockType.DirectionalLights, &write_head)
+        write_thing_to_buffer(output_buffer[:], count, &write_head)
         for i in 0..<count {
             light := &app.renderer.directional_lights[i]
             write_thing_to_buffer(output_buffer[:], light, &write_head)
