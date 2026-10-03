@@ -582,7 +582,21 @@ save_level_file :: proc(
         }
     }
 
-    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, head: ^u32) {
+    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, blocktype: BlockType, head: ^u32) {
+        // Write block tag and version
+        tag := blocktype
+        write_thing_to_buffer(buffer, &tag, head)
+        write_thing_to_buffer(buffer, &BLOCK_TYPE_VERSIONS[blocktype], head)
+
+        component_count := u32(len(ids))
+        component_bytes := component_count * size_of(EntityID)
+        component_bytes -= size_of(BlockType)
+        component_bytes -= size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        component_bytes -= size_of(u32)
+        component_bytes -= size_of(u32)
+        write_thing_to_buffer(buffer, &component_bytes, head)
+        write_thing_to_buffer(buffer, &component_count, head)
+
         size := u32(len(ids))
         write_thing_to_buffer(buffer, &size, head)
         if size == 0 {
@@ -644,8 +658,8 @@ save_level_file :: proc(
     write_component_map(app, &string_table, output_buffer[:], .DebugModelInstance, app.game_state.debug_models, &write_head)
 
     // Write the looping animations and coins lists
-    write_stateless_entities(output_buffer[:], app.game_state.looping_animations[:], &write_head)
-    write_stateless_entities(output_buffer[:], app.game_state.coins[:], &write_head)
+    write_stateless_entities(output_buffer[:], app.game_state.looping_animations[:], .LoopingAnimations, &write_head)
+    write_stateless_entities(output_buffer[:], app.game_state.coins[:], .Coins, &write_head)
 
     write_string_table_to_buffer(output_buffer[:], string_table, &write_head)
 
