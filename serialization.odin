@@ -199,8 +199,8 @@ load_level_file :: proc(
         count := read_thing_from_buffer(lvl_data, u32, &read_head)
         app.renderer.directional_light_count = count
         for i in 0..<count {
-            light := read_thing_from_buffer(lvl_data, NewDirectionalLight, &read_head)
-            app.renderer.directional_lights[i] = NewDirectionalLight {
+            light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
+            app.renderer.directional_lights[i] = DirectionalLight {
                 yaw = light.yaw,
                 pitch = light.pitch,
                 color = light.color
@@ -405,7 +405,7 @@ save_level_file :: proc(
 
         // Directional lights count + data
         final_size += size_of(u32)
-        final_size += size_of(NewDirectionalLight) * int(app.renderer.directional_light_count)
+        final_size += size_of(DirectionalLight) * int(app.renderer.directional_light_count)
 
         // Component data + counts
         final_size += calc_component_map_size(app, string_table, app.game_state.transforms)
