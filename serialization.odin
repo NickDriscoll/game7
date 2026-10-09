@@ -15,7 +15,7 @@ import vkw "desktop_vulkan_wrapper"
 
 LEVEL_FILE_MAGIC_STRING :: "katawari"
 
-BlockType :: enum u16 {
+BlockType :: enum u32 {
     Transform,
     TransformDelta,
     EnemyAI,
@@ -31,9 +31,10 @@ BlockType :: enum u16 {
     LoopingAnimations,
     Coins,
     PlayerSpawn,
+    BackgroundMusic
 }
 
-@rodata BLOCK_TYPE_VERSIONS : [BlockType]u16 = {
+@rodata BLOCK_TYPE_VERSIONS : [BlockType]u32 = {
     .Transform = 1,
     .TransformDelta = 1,
     .EnemyAI = 1,
@@ -49,6 +50,7 @@ BlockType :: enum u16 {
     .LoopingAnimations = 1,
     .Coins = 1,
     .PlayerSpawn = 1,
+    .BackgroundMusic = 1,
 }
 
 load_level_file :: proc(
@@ -82,7 +84,7 @@ load_level_file :: proc(
         head: ^u32,
         string_table_offset: u32,
         largest_seen_id: ^u32,
-        scene_allocator: runtime.Allocator
+        scene_allocator := context.allocator
     ) {
         get_model_path :: proc(
             buffer: []byte,
@@ -140,8 +142,8 @@ load_level_file :: proc(
             }
         }
     }
-    read_stateless_entities :: proc(buffer: []byte, head: ^u32) -> [dynamic]EntityID {
-        ids: [dynamic]EntityID
+    read_stateless_entities :: proc(buffer: []byte, head: ^u32, scene_allocator := context.allocator) -> [dynamic]EntityID {
+        ids := make([dynamic]EntityID, scene_allocator)
 
         size := read_thing_from_buffer(buffer, u32, head)
         if size == 0 {
@@ -197,22 +199,22 @@ load_level_file :: proc(
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
 
     // Read player spawn position
-    app.game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
+    // app.game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
 
-    // Read bgm name
-    {
-        bgm_name := read_string_from_buffer(lvl_data, &read_head)
-        fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
-        path := strings.to_cstring(&path_builder)
-        app.game_state.bgm_id, _ = open_music_file(&app.audio_system, path)
-        strings.builder_reset(&path_builder)
-    }
+    // // Read bgm name
+    // {
+    //     bgm_name := read_string_from_buffer(lvl_data, &read_head)
+    //     fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
+    //     path := strings.to_cstring(&path_builder)
+    //     app.game_state.bgm_id, _ = open_music_file(&app.audio_system, path)
+    //     strings.builder_reset(&path_builder)
+    // }
 
     // count := read_thing_from_buffer(lvl_data, u32, &read_head)
     // app.renderer.directional_light_count = count
     // for i in 0..<count {
-    //     light := read_thing_from_buffer(lvl_data, NewDirectionalLight, &read_head)
-    //     app.renderer.directional_lights[i] = NewDirectionalLight {
+    //     light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
+    //     app.renderer.directional_lights[i] = DirectionalLight {
     //         yaw = light.yaw,
     //         pitch = light.pitch,
     //         color = light.color
@@ -221,17 +223,25 @@ load_level_file :: proc(
 
     for read_head < string_table_offset {
         // Read block tag and version
+        failed := false
         tag := read_thing_from_buffer(lvl_data, BlockType, &read_head)
+        if cast(int)tag > len(BLOCK_TYPE_VERSIONS) {
+            log.error("Read tag doesn't exist.")
+            failed = true
+        }
         version := read_thing_from_buffer(lvl_data, type_of(BLOCK_TYPE_VERSIONS[.Transform]), &read_head)
         block_bytes := read_thing_from_buffer(lvl_data, u32, &read_head)
-        if version > BLOCK_TYPE_VERSIONS[tag] {
+        if !failed && version > BLOCK_TYPE_VERSIONS[tag] {
             log.errorf("%v version %v is greater than highest known version %v. Skipping block.", tag, version, BLOCK_TYPE_VERSIONS[tag])
+            failed = true
+        }
+        if failed {
             read_head += block_bytes + size_of(u32)
             continue
         }
 
         // Define per-block processing
-        #partial switch tag {
+        switch tag {
             case .Transform : {
                 read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
             }
@@ -275,29 +285,48 @@ load_level_file :: proc(
                 }
             }
             case .LoopingAnimations: {
-                
+                app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head, scene_allocator)
+            }
+            case .Coins: {
+                app.game_state.coins = read_stateless_entities(lvl_data, &read_head, scene_allocator)
+            }
+            case .BackgroundMusic: {
+                count := read_thing_from_buffer(lvl_data, u32, &read_head)
+                assert(count == 1)
+                bgm_name := read_string_from_buffer(lvl_data, &read_head)
+                fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
+                path := strings.to_cstring(&path_builder)
+                app.game_state.bgm_id, _ = open_music_file(&app.audio_system, path)
+                strings.builder_reset(&path_builder)
+            }
+            case .PlayerSpawn: {
+                count := read_thing_from_buffer(lvl_data, u32, &read_head)
+                assert(count == 1)
+
+                app.game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
             }
         }
     }
 
     // Read components in order
-    read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
+    // read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
 
     
-    // Read stateless entities
-    app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
-    app.game_state.coins = read_stateless_entities(lvl_data, &read_head)
+    // // Read stateless entities
+    // app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
+    // app.game_state.coins = read_stateless_entities(lvl_data, &read_head)
 
-    // Should have read entire buffer
+    // Should have read up to the beginning of the string table
+    // which marks the end of the file
     assert(read_head == string_table_offset)
 
     app.game_state._next_id = largest_saved_entity_id + 1
@@ -473,6 +502,10 @@ save_level_file :: proc(
         final_size += size_of(u32)
 
         // Size of player spawn position
+        final_size += size_of(BlockType)
+        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        final_size += size_of(u32)
+        final_size += size_of(u32)
         final_size += size_of(hlsl.float3)
 
         bgm_string: string
@@ -481,10 +514,17 @@ save_level_file :: proc(
         }
 
         // Size of bgm pascal string
+        final_size += size_of(BlockType)
+        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        final_size += size_of(u32)
+        final_size += size_of(u32)
         final_size += size_of(u32)
         final_size += size_of(byte) * len(bgm_string)
 
         // Directional lights count + data
+        final_size += size_of(BlockType)
+        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        final_size += size_of(u32)
         final_size += size_of(u32)
         final_size += size_of(DirectionalLight) * int(app.renderer.directional_light_count)
 
@@ -501,8 +541,14 @@ save_level_file :: proc(
         final_size += calc_component_map_size(app, string_table, app.game_state.debug_models)
 
         // Special entities that don't need extra state
+        final_size += size_of(BlockType)
+        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        final_size += size_of(u32)
         final_size += size_of(u32)
         final_size += len(app.game_state.looping_animations) * size_of(EntityID)
+        final_size += size_of(BlockType)
+        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
+        final_size += size_of(u32)
         final_size += size_of(u32)
         final_size += len(app.game_state.coins) * size_of(EntityID)
 
@@ -521,23 +567,28 @@ save_level_file :: proc(
 
     write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
         amount := u32(len(st))
-        write_thing_to_buffer(buffer, &amount, head)
+        write_thing_to_buffer(buffer, amount, head)
         mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
         head^ += amount
+    }
+
+    write_block_header :: proc(buffer: []byte, blocktype: BlockType, count: u32, bytes: u32, head: ^u32) {
+        // Write block tag and version
+        write_thing_to_buffer(buffer, blocktype, head)
+        write_thing_to_buffer(buffer, BLOCK_TYPE_VERSIONS[blocktype], head)
+        
+        // Write bytes and item count
+        write_thing_to_buffer(buffer, bytes, head)
+        write_thing_to_buffer(buffer, count, head)
     }
 
     write_component_map :: proc(app: ^App, string_table: ^StringTable, buffer: []byte, blocktype: BlockType, components: map[EntityID]$T, head: ^u32) {
         write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^u32) {
             table_entry := string_table_append(string_table, str)
             l := u32(len(table_entry.str))
-            write_thing_to_buffer(buffer, &table_entry.offset, head)
-            write_thing_to_buffer(buffer, &l, head)
+            write_thing_to_buffer(buffer, table_entry.offset, head)
+            write_thing_to_buffer(buffer, l, head)
         }
-
-        // Write block tag and version
-        tag := blocktype
-        write_thing_to_buffer(buffer, &tag, head)
-        write_thing_to_buffer(buffer, &BLOCK_TYPE_VERSIONS[blocktype], head)
 
         component_count := u32(len(components))
         component_bytes := cast(u32)calc_component_map_size(app, string_table, components)
@@ -545,65 +596,56 @@ save_level_file :: proc(
         component_bytes -= size_of(BLOCK_TYPE_VERSIONS[.Transform])
         component_bytes -= size_of(u32)
         component_bytes -= size_of(u32)
-        write_thing_to_buffer(buffer, &component_bytes, head)
-        write_thing_to_buffer(buffer, &component_count, head)
+        write_block_header(buffer, blocktype, component_count, component_bytes, head)
 
         for id, &comp in components {
             id := id
-            write_thing_to_buffer(buffer, &id, head)
+            write_thing_to_buffer(buffer, id, head)
             when T == TriangleMesh {
                 write_component_string_to_table(buffer, string_table, comp.name, head)
             } else when T == StaticModelInstance {
-                write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                write_thing_to_buffer(buffer, &comp.flags, head)
+                write_thing_to_buffer(buffer, comp.pos_offset, head)
+                write_thing_to_buffer(buffer, comp.flags, head)
 
                 model := get_static_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == SkinnedModelInstance {
-                write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                write_thing_to_buffer(buffer, &comp.flags, head)
-                write_thing_to_buffer(buffer, &comp.anim_idx, head)
+                write_thing_to_buffer(buffer, comp.pos_offset, head)
+                write_thing_to_buffer(buffer, comp.flags, head)
+                write_thing_to_buffer(buffer, comp.anim_idx, head)
 
                 model := get_skinned_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
 
             } else when T == DebugModelInstance {
-                write_thing_to_buffer(buffer, &comp.pos_offset, head)
-                write_thing_to_buffer(buffer, &comp.color, head)
-                write_thing_to_buffer(buffer, &comp.scale, head)
+                write_thing_to_buffer(buffer, comp.pos_offset, head)
+                write_thing_to_buffer(buffer, comp.color, head)
+                write_thing_to_buffer(buffer, comp.scale, head)
 
                 model := get_static_model(&app.renderer, comp.handle)
                 write_component_string_to_table(buffer, string_table, model.name, head)
             } else {
                 // Directly serialize the component struct
-                write_thing_to_buffer(buffer, &comp, head)
+                write_thing_to_buffer(buffer, comp, head)
             }
         }
     }
 
     write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, blocktype: BlockType, head: ^u32) {
-        // Write block tag and version
-        tag := blocktype
-        write_thing_to_buffer(buffer, &tag, head)
-        write_thing_to_buffer(buffer, &BLOCK_TYPE_VERSIONS[blocktype], head)
-
-        component_count := u32(len(ids))
-        component_bytes := component_count * size_of(EntityID)
+        entity_count := u32(len(ids))
+        component_bytes := entity_count * size_of(EntityID)
         component_bytes -= size_of(BlockType)
         component_bytes -= size_of(BLOCK_TYPE_VERSIONS[.Transform])
         component_bytes -= size_of(u32)
         component_bytes -= size_of(u32)
-        write_thing_to_buffer(buffer, &component_bytes, head)
-        write_thing_to_buffer(buffer, &component_count, head)
+        write_block_header(buffer, blocktype, entity_count, component_bytes, head)
 
-        size := u32(len(ids))
-        write_thing_to_buffer(buffer, &size, head)
-        if size == 0 {
+        if entity_count == 0 {
             return
         }
 
-        len_bytes := size * size_of(EntityID)
+        len_bytes := entity_count * size_of(EntityID)
         mem.copy_non_overlapping(&buffer[head^], &ids[0], int(len_bytes))
         head^ += len_bytes
     }
@@ -620,14 +662,17 @@ save_level_file :: proc(
     // Write global offset of string table
     {
         global_offset := total_size - u32(string_table.total_len)
-        write_thing_to_buffer(output_buffer[:], &global_offset, &write_head)
+        write_thing_to_buffer(output_buffer[:], global_offset, &write_head)
     }
 
     // Write player spawn position
-    write_thing_to_buffer(output_buffer[:], &app.game_state.level_start, &write_head)
+    write_block_header(output_buffer[:], .PlayerSpawn, 1, size_of(hlsl.float3), &write_head)
+    write_thing_to_buffer(output_buffer[:], app.game_state.level_start, &write_head)
 
     // Write bgm filename
-    if len(app.audio_system.music_files) > int(app.game_state.bgm_id) {
+    bgm_len := len(app.audio_system.music_files)
+    write_block_header(output_buffer[:], .BackgroundMusic, 1, cast(u32)bgm_len, &write_head)
+    if bgm_len > int(app.game_state.bgm_id) {
         bgm := &app.audio_system.music_files[app.game_state.bgm_id]
         write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
     } else {
@@ -637,10 +682,10 @@ save_level_file :: proc(
     // Write directional lights data
     {
         count := app.renderer.directional_light_count
-        write_thing_to_buffer(output_buffer[:], BlockType.DirectionalLights, &write_head)
-        write_thing_to_buffer(output_buffer[:], count, &write_head)
+        bytes := count * size_of(DirectionalLight)
+        write_block_header(output_buffer[:], .DirectionalLights, count, bytes, &write_head)
         for i in 0..<count {
-            light := &app.renderer.directional_lights[i]
+            light := app.renderer.directional_lights[i]
             write_thing_to_buffer(output_buffer[:], light, &write_head)
         }
     }
