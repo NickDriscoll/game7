@@ -1026,17 +1026,18 @@ tick_moved_entity :: proc(game_state: ^GameState) {
         delta := Transform {
             position = tform.position - event.old_tform.position,
             rotation = tform.rotation - event.old_tform.rotation,
-            scale = tform.scale - event.old_tform.scale,
+            //scale = tform.scale - event.old_tform.scale,
+            scale = 0.0,
         }
         children := get_entity_children(game_state^, event.id, context.temp_allocator)
         for child in children {
             apply_transform_delta(game_state, child, delta)
         }
 
+        mesh_mmat := get_transform_matrix(tform^)
         mesh, mesh_ok := &game_state.triangle_meshes[event.id]
         if mesh_ok {
-            mmat := get_transform_matrix(tform^)
-            rebuild_static_triangle_mesh(mesh, mmat)
+            rebuild_static_triangle_mesh(mesh, mesh_mmat)
         }
     }
 }

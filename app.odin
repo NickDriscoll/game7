@@ -491,6 +491,8 @@ new_scene :: proc(app: ^App, scene_allocator := context.allocator) {
     app.game_state.static_models[id] = StaticModelInstance {
         handle = app.game_state.plane_mesh,
     }
+
+    app.game_state.level_start = {0.0, 0.0, 0.5}
 }
 
 do_user_menus :: proc(app: ^App, allocator := context.allocator) -> (VerbType, string) {
@@ -874,7 +876,7 @@ scene_editor :: proc(
                     }
                     old_tform := tform^
                     moved := imgui.DragFloat3("Position", &tform.position, 0.2)
-                    moved |= imgui.DragFloat("Scale", &tform.scale, 0.2)
+                    moved |= imgui.DragFloat("Scale", &tform.scale, 0.2, 0.001, max(f32))
 
                     moving_something := .MoveSelectedEntity in game_state.edit_flags
                     imgui.BeginDisabled(moving_something)
