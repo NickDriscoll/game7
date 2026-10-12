@@ -1023,18 +1023,25 @@ tick_moved_entity :: proc(game_state: ^GameState) {
         tform, ok := &game_state.transforms[event.id]
         assert(ok)
 
-        delta := Transform {
-            position = tform.position - event.old_tform.position,
-            rotation = tform.rotation - event.old_tform.rotation,
-            //scale = tform.scale - event.old_tform.scale,
-            scale = 0.0,
-        }
+        delta_pos := tform.position - event.old_tform.position
+        delta_scale := tform.scale / event.old_tform.scale
+        mesh_mmat := get_transform_matrix(tform^)
+        old_mesh_mmat := get_transform_matrix(event.old_tform)
+        inv_old_mesh_mmat := hlsl.inverse(old_mesh_mmat)
         children := get_entity_children(game_state^, event.id, context.temp_allocator)
         for child in children {
-            apply_transform_delta(game_state, child, delta)
+            child_tform, cok := &game_state.transforms[child]
+            assert(cok)
+
+            child_tform.position += delta_pos
+
+            pos4 := child_tform.position.xyzz
+            pos4.w = 1.0
+            model_space_pos := inv_old_mesh_mmat * pos4
+            model_space_pos = model_space_pos * delta_scale
+            child_tform.position = (old_mesh_mmat * model_space_pos).xyz
         }
 
-        mesh_mmat := get_transform_matrix(tform^)
         mesh, mesh_ok := &game_state.triangle_meshes[event.id]
         if mesh_ok {
             rebuild_static_triangle_mesh(mesh, mesh_mmat)
@@ -1201,14 +1208,6 @@ get_entity_children :: proc(game_state: GameState, id: EntityID, allocator := co
     }
 
     return kids
-}
-
-apply_transform_delta :: proc(game_state: ^GameState, id: EntityID, tform_delta: Transform) {
-    tform, ok := &game_state.transforms[id]
-    assert(ok)
-
-    tform.position += tform_delta.position
-    tform.scale += tform_delta.scale
 }
 
 EntityID :: distinct u32
