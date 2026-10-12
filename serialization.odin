@@ -223,7 +223,7 @@ load_level_file :: proc(
         // Define per-block processing
         switch tag {
             case .ParentEntity: {
-                read_stateless_entities(lvl_data, &read_head, scene_allocator)
+                read_component_map(app, lvl_data, &app.game_state.parents, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
             }
             case .Transform : {
                 read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
