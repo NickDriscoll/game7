@@ -26,7 +26,7 @@ BlockType :: enum u32 {
     StaticModelInstance,
     SkinnedModelInstance,
     DebugModelInstance,
-    //ParentEntity,
+    ParentEntity,
     DirectionalLights,
     LoopingAnimations,
     Coins,
@@ -45,7 +45,7 @@ BlockType :: enum u32 {
     .StaticModelInstance = 1,
     .SkinnedModelInstance = 1,
     .DebugModelInstance = 1,
-    //.ParentEntity = 1,
+    .ParentEntity = 1,
     .DirectionalLights = 1,
     .LoopingAnimations = 1,
     .Coins = 1,
@@ -236,12 +236,18 @@ load_level_file :: proc(
             failed = true
         }
         if failed {
-            read_head += block_bytes + size_of(u32)
+            // This is count, which is usually read in per-blocktype code
+            read_thing_from_buffer(lvl_data, u32, &read_head)
+
+            read_head += block_bytes
             continue
         }
 
         // Define per-block processing
         switch tag {
+            case .ParentEntity: {
+                read_stateless_entities(lvl_data, &read_head, scene_allocator)
+            }
             case .Transform : {
                 read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
             }
@@ -319,7 +325,6 @@ load_level_file :: proc(
     // read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     // read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
     // read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-
     
     // // Read stateless entities
     // app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
@@ -404,13 +409,13 @@ string_table_append :: proc(table: ^StringTable, elem: string) -> StringTableEnt
         return entry
     }
 }
-write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^u32) {
+write_string_table_to_buffer :: proc(buffer: []byte, table: StringTable, head: ^int) {
     // Because each component stores the offset and length of the strings in the table,
     // we just have to write out each string back-to-back
     for entry in table.data {
         str_len := len(entry.str)
         mem.copy_non_overlapping(&buffer[head^], raw_data(entry.str), str_len)
-        head^ += u32(str_len)
+        head^ += str_len
     }
 }
 
@@ -419,6 +424,8 @@ save_level_file :: proc(
     path: string,
     temp_allocator := context.temp_allocator
 ) {
+    BLOCK_HEADER_SIZE :: size_of(BlockType) + size_of(BLOCK_TYPE_VERSIONS[.Transform]) + 2 * size_of(u32)
+
     // Returns the size in bytes of component when serialized
     get_serialized_size :: proc(renderer: ^Renderer, string_table: ^StringTable, component: $ComponentType) -> int {
         string_table_insert_string :: proc(string_table: ^StringTable, str: string) -> int {
@@ -476,12 +483,7 @@ save_level_file :: proc(
     calc_component_map_size :: proc(app: ^App, string_table: ^StringTable, component_map: map[EntityID]$T) -> int {
         size := 0
 
-        // Block tag and version
-        size += size_of(BlockType)
-        size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-
-        size += size_of(u32)        // Byte count
-        size += size_of(u32)        // Component count
+        size += BLOCK_HEADER_SIZE
         for _, comp in component_map {
             size += get_serialized_size(&app.renderer, string_table, comp)
         }
@@ -491,7 +493,7 @@ save_level_file :: proc(
     calc_level_file_size :: proc(
         app: ^App,
         string_table: ^StringTable
-    ) -> u32 {
+    ) -> int {
         final_size := 0
 
         // Magic string
@@ -502,10 +504,7 @@ save_level_file :: proc(
         final_size += size_of(u32)
 
         // Size of player spawn position
-        final_size += size_of(BlockType)
-        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-        final_size += size_of(u32)
-        final_size += size_of(u32)
+        final_size += BLOCK_HEADER_SIZE
         final_size += size_of(hlsl.float3)
 
         bgm_string: string
@@ -514,18 +513,12 @@ save_level_file :: proc(
         }
 
         // Size of bgm pascal string
-        final_size += size_of(BlockType)
-        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-        final_size += size_of(u32)
-        final_size += size_of(u32)
+        final_size += BLOCK_HEADER_SIZE
         final_size += size_of(u32)
         final_size += size_of(byte) * len(bgm_string)
 
         // Directional lights count + data
-        final_size += size_of(BlockType)
-        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-        final_size += size_of(u32)
-        final_size += size_of(u32)
+        final_size += BLOCK_HEADER_SIZE
         final_size += size_of(DirectionalLight) * int(app.renderer.directional_light_count)
 
         // Component data + counts
@@ -539,40 +532,35 @@ save_level_file :: proc(
         final_size += calc_component_map_size(app, string_table, app.game_state.static_models)
         final_size += calc_component_map_size(app, string_table, app.game_state.skinned_models)
         final_size += calc_component_map_size(app, string_table, app.game_state.debug_models)
+        final_size += calc_component_map_size(app, string_table, app.game_state.parents)
 
         // Special entities that don't need extra state
-        final_size += size_of(BlockType)
-        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-        final_size += size_of(u32)
-        final_size += size_of(u32)
+        final_size += BLOCK_HEADER_SIZE
         final_size += len(app.game_state.looping_animations) * size_of(EntityID)
-        final_size += size_of(BlockType)
-        final_size += size_of(BLOCK_TYPE_VERSIONS[.Transform])
-        final_size += size_of(u32)
-        final_size += size_of(u32)
+        final_size += BLOCK_HEADER_SIZE
         final_size += len(app.game_state.coins) * size_of(EntityID)
 
         // Don't need to compute string table size explicitly bc
         // string sizes are accounted for in get_serialized_size()
 
-        return u32(final_size)
+        return final_size
     }
 
-    write_thing_to_buffer :: proc(buffer: []byte, val: $T, head: ^u32) {
+    write_thing_to_buffer :: proc(buffer: []byte, val: $T, head: ^int) {
         v := val
         amount := size_of(T)
         mem.copy_non_overlapping(&buffer[head^], &v, amount)
-        head^ += u32(amount)
-    }
-
-    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^u32) {
-        amount := u32(len(st))
-        write_thing_to_buffer(buffer, amount, head)
-        mem.copy_non_overlapping(&buffer[head^], raw_data(st), int(amount))
         head^ += amount
     }
 
-    write_block_header :: proc(buffer: []byte, blocktype: BlockType, count: u32, bytes: u32, head: ^u32) {
+    write_string_to_buffer :: proc(buffer: []byte, st: string, head: ^int) {
+        amount := len(st)
+        write_thing_to_buffer(buffer, cast(u32)amount, head)
+        mem.copy_non_overlapping(&buffer[head^], raw_data(st), amount)
+        head^ += amount
+    }
+
+    write_block_header :: proc(buffer: []byte, blocktype: BlockType, count: u32, bytes: u32, head: ^int) {
         // Write block tag and version
         write_thing_to_buffer(buffer, blocktype, head)
         write_thing_to_buffer(buffer, BLOCK_TYPE_VERSIONS[blocktype], head)
@@ -582,8 +570,8 @@ save_level_file :: proc(
         write_thing_to_buffer(buffer, count, head)
     }
 
-    write_component_map :: proc(app: ^App, string_table: ^StringTable, buffer: []byte, blocktype: BlockType, components: map[EntityID]$T, head: ^u32) {
-        write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^u32) {
+    write_component_map :: proc(app: ^App, string_table: ^StringTable, buffer: []byte, blocktype: BlockType, components: map[EntityID]$T, head: ^int) {
+        write_component_string_to_table :: proc(buffer: []byte, string_table: ^StringTable, str: string, head: ^int) {
             table_entry := string_table_append(string_table, str)
             l := u32(len(table_entry.str))
             write_thing_to_buffer(buffer, table_entry.offset, head)
@@ -632,14 +620,14 @@ save_level_file :: proc(
         }
     }
 
-    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, blocktype: BlockType, head: ^u32) {
-        entity_count := u32(len(ids))
+    write_stateless_entities :: proc(buffer: []byte, ids: []EntityID, blocktype: BlockType, head: ^int) {
+        entity_count := len(ids)
         component_bytes := entity_count * size_of(EntityID)
         component_bytes -= size_of(BlockType)
         component_bytes -= size_of(BLOCK_TYPE_VERSIONS[.Transform])
         component_bytes -= size_of(u32)
         component_bytes -= size_of(u32)
-        write_block_header(buffer, blocktype, entity_count, component_bytes, head)
+        write_block_header(buffer, blocktype, cast(u32)entity_count, cast(u32)component_bytes, head)
 
         if entity_count == 0 {
             return
@@ -653,7 +641,7 @@ save_level_file :: proc(
     // Set up intermediate buffer for gathering file data
     string_table := string_table_init(64, temp_allocator)
     total_size := calc_level_file_size(app, &string_table)
-    write_head : u32 = 0
+    write_head := 0
     output_buffer := make([dynamic]byte, total_size, temp_allocator)
 
     // Write magic string
@@ -661,8 +649,8 @@ save_level_file :: proc(
 
     // Write global offset of string table
     {
-        global_offset := total_size - u32(string_table.total_len)
-        write_thing_to_buffer(output_buffer[:], global_offset, &write_head)
+        global_offset := total_size - string_table.total_len
+        write_thing_to_buffer(output_buffer[:], cast(u32)global_offset, &write_head)
     }
 
     // Write player spawn position
@@ -671,7 +659,7 @@ save_level_file :: proc(
 
     // Write bgm filename
     bgm_len := len(app.audio_system.music_files)
-    write_block_header(output_buffer[:], .BackgroundMusic, 1, cast(u32)bgm_len, &write_head)
+    write_block_header(output_buffer[:], .BackgroundMusic, 1, cast(u32)(bgm_len + size_of(u32)), &write_head)
     if bgm_len > int(app.game_state.bgm_id) {
         bgm := &app.audio_system.music_files[app.game_state.bgm_id]
         write_string_to_buffer(output_buffer[:], bgm.name, &write_head)
@@ -701,6 +689,7 @@ save_level_file :: proc(
     write_component_map(app, &string_table, output_buffer[:], .StaticModelInstance, app.game_state.static_models, &write_head)
     write_component_map(app, &string_table, output_buffer[:], .SkinnedModelInstance, app.game_state.skinned_models, &write_head)
     write_component_map(app, &string_table, output_buffer[:], .DebugModelInstance, app.game_state.debug_models, &write_head)
+    write_component_map(app, &string_table, output_buffer[:], .ParentEntity, app.game_state.parents, &write_head)
 
     // Write the looping animations and coins lists
     write_stateless_entities(output_buffer[:], app.game_state.looping_animations[:], .LoopingAnimations, &write_head)
