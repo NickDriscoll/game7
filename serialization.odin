@@ -198,29 +198,6 @@ load_level_file :: proc(
     // Read string table global offset
     string_table_offset := read_thing_from_buffer(lvl_data, u32, &read_head)
 
-    // Read player spawn position
-    // app.game_state.level_start = read_thing_from_buffer(lvl_data, hlsl.float3, &read_head)
-
-    // // Read bgm name
-    // {
-    //     bgm_name := read_string_from_buffer(lvl_data, &read_head)
-    //     fmt.sbprintf(&path_builder, "data/audio/%v.ogg", bgm_name)
-    //     path := strings.to_cstring(&path_builder)
-    //     app.game_state.bgm_id, _ = open_music_file(&app.audio_system, path)
-    //     strings.builder_reset(&path_builder)
-    // }
-
-    // count := read_thing_from_buffer(lvl_data, u32, &read_head)
-    // app.renderer.directional_light_count = count
-    // for i in 0..<count {
-    //     light := read_thing_from_buffer(lvl_data, DirectionalLight, &read_head)
-    //     app.renderer.directional_lights[i] = DirectionalLight {
-    //         yaw = light.yaw,
-    //         pitch = light.pitch,
-    //         color = light.color
-    //     }
-    // }
-
     for read_head < string_table_offset {
         // Read block tag and version
         failed := false
@@ -313,22 +290,6 @@ load_level_file :: proc(
             }
         }
     }
-
-    // Read components in order
-    // read_component_map(app, lvl_data, &app.game_state.transforms, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.transform_deltas, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.hovering_enemies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.thrown_enemy_ais, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.spherical_bodies, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.triangle_meshes, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.static_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.skinned_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    // read_component_map(app, lvl_data, &app.game_state.debug_models, &read_head, string_table_offset, &largest_saved_entity_id, scene_allocator)
-    
-    // // Read stateless entities
-    // app.game_state.looping_animations = read_stateless_entities(lvl_data, &read_head)
-    // app.game_state.coins = read_stateless_entities(lvl_data, &read_head)
 
     // Should have read up to the beginning of the string table
     // which marks the end of the file
