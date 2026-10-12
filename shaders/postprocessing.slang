@@ -308,8 +308,11 @@ float4 fragment_main(VertexOutput input) {
     view_ray.direction = normalize(frag_world_pos - view_ray.origin);
     // target_sample.xyz += integrate_atmospheric_scattering(view_ray, frag_world_pos, sample_pos, u_data);
     float3 fogged_color = simple_scattering(u_data, view_ray, frag_world_pos, target_sample.rgb, sample_pos);
-    
-    float4 final_color = float4(fogged_color, target_sample.a);
+
+    float4 final_color = target_sample;
+    if ((u_data.flags & UniformFlag.Unlit) == 0) {
+        final_color = float4(fogged_color, target_sample.a);
+    }
     if ((u_data.flags & UniformFlag.CRTShader) != 0) {
         float3 final = crt_filer(textures[color_target], samplers[sampler_idx], sample_pos, u_data.clip_from_screen);
         final_color = float4(final.x, final.y, final.z, target_sample.a);
